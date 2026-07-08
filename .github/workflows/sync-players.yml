@@ -1,0 +1,22 @@
+name: sync-players
+
+# Refreshes player attribute data from external sources (REQ-501/502/503).
+# TIER 1 (MVP-SCOPE.md): this syncs from API-Football, which Tier 0
+# doesn't use at all. Schedule deliberately disabled so it doesn't fail
+# daily from day one — re-enable the cron when adding API-Football (T-101).
+# and the backend exposes a triggerable sync endpoint or this becomes its
+# own container job.
+
+on:
+  # schedule:
+  #   - cron: "0 3 * * *" # re-enable at Tier 1 (T-101)
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sync
+        run: |
+          curl -f -X POST "https://${{ secrets.PROD_BACKEND_HOSTNAME }}/internal/sync-players" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}"

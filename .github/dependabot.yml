@@ -1,0 +1,32 @@
+# Keeps dependencies (and the frameworks pinned in implementation-document.md)
+# from silently going stale. Versions verified as "current stable" in a doc
+# are a snapshot — this is the mechanism that keeps reality matching that
+# snapshot without someone re-checking manually every few months.
+
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"

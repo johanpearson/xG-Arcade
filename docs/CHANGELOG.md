@@ -1,0 +1,587 @@
+# Changelog
+
+This log tracks changes that affect the requirements, architecture, or
+implementation documents — not every commit. If a change updates one of the
+docs under `docs/`, add an entry here in the same iteration.
+
+**Archiving policy:** entries older than 6 months move to
+`docs/CHANGELOG-archive.md` (not yet created — create it when the first
+archiving pass happens). Keep this file scannable rather than letting it
+grow indefinitely.
+
+Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
+
+## Unreleased
+
+- 2026-07-08 — MVP-SCOPE.md, docs/implementation-document.md,
+  docs/backlog.md (S-006) — Swapped England (Q21) for United Kingdom
+  (Q145) in Tier 0's country list, per direct feedback: since UK is a
+  normal sovereign state, this makes every country query in Tier 0
+  uniformly `P27`-based with zero special cases, removing the P1532
+  exception entirely from Tier 0's scope rather than just documenting
+  around it. The P1532 knowledge wasn't discarded — it's relocated to a
+  new, explicit Tier 1 backlog item ("national teams as distinct
+  footballing entities": England/Scotland/Wales/Northern Ireland via
+  `P1532`, genuinely a different concept from citizenship, not a
+  simplification to collapse away later). Also corrected a mistake in
+  this same conversation's prior explanation (not in any file, caught
+  before it was written down): an illustrative example described a
+  "France×England" grid, which REQ-107 explicitly forbids (no
+  Country×Country pairings) — the example was simply wrong, not a design issue.
+
+- 2026-07-08 — MVP-SCOPE.md (QID tables filled in), docs/implementation-document.md
+  (§6a England/P1532 exception), docs/backlog.md (S-005/S-006 updated) —
+  Looked up and verified all 35 Wikidata QIDs (15 clubs, 20 countries)
+  directly against live Wikidata pages, closing the last open Tier 0
+  precondition — this is now pure data entry, no research left. Verification
+  surfaced a real, non-obvious correctness issue: England (and by extension
+  Scotland/Wales/Northern Ireland, if ever added) can't use the standard
+  citizenship property (P27) the way every other country does, since none
+  of the UK's home nations are sovereign states — English players' P27
+  citizenship is uniformly "United Kingdom," never "England" specifically.
+  A naive implementation querying P27 for every country would silently
+  return zero results for every England cell. Documented the fix (use
+  `P1532`, "country for sport" — Wikidata's own property for exactly this
+  distinction) in the implementation doc's semantics note and as an
+  explicit backlog test case in S-006, rather than leaving it to be
+  discovered as a confusing bug during actual development.
+
+- 2026-07-08 — MVP-SCOPE.md (concrete club/country list added) — The Tier 0
+  precondition checklist said "~15 clubs' and ~15-20 countries'" without
+  ever naming which ones, leaving the actual lookup task undoable.
+  Recorded the specific decided list (15 clubs led by Real Madrid/Barcelona/
+  Manchester United/etc., 20 countries led by Brazil/Argentina/France/etc.)
+  so it's not lost to chat history. QIDs themselves still pending manual
+  lookup — that remains the one open precondition.
+
+- 2026-07-07 — docs/requirements-document.md (REQ-109 extended),
+  docs/implementation-document.md (§6a senior-club semantics note),
+  docs/backlog.md (S-006 acceptance), docs/review-2026-07-07-design.md
+  (corrected a stale judgment) — Recorded the "senior career only"
+  decision for the Club category (youth academy appearances don't count).
+  Corrected the earlier design review, which had judged Wikidata's P54
+  including youth teams as "harmless" before this decision existed.
+  Documented honestly, not as a solved problem: querying the senior
+  club's specific QID excludes youth appearances when that club's youth
+  setup has its own distinct Wikidata item, but a thin/poorly-maintained
+  page could record a youth-only spell directly against the senior QID
+  with no distinction — no secondary filter is planned to catch this in
+  Tier 0 (an inconsistently-populated "appearances" qualifier isn't
+  reliable enough to build logic around); mitigated by the existing
+  manual override (S-012), not a new mechanism. Also made explicit (it
+  was previously only implied by a flow diagram) that every live lookup a
+  round's cells need happens during generation, strictly before that
+  Round is created and visible to players — this is what makes the
+  local-DB-only guess-checking strategy defensible.
+
+- 2026-07-07 — docs/requirements-document.md (REQ-806, new),
+  docs/backlog.md (S-008/S-011 wired to REQ-806) — Added the minimal
+  round-closure test control Tier 0's E2E testing was silently missing:
+  S-011's acceptance criteria said "round closes" with no defined
+  mechanism to make that happen without waiting for real time. REQ-806
+  adds a narrow, environment-gated `POST /internal/test-data/force-close-round/{id}`
+  endpoint (absent outside `Production`, same discipline as REQ-801) —
+  deliberately much smaller than REQ-801-804's full dev-environment
+  vision, scoped to the local/ephemeral stack `ci.yml` already runs E2E
+  against. Test users/guesses still go through the real signup/guess
+  endpoints — no separate seeding API needed.
+
+- 2026-07-07 — MVP-SCOPE.md, TODO.md, SETUP.md, infra/README.md,
+  docs/backlog.md, .github/workflows/deploy.yml (rewritten),
+  .github/workflows/generate-round.yml, .github/workflows/backup-database.yml,
+  docs/decisions/0006-environment-and-test-data-strategy.md (second
+  addendum) — **Renamed Tier 0's single environment from "prod" to
+  "dev."** Reasoning: Tier 0 has no backups, no email confirmation, no
+  legal docs — that's what a dev environment is, not a production one;
+  calling it "prod" was reusing leftover naming from the original
+  two-environment design, not a deliberate choice. Practical benefit: the
+  "dev" naming already existed from the environment-split work
+  (`xg-arcade-dev-rg`, `DEV_*` secrets, `main.parameters.dev.json`) — Tier
+  0 now just uses it directly, no new naming needed. **Tier 1 no longer
+  "adds a dev environment" — it creates the first real "prod"**, at
+  exactly the point the backup/alerting/legal-docs bright lines get
+  crossed, which is a cleaner story than upgrading an existing "prod"
+  in place. `deploy.yml` rewritten to target dev; `generate-round.yml`
+  repointed from `PROD_BACKEND_HOSTNAME` to `DEV_BACKEND_HOSTNAME`;
+  `backup-database.yml` left targeting `PROD_*` with a comment clarifying
+  it's a Tier 1 workflow for the prod environment that will exist by
+  then. Every setup doc (`SETUP.md` especially — its dev/prod secrets
+  tables and manual-deploy commands were fully swapped) and the backlog
+  updated to match.
+
+- 2026-07-07 — .claude/commands/test.md (rewritten Tier 0-correct, also
+  fixing a "devuction" text corruption left by an earlier automated
+  rename), .claude/README.md (testing section), .github/workflows/sync-players.yml
+  and generate-round.yml (schedules disabled with re-enable points: T-101
+  and S-008 respectively — both would otherwise have failed on a timer
+  from day one), docs/design-document.md (MVP banner added, matching the
+  other core docs), docs/backlog.md (S-008 now includes re-enabling the
+  cron) — Supporting-files review pass covering READMEs, agents, commands,
+  workflows, and the design doc. Agents and remaining files verified clean
+  of stale references; the seven agent definitions needed no changes.
+
+- 2026-07-07 — docs/review-2026-07-07-design.md (new), .github/workflows/ci.yml
+  (rewritten Tier 0-shaped), docs/requirements-document.md (REQ-204 formula
+  fixed, REQ-301 pre-generation), docs/implementation-document.md
+  (Player.WikidataQid, §6a query rules, admin authorization), docs/backlog.md
+  (S-002/006/008/012/013), SETUP.md, infra/README.md, CLAUDE.md — Full
+  design/plan review (distinct from the earlier file-quality review) found
+  and fixed eight real issues, the biggest being that `ci.yml` was
+  structurally unrunnable inside Tier 0's own rules (E2E depended on a dev
+  environment and a test-data API that are both Tier 1) — rewritten so E2E
+  runs against a local stack in CI. Also fixed: REQ-204's uniqueness
+  denominator counted incorrect guesses (would have distorted all scoring);
+  `Player` lacked a dedup identity across intersection queries (now
+  `WikidataQid`, upsert-only); the intersection query's completeness is now
+  an explicit no-LIMIT rule (it's what makes cache-only guess checking fair
+  without REQ-211); `skos:altLabel` aliases fetched free in the same query;
+  rounds now generate one ahead so a silent generation failure has a full
+  round of headroom (no alerting exists in Tier 0); admin authorization
+  defined (`Admin__UserIds` env var); Country formally defined as
+  citizenship (P27). Review doc records what was judged and deliberately
+  left alone, so it isn't relitigated.
+
+- 2026-07-07 — docs/backlog.md (new), TODO.md, README.md, CLAUDE.md,
+  MVP-SCOPE.md — Full-set sync review after the Wikidata pivot found and
+  fixed three stale spots still implying API-Football was an MVP
+  prerequisite (TODO.md's account checklist, README.md's and CLAUDE.md's
+  SETUP.md table rows); the core docs' full-system content was verified as
+  correctly covered by their MVP-scope banners, with no contradictions
+  found. Added `docs/backlog.md`: 13 ordered, session-sized Tier 0 stories
+  (S-001 repo/pipeline skeleton → S-013 first-release QA pass) across four
+  epics, each with acceptance criteria tied to REQ IDs for test naming,
+  explicit dependencies, and the rule that every story leaves the system
+  deployable and testable; Tier 1 items listed unordered at the end, each
+  gated on its `MVP-SCOPE.md` trigger. Wired the backlog into the doc maps
+  and getting-started flows so an agent session starts by picking the next
+  unfinished story rather than re-deriving an order.
+
+- 2026-07-07 — MVP-SCOPE.md (Tier 0 data source reversed), TODO.md,
+  SETUP.md, CLAUDE.md — **Reversed the Tier 0 data-source decision** based
+  on explicit direction to prioritize full historical correctness over
+  club-count breadth. Tier 0 now uses **Wikidata only** (not API-Football)
+  from the start, with a smaller, hand-curated list (~15 clubs, ~15-20
+  countries) — each entered with its Wikidata QID looked up by hand, no
+  automated resolution needed. This works cleanly because Wikidata's `P54`
+  ("member of sports team") property is multi-valued — a simple query
+  checking `P54 = Arsenal` already covers a player's entire career, not
+  just a current team, so "ever played for" needs no special handling.
+  API-Football moves to Tier 1, as a fallback source for when the club
+  list grows beyond what's worth manually looking up, or for clubs/players
+  with poor Wikidata coverage. This also means Tier 0 needs no
+  `ApiFootballTeamId` resolution and no `ExternalApiUsage` budget tracking
+  at all (Wikidata has no small daily cap to manage) — both genuinely
+  become Tier 1 concerns now. Corrected the same backwards reference in
+  three places (`TODO.md`, `CLAUDE.md`'s Getting Started section) that had
+  said to skip Wikidata and build API-Football first.
+
+- 2026-07-07 — MVP-SCOPE.md (Tier 0 fetch mechanics corrected, Wikidata
+  trigger revised) — Corrected a real gap: Tier 0's player-fetching
+  mechanics implicitly assumed "current squad" when the actual requirement
+  is "ever played for this club," which current-season fetching can't
+  satisfy. Clarified that the player database itself was never the real
+  constraint (even a club's full ~140-year history is a genuinely small,
+  ordinary-sized table — tens of thousands of rows, not "massive"); the
+  real constraint is API-Football's per-season endpoint making full
+  historical backfill expensive in API calls specifically. Tier 0 now
+  explicitly scopes to the last ~10-15 seasons per club (a documented,
+  honest limitation, not a hidden bug) at a one-time cost of ~300-450
+  calls total across 30 clubs. Reprioritized Wikidata from a distant,
+  capacity-driven Tier 1 item to a likely *early* one, since a single
+  SPARQL query answers "entire career history" in one call regardless of
+  how far back it goes — the natural fix for the recent-era limitation,
+  not just a rate-limit safety valve.
+
+- 2026-07-07 — MVP-SCOPE.md (corrected + extended), docs/implementation-document.md
+  (cross-reference added) — Fixed two real clarity gaps found by re-reading
+  `MVP-SCOPE.md` critically: (1) it had wrongly claimed Tier 0 needs no
+  `ApiFootballTeamId` at all — corrected, since API-Football's team-centric
+  endpoints genuinely require one; what Tier 0 actually skips is the
+  Wikidata QID and manual admin resolution, not ID resolution entirely.
+  Added the concrete mechanics: fetch a club's whole squad once, cache
+  every player's real nationality (not just the one being searched for),
+  so one API call per club answers many country combinations at once —
+  at most ~30-60 calls total for the whole Tier 0 club list, ever.
+  (2) Added a self-contained "Preconditions to actually start" checklist
+  at the top of `MVP-SCOPE.md` so it doesn't require cross-referencing
+  `SETUP.md`/`infra/README.md` to know what's actually needed, and
+  replaced vague Tier 1 triggers ("add if it becomes a problem") with
+  concrete, observable ones (specific request-count thresholds, "someone
+  actually asks," bright-line rules for backups/legal docs before real users).
+
+- 2026-07-07 — MVP-SCOPE.md (new), CLAUDE.md (Getting started rewritten,
+  doc map + conventions updated), TODO.md (restructured around MVP-first),
+  SETUP.md (Tier 1 steps marked, skippable for MVP), README.md,
+  docs/requirements-document.md, docs/architecture-document.md,
+  docs/implementation-document.md (AI-agent banners updated) — Introduced
+  explicit build-order tiering after recognizing the design work had grown
+  well ahead of what a first playable version actually needs. Nothing was
+  deleted — `MVP-SCOPE.md` tiers the existing REQ/ADR/component set into
+  Tier 0 (build now: single environment, Country×Club only, API-Football
+  only, no autocomplete, no email confirmation, global leaderboard only),
+  Tier 1 (add only once real testing shows a specific need: Wikidata,
+  guess-time live verification, autocomplete, disambiguation UI, Trophy
+  category, dev/prod split, backups, email confirmation, custom leagues),
+  and Tier 2 (already-deferred Phase 2 items, unchanged). `CLAUDE.md`'s
+  "Getting started" section and document map now point to `MVP-SCOPE.md`
+  first, with an explicit convention that a REQ/ADR existing and looking
+  "ready" is not permission to build it if it's Tier 1/2. `TODO.md` and
+  `SETUP.md` were restructured so the actual near-term setup burden is
+  visibly much smaller (one Supabase project, no Resend, no dev
+  environment) rather than looking like all prior setup work is required
+  up front.
+
+- 2026-07-07 — docs/decisions/0012-category-value-reference-tables.md
+  (new), docs/requirements-document.md (REQ-109, new), docs/architecture-document.md,
+  docs/implementation-document.md (`CountryDefinition`, `ClubDefinition`
+  entities, `TrophyDefinition.WikidataQid` added, grid generation
+  pseudocode filled in, `live_lookup()` updated) — Closed a real gap:
+  grid generation's pseudocode always said "pick random categories"
+  without ever specifying where the pool of actual country/club values
+  came from, and Wikidata queries need resolved entity IDs (QIDs) that
+  plain strings like "France" or "Arsenal" don't provide on their own.
+  Fixed via ADR-0012: `CountryDefinition`/`ClubDefinition`/`TrophyDefinition`
+  are now the explicit source of truth grid generation picks from, each
+  caching its external IDs (Wikidata QID, and for clubs an API-Football
+  team ID) once resolved rather than re-resolving per query. Countries are
+  bulk-seeded once (a small, stable ~200-row exception to ADR-0001, same
+  class as `PlayerNameIndex`'s exception); clubs are resolved incrementally
+  when an admin adds one; trophies are resolved manually given the tiny
+  table size. A still-unresolved QID is an explicit valid state, not an
+  error — the live-lookup waterfall (ADR-0011) just skips Wikidata for
+  that value and falls back to API-Football, which doesn't need a QID at all.
+
+- 2026-07-07 — docs/implementation-document.md (§6a, new) — Added a
+  concrete reference for the actual request/response shapes of each
+  external API `DataSync.Clients` (COMP-07) integrates with, since they
+  aren't uniform: API-Football and Resend are conventional REST+JSON with
+  a single auth header; Wikidata is a genuinely different paradigm (SPARQL
+  graph queries, not resource fetching, with its own property/entity ID
+  vocabulary and result format). Documented concretely now rather than
+  discovered as unplanned complexity mid-implementation. Also noted
+  Supabase is accessed as a plain Postgres connection via EF Core/Npgsql
+  for normal data access, not through its REST/GraphQL layer.
+
+- 2026-07-07 — docs/requirements-document.md, docs/implementation-document.md
+  (`ClubCrest` comment), docs/decisions/0008-data-provider-compliance.md,
+  infra/README.md — Confirmed and clarified the Phase 2 crest-sourcing
+  plan: yes, API-Football, and it's genuinely low-risk on two counts —
+  their own docs confirm logo/crest calls don't count against the 100/day
+  quota at all, and the universe of distinct clubs ever needed as a
+  category value is small and largely static compared to individual
+  player lookups. Also fixed a small recurring error found while updating
+  this: three places incorrectly attributed `ClubCrest`'s design to
+  ADR-0007 (which is actually about the unrelated player name index) —
+  corrected to reference ADR-0008 and implementation-document.md instead,
+  where `ClubCrest` is actually defined.
+
+- 2026-07-07 — docs/decisions/0011-wikidata-first-lookup-waterfall.md (new),
+  docs/decisions/0010-guess-time-live-verification.md (status updated),
+  docs/requirements-document.md (REQ-103, REQ-211 revised),
+  docs/architecture-document.md, docs/implementation-document.md
+  (`ExternalApiUsage` corrected, shared `live_lookup()` waterfall function
+  added), infra/README.md, CLAUDE.md — **Corrected a real error from
+  earlier the same day**: ADR-0010's guess-time live-lookup design was
+  built around API-Football alone, as if it were the only live-lookup
+  source, when ADR-0001 had already established Wikidata as a second
+  source for exactly this purpose. Verified Wikidata's actual public
+  SPARQL endpoint limits directly — it throttles by query time (60s/minute
+  per IP), not a small daily request count, making it far better suited as
+  the *primary* live-lookup source than API-Football's 100/day cap. Fixed
+  via ADR-0011: every live lookup now tries Wikidata first (timeout-bounded),
+  falling back to API-Football only when Wikidata can't resolve it. This
+  makes the 100/day cap a rarely-touched fallback safety net rather than
+  the practical bottleneck on either grid generation or guess-time
+  verification. Followed the same discipline as every other correction in
+  this project — didn't silently rewrite the flawed ADR, superseded it
+  with a new one that explains what was wrong and why.
+
+- 2026-07-07 — docs/decisions/0010-guess-time-live-verification.md (new),
+  docs/requirements-document.md (REQ-211, new), docs/architecture-document.md,
+  docs/implementation-document.md (`ExternalApiUsage` entity, algorithm
+  extended), infra/README.md, CLAUDE.md — Closed a real correctness gap:
+  `PlayerAttribute` (the narrow validation cache) was never guaranteed to
+  contain every valid answer for a cell, only the sample grid generation
+  happened to need — meaning a genuinely correct guess for a player outside
+  that sample would have been wrongly marked incorrect. Fixed by adding a
+  guess-time live-lookup path (REQ-211), narrowly scoped: only triggers
+  when the guess matches a real `PlayerNameIndex` candidate with no
+  existing attribute data at all (never for names matching nothing),
+  persists immediately rather than batching (consistent with ADR-0001's
+  existing pattern, and avoids repeatedly re-triggering the same gap).
+  Because this shares API-Football's 100/day cap with grid generation's
+  own live-lookup fallback (REQ-103), added a tracked shared daily budget
+  (`ExternalApiUsage`) with guess-time lookups reserved to 80/day, leaving
+  20 for scheduled grid generation so a busy guessing day can't starve
+  round creation — ADR-0010.
+
+- 2026-07-07 — docs/decisions/0009-bidirectional-game-data-sync.md (new),
+  docs/decisions/0006-environment-and-test-data-strategy.md (status
+  updated), infra/scripts/lib/game-data-tables.sh (new, shared allowlist),
+  infra/scripts/sync-prod-to-dev.sh (rewritten to source shared allowlist),
+  infra/scripts/promote-dev-to-prod.sh (new), .github/workflows/sync-prod-to-dev.yml
+  (renamed from sync-environments.yml), .github/workflows/promote-dev-to-prod.yml
+  (new), docs/requirements-document.md (REQ-804 revised, REQ-805 new),
+  docs/architecture-document.md, docs/implementation-document.md,
+  infra/README.md, SETUP.md, CLAUDE.md — Sync is now bidirectional
+  (ADR-0009, superseding ADR-0006's one-way-only clause) but tightened
+  rather than loosened: only football/game reference data (players, clubs,
+  trophies, grid templates) is ever eligible to sync, in either direction —
+  results (`Guess`, `Round`, `GridInstance`, `GridCell`) and customer data
+  (`User`, `NotificationPreference`, `League`, `LeagueMembership`) are a
+  categorical exclusion, not an incidental allowlist gap. Both directions
+  now share one allowlist file so they can't drift apart.
+  `promote-dev-to-prod.sh` is the new, recommended day-to-day direction
+  (curate in dev, ship to prod); `sync-prod-to-dev.sh` remains as the
+  fallback for when prod's game data changed directly. The prod-writing
+  direction requires a longer confirmation phrase as deliberate extra
+  friction. Also expanded the allowlist to include `PlayerNameIndex`,
+  `PlayerAlias`, `TrophyDefinition`, and `ClubCrest` (all game-reference
+  data per ADR-0007/REQ-108, previously missing from the list), and fixed
+  a documentation error found while updating this — two docs had
+  incorrectly implied `GridInstance` was part of the synced allowlist; it
+  never was, and both were corrected.
+
+- 2026-07-07 — infra/bicep/main.parameters.dev.json (renamed from
+  .nonprod.json), infra/scripts/sync-prod-to-dev.sh (renamed),
+  .github/workflows/ci.yml (new `deploy-dev` job), .github/workflows/deploy.yml,
+  .github/workflows/sync-environments.yml, .github/workflows/sync-players.yml,
+  .github/workflows/generate-round.yml, infra/README.md, SETUP.md, CLAUDE.md,
+  .claude/README.md, .claude/commands/test.md, docs/architecture-document.md,
+  docs/implementation-document.md, docs/requirements-document.md,
+  docs/decisions/0006-environment-and-test-data-strategy.md (addendum) —
+  Two real changes, done together since they touched the same files:
+  (1) renamed the "non-prod"/"nonprod" environment to **dev** everywhere —
+  file names, Bicep `environmentTag` values, resource names
+  (`xg-arcade-api-dev`, etc.), GitHub secrets (`DEV_*`), and doc prose,
+  while leaving CHANGELOG/review history untouched since those describe
+  what was actually true at the time; (2) built real two-environment CI/CD
+  automation — `ci.yml` gained a `deploy-dev` job that builds/pushes a
+  dev-tagged image and redeploys dev via Bicep on every PR/push, with E2E
+  tests now depending on it completing, closing the gap where dev could
+  silently go stale relative to the code being tested. Also fixed the
+  resource-group naming asymmetry found in the prior conversation
+  (`xg-arcade-rg` → `xg-arcade-prod-rg`, matching `xg-arcade-dev-rg`'s
+  pattern) and fully symmetrized secret names (`PROD_*`/`DEV_*` for
+  everything environment-specific, shared secrets unprefixed) — this
+  also caught and fixed a redundant pair (`DATABASE_CONNECTION_STRING`
+  and `PROD_DATABASE_CONNECTION_STRING` existed as separate secrets for
+  the same value; now just `PROD_DATABASE_CONNECTION_STRING`) and a
+  missing symmetric secret (`BACKEND_HOSTNAME` had no `DEV_` counterpart
+  until now). Also fixed two small leftover issues found while editing:
+  the sync script's usage comment still referenced its old filename, and
+  its temp-file prefix still said `platform-sync` from before the xG
+  Arcade rename.
+
+- 2026-07-07 — SETUP.md (§9 expanded) — Added the actual Claude Code +
+  VS Code + GitHub local setup walkthrough (extension install, CLI install,
+  gh CLI auth, cloning and opening this repo), replacing the placeholder
+  "hand off to Claude Code" line. Noted Claude Code on the web as the
+  phone-only alternative to this local path.
+
+- 2026-07-07 — docs/decisions/correspondence/api-football-confirmation-email.md
+  (new), SETUP.md — Drafted the ADR-0008 confirmation email to API-Football
+  and linked it from SETUP.md's step 4. Also confirmed directly against
+  Resend's own docs that no domain is required to send real emails (no
+  sandbox/recipient restriction, unlike most providers — only the sender
+  address is unbranded until a domain is verified) and noted this in
+  SETUP.md, since Azure's default subdomains mean nothing in the setup
+  path actually requires owning a domain yet.
+
+- 2026-07-07 — SETUP.md (new), infra/README.md (secrets table corrected),
+  README.md, TODO.md, CLAUDE.md — Wrote a step-by-step external-accounts
+  setup guide (GitHub → Supabase → Resend → API-Football → Azure →
+  secrets → first deploy, in dependency order). Writing it surfaced real
+  drift in `infra/README.md`'s secrets table: it listed a nonexistent
+  `AZURE_CREDENTIALS` secret when `deploy.yml` actually uses OIDC via
+  `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/`AZURE_SUBSCRIPTION_ID`, and was
+  missing `INTERNAL_JOB_TOKEN` and `BACKEND_HOSTNAME` entirely despite both
+  being referenced by `sync-players.yml`/`generate-round.yml`. Table
+  corrected to match what the workflows actually reference, verified
+  directly against every workflow file rather than assumed.
+
+- 2026-07-07 — infra/bicep/modules/*.bicep, requirements-document.md
+  (REQ-204/205/206 reordered), docs/legal/privacy-policy-draft.md,
+  infra/scripts/sync-prod-to-nonprod.sh, .github/workflows/sync-environments.yml,
+  docs/decisions/0004-hosting-and-iac.md, docs/CHANGELOG.md,
+  mockups/design-mockups.html, README.md — Acted on `docs/review-2026-07-07.md`'s
+  concrete findings: (1) bumped all three Bicep modules' API versions,
+  verified against Microsoft's current documentation (containerApps/
+  managedEnvironments 2024-03-01→2026-01-01, Log Analytics workspaces
+  2023-09-01→2025-07-01, Static Web Apps 2023-12-01→2025-03-01) — these had
+  never been deployed, so the staleness was never caught; (2) reordered
+  REQ-204/205/206 to appear before REQ-207-210 in the document, matching
+  their numeric order (moved text only, no IDs changed); (3) added a
+  minimum-age statement to the privacy policy draft, matching the ToS
+  draft; (4) added a `--dry-run` mode to the prod→non-prod sync script and
+  a matching workflow input; (5) added an archiving policy note to this
+  changelog and a stack-version pointer to README.md. One review finding
+  turned out to be inaccurate on closer inspection during the fix pass
+  (the "backup procedure duplication" — it was actually a correct
+  reference, not a restatement) and has been corrected in the review doc
+  rather than "fixed" as if it were real.
+
+- 2026-07-07 — .claude/agents/requirements-writer.md (new),
+  .claude/agents/code-reviewer.md (new), docs/coding-guidelines.md (new),
+  NOTES.md (new), CLAUDE.md, .claude/README.md, README.md — Evaluated five
+  proposed additions and added three: `requirements-writer` (drafts/reviews
+  REQ entries in the established format) and `code-reviewer` (general
+  code-quality/refactor review against a new `docs/coding-guidelines.md`,
+  distinct from `architecture-reviewer`'s structural-boundary-only focus).
+  Declined a dedicated git/PR agent as unnecessary — Claude Code's native
+  git/PR handling covers this; added a "Git and PR conventions" section to
+  CLAUDE.md instead (commit message format referencing REQ/ADR IDs, branch
+  naming, PR description requirements). Added `NOTES.md` as a lightweight
+  running-notes file for gotchas/context that don't warrant a formal ADR —
+  distinct from `CLAUDE.md` (which already serves as Claude Code's primary
+  persistent memory) rather than a redundant second "memory" file.
+
+- 2026-07-07 — README.md (new), TODO.md (new), .claude/README.md (new),
+  .claude/agents/game-scaffolder.md (new), .claude/agents/ui-implementer.md
+  (new), .claude/commands/new-game.md (new), .claude/commands/test.md (new),
+  CLAUDE.md — Filled three gaps: (1) no human-facing guide existed for
+  actually using the agents/commands — added `.claude/README.md` with
+  concrete development/testing/new-game/design workflows; (2) no
+  consolidated action-item checklist existed — action items were scattered
+  across ADRs and infra docs, now gathered into `TODO.md`; (3) no agent
+  existed for the two workflows explicitly asked about — added
+  `game-scaffolder` (new game modules, enforcing the ADR-0002/0003
+  boundaries) and `ui-implementer` (frontend work, enforcing the
+  design-document.md token system). Added a root `README.md` as the
+  human entry point to the repo, which didn't exist before (only
+  `CLAUDE.md`, which is agent-facing).
+
+- 2026-07-06 — requirements-document.md (§7 resolved), docs/legal/terms-of-service-draft.md —
+  Resolved the last two open questions: minimum age is 16, enforced via a
+  self-declared checkbox at signup (REQ-701) with no independent
+  verification; governing law is Sweden, operated as a personal project
+  rather than under SyVe or a separate entity. No open questions remain.
+
+- 2026-07-05 — requirements-document.md (REQ-201/202/203/210 rewritten,
+  §6 crest decision revised), architecture-document.md, implementation-document.md,
+  design-document.md, mockups/design-mockups.html — Two design tightenings:
+  (1) club crests deferred entirely to Phase 2 — v1 ships with the
+  placeholder initial-badges as the actual design, not a stand-in; the
+  `ClubCrest` caching approach stays designed but unbuilt, same pattern as
+  the notifications deferral; (2) replaced the 10-attempt brute-force cap
+  with a much tighter rule: max 2 guesses per cell, and a correct answer
+  locks the cell immediately (even on attempt 1) rather than waiting for
+  round close. This required making explicit that correctness is revealed
+  to the player immediately on submission (REQ-203), not withheld until
+  round close — the design doc now specifies four distinct cell states
+  instead of two (correct-live, incorrect-with-retry, incorrect-exhausted,
+  final), and disambiguation resolution no longer consumes an extra attempt.
+- 2026-07-05 — docs/decisions/0008 (new), requirements-document.md (REQ-210,
+  REQ-710, REQ-711, REQ-901, REQ-902, §7 updated), architecture-document.md,
+  implementation-document.md, infra/README.md, .github/workflows/backup-database.yml
+  (new), docs/legal/privacy-policy-draft.md (new), docs/legal/terms-of-service-draft.md
+  (new), CLAUDE.md — Added the four gaps flagged in review: (1) verified
+  API-Football's actual terms directly — fantasy-game use is explicitly
+  named as intended, crest caching is their own recommendation, one clause
+  is ambiguous enough to warrant a pre-launch confirmation email (ADR-0008);
+  (2) drafted a privacy policy and terms of service grounded in the
+  system's real data flows, clearly marked as unreviewed drafts, which
+  surfaced two genuine open questions (minimum age, governing law/entity)
+  now tracked in §7 rather than guessed at; also added REQ-710 (account
+  deletion, anonymizing rather than hard-deleting `Guess` rows to preserve
+  other players' historical scores) and REQ-711 (data export); (3) added
+  REQ-210: a per-cell guess-attempt limit (default 10, later tightened to 2
+  — see the entry above) to prevent brute-forcing a cell's answer via the
+  immediate correctness feedback in REQ-203, via a new `Guess.AttemptCount`
+  field; (4) confirmed directly against Supabase's docs that the free tier
+  has zero automated backups — added a daily `backup-database.yml`
+  workflow with a documented restore procedure (REQ-901), and REQ-902 for
+  scheduled-job failure alerting via GitHub's built-in notifications.
+- 2026-07-05 — requirements-document.md (REQ-108 new, REQ-706 resolved,
+  §5/§6/§7 reorganized), implementation-document.md (TrophyDefinition,
+  ClubCrest entities), design-document.md, infra/README.md — Resolved the
+  three remaining open questions: (1) round-result notifications default
+  opted-in with easy unsubscribe, with a compliance note distinguishing
+  this from marketing consent under GDPR; (2) Trophy added as a v1 category
+  type alongside Country/Club (REQ-108), Position/Era explicitly deferred
+  rather than left ambiguous; (3) club crest imagery sourced from
+  API-Football (verified free tier: 100 req/day, fits the platform's
+  cache-once model per ADR-0001 since each crest is fetched once and never
+  re-polled). No open questions remain as of this entry.
+- 2026-07-05 — requirements-document.md (REQ-107, REQ-207–209, §5/§6
+  reorganized), architecture-document.md, implementation-document.md,
+  design-document.md, .github/workflows/ci.yml, .github/dependabot.yml
+  (new) — Fixed two gameplay gaps: (1) autocomplete was scoped to the
+  narrow incrementally-built attribute cache, which leaked answer validity
+  and made guessing trivially easy — fixed via a new broad
+  `PlayerNameIndex` (COMP-10) used only for autocomplete, kept strictly
+  separate from the correctness-checking cache — ADR-0007; (2) name
+  matching now normalizes diacritics/case/punctuation, checks a
+  `PlayerAlias` table for nicknames (e.g. "Kaká"/"Kaka"), tolerates minor
+  typos, and disambiguates multiple same-named players by checking each
+  against the cell's categories, only prompting the player when genuinely
+  ambiguous (REQ-208/209, SCREEN-02a). Added REQ-107: grids are Club×Club
+  or Club×Country, never Country×Country. Updated framework versions to
+  current verified-stable (.NET 10 LTS, Node.js 24 Active LTS, React 19)
+  and added Dependabot to keep minor/patch versions from drifting.
+  Restored a requirements-doc section heading that had been accidentally
+  dropped in an earlier edit. Resolved several previously-open questions as
+  concrete technical defaults (password policy, synthetic user domain,
+  league limits, rate-limit thresholds) rather than leaving them open.
+- 2026-07-04 — design-document.md (v0.2, superseding v0.1), requirements-document.md
+  (REQ-107, new), mockups/design-mockups.html (rebuilt) — Redesigned from a
+  dark broadcast-scoreboard direction to a light, clean, imagery-led one:
+  flags (emoji, no licensing concern) and club badges (placeholder
+  initial-chips — real crests are trademarked, sourcing tracked as an open
+  question) now carry the visual personality instead of a dark palette.
+  Recolored tokens (green=live, gold=final/correct, red=incorrect) for a
+  light surface. Replaced the split-flap signature animation with a
+  "badge dock" reveal tied to the actual game mechanic. Added REQ-107:
+  grids may be Club×Club or Club×Country, never Country×Country.
+- 2026-07-04 — requirements-document.md (REQ-606, REQ-607, §4.9 new),
+  architecture-document.md, implementation-document.md, infra/README.md,
+  CLAUDE.md — Added testability via a non-prod-only test-data API
+  (create/reset/scenario, REQ-801–804), a security baseline (REQ-606: HTTPS
+  everywhere, admin authorization tests, input validation, dependency
+  scanning, rate limiting on auth endpoints), and a performance baseline
+  (REQ-607: leaderboard pagination, required indexes). Introduced a
+  two-Supabase-project environment split (prod + non-prod, using both of
+  the free plan's project slots) with a one-way, non-PII sync script
+  (`infra/scripts/sync-prod-to-nonprod.sh`, allowlist-based) and a
+  manual-only `sync-environments.yml` workflow — ADR-0006. Added COMP-09
+  Testing.SeedManager and boundary rule 4 (test data only via normal write
+  paths). Added `main.parameters.nonprod.json` and wired `ci.yml` to reset
+  non-prod test data before E2E runs.
+- 2026-07-04 — requirements-document.md (§4.7, new), architecture-document.md,
+  implementation-document.md, infra/README.md, CLAUDE.md — Added account
+  creation with email confirmation (REQ-701–705: signup, blocked actions
+  until confirmed, link-or-code confirmation email, resend, expiry) and a
+  deferred REQ-706 for round-result notification emails. Added COMP-08
+  Core.Notifications and the email-sending boundary (auth emails via
+  Supabase custom SMTP; product emails via direct Resend API calls) —
+  ADR-0005. Added `User` and `NotificationPreference` entities to the data
+  model and a `XGArcade.Email` project. Updated infra/README.md with Resend
+  cost numbers and the manual Supabase SMTP setup steps.
+- 2026-07-04 — design-document.md (new), CLAUDE.md — Added the UX/design
+  document: color/type/layout token system (pitch-dark + gold/teal accents,
+  Space Grotesk/Inter/IBM Plex Mono), key screens (grid home, guess input,
+  leaderboard, admin review), the split-flap reveal as the signature
+  interaction, responsive strategy, copy voice, and accessibility floor.
+  Wired into CLAUDE.md's doc map and a new "frontend visual consistency"
+  convention.
+- 2026-07-04 — infra/README.md — Added a verified cost reality check
+  (free-tier limits per service) and flagged the Supabase 7-day pause as an
+  accidental dependency on the daily sync-players.yml job.
+- 2026-07-04 — architecture-document.md, implementation-document.md,
+  CLAUDE.md — Resolved backend/frontend hosting to Azure Container Apps +
+  Azure Static Web Apps, IaC to Bicep, registry to GHCR, auth bundled into
+  Supabase — ADR-0004. Added `/infra/bicep` modules, `/infra/README.md`,
+  and `/.github/workflows` (ci.yml, deploy.yml, sync-players.yml,
+  generate-round.yml). Added a "Getting started" scaffold checklist to
+  CLAUDE.md since no application code exists yet.
+- 2026-07-04 — requirements-document.md, architecture-document.md,
+  implementation-document.md, CLAUDE.md — Renamed root project from
+  "Grid Guess" to "Platform" (placeholder, later renamed again to
+  "xG Arcade" on 2026-07-07) with the grid game (later "xG Grid") as the
+  first game; generalized `Round` to reference games via opaque `GameKey`/
+  `GameInstanceId` instead of a direct `GridInstanceId` FK — ADR-0003.
+  Flagged `Guess.CellId` as an accepted v1 simplification with the same
+  issue, to be revisited when a second game is built.
+- 2026-07-04 — requirements-document.md, architecture-document.md,
+  implementation-document.md — Initial documentation set created, including
+  incremental data cache strategy — ADR-0001, ADR-0002

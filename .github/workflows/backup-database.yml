@@ -1,0 +1,36 @@
+name: backup-database
+
+# TIER 1 (REQ-901, MVP-SCOPE.md bright line: before any user besides you
+# exists). Targets PROD_* secrets — this workflow becomes relevant once
+# Tier 1 creates a real "prod" environment; not applicable to Tier 0's
+# single (dev-named) environment, which has no real stakes yet.
+#
+# Supabase's free tier includes NO automated backups (confirmed against
+# their own docs) — this workflow is not optional once prod exists, it's
+# the only backup production has. See infra/README.md for the restore procedure.
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # daily at 02:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Dump production database
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_CONNECTION_STRING }}
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          pg_dump --format=custom --dbname="$PROD_DATABASE_URL" \
+            --file="backup-${TIMESTAMP}.dump"
+          echo "BACKUP_FILE=backup-${TIMESTAMP}.dump" >> "$GITHUB_ENV"
+      - name: Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 14 # balances recovery usefulness against artifact storage quota — see infra/README.md

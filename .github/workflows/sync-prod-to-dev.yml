@@ -1,0 +1,32 @@
+name: sync-prod-to-dev
+
+# Manual-only by design (ADR-0006, ADR-0009, REQ-804) — this is the
+# "prod changed directly" fallback direction, not the recommended
+# day-to-day workflow (that's promote-dev-to-prod.yml). Never runs on a
+# schedule or as a side effect of another workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list row counts, copy nothing)"
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run sync script
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_CONNECTION_STRING }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        run: |
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            bash infra/scripts/sync-prod-to-dev.sh --dry-run
+          else
+            echo "sync" | bash infra/scripts/sync-prod-to-dev.sh
+          fi

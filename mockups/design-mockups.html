@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>xG Arcade — Design Mockups v0.2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: #FBFBFA;
+    --surface-card: #FFFFFF;
+    --surface-sunken: #F1F2F0;
+    --text-primary: #1A1F1C;
+    --text-muted: #6B7570;
+    --border-hairline: #E4E6E3;
+    --accent-green: #1E9E63;
+    --accent-gold: #A97D1F; /* darkened from token for text-contrast use, see design-document.md §6 */
+    --accent-gold-chip: #C99A2E;
+    --accent-red: #C4463C;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  .mono {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .page-header {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 56px 24px 32px;
+  }
+  .page-header h1 { font-size: 26px; margin-bottom: 8px; }
+  .page-header p { color: var(--text-muted); margin: 0; max-width: 62ch; line-height: 1.55; }
+
+  .gallery {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+  }
+
+  section { border-top: 1px solid var(--border-hairline); padding-top: 36px; }
+
+  .section-label {
+    color: var(--accent-green);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  section h2 { font-size: 20px; margin: 0 0 6px; }
+  section > p.note {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.6;
+    max-width: 68ch;
+    margin: 0 0 26px;
+  }
+
+  .frames { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+  .frame-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin: 0 0 10px;
+    letter-spacing: 0.04em;
+  }
+
+  /* --- Device frames --- */
+  .phone {
+    width: 340px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 26px;
+    padding: 12px 12px 18px;
+    background: var(--surface-card);
+    box-shadow: 0 1px 2px rgba(26,31,28,0.04);
+  }
+  .phone-screen { background: var(--bg-base); border-radius: 16px; padding: 16px 12px; min-height: 480px; }
+
+  .browser {
+    width: 620px;
+    max-width: 100%;
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-card);
+    box-shadow: 0 1px 2px rgba(26,31,28,0.04);
+  }
+  .browser-chrome { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border-hairline); }
+  .browser-chrome span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-hairline); }
+  .browser-screen { background: var(--bg-base); padding: 22px; min-height: 400px; }
+
+  /* --- Shared UI --- */
+  .round-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-hairline);
+  }
+  .round-header .label { font-size: 12px; color: var(--text-muted); }
+  .round-header .countdown { font-size: 13px; color: var(--accent-green); }
+
+  .grid-wrap { display: grid; grid-template-columns: 66px repeat(3, 1fr); gap: 6px; }
+  .grid-wrap.desktop { grid-template-columns: 90px repeat(3, 1fr); }
+
+  .cat-header {
+    font-size: 10.5px; color: var(--text-muted);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 6px 2px; gap: 3px;
+  }
+  .row-header {
+    font-size: 10.5px; color: var(--text-muted);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    padding: 2px;
+  }
+
+  .flag { font-size: 18px; line-height: 1; }
+
+  .badge {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 9px;
+    color: #fff;
+  }
+  .badge.afc { background: #D6112C; }
+  .badge.mil { background: #1A1A1A; }
+  .badge.bay { background: #DC0530; }
+  .badge.bar { background: #A50044; }
+  .badge.rma { background: #2B2B6F; }
+
+  .cell {
+    background: var(--surface-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 10px 8px;
+    min-height: 74px;
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  }
+  .cell.empty { align-items: center; justify-content: center; color: var(--border-hairline); font-size: 20px; font-weight: 300; background: var(--surface-sunken); border-style: dashed; }
+  .cell .player-name { font-size: 13px; font-weight: 500; }
+  .cell .pct { font-size: 11.5px; color: var(--text-muted); }
+  .cell.live { border-color: rgba(30,158,99,0.35); }
+  .cell.locked-correct { border-color: rgba(201,154,46,0.4); }
+  .cell.locked-incorrect { border-color: rgba(196,70,60,0.35); }
+
+  .dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--accent-green); animation: fade 2.4s ease-in-out infinite; }
+  @keyframes fade { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+  .status-tag { font-size: 9.5px; letter-spacing: 0.03em; text-transform: uppercase; }
+  .status-tag.live-text { color: var(--accent-green); }
+  .status-tag.final-text { color: var(--accent-gold); }
+  .status-tag.incorrect-text { color: var(--accent-red); }
+
+  .total-footer {
+    margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-hairline);
+    display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-muted);
+  }
+  .total-footer .mono { color: var(--text-primary); font-size: 14px; }
+
+  .side-panel { background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: 10px; padding: 16px; font-size: 13px; }
+  .side-panel h3 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 12px; font-weight: 500; font-family: 'Inter', sans-serif; }
+  .side-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
+  .side-row:last-child { border-bottom: none; }
+  .desktop-layout { display: grid; grid-template-columns: 1fr 210px; gap: 18px; }
+
+  /* --- Guess input --- */
+  .sheet { background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: 16px 16px 0 0; padding: 20px; margin-top: auto; }
+  .popover { background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: 10px; padding: 18px; width: 280px; box-shadow: 0 4px 16px rgba(26,31,28,0.06); }
+  .field-title { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-primary); margin-bottom: 12px; }
+  input[type="text"] {
+    width: 100%; background: var(--surface-sunken); border: 1px solid var(--border-hairline); border-radius: 8px;
+    padding: 10px 12px; color: var(--text-primary); font-family: 'Inter', sans-serif; font-size: 14px; margin-bottom: 8px;
+  }
+  input[type="text"]:focus-visible { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+  .suggestion { display: flex; align-items: center; gap: 8px; padding: 8px 8px; font-size: 13px; border-radius: 6px; color: var(--text-muted); }
+  .suggestion.highlighted { background: var(--surface-sunken); color: var(--text-primary); }
+  .avatar-placeholder { width: 20px; height: 20px; border-radius: 50%; background: var(--border-hairline); flex-shrink: 0; }
+  .btn-primary {
+    width: 100%; background: var(--accent-green); color: #fff; border: none; border-radius: 8px;
+    padding: 11px; font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; margin-top: 6px; cursor: pointer;
+  }
+  .btn-primary:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+
+  /* --- Leaderboard --- */
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border-hairline); }
+  .tab { padding: 8px 14px; font-size: 13px; color: var(--text-muted); border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--text-primary); border-bottom-color: var(--accent-green); }
+  .lb-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 10px; border-radius: 6px; font-size: 14px; }
+  .lb-row.you { background: var(--surface-sunken); }
+  .lb-row .rank { color: var(--text-muted); width: 24px; display: inline-block; }
+  .lb-row .you-tag { font-size: 11px; color: var(--accent-green); margin-left: 8px; }
+
+  /* --- Admin review --- */
+  .admin-row {
+    display: flex; justify-content: space-between; align-items: center; padding: 12px 14px;
+    background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: 8px; margin-bottom: 8px; font-size: 13px;
+  }
+  .admin-meta { color: var(--text-muted); font-size: 11.5px; }
+  .admin-meta .tag { display: inline-block; padding: 2px 6px; border-radius: 4px; background: var(--surface-sunken); margin-right: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; }
+  .admin-actions { display: flex; gap: 6px; }
+  .admin-btn { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-hairline); background: transparent; color: var(--text-primary); cursor: pointer; font-family: 'Inter', sans-serif; }
+  .admin-btn.approve { border-color: rgba(169,125,31,0.5); color: var(--accent-gold); }
+  .admin-btn.remove { border-color: rgba(196,70,60,0.5); color: var(--accent-red); }
+
+  /* --- Signature: badge dock --- */
+  .dock-demo-wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .dock-cell {
+    width: 200px; height: 90px; background: var(--surface-card); border: 1px solid var(--border-hairline); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; gap: 10px; position: relative; overflow: hidden;
+  }
+  .dock-flag { font-size: 20px; animation: dock-left 3s ease-in-out infinite; }
+  .dock-badge { animation: dock-right 3s ease-in-out infinite; }
+  .dock-name { font-size: 13px; font-weight: 500; opacity: 0; animation: dock-name 3s ease-in-out infinite; }
+  @keyframes dock-left { 0% { transform: translateX(-60px); opacity: 0; } 30%, 100% { transform: translateX(0); opacity: 1; } }
+  @keyframes dock-right { 0% { transform: translateX(60px); opacity: 0; } 30%, 100% { transform: translateX(0); opacity: 1; } }
+  @keyframes dock-name { 0%, 35% { opacity: 0; } 55%, 100% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .dock-flag, .dock-badge { animation: none; transform: none; opacity: 1; }
+    .dock-name { animation: none; opacity: 1; }
+  }
+
+  footer { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; color: var(--text-muted); font-size: 11.5px; line-height: 1.6; }
+
+  @media (max-width: 700px) {
+    .frames { flex-direction: column; align-items: stretch; }
+    .browser { width: 100%; }
+    .desktop-layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <p class="section-label">Design mockups v0.2 · not interactive</p>
+  <h1>xG Arcade (working title) — xG Grid</h1>
+  <p>Revised direction: light, clean, imagery-led — flags and club badges carry the personality instead of a dark palette. Derived from <span class="mono" style="font-size:12.5px">docs/design-document.md</span> v0.2. Club badges here are generic placeholder initial-chips, not real crest artwork (those are trademarked) — see the doc's §1 note on sourcing real crest imagery later.</p>
+  <p style="color: var(--text-muted); font-size: 12px; border-top: 1px solid var(--border-hairline); padding-top: 12px; margin-top: 16px;"><strong>Static reference as of v0.2</strong> — this file is not automatically kept in sync with real components. If it disagrees with <span class="mono" style="font-size:12px">docs/design-document.md</span> or actual built UI, the doc and the real code win, not this file.</p>
+</div>
+
+<div class="gallery">
+
+  <!-- SCREEN-01 mobile: club x club example -->
+  <section>
+    <p class="section-label">SCREEN-01</p>
+    <h2>Grid home — mobile (Club × Club)</h2>
+    <p class="note">REQ-107: grids are Club×Club or Club×Country, never Country×Country. This example is Club×Club — both axes use badges, no flags.</p>
+    <div class="frames">
+      <div>
+        <p class="frame-label">375px viewport</p>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="round-header">
+              <span class="label">Round #15</span>
+              <span class="countdown mono">⏱ 1d 4h left</span>
+            </div>
+            <div class="grid-wrap">
+              <div></div>
+              <div class="cat-header"><span class="badge afc">AFC</span>Arsenal</div>
+              <div class="cat-header"><span class="badge bar">FCB</span>Barcelona</div>
+              <div class="cat-header"><span class="badge rma">RMA</span>Real Madrid</div>
+
+              <div class="row-header"><span class="badge mil">MIL</span>Milan</div>
+              <div class="cell live">
+                <span class="status-tag live-text"><span class="dot"></span>LIVE</span>
+                <span class="player-name">Kaká</span>
+                <span class="pct mono">18% unique</span>
+              </div>
+              <div class="cell empty">+</div>
+              <div class="cell empty">+</div>
+
+              <div class="row-header"><span class="badge bay">BAY</span>Bayern</div>
+              <div class="cell empty">+</div>
+              <div class="cell locked-correct">
+                <span class="status-tag final-text">✓ FINAL</span>
+                <span class="player-name">Coutinho</span>
+                <span class="pct mono">44% · 56 pts</span>
+              </div>
+              <div class="cell empty">+</div>
+            </div>
+            <div class="total-footer">
+              <span>Total this round</span>
+              <span class="mono">56 pts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN-01 desktop: club x country -->
+  <section>
+    <p class="section-label">SCREEN-01</p>
+    <h2>Grid home — desktop (Club × Country)</h2>
+    <p class="note">Same additive side-panel structure as before, recolored. Flags on one axis, badges on the other — never both axes as flags.</p>
+    <div class="frames">
+      <div>
+        <p class="frame-label">1200px viewport (scaled)</p>
+        <div class="browser">
+          <div class="browser-chrome"><span></span><span></span><span></span></div>
+          <div class="browser-screen">
+            <div class="round-header">
+              <span class="label">Round #14</span>
+              <span class="countdown mono">⏱ 1d 4h left</span>
+            </div>
+            <div class="desktop-layout">
+              <div class="grid-wrap desktop">
+                <div></div>
+                <div class="cat-header"><span class="badge afc">AFC</span>Arsenal</div>
+                <div class="cat-header"><span class="badge mil">MIL</span>Milan</div>
+                <div class="cat-header"><span class="badge bay">BAY</span>Bayern</div>
+
+                <div class="row-header"><span class="flag">🇫🇷</span>France</div>
+                <div class="cell live">
+                  <span class="status-tag live-text"><span class="dot"></span>LIVE</span>
+                  <span class="player-name">Henry</span>
+                  <span class="pct mono">12% unique</span>
+                </div>
+                <div class="cell empty">+</div>
+                <div class="cell empty">+</div>
+
+                <div class="row-header"><span class="flag">🇧🇷</span>Brazil</div>
+                <div class="cell empty">+</div>
+                <div class="cell locked-correct">
+                  <span class="status-tag final-text">✓ FINAL</span>
+                  <span class="player-name">Kaká</span>
+                  <span class="pct mono">31% · 69 pts</span>
+                </div>
+                <div class="cell empty">+</div>
+
+                <div class="row-header"><span class="flag">🇪🇸</span>Spain</div>
+                <div class="cell empty">+</div>
+                <div class="cell locked-incorrect">
+                  <span class="status-tag incorrect-text">✕ FINAL</span>
+                  <span class="player-name" style="color: var(--text-muted);">—</span>
+                  <span class="pct mono">0 pts</span>
+                </div>
+                <div class="cell empty">+</div>
+              </div>
+              <div class="side-panel">
+                <h3>Your progress</h3>
+                <div class="side-row"><span>Answered</span><span class="mono">2 / 9</span></div>
+                <div class="side-row"><span>Live uniqueness</span><span class="mono" style="color: var(--accent-green);">12%</span></div>
+                <div class="side-row"><span>Locked so far</span><span class="mono" style="color: var(--accent-gold);">69 pts</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN-02 -->
+  <section>
+    <p class="section-label">SCREEN-02</p>
+    <h2>Guess input</h2>
+    <p class="note">The category header itself now carries flag/badge imagery, giving instant visual confirmation of the question. Autocomplete rows get an optional small avatar placeholder.</p>
+    <div class="frames">
+      <div>
+        <p class="frame-label">Mobile — bottom sheet</p>
+        <div class="phone">
+          <div class="phone-screen" style="display:flex; flex-direction:column; justify-content:flex-end;">
+            <div class="sheet">
+              <div class="field-title"><span class="flag">🇫🇷</span> France × <span class="badge afc">AFC</span> Arsenal</div>
+              <input type="text" value="Hen" readonly />
+              <div class="suggestion highlighted"><span class="avatar-placeholder"></span>Thierry Henry</div>
+              <div class="suggestion"><span class="avatar-placeholder"></span>Robert Pires</div>
+              <button class="btn-primary">Submit guess</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="frame-label">Desktop — inline popover</p>
+        <div class="browser">
+          <div class="browser-chrome"><span></span><span></span><span></span></div>
+          <div class="browser-screen" style="display:flex; align-items:center; justify-content:center;">
+            <div class="popover">
+              <div class="field-title"><span class="flag">🇫🇷</span> France × <span class="badge afc">AFC</span> Arsenal</div>
+              <input type="text" value="Hen" readonly />
+              <div class="suggestion highlighted"><span class="avatar-placeholder"></span>Thierry Henry</div>
+              <button class="btn-primary">Submit guess</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN-03 -->
+  <section>
+    <p class="section-label">SCREEN-03</p>
+    <h2>Leaderboard</h2>
+    <p class="note">Structurally unchanged — tabs for Global vs. custom leagues, the user's row always distinct via a sunken background instead of a dark raised one.</p>
+    <div class="frames">
+      <div>
+        <p class="frame-label">375px viewport</p>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="tabs">
+              <div class="tab active">Global</div>
+              <div class="tab">My League</div>
+              <div class="tab">+ New</div>
+            </div>
+            <div class="lb-row"><span><span class="rank mono">1</span>Alex</span><span class="mono">142 pts</span></div>
+            <div class="lb-row you"><span><span class="rank mono">2</span>You<span class="you-tag">← you</span></span><span class="mono">138 pts</span></div>
+            <div class="lb-row"><span><span class="rank mono">3</span>Sam</span><span class="mono">120 pts</span></div>
+            <div class="lb-row"><span><span class="rank mono">4</span>Priya</span><span class="mono">98 pts</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN-04 -->
+  <section>
+    <p class="section-label">SCREEN-04</p>
+    <h2>Admin review (unverified data)</h2>
+    <p class="note">Plainer and denser than the rest of the product by design — a working tool, not a consumer surface.</p>
+    <div class="frames">
+      <div style="flex: 1; min-width: 320px;">
+        <p class="frame-label">Desktop panel</p>
+        <div class="browser">
+          <div class="browser-chrome"><span></span><span></span><span></span></div>
+          <div class="browser-screen">
+            <h3 style="font-size:12.5px; color:var(--text-muted); margin: 0 0 14px; text-transform:uppercase; letter-spacing:0.04em; font-family:'Inter',sans-serif; font-weight:500;">Unverified data (14)</h3>
+            <div class="admin-row">
+              <div>
+                <div>Henry · nationality · France</div>
+                <div class="admin-meta"><span class="tag">live_lookup</span><span class="tag">unverified</span></div>
+              </div>
+              <div class="admin-actions">
+                <button class="admin-btn approve">Approve</button>
+                <button class="admin-btn">Correct</button>
+                <button class="admin-btn remove">Remove</button>
+              </div>
+            </div>
+            <div class="admin-row">
+              <div>
+                <div>Kaká · club · Milan</div>
+                <div class="admin-meta"><span class="tag">wikidata</span><span class="tag">unverified</span></div>
+              </div>
+              <div class="admin-actions">
+                <button class="admin-btn approve">Approve</button>
+                <button class="admin-btn">Correct</button>
+                <button class="admin-btn remove">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Cell states -->
+  <section>
+    <p class="section-label">SCREEN-01a</p>
+    <h2>Cell states (REQ-210)</h2>
+    <p class="note">Correctness is revealed immediately on submission, separate from whether the round has closed. Max 2 attempts per cell; a correct answer locks it immediately even on attempt 1.</p>
+    <div class="frames">
+      <div class="cell live" style="width:180px;">
+        <span class="status-tag final-text">✓ live</span>
+        <span class="player-name">Henry</span>
+        <span class="pct mono">12% unique</span>
+      </div>
+      <div class="cell" style="width:180px; border-color: rgba(196,70,60,0.3);">
+        <span class="status-tag incorrect-text">✕</span>
+        <span class="player-name">Ronaldinho</span>
+        <span class="pct mono">1 attempt left</span>
+      </div>
+      <div class="cell locked-incorrect" style="width:180px;">
+        <span class="status-tag incorrect-text">✕</span>
+        <span class="player-name">Ronaldinho</span>
+        <span class="pct mono">no attempts left · 0 pts</span>
+      </div>
+      <div class="cell locked-correct" style="width:180px;">
+        <span class="status-tag final-text">✓ FINAL</span>
+        <span class="player-name">Henry</span>
+        <span class="pct mono">12% · 88 pts</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Signature -->
+  <section>
+    <p class="section-label">Signature interaction</p>
+    <h2>Badge dock</h2>
+    <p class="note">On reveal, the row's flag/badge and the column's badge slide in from either side and settle beside the player name — a literal visualization of "these two categories combined into this answer," tied directly to the actual mechanic rather than a borrowed broadcast trope. Loops here for demo purposes only; in the real product it plays once. Reduced-motion: badges appear already docked with a brief color flash instead of sliding.</p>
+    <div class="dock-demo-wrap">
+      <div class="dock-cell">
+        <span class="flag dock-flag">🇫🇷</span>
+        <span class="dock-name">Henry</span>
+        <span class="badge afc dock-badge">AFC</span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  Tokens: bg-base #FBFBFA · surface-card #FFFFFF · surface-sunken #F1F2F0 · accent-green #1E9E63 · accent-gold #C99A2E (darkened to #A97D1F for text use) · accent-red #C4463C.
+  Type: Space Grotesk (display) · Inter (body/UI) · IBM Plex Mono, tabular figures (all numbers). See docs/design-document.md v0.2 for full rationale.
+</footer>
+
+</body>
+</html>

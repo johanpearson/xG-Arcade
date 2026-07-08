@@ -1,0 +1,92 @@
+name: ci
+
+# Tier 0 shape (see MVP-SCOPE.md): one environment (prod), so E2E runs
+# against a LOCAL stack composed inside this workflow — a Postgres service
+# container + the API run from source + the frontend dev server. No cloud
+# dev environment, no test-data API, no DEV_* secrets needed.
+#
+# Tier 1 evolution (when the dev environment exists, ADR-0006): add back a
+# `deploy-dev` job (build/push dev image, deploy Bicep with DEV_* secrets)
+# and point an additional E2E run at the deployed dev env with the
+# test-data reset call (REQ-802). That version is preserved in git history
+# and described in infra/README.md — don't reintroduce it before Tier 1.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet restore backend/XGArcade.sln
+      - run: dotnet build backend/XGArcade.sln --no-restore --configuration Release
+      - run: dotnet test backend/XGArcade.sln --no-build --configuration Release --logger "trx"
+
+  frontend-unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-unit-tests]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: xgarcade_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Migrate + seed local database
+        run: dotnet run --project backend/XGArcade.Api -- migrate-and-seed
+        env:
+          ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
+      - name: Start API (background)
+        run: |
+          dotnet run --project backend/XGArcade.Api --configuration Release &
+          timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+        env:
+          ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
+          Auth__Mode: "local-e2e"   # bypasses Supabase JWT validation with a local test signer — never enabled outside Development
+          ASPNETCORE_ENVIRONMENT: "Development"
+      - name: E2E (Playwright against local stack)
+        # playwright.config uses its `webServer` option to boot the Vite dev
+        # server on :5173 itself — only the API needs manual starting above
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps
+          npm run test:e2e
+        env:
+          E2E_BASE_URL: http://localhost:5173
+          VITE_API_BASE_URL: http://localhost:8080

@@ -1,0 +1,157 @@
+# Development Backlog — xG Arcade
+
+Ordered stories for building Tier 0 (see `MVP-SCOPE.md`) incrementally.
+**Work top to bottom.** Every story leaves the system deployable and
+testable — no story depends on a later one. Each references the REQ IDs
+its tests must be named after (`REQ###_...`, see `docs/coding-guidelines.md`).
+
+> **For AI agents:** treat one story as one working session/PR. Definition
+> of done per story: acceptance criteria met, tests named after the listed
+> REQ IDs pass, `ci.yml` green, docs updated if reality diverged
+> (`/update-docs`), CHANGELOG entry if docs changed. Do not start a story
+> before its dependencies are merged. Do not pull Tier 1 items forward.
+
+## Epic 0 — Foundations (no game logic yet)
+
+**S-001 · Repo + pipeline skeleton**
+Scaffold `backend/XGArcade.sln` (Api, Core, Games.XGGrid, Data, DataSync +
+Tests projects — empty but compiling), `frontend/` (Vite + React + TS,
+Vitest + Playwright wired), `backend/Dockerfile` (port 8080).
+*Accept:* `dotnet test` and `npm run test` pass locally with placeholder
+tests; Docker image builds. *Deps:* none.
+
+**S-002 · Trivial end-to-end slice deployed**
+`GET /health` endpoint + a frontend page that calls and displays it.
+`ci.yml` (Tier 0 shape: unit tests + local-stack E2E, no dev deploy — see
+its header comment) passes; `deploy.yml` deploys both to Azure **dev**
+(Tier 0's one environment — see `MVP-SCOPE.md` for why it's named "dev,"
+not "prod"); fill in the post-deploy secrets (`DEV_BACKEND_HOSTNAME`,
+static web app token).
+*Accept:* the deployed URL shows the health status from the deployed API.
+*Deps:* S-001, `MVP-SCOPE.md` preconditions all checked.
+
+**S-003 · Database + EF Core baseline**
+Npgsql/EF Core wired to the Supabase connection string; initial migration
+with `CountryDefinition`, `ClubDefinition` (Name + WikidataQid only),
+`TrophyDefinition` (exists but unused in Tier 0), `Player`, `PlayerData`,
+`PlayerAttribute`, `PlayerOverride`; unique indexes per
+`implementation-document.md` §5. Repository pattern per
+`coding-guidelines.md` (no DbContext in controllers).
+*Accept:* migration applies cleanly against prod; REQ-109-named test
+proves category values come only from reference tables. *Deps:* S-002.
+
+**S-004 · Auth (Supabase, no email confirmation)**
+Email+password signup/login via Supabase Auth (confirm-email OFF), JWT
+validation middleware in the API, 16+ self-declaration checkbox at signup
+(REQ-701's checkbox clause only — defer the rest of 7xx).
+*Accept:* REQ701-named test: signup blocked without checkbox; a protected
+endpoint rejects anonymous calls. *Deps:* S-003.
+
+## Epic 1 — Game data (Wikidata)
+
+**S-005 · Seed reference data**
+Seed (SQL or seeder) with the actual decided list — QIDs already verified,
+see the tables in `MVP-SCOPE.md`: 15 clubs, 20 countries. Pure data entry
+now, no research needed.
+*Accept:* seed is idempotent; rows present in dev (Tier 0's one environment). *Deps:* S-003.
+
+**S-006 · Wikidata client (COMP-07, Tier 0 half)**
+SPARQL intersection query per `implementation-document.md` §6a (P106/P27/
+P54, QIDs from the reference tables), ~8s timeout, bindings-format parser,
+results persisted to `PlayerData`/`PlayerAttribute` as `unverified`
+(REQ-103's persist-immediately rule; skip the API-Football fallback half).
+Three correctness rules from §6a are non-negotiable: **no LIMIT** on the
+intersection query (its results are the cell's complete answer key),
+**upsert by `WikidataQid`** (never insert per query), and fetch
+`skos:altLabel` into `PlayerAlias` in the same query. Tier 0's country
+list uses United Kingdom, not England — every country query is uniform
+`P27`, no special case needed here (see `MVP-SCOPE.md`; the `P1532`
+exception for home nations is Tier 1's "national teams" feature, not
+something this story needs to handle).
+*Accept:* REQ103-named tests with mocked HTTP: hit persists players +
+aliases, re-running the same query creates zero duplicate Players,
+timeout/no-match returns empty without throwing. Manually verify at least 2-3 seeded clubs' QIDs point at the
+senior/first-team item, not a generic club concept (REQ-109) — this can't
+be unit-tested, it's a data-curation check against real Wikidata pages.
+*Deps:* S-005.
+
+## Epic 2 — Grid generation
+
+**S-007 · Grid generation (REQ-101/102/107/109)**
+`IGameModule` + `GenerateInstanceAsync` in Games.XGGrid: pick values from
+reference tables, never Country×Country, cache-first then S-006 lookup,
+`MIN_VALID_ANSWERS` threshold, retry/abort logic, `GridInstance`/`GridCell`
+persisted; Core.Rounds references only `GameKey`/`GameInstanceId` (ADR-0003).
+*Accept:* REQ101/102/107/109-named unit tests all branches; an internal
+endpoint generates a real grid in dev. *Deps:* S-006.
+
+**S-008 · Rounds + scheduling (REQ-301-30x, REQ-806)**
+Round entity (start/end, `allow_guess_change`), `/internal/generate-round`
+(bearer `INTERNAL_JOB_TOKEN`) wired to `generate-round.yml`; generation
+runs **one round ahead** (REQ-301) so a failed generation has a full
+round-length window before players see a gap; round-close logic (real
+scoring lands in S-011) plus REQ-806's `POST /internal/test-data/force-close-round/{id}`,
+gated to non-Production — this is what makes S-011's E2E test possible at
+all without waiting for real time.
+*Accept:* scheduled workflow creates round N+1 while N is active in dev;
+`generate-round.yml`'s cron re-enabled (it ships commented out); the
+force-close endpoint is absent when `ASPNETCORE_ENVIRONMENT=Production`.
+*Deps:* S-007.
+
+## Epic 3 — The game loop
+
+**S-009 · Guess submission (REQ-201/202/203/208/210 + simplified 209)**
+POST guess: active-round check, 2-attempt cap with immediate lock-on-correct
+(REQ-210, checked before name resolution), basic normalization only
+(lowercase/diacritics/punctuation — no aliases, no fuzzy), simplified
+disambiguation (any matching player fitting the cell → accept; log
+multi-fit cases per `MVP-SCOPE.md`'s Tier 1 trigger), correctness shown
+immediately, distinct rejection reasons (REQ-202).
+*Accept:* REQ201/202/203/208/210-named tests covering every branch listed
+in those REQs' test-level notes. *Deps:* S-008, S-004.
+
+**S-010 · Grid UI (SCREEN-01/01a/02)**
+Grid home + guess input per `docs/design-document.md` (ui-implementer
+rules: tokens only, four cell states, text-not-color-only, 44px targets,
+reduced-motion). Plain text input — no autocomplete.
+*Accept:* Playwright: log in → open round → submit guess → see immediate
+correct/incorrect + attempt count; all four cell states render. *Deps:* S-009.
+
+**S-011 · Scoring + leaderboard (REQ-204/205/206/401)**
+Live uniqueness on read; round-close job locks `final_*` fields and blocks
+further guesses; total score; global-leaderboard endpoint + SCREEN-03.
+*Accept:* REQ204/205/206-named tests; E2E: two users guess, REQ-806's
+force-close endpoint ends the round, leaderboard shows locked totals. *Deps:* S-010.
+
+## Epic 4 — Playable-release hardening (still Tier 0)
+
+**S-012 · Admin data correction (REQ-501-503, minimal)**
+`PlayerOverride` CRUD (override always wins — REQ-501 test) via a minimal
+protected admin endpoint/page; list unverified `PlayerData`. Admin
+authorization = `Admin__UserIds` env var per `implementation-document.md`
+§4 — no role tables.
+*Accept:* REQ501-named test: override flips a cell's correctness; a
+non-admin user gets 403. *Deps:* S-009.
+
+**S-013 · First-release QA pass**
+Full E2E suite green in CI (local stack); a manual smoke test of the same
+flows against the deployed prod URL (login → guess → score); spot-check a
+sample of rejected guesses (seeds the Tier 1 triggers in `MVP-SCOPE.md`);
+accessibility pass on the four cell states (contrast — resolves the design
+doc's open gold-on-white question); fix what falls out.
+*Accept:* you can play a full round end-to-end on your phone and the
+result feels correct and fair. *Deps:* S-011, S-012.
+
+**Tier 0 complete when S-013 passes.** Play it for a while before touching Tier 1.
+
+## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
+
+T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
+T-102 guess-time live verification (REQ-211) · T-103 autocomplete +
+`PlayerNameIndex` (REQ-207, ADR-0007) · T-104 disambiguation UI (REQ-209) ·
+T-105 Trophy category + automated ID resolution (REQ-108, ADR-0012) ·
+T-106 dev/prod split + sync (ADR-0006/0009, REQ-801-804) · T-107 backups +
+alerting (REQ-901/902 — **bright line: before any non-self user**) ·
+T-108 email confirmation + Resend (REQ-701-705) · T-109 custom leagues
+(REQ-402-404) · T-110 legal docs finalized (**bright line: before public
+launch**).

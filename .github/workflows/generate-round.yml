@@ -1,0 +1,24 @@
+name: generate-round
+
+# Creates a new Round + game instance per the configured frequency (REQ-301).
+# Tier 0 workflow, but the endpoint doesn't exist until backlog story
+# S-008 — schedule disabled until then so it doesn't fail on a timer while
+# earlier stories are still being built. Enable the cron as part of S-008.
+# Original note: adjust the cron once Core.Rounds'
+# scheduling configuration (see requirements-document.md REQ-301) is
+# implemented, and keep this in sync with that configuration rather than
+# letting the two drift apart.
+
+on:
+  # schedule:
+  #   - cron: "0 6 * * 2,5" # example: Tue+Fri 06:00 UTC — enable at S-008
+  workflow_dispatch: {}
+
+jobs:
+  generate-round:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger round generation
+        run: |
+          curl -f -X POST "https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}"

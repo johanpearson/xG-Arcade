@@ -1,0 +1,32 @@
+name: promote-dev-to-prod
+
+# The RECOMMENDED day-to-day direction (ADR-0009): build/curate game data
+# in dev, then promote it here. Manual-only and deliberately more
+# ceremonious than sync-prod-to-dev.yml, since this writes to production
+# that real users are actively playing against.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (list row counts, copy nothing)"
+        type: boolean
+        default: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Run promotion script
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_CONNECTION_STRING }}
+          DEV_DATABASE_URL: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+        run: |
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            bash infra/scripts/promote-dev-to-prod.sh --dry-run
+          else
+            echo "promote to prod" | bash infra/scripts/promote-dev-to-prod.sh
+          fi
