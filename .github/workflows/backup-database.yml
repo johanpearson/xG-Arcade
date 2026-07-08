@@ -29,7 +29,7 @@ jobs:
             --file="backup-${TIMESTAMP}.dump"
           echo "BACKUP_FILE=backup-${TIMESTAMP}.dump" >> "$GITHUB_ENV"
       - name: Upload backup as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.BACKUP_FILE }}
           path: ${{ env.BACKUP_FILE }}
