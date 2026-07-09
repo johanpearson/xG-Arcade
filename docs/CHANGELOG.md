@@ -13,6 +13,48 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — no changes to docs/requirements-document.md,
+  docs/architecture-document.md, or docs/implementation-document.md —
+  doc-sync review for S-005 (seed reference data, REQ-109):
+  `ReferenceDataSeeder.SeedAsync` now inserts the hand-curated 15
+  clubs/20 countries (Name + WikidataQid) from `MVP-SCOPE.md`'s
+  already-verified tables into `CountryDefinition`/`ClubDefinition`,
+  idempotent by `Name`; the `migrate-and-seed` CLI verb (`Program.cs`)
+  now calls it after `Database.MigrateAsync()` instead of being a
+  documented no-op; and `deploy.yml` gained a `migrate-and-seed-database`
+  job that runs both against dev's actual Supabase Postgres instance —
+  previously nothing in the deploy pipeline ever applied migrations or
+  seed data there, only `ci.yml`'s ephemeral local Postgres container
+  (used for E2E) ever got seeded. Checked REQ-109's acceptance criteria
+  (values come from the reference tables; a null QID isn't an error)
+  against the diff: still accurate as the full/long-term requirement, no
+  edit needed — same conclusion as the S-003 entry below. Checked
+  `implementation-document.md`'s top Tier-1 banner
+  (`CountryDefinition`/`ClubDefinition`'s external-ID *resolution*
+  remains Tier 1) against what actually got built: still accurate — that
+  banner refers to the dynamic resolution mechanism (an admin-driven
+  incremental flow for new clubs, and `ApiFootballTeamId` resolution),
+  which is still unbuilt; Tier 0's fixed list having its QIDs hand-looked-up
+  and hardcoded rather than dynamically resolved was already explicit in
+  `MVP-SCOPE.md`'s Tier 0 section, so no duplicate note was added. Checked
+  `architecture-document.md`'s COMP-06 boundary rule 1 and
+  `ICategoryValueRepository`'s doc comment against the new seeder: it
+  writes `CountryDefinition`/`ClubDefinition` rows directly via
+  `DbContext` rather than through the repository's own
+  `AddCountryAsync`/`AddClubAsync` methods — an internal inconsistency
+  worth a follow-up code-review look (flagged back, not fixed here), but
+  not a cross-component boundary violation, since boundary rule 1 governs
+  game modules reading COMP-06's data, not COMP-06's own internal seeding
+  path — no architecture-document.md edit. No new ADR: `deploy.yml`'s new
+  `migrate-and-seed-database` job reuses the exact `migrate-and-seed` CLI
+  verb `ci.yml` already established (S-002) against the same dev database
+  `deploy.yml` already targets since the prod→dev rename — this closes an
+  operational gap (dev's database was never automatically migrated/seeded
+  before), not a new structural decision with a real alternative. The
+  `infra/README.md` secrets-table update (noting the new job's use of
+  `DEV_DATABASE_CONNECTION_STRING`) was made by hand alongside the code
+  and verified correct/sufficient here, not redone.
+
 - 2026-07-09 — docs/requirements-document.md (REQ-701), docs/architecture-document.md
   (§6.4, §7 cross-cutting concerns), docs/implementation-document.md (§3
   security middleware pipeline, §6a external API shapes) — doc sync for
