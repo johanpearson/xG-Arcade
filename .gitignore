@@ -1,6 +1,7 @@
 # .NET
 backend/**/bin/
 backend/**/obj/
+backend/**/TestResults/
 *.user
 
 # Node — frontend/.gitignore covers node_modules/dist; these are the
