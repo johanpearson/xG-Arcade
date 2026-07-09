@@ -26,7 +26,10 @@ tests; Docker image builds. *Deps:* none.
 its header comment) passes; `deploy.yml` deploys both to Azure **dev**
 (Tier 0's one environment — see `MVP-SCOPE.md` for why it's named "dev,"
 not "prod"); fill in the post-deploy secrets (`DEV_BACKEND_HOSTNAME`,
-static web app token).
+static web app token). Also remove `ci.yml`'s `e2e-tests` job's
+`continue-on-error: true` (added in S-001's PR to unblock merging while
+`/health`/`migrate-and-seed` didn't exist yet — see the comment above that
+line) now that the job can pass on its own merits.
 *Accept:* the deployed URL shows the health status from the deployed API.
 *Deps:* S-001, `MVP-SCOPE.md` preconditions all checked.
 
