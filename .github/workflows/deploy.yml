@@ -39,7 +39,11 @@ jobs:
       - name: Build and push image
         id: meta
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}-api:${{ github.sha }}
+          # GHCR/Docker image names must be all-lowercase — github.repository
+          # ("johanpearson/xG-Arcade") isn't, so build the tag from a
+          # lowercased copy rather than the raw repository name.
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${REPO_LOWER}-api:${{ github.sha }}"
           docker build -t "$IMAGE" -f backend/Dockerfile backend
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
