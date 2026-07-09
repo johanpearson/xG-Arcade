@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/implementation-document.md (§5 data model) — doc sync
+  for S-003 (database + EF Core baseline, REQ-109): reviewed the actual
+  `XGArcade.Data` entities/DbContext/migration against §5 and the
+  "Required indexes" table — all indexes match exactly (`Player.WikidataQid`
+  unique-filtered, `PlayerAttribute(AttributeType, AttributeValue)`,
+  `CountryDefinition`/`ClubDefinition`/`TrophyDefinition(Name)` unique).
+  Added a short note that `PlayerData`/`PlayerOverride`/`PlayerAttribute`
+  carry a cascade-delete FK to `Player.Id` (new in this story, not
+  previously documented) and why that's unlike ADR-0003's deliberate
+  Round→GridInstance FK omission — those three live inside the same
+  component (COMP-06) as `Player`, so there's no boundary reason to leave
+  them unconstrained. No architecture-document.md change: COMP-06's
+  boundary rule 1 and the CategoryValueRepository/PlayerStoreRepository
+  split already match what's built (repositories are the concrete
+  realization of an already-documented boundary, not a new one) — checked
+  against `ICategoryValueRepository`/`IPlayerStoreRepository`'s own doc
+  comments and the REQ109-named tests in `XGArcade.Data.Tests`. No
+  requirements-document.md change: REQ-109's acceptance criteria (values
+  come only from the reference tables; a null QID isn't an error) are
+  still accurate as the full/long-term requirement — the doc's existing
+  "this document describes the full system, not what's being built now"
+  note (implementation-document.md, top) plus MVP-SCOPE.md's already-explicit
+  "no `ApiFootballTeamId` needed for Tier 0 at all" already cover
+  `ClubDefinition`'s Tier-0-vs-Tier-1 scoping, so no duplicate note was
+  needed there. No new ADR — FK constraints and the repository-per-component
+  split are normal implementation detail, not a decision that could
+  reasonably have gone another way in a way worth recording (already
+  confirmed by architecture-reviewer/code-reviewer on the story's PR).
+
 - 2026-07-09 — docs/requirements-document.md (REQ-606), docs/architecture-document.md
   (§7 cross-cutting concerns), MVP-SCOPE.md, docs/backlog.md, infra/README.md,
   NOTES.md — doc sync for S-002 (trivial end-to-end slice: `GET /health` +

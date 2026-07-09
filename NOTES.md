@@ -44,17 +44,6 @@ this** (e.g. `implementation-document.md` §4's planned typed API client,
 just re-run `dotnet add package Microsoft.AspNetCore.OpenApi` and assume it
 still works.
 
-### 2026-07-09 — migrate-and-seed is a no-op stub until S-003 (S-002)
-`ci.yml`'s e2e-tests job runs `dotnet run -- migrate-and-seed` before
-starting the API, but `XGArcade.Data`'s EF Core context/migrations don't
-exist until S-003. `Program.cs` special-cases `args is ["migrate-and-seed"]`
-to print a message and exit 0 rather than start Kestrel — this is what
-stops S-001's original problem (that exact command hanging forever, since
-`dotnet run -- migrate-and-seed` used to just start the normal server and
-never return) from coming back. **When S-003 lands**, replace the stub body
-with the real migration/seed call — don't leave it silently doing nothing
-once there's something for it to do.
-
 ### 2026-07-09 — GITHUB_TOKEN as the Container App's GHCR registry password breaks on cold start
 After every other deploy.yml blocker was cleared (lowercase tag, Bicep
 decorators, region, provider registration) and `deploy-infra` finally

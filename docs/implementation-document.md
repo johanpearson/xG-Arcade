@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.21"
+version: "0.22"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.21 · 2026-07-09
+Version 0.22 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -203,6 +203,12 @@ public class Player
     public string WikidataQid { get; set; }
 }
 
+// PlayerData, PlayerOverride, and PlayerAttribute below each carry a
+// foreign key to Player.Id with cascade delete. Unlike Round's deliberate
+// FK omission toward GridInstance (ADR-0003, a cross-component boundary),
+// these three live inside the same component (COMP-06) as Player, so
+// there's no boundary reason to leave them unconstrained — a row pointing
+// at a nonexistent Player is just bad data.
 public class PlayerData          // raw, per source
 {
     public Guid Id { get; set; }
