@@ -10,6 +10,14 @@ Bicep templates for the Azure resources described in
 - Backend API as a Container App, Consumption plan, pulling from GHCR (`backend-container-app.bicep`)
 - Frontend as a Static Web App, Free tier (`static-web-app.bicep`)
 
+**Two regions, not one:** everything above lives in `swedencentral` (the
+`location` parameter) except the Static Web App, which uses its own
+`staticWebAppLocation` parameter (default `westeurope`) — `Microsoft.Web/staticSites`
+only supports a small fixed region list (`centralus`/`eastus2`/`westus2`/`westeurope`/`eastasia`
+as of writing) that `swedencentral` isn't on. Discovered by an actual failed
+deployment (`LocationNotAvailableForResourceType`), not anticipated in
+advance — `westeurope` was picked as the closest supported region to Sweden.
+
 ## What's NOT provisioned here (deliberately)
 
 - Supabase (Postgres + Auth) — provisioned via the Supabase dashboard/CLI,
