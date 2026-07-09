@@ -13,4 +13,17 @@
     <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Pinned to match XGArcade.Data's version explicitly (Program.cs calls
+         AddDbContext/UseNpgsql directly) — avoids NuGet resolving a lower
+         transitive floor for this project than what XGArcade.Data itself
+         builds against. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
+  </ItemGroup>
+
 </Project>
