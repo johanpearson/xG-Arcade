@@ -1,10 +1,27 @@
+using Microsoft.EntityFrameworkCore;
+using XGArcade.Data;
+using XGArcade.Data.Repositories;
+
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
-// server start) used by ci.yml's local E2E stack. Today it's a no-op stub —
-// there's no EF Core context or migration to run until S-003 — but the verb
-// exists now so the workflow step it backs is real, not commented out.
+// server start) used by ci.yml's local E2E stack. Applies pending EF Core
+// migrations against ConnectionStrings:Database; seeding reference data is
+// S-005's job (still a no-op here until that story lands).
 if (args is ["migrate-and-seed"])
 {
-    Console.WriteLine("migrate-and-seed: no migrations yet (XGArcade.Data lands in S-003) — nothing to do.");
+    var migrationConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var connectionString = migrationConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var optionsBuilder = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(connectionString);
+
+    await using var migrationDbContext = new XGArcadeDbContext(optionsBuilder.Options);
+    await migrationDbContext.Database.MigrateAsync();
+
+    Console.WriteLine("migrate-and-seed: migrations applied. Seeding lands in S-005 — nothing to seed yet.");
     return;
 }
 
@@ -23,6 +40,17 @@ builder.Services.AddCors(options =>
     // back to permissive.
     options.AddPolicy("Frontend", policy => policy.WithOrigins(corsAllowedOrigins).AllowAnyHeader().AllowAnyMethod());
 });
+
+var databaseConnectionString = builder.Configuration.GetConnectionString("Database")
+    ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+builder.Services.AddDbContext<XGArcadeDbContext>(options =>
+    options.UseNpgsql(databaseConnectionString));
+
+// COMP-06 (Data.PlayerStore) — the only path to category/player data;
+// see architecture-document.md boundary rule 1.
+builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
+builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
 builder.Services.AddControllers();
 
