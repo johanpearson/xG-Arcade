@@ -56,7 +56,15 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Deploy Bicep (Tier 0's one environment — dev naming)
+        # corsAllowedOrigin is blank until DEV_FRONTEND_HOSTNAME is filled in
+        # post-first-deploy (infra/README.md) — same chicken-and-egg shape as
+        # DEV_BACKEND_HOSTNAME/the static web app token. Blank means CORS
+        # allows nothing, which is safe (not a functional break) until then.
         run: |
+          CORS_ORIGIN=""
+          if [ -n "${{ secrets.DEV_FRONTEND_HOSTNAME }}" ]; then
+            CORS_ORIGIN="https://${{ secrets.DEV_FRONTEND_HOSTNAME }}"
+          fi
           az deployment group create \
             --resource-group ${{ secrets.DEV_AZURE_RESOURCE_GROUP }} \
             --template-file infra/bicep/main.bicep \
@@ -65,7 +73,8 @@ jobs:
                          registryUsername=${{ github.actor }} \
                          registryPassword=${{ secrets.GITHUB_TOKEN }} \
                          databaseConnectionString=${{ secrets.DEV_DATABASE_CONNECTION_STRING }} \
-                         supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }}
+                         supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }} \
+                         corsAllowedOrigin="$CORS_ORIGIN"
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -79,3 +88,13 @@ jobs:
           action: upload
           app_location: "frontend"
           output_location: "dist"
+        env:
+          # Same blank-until-first-deploy shape as deploy-infra's CORS origin
+          # (DEV_BACKEND_HOSTNAME is itself a post-deploy secret) — passed
+          # through to the Oryx build the action runs internally, so Vite
+          # bakes it into the built bundle as import.meta.env.VITE_API_BASE_URL.
+          # Blank means the deployed frontend calls its own origin instead of
+          # the API and /health won't resolve, same as an unset CORS origin
+          # means the API rejects the frontend — both need this secret set to
+          # actually work end-to-end, not just to deploy without erroring.
+          VITE_API_BASE_URL: ${{ secrets.DEV_BACKEND_HOSTNAME && format('https://{0}', secrets.DEV_BACKEND_HOSTNAME) || '' }}

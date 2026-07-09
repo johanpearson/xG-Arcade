@@ -134,7 +134,8 @@ Dev-specific:
 | `DEV_DATABASE_CONNECTION_STRING` | Dev Supabase Postgres connection string — also the "dev" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml` |
 | `DEV_SUPABASE_JWT_SECRET` | From the dev Supabase project's API settings |
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the dev Static Web App resource |
-| `DEV_BACKEND_HOSTNAME` / `DEV_FRONTEND_HOSTNAME` | Used by `ci.yml` for the test-data reset call and E2E test target |
+| `DEV_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints; also by Tier 1's `ci.yml` for the test-data reset call and E2E test target |
+| `DEV_FRONTEND_HOSTNAME` | Fed to `deploy.yml` as the backend's CORS-allowed origin (S-002) — the one real cross-environment coupling in an otherwise one-way deploy. Also used by Tier 1's `ci.yml` for the E2E test target |
 
 `GHCR_USERNAME`/`GHCR_TOKEN` are only needed for the manual first deploy
 below — the automated workflows use `github.actor`/`GITHUB_TOKEN` and

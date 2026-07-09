@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/requirements-document.md (REQ-606), docs/architecture-document.md
+  (§7 cross-cutting concerns), MVP-SCOPE.md, docs/backlog.md, infra/README.md,
+  NOTES.md — doc sync for S-002 (trivial end-to-end slice: `GET /health` +
+  frontend page, `migrate-and-seed` CLI stub, `ci.yml` e2e-tests restored to
+  its full Postgres-service/migrate-and-seed/wait-on-health form, CORS wired
+  end-to-end via `Cors:AllowedOrigins`/`Cors__AllowedOrigins` fed from a new
+  `corsAllowedOrigin` Bicep parameter and `DEV_FRONTEND_HOSTNAME`, plus a
+  post-review fix so `deploy.yml`'s frontend build also gets
+  `VITE_API_BASE_URL` from `DEV_BACKEND_HOSTNAME`). REQ-606 gained an
+  explicit CORS-restriction bullet — `implementation-document.md` §3's
+  security middleware pipeline already described CORS as realizing REQ-606,
+  and a code comment in `Program.cs` cited REQ-606 for its CORS policy, but
+  REQ-606's own acceptance criteria never said so; closed that gap rather
+  than inventing a new requirement. Added a matching CORS row to
+  `architecture-document.md` §7's cross-cutting concerns table for the same
+  reason — CORS is now actually implemented, not just described in the
+  pipeline diagram, and §7 had no row for it at all despite rows for every
+  other item in that same pipeline (transport security, rate limiting,
+  authorization, dependency scanning). No `implementation-document.md`
+  change: checked its tech-stack table, §3 pipeline diagram, §4 project
+  structure, §5 data model, and §7/§8 testing/CI descriptions individually
+  against the diff — all already accurate at the level of detail they
+  operate at (none name specific endpoints, and `/health`/`migrate-and-seed`
+  are infra plumbing, not product behavior, so no REQ was invented for
+  them either). MVP-SCOPE.md/docs/backlog.md/infra/README.md/NOTES.md
+  updates from the same iteration (DEV_FRONTEND_HOSTNAME precondition,
+  S-002 acceptance criteria, secrets table rows, migrate-and-seed-is-a-stub
+  and dotnet-SDK-unavailable-in-sandbox notes) were made by hand alongside
+  the code and verified correct/sufficient here, not redone. Also fixed
+  `requirements-document.md`'s in-body "Version 0.22 · 2026-07-07" header
+  line, left stale by the earlier hand-edit that only bumped the
+  frontmatter to 0.23/2026-07-09. REQ-606, no new ADR (CORS was already an
+  implemented-per-plan pipeline stage, not a new structural decision).
+
 - 2026-07-09 — docs/backlog.md (S-002 acceptance criteria) — `main`'s
   branch protection requires every `ci.yml` status check to pass with no
   bypass, but `e2e-tests` cannot pass in S-001's PR (needs `/health` and

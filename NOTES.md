@@ -44,29 +44,38 @@ this** (e.g. `implementation-document.md` §4's planned typed API client,
 just re-run `dotnet add package Microsoft.AspNetCore.OpenApi` and assume it
 still works.
 
-### 2026-07-09 — ci.yml's e2e-tests job is deliberately gutted until S-002 (S-001)
-`main`'s branch protection requires every status check to pass with no
-bypass — but `e2e-tests` structurally can't pass in S-001's PR, since it
-needs `/health` and a `migrate-and-seed` CLI verb that don't exist until
-S-002. Two things were tried and rejected before landing on the real fix:
-1. `timeout-minutes: 10` alone — turned an infinite hang (`dotnet run --
-   migrate-and-seed` ignores that arg and starts Kestrel via `app.Run()`,
-   which never returns) into a fast, clean timeout, but the job still
-   *failed*, so it still blocked merging.
-2. `continue-on-error: true` at the job level — doesn't change the
-   individual check run's own reported conclusion (branch protection
-   evaluates that directly, not the workflow run's aggregate result), so
-   it didn't unblock merging either. Confirmed empirically: the check
-   still showed `cancelled`/failed after adding this.
+### 2026-07-09 — migrate-and-seed is a no-op stub until S-003 (S-002)
+`ci.yml`'s e2e-tests job runs `dotnet run -- migrate-and-seed` before
+starting the API, but `XGArcade.Data`'s EF Core context/migrations don't
+exist until S-003. `Program.cs` special-cases `args is ["migrate-and-seed"]`
+to print a message and exit 0 rather than start Kestrel — this is what
+stops S-001's original problem (that exact command hanging forever, since
+`dotnet run -- migrate-and-seed` used to just start the normal server and
+never return) from coming back. **When S-003 lands**, replace the stub body
+with the real migration/seed call — don't leave it silently doing nothing
+once there's something for it to do.
 
-**What's actually in place now:** the Postgres service container,
-migrate-and-seed step, and Start-API/wait-on-`/health` step are commented
-out (not deleted) in `ci.yml`, with an inline comment marking exactly what
-to uncomment. `docs/backlog.md`'s S-002 entry has the restore step as an
-explicit acceptance-criteria item, so it can't be forgotten. Until then,
-`e2e-tests` only runs the frontend's placeholder Playwright test
-(`frontend/tests/e2e/app-loads.spec.ts`), which needs no backend at all —
-`playwright.config.ts`'s `webServer` boots the Vite dev server itself.
-**If you're implementing S-002:** uncomment those steps in `ci.yml`, add a
-real `/health`-wait loop, and delete this note and the one in `ci.yml`
-once the job passes on its own merits again.
+### 2026-07-09 — `dotnet run`'s launch profile overrides `ASPNETCORE_URLS` (S-002)
+`ci.yml`'s e2e-tests job set `ASPNETCORE_URLS: http://localhost:8080` as a
+step env var, but the API still bound to `:5028` and the health-wait curl
+loop timed out — confirmed via CI logs, not locally (see the next note).
+Cause: `dotnet run` without `--no-launch-profile` reads
+`Properties/launchSettings.json`'s `applicationUrl` and uses that in
+preference to an externally-set `ASPNETCORE_URLS`, even though the env var
+is already present in the process environment before `dotnet run` starts.
+Fixed by adding `--no-launch-profile` to the "Start API" step's `dotnet run`
+command. If a future workflow step starts the API via `dotnet run` and sets
+`ASPNETCORE_URLS`/`ASPNETCORE_HTTP_PORTS` to pick the port, add
+`--no-launch-profile` there too — this isn't a one-off, it'll bite any
+`dotnet run` invocation that also sets the port via env var.
+
+### 2026-07-09 — dotnet SDK isn't installable in this sandbox (S-002)
+This session's outbound network policy blocks `builds.dotnet.microsoft.com`
+(confirmed via the agent proxy's `/__agentproxy/status`, a 403 policy
+denial, not a transient failure) — `dotnet-install.sh` can't run here.
+`nuget.org` itself is reachable (used to verify package versions exist
+before pinning them), just not the SDK installer. Backend C# changes in
+this session were written and manually reviewed but never locally compiled
+or test-run; `ci.yml`'s `backend-tests`/`e2e-tests` jobs are the actual
+verification once pushed. If a future session hits the same wall, don't
+retry the download — this is an org policy boundary, not a flaky network.

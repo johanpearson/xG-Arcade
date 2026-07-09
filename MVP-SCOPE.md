@@ -108,8 +108,11 @@ reference to know if you're ready:
 - [ ] GitHub repo secrets set: `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/
   `AZURE_SUBSCRIPTION_ID`, `INTERNAL_JOB_TOKEN`, `DEV_AZURE_RESOURCE_GROUP`,
   `DEV_DATABASE_CONNECTION_STRING`, `DEV_SUPABASE_JWT_SECRET` (the last
-  two filled in after step 2's Supabase project exists; `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`
-  and `DEV_BACKEND_HOSTNAME` filled in after the first deploy)
+  two filled in after step 2's Supabase project exists; `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`,
+  `DEV_BACKEND_HOSTNAME`, and `DEV_FRONTEND_HOSTNAME` filled in after the
+  first deploy — the last of these is also what `deploy.yml` feeds to the
+  backend as its CORS-allowed origin, so the frontend can't actually reach
+  `/health` cross-origin until it's set; see `infra/README.md`)
 
 **Why Tier 0's one environment is named "dev," not "prod":** Tier 0 has no
 backups, no email confirmation, no legal docs, no alerting — it's
