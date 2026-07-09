@@ -8,6 +8,7 @@ namespace XGArcade.Api.Tests;
 // is named descriptively rather than REQ-prefixed.
 public class HealthEndpointTests
 {
+    // Always assigned in SetUp before any test body runs — null! is safe here.
     private WebApplicationFactory<Program> _factory = null!;
 
     [SetUp]

@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.14"
+version: "0.15"
 status: draft
-last_updated: 2026-07-04
+last_updated: 2026-07-09
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -357,6 +357,7 @@ GitHub Actions → Production database: pg_dump (full export)
 | Concern | Approach |
 |---|---|
 | Authentication | Delegated to Supabase Auth; backend validates JWTs on every request, does not manage passwords (see ADR-0004) |
+| CORS | Restricted to the known frontend origin(s) only, configured via environment variable, never a wildcard — enforced first in the middleware pipeline (before authorization), so an unrecognized origin is rejected regardless of any other check. No configured origin means the policy allows nothing rather than falling back to permissive (REQ-606; see `implementation-document.md` §3 for the full pipeline ordering) |
 | Authorization | Two roles at this stage: Player, Admin. Enforced at the API controller level via a policy/attribute, verified by an automated test per admin endpoint (REQ-606) |
 | Input validation | All user-supplied input is validated server-side (model validation / explicit checks), regardless of any client-side validation in the frontend (REQ-606) |
 | Rate limiting | Applied to sign-up, login, and confirmation-resend endpoints specifically, since these are the abuse-prone surface (REQ-606, REQ-704's resend cooldown) |

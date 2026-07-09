@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.22"
+version: "0.23"
 status: draft
-last_updated: 2026-07-04
+last_updated: 2026-07-09
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -705,6 +705,10 @@ its own explicit opt-in separate from this one, not be folded into it.
   known-high/critical severity issues
 - Sign-up and login endpoints apply rate limiting per IP/account to reduce
   brute-force and account-enumeration risk (see REQ-701's enumeration note)
+- Cross-origin requests are restricted via CORS to the known frontend
+  origin(s) only — never a wildcard — matching `architecture-document.md`
+  §3's security middleware pipeline, which already described this as part
+  of what "realizes REQ-606" before this bullet made it explicit here
 
 **REQ-607 – Performance baseline**
 - Leaderboard queries (REQ-404) must be paginated; the API must never
