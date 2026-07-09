@@ -69,6 +69,35 @@ command. If a future workflow step starts the API via `dotnet run` and sets
 `--no-launch-profile` there too — this isn't a one-off, it'll bite any
 `dotnet run` invocation that also sets the port via env var.
 
+### 2026-07-09 — `deploy.yml`'s image tag broke on the repo's mixed-case name
+First real run of `deploy.yml` against actual Azure secrets (after PR #8/
+S-002 merged to `main`) failed immediately in `build-and-push-backend`:
+`docker build` rejected `ghcr.io/johanpearson/xG-Arcade-api:<sha>` with
+"repository name must be lowercase". `${{ github.repository }}` returns the
+repo's actual-case name (`xG-Arcade`, capital G/A) — GHCR/Docker image names
+must be all-lowercase. Present since S-001 first wrote this workflow but
+never caught, since this was the first run with real secrets (github.com
+push-triggered deploy.yml runs on public PRs always execute regardless of
+secrets, but silently no-op/fail early on missing Azure creds before
+reaching the build step — so this specific failure was invisible until
+Azure OIDC secrets existed). Fixed by lowercasing a copy of
+`github.repository` before building the tag. **If a future workflow
+composes a GHCR/Docker tag from `github.repository` directly, lowercase it
+first** — the repo name will very likely never change case, but nothing
+stops a future repo rename or a copy-paste into a new workflow from hitting
+this again.
+
+### 2026-07-09 — `deploy-frontend`'s missing deployment_token was expected, not a bug
+Same `deploy.yml` run also failed `deploy-frontend` with "deployment_token
+was not provided" — this is correct, not a regression: `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`
+is a post-first-deploy secret (`infra/README.md`), and the Static Web App
+resource it belongs to doesn't exist until `deploy-infra` succeeds at least
+once — which itself was blocked by the lowercase bug above. Once
+`deploy-infra` runs successfully, grab the token + `DEV_BACKEND_HOSTNAME`/
+`DEV_FRONTEND_HOSTNAME` from the new Azure resources and set them as
+secrets — `deploy-frontend` will keep failing on every run until then, by
+design, not by accident.
+
 ### 2026-07-09 — dotnet SDK isn't installable in this sandbox (S-002)
 This session's outbound network policy blocks `builds.dotnet.microsoft.com`
 (confirmed via the agent proxy's `/__agentproxy/status`, a 403 policy
