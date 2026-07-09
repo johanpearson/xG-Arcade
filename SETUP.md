@@ -36,6 +36,11 @@ which is exactly what ADR-0006 needs (dev + prod).
 3. From Project Settings on whichever project(s) you've created:
    - **Connection string** (Settings → Database) — save it
    - **JWT secret** (Settings → API) — save it
+   - **Project URL** and **anon/public key** (Settings → API) — save both;
+     the backend calls Supabase Auth's REST API directly to mediate
+     signup/login (ADR-0013), rather than the frontend calling Supabase
+     itself. The anon key is publishable by Supabase's own design (safe in
+     a frontend bundle too), not a true secret
 4. Don't touch Auth/SMTP settings yet — that needs Resend first (step 3)
 
 ## 3. Resend (email)
@@ -131,6 +136,7 @@ specific is prefixed `PROD_` or `DEV_`, nothing else):
 | `DEV_AZURE_RESOURCE_GROUP` | Step 5 (`xg-arcade-dev-rg`) |
 | `DEV_DATABASE_CONNECTION_STRING` | Step 2, your one Supabase project |
 | `DEV_SUPABASE_JWT_SECRET` | Step 2, your one Supabase project |
+| `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY` | Step 2, your one Supabase project (Settings → API) |
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | Comes from step 7, add it after |
 | `DEV_BACKEND_HOSTNAME` / `DEV_FRONTEND_HOSTNAME` | Comes from step 7, add it after |
 
@@ -141,6 +147,7 @@ specific is prefixed `PROD_` or `DEV_`, nothing else):
 | `PROD_AZURE_RESOURCE_GROUP` | `xg-arcade-prod-rg`, created at Tier 1 |
 | `PROD_DATABASE_CONNECTION_STRING` | A second Supabase project, created at Tier 1 |
 | `PROD_SUPABASE_JWT_SECRET` | Same second Supabase project |
+| `PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY` | Same second Supabase project (Settings → API) |
 | `PROD_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the prod deploy, once it exists |
 | `PROD_BACKEND_HOSTNAME` | From the prod deploy, once it exists |
 
@@ -158,7 +165,9 @@ az deployment group create \
                registryUsername=<your-github-username> \
                registryPassword=<a-github-PAT-with-read:packages> \
                databaseConnectionString=<dev-supabase-connection-string> \
-               supabaseJwtSecret=<dev-supabase-jwt-secret>
+               supabaseJwtSecret=<dev-supabase-jwt-secret> \
+               supabaseUrl=<dev-supabase-url> \
+               supabaseAnonKey=<dev-supabase-anon-key>
 ```
 
 And once for **prod** (Tier 1 — skip for MVP; same command, swap resource
@@ -173,7 +182,9 @@ az deployment group create \
                registryUsername=<your-github-username> \
                registryPassword=<a-github-PAT-with-read:packages> \
                databaseConnectionString=<prod-supabase-connection-string> \
-               supabaseJwtSecret=<prod-supabase-jwt-secret>
+               supabaseJwtSecret=<prod-supabase-jwt-secret> \
+               supabaseUrl=<prod-supabase-url> \
+               supabaseAnonKey=<prod-supabase-anon-key>
 ```
 
 This won't fully succeed until `backend/Dockerfile` actually exists and an

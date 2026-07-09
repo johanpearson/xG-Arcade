@@ -434,6 +434,7 @@ new ADR that references the old one.
 | ADR-0010 | Live verification at guess time, sharing the API budget with grid generation | Accepted (budget model superseded by ADR-0011) |
 | ADR-0011 | Wikidata-first waterfall for live lookups; API-Football as fallback only | Accepted |
 | ADR-0012 | Category value reference tables, each with resolved external IDs (Wikidata QID / API-Football team ID) | Accepted |
+| ADR-0013 | Backend-mediated signup/login (proxying Supabase Auth's REST API), not frontend-direct | Accepted |
 
 ## 11. Glossary
 
