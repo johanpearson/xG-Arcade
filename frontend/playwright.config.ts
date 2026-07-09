@@ -5,7 +5,9 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
-  reporter: 'html',
+  // CI additionally gets a JUnit file so ci.yml can publish a Checks-tab
+  // test report (dorny/test-reporter) alongside the usual HTML report.
+  reporter: process.env.CI ? [['html'], ['junit', { outputFile: 'test-results/e2e-junit.xml' }]] : 'html',
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
     trace: 'on-first-retry',

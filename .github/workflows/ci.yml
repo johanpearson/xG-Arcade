@@ -17,6 +17,13 @@ on:
   push:
     branches: [main]
 
+# dorny/test-reporter (all three jobs below) publishes a per-job Checks-tab
+# report from each test run's output file, so pass/fail/new/removed tests
+# are visible without opening logs — needs checks: write to create it.
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
@@ -28,6 +35,17 @@ jobs:
       - run: dotnet restore backend/XGArcade.sln
       - run: dotnet build backend/XGArcade.sln --no-restore --configuration Release
       - run: dotnet test backend/XGArcade.sln --no-build --configuration Release --logger "trx"
+      - name: Publish backend test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Backend test results
+          path: "backend/**/TestResults/*.trx"
+          reporter: dotnet-trx
+          # false: publish as its own Checks-tab entry (visible directly on
+          # the PR) instead of dorny's default of a job-summary-only report,
+          # which only shows up buried in the specific workflow run's page.
+          use-actions-summary: false
 
   frontend-unit-tests:
     runs-on: ubuntu-latest
@@ -43,6 +61,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test
+      - name: Publish frontend unit test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Frontend unit test results
+          path: "frontend/test-results/vitest-junit.xml"
+          reporter: java-junit
+          use-actions-summary: false
 
   e2e-tests:
     runs-on: ubuntu-latest
@@ -68,6 +94,29 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Get installed Playwright version
+        id: playwright-version
+        working-directory: frontend
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - name: Install Playwright's Chromium (+ OS deps)
+        working-directory: frontend
+        # Only chromium — playwright.config.ts doesn't run firefox/webkit
+        # projects, so installing them would just be wasted download time.
+        # --with-deps always reinstalls OS packages even on a browser-binary
+        # cache hit (these runners are fresh VMs each run, so apt state
+        # never persists) — but `playwright install` itself skips the slow
+        # binary download once the cached version already matches, which is
+        # most of what made this step slow.
+        run: npx playwright install --with-deps chromium
       - name: Migrate + seed local database
         run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
         env:
@@ -87,12 +136,18 @@ jobs:
           Cors__AllowedOrigins: "http://localhost:5173"
       - name: E2E (Playwright against local stack)
         # playwright.config uses its `webServer` option to boot the Vite dev
-        # server on :5173 itself — only the API needs manual starting above
+        # server on :5173 itself — only the API needs manual starting above.
+        # Dependencies/browser already installed above.
         working-directory: frontend
-        run: |
-          npm ci
-          npx playwright install --with-deps
-          npm run test:e2e
+        run: npm run test:e2e
         env:
           E2E_BASE_URL: http://localhost:5173
           VITE_API_BASE_URL: http://localhost:8080
+      - name: Publish E2E test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: E2E test results
+          path: "frontend/test-results/e2e-junit.xml"
+          reporter: java-junit
+          use-actions-summary: false
