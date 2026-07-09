@@ -12,11 +12,21 @@ Bicep templates for the Azure resources described in
 
 **Two regions, not one:** everything above lives in `swedencentral` (the
 `location` parameter) except the Static Web App, which uses its own
-`staticWebAppLocation` parameter (default `westeurope`) — `Microsoft.Web/staticSites`
+`staticWebAppLocation` parameter (default `eastus2`) — `Microsoft.Web/staticSites`
 only supports a small fixed region list (`centralus`/`eastus2`/`westus2`/`westeurope`/`eastasia`
 as of writing) that `swedencentral` isn't on. Discovered by an actual failed
 deployment (`LocationNotAvailableForResourceType`), not anticipated in
-advance — `westeurope` was picked as the closest supported region to Sweden.
+advance. `westeurope` (the only EU option on that list) was tried first as
+the closest supported region to Sweden, but Azure is currently rejecting
+new resources there entirely (a capacity restriction, not specific to this
+subscription — see `aka.ms/locationineligible`) — `eastus2` is a deliberate
+Tier 0 tradeoff to unblock deployment now, not a considered data-residency
+decision. Only the *build/API service* location is affected; the frontend's
+served static assets sit behind a global CDN regardless, and no personal
+data is stored by this resource either way (that's Supabase, unaffected by
+this choice). Revisit alongside `MVP-SCOPE.md`'s other pre-launch bright
+lines (backups, legal docs) — retry `westeurope` once Azure's restriction
+there lifts, if EU-only hosting matters by then.
 
 ## What's NOT provisioned here (deliberately)
 

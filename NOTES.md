@@ -74,6 +74,23 @@ region change is considered, check each resource type's actual supported-region
 list first** — Azure resource types don't all support the same regions, and
 this won't be the last one to have a short list.
 
+### 2026-07-09 — westeurope itself was (temporarily) rejecting new resources
+The `staticWebAppLocation: westeurope` fix above compiled fine but then hit
+a *second*, different failure on the next deploy: `RequestDisallowedByAzure`
+— "The selected region is currently not accepting new customers" (see
+`aka.ms/locationineligible`). This is an Azure-wide capacity restriction on
+the region itself, not a subscription-specific trust/verification issue and
+not something a code fix resolves — confirmed with the user before acting,
+since EU-only hosting (`westeurope` was the only EU option in Static Web
+Apps' short region list) vs. immediate availability is a real tradeoff, not
+a bug. Decision: switch to `eastus2` now to unblock Tier 0 testing, revisit
+before public launch. Only the build/API service's location is affected;
+served static assets are behind a global CDN regardless, and this resource
+never stores personal data itself (Supabase does, unaffected by this
+choice) — judged not to need a `docs/legal/*.md` update on that basis, but
+worth re-checking if that reasoning ever stops holding (e.g. if a future
+change adds server-side rendering or logging to this resource).
+
 ### 2026-07-09 — Bicep decorator syntax errors blocked deploy-infra
 Once the lowercase image-tag bug was fixed, `deploy-infra` reached the
 actual `az deployment group create` step for the first time and failed
