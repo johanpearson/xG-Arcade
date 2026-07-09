@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.15"
+version: "0.16"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.15 · 2026-07-09
+Version 0.16 · 2026-07-09
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -269,6 +269,22 @@ Admin → Web Frontend (admin view) → Backend API: approve/correct unverified 
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 
+**Tier 0 status (S-004, ADR-0013):** only the flow's first leg is built —
+backend-mediated signup/login, not the full confirmation loop described
+below. `POST /auth/signup`/`POST /auth/login` on `XGArcade.Api`'s
+`AuthController` proxy Supabase Auth's REST API directly (the frontend
+never calls Supabase itself), and `GET /auth/me` is protected by JWT
+bearer middleware validated against `Auth:SupabaseJwtSecret`. Supabase's
+confirm-email requirement is turned off for Tier 0 (per `MVP-SCOPE.md`), so
+`Core.Users`' `User.EmailConfirmed` is hardcoded `true` at creation time —
+nothing yet sets it to `false` or checks it. The diagram below is the
+full/long-term design; the "Player clicks link OR enters code" leg, the
+Resend confirmation email itself, and the REQ-702 unconfirmed-account
+block are **not yet built** (REQ-702–705 remain deferred). See ADR-0013
+for the backend-mediation decision and its `Auth:Mode=local-e2e` test-only
+branch (gated to `ASPNETCORE_ENVIRONMENT=Development`, never active
+otherwise).
+
 ```
 Player → Web Frontend → Backend API: POST create account
   → Auth provider (Supabase Auth): create unconfirmed identity
@@ -356,7 +372,7 @@ GitHub Actions → Production database: pg_dump (full export)
 
 | Concern | Approach |
 |---|---|
-| Authentication | Delegated to Supabase Auth; backend validates JWTs on every request, does not manage passwords (see ADR-0004) |
+| Authentication | Delegated to Supabase Auth; backend validates JWTs on every request, does not manage passwords (see ADR-0004). Signup/login are backend-mediated — `XGArcade.Api` proxies Supabase Auth's REST API rather than the frontend calling it directly, so REQ-701's checkbox clause is enforced server-side before any identity is created (see ADR-0013) |
 | CORS | Restricted to the known frontend origin(s) only, configured via environment variable, never a wildcard — enforced first in the middleware pipeline (before authorization), so an unrecognized origin is rejected regardless of any other check. No configured origin means the policy allows nothing rather than falling back to permissive (REQ-606; see `implementation-document.md` §3 for the full pipeline ordering) |
 | Authorization | Two roles at this stage: Player, Admin. Enforced at the API controller level via a policy/attribute, verified by an automated test per admin endpoint (REQ-606) |
 | Input validation | All user-supplied input is validated server-side (model validation / explicit checks), regardless of any client-side validation in the frontend (REQ-606) |

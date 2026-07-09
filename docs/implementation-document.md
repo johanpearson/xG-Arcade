@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.22"
+version: "0.23"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.22 · 2026-07-09
+Version 0.23 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -141,6 +141,29 @@ HTTPS redirection
   → Authorization policy check (Player vs Admin, per-endpoint)
   → Controller action
 ```
+
+**Tier 0 status (S-004):** only HTTPS redirection, CORS, and JWT validation
+are actually wired in `Program.cs` today, in that order
+(`UseHttpsRedirection` → `UseCors("Frontend")` → `UseAuthentication` →
+`UseAuthorization` → `MapControllers`). Rate limiting and admin
+authorization are not yet implemented — no admin endpoints exist yet
+(`Admin__UserIds`-based authorization is S-012's job, per `docs/backlog.md`)
+and no story has wired ASP.NET Core's rate limiting middleware yet, so the
+pipeline above remains the full/long-term target, not current behavior for
+those two steps.
+
+JWT validation specifics as actually implemented: `AddJwtBearer` sets
+`MapInboundClaims = false` (keeps claim types as Supabase issues them —
+`sub`, `role`, etc. — instead of ASP.NET Core's legacy remap to long
+XML-SOAP claim URIs), validates the issuer as `{Supabase:Url}/auth/v1` and
+the audience as `"authenticated"`, and signs against
+`Auth:SupabaseJwtSecret` (HS256). A test-only branch,
+`Auth:Mode=local-e2e`, swaps in a locally-signed JWT (`LocalE2EAuth`'s
+fixed signing key/issuer/audience) instead of Supabase's — gated by
+`builder.Environment.IsDevelopment()` checked directly in `Program.cs`
+alongside the config flag, never by the config flag alone (the same
+never-guarded-only-by-config discipline ADR-0006 established for COMP-09).
+See ADR-0013.
 
 `Testing.SeedManager` (COMP-09) endpoints are only added to the routing
 table when `ASPNETCORE_ENVIRONMENT != Production`, checked in `Program.cs`
@@ -728,11 +751,21 @@ manual override (S-012), the same mechanism already built for this class
 of gap. Don't build speculative additional filtering before real data
 shows how often this actually happens.
 
-**Supabase** — not accessed as a REST API from the backend at all for
+**Supabase (data)** — not accessed as a REST API from the backend for
 normal data access; it's a standard Postgres connection string used
 through EF Core/Npgsql like any other Postgres database. Supabase's own
 REST/GraphQL layer (PostgREST) isn't part of this system's design — see
 `implementation-document.md` §1 for why direct Postgres access was chosen.
+
+**Supabase Auth (identity), added S-004** — unlike the data path above,
+this one genuinely is called as a REST API from the backend: `SupabaseAuthClient`
+(`XGArcade.Core/Auth/`) calls `POST {Supabase:Url}/auth/v1/signup` and
+`POST {Supabase:Url}/auth/v1/token?grant_type=password`, both with an
+`apikey`/`Authorization: Bearer` header set to `Supabase:AnonKey` (a
+publishable client key by Supabase's own design, not a secret in the same
+sense as the database connection string or JWT signing secret). This is
+the backend-mediated signup/login decision — see ADR-0013 — rather than
+the frontend calling Supabase Auth's JS client directly.
 
 ## 7. Testing strategy
 
