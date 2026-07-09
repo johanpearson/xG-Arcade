@@ -136,4 +136,14 @@ public class WikidataClientTests
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryCountryClubIntersectionAsync("France", ClubQid));
     }
+
+    [Test]
+    public void QueryCountryClubIntersectionAsync_RejectsNonQidClubValue()
+    {
+        // Separate branch from the country check above (two independent
+        // `if` guards in WikidataClient) — not guaranteed by symmetry.
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryCountryClubIntersectionAsync(CountryQid, "Arsenal"));
+    }
 }

@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace XGArcade.DataSync.Wikidata;
 
@@ -9,8 +11,14 @@ namespace XGArcade.DataSync.Wikidata;
 // from the REST clients elsewhere in DataSync.Clients (implementation-
 // document.md §6a). Injected via HttpClient with BaseAddress
 // https://query.wikidata.org/ (see Program.cs's AddHttpClient registration).
-public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeout = null) : IWikidataClient
+public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeout = null, ILogger<WikidataClient>? logger = null) : IWikidataClient
 {
+    // Optional param (like queryTimeout) so tests can construct a client
+    // without wiring DI's logging; falls back to a real ILogger<T> in
+    // production via the AddHttpClient<IWikidataClient, WikidataClient>
+    // registration in Program.cs, which supplies one automatically.
+    private readonly ILogger<WikidataClient> _logger = logger ?? NullLogger<WikidataClient>.Instance;
+
     // ADR-0011: "a reasonable timeout (e.g. 5-10s)" — WDQS is documented as
     // measurably slower under current load; a timeout here is what makes a
     // Wikidata miss/timeout fall through to the fallback source (Tier 1)
@@ -62,6 +70,15 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
+            // Deliberately still returns [] rather than throwing (REQ-103's
+            // "never block grid generation on a Wikidata failure" contract),
+            // but a non-success status or unparseable body is just as likely
+            // to be a bad SPARQL query (a real bug) as a transient WDQS
+            // outage — log so that distinction is visible during development
+            // instead of silently looking identical to a genuine no-match.
+            _logger.LogWarning(ex,
+                "Wikidata SPARQL query failed for country={CountryQid} club={ClubQid}; treating as no match.",
+                countryWikidataQid, clubWikidataQid);
             return [];
         }
     }
