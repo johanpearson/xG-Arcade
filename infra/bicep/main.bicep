@@ -5,8 +5,11 @@
 
 targetScope = 'resourceGroup'
 
-@description('Azure region for all resources')
+@description('Azure region for all resources except the Static Web App (see staticWebAppLocation) — Microsoft.Web/staticSites supports a much smaller region list than everything else this template deploys')
 param location string = resourceGroup().location
+
+@description('Azure region for the Static Web App specifically. Static Web Apps only supports a small fixed region list (currently centralus/eastus2/westus2/westeurope/eastasia) — swedencentral isn\'t on it, so it can\'t share the default "location" param above. westeurope is the closest supported region to Sweden/most of the EU.')
+param staticWebAppLocation string = 'westeurope'
 
 @description('Base name used to derive all resource names, e.g. "xg-arcade"')
 param appName string
@@ -64,7 +67,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
 module staticWebApp 'modules/static-web-app.bicep' = {
   name: 'staticWebApp'
   params: {
-    location: location
+    location: staticWebAppLocation
     appName: appName
     environmentTag: environmentTag
   }

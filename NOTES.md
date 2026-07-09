@@ -55,6 +55,25 @@ never return) from coming back. **When S-003 lands**, replace the stub body
 with the real migration/seed call — don't leave it silently doing nothing
 once there's something for it to do.
 
+### 2026-07-09 — Static Web Apps doesn't support swedencentral
+Once the Bicep decorator syntax errors above were fixed, `deploy-infra`
+compiled cleanly and actually called `az deployment group create` for the
+first time — which failed with `LocationNotAvailableForResourceType`:
+`Microsoft.Web/staticSites` doesn't support `swedencentral` at all (its
+supported list is `centralus`/`eastus2`/`westus2`/`westeurope`/`eastasia`).
+Everything else in the template (Container Apps environment, the backend
+Container App) does support `swedencentral` — only the Static Web App
+resource type has this restriction. The module's own doc comment
+(`static-web-app.bicep`) had already flagged "Static Web Apps only supports
+a subset of regions" as a known caveat, but `main.bicep` still passed it
+the same shared `location` as everything else — the caveat was documented
+but never actually acted on. Fixed by giving `main.bicep` a second
+parameter, `staticWebAppLocation` (default `westeurope`, the closest
+supported region to Sweden), used only for that one module. **If a future
+region change is considered, check each resource type's actual supported-region
+list first** — Azure resource types don't all support the same regions, and
+this won't be the last one to have a short list.
+
 ### 2026-07-09 — Bicep decorator syntax errors blocked deploy-infra
 Once the lowercase image-tag bug was fixed, `deploy-infra` reached the
 actual `az deployment group create` step for the first time and failed
