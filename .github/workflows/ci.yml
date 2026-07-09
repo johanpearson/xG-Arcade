@@ -42,6 +42,10 @@ jobs:
           name: Backend test results
           path: "backend/**/TestResults/*.trx"
           reporter: dotnet-trx
+          # false: publish as its own Checks-tab entry (visible directly on
+          # the PR) instead of dorny's default of a job-summary-only report,
+          # which only shows up buried in the specific workflow run's page.
+          use-actions-summary: false
 
   frontend-unit-tests:
     runs-on: ubuntu-latest
@@ -64,6 +68,7 @@ jobs:
           name: Frontend unit test results
           path: "frontend/test-results/vitest-junit.xml"
           reporter: java-junit
+          use-actions-summary: false
 
   e2e-tests:
     runs-on: ubuntu-latest
@@ -145,3 +150,4 @@ jobs:
           name: E2E test results
           path: "frontend/test-results/e2e-junit.xml"
           reporter: java-junit
+          use-actions-summary: false
