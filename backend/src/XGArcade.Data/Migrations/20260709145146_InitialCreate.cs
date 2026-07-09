@@ -38,53 +38,6 @@ namespace XGArcade.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlayerAttributes",
-                columns: table => new
-                {
-                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
-                    AttributeType = table.Column<string>(type: "text", nullable: false),
-                    AttributeValue = table.Column<string>(type: "text", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PlayerAttributes", x => new { x.PlayerId, x.AttributeType, x.AttributeValue });
-                });
-
-            migrationBuilder.CreateTable(
-                name: "PlayerData",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Field = table.Column<string>(type: "text", nullable: false),
-                    Value = table.Column<string>(type: "text", nullable: false),
-                    Source = table.Column<string>(type: "text", nullable: false),
-                    Confidence = table.Column<string>(type: "text", nullable: false),
-                    SyncedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PlayerData", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "PlayerOverrides",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Field = table.Column<string>(type: "text", nullable: false),
-                    Value = table.Column<string>(type: "text", nullable: false),
-                    Reason = table.Column<string>(type: "text", nullable: false),
-                    LockedByAdminId = table.Column<Guid>(type: "uuid", nullable: false),
-                    LockedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PlayerOverrides", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Players",
                 columns: table => new
                 {
@@ -111,6 +64,71 @@ namespace XGArcade.Data.Migrations
                     table.PrimaryKey("PK_TrophyDefinitions", x => x.Id);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "PlayerAttributes",
+                columns: table => new
+                {
+                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    AttributeType = table.Column<string>(type: "text", nullable: false),
+                    AttributeValue = table.Column<string>(type: "text", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerAttributes", x => new { x.PlayerId, x.AttributeType, x.AttributeValue });
+                    table.ForeignKey(
+                        name: "FK_PlayerAttributes_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlayerData",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Field = table.Column<string>(type: "text", nullable: false),
+                    Value = table.Column<string>(type: "text", nullable: false),
+                    Source = table.Column<string>(type: "text", nullable: false),
+                    Confidence = table.Column<string>(type: "text", nullable: false),
+                    SyncedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerData", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PlayerData_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlayerOverrides",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PlayerId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Field = table.Column<string>(type: "text", nullable: false),
+                    Value = table.Column<string>(type: "text", nullable: false),
+                    Reason = table.Column<string>(type: "text", nullable: false),
+                    LockedByAdminId = table.Column<Guid>(type: "uuid", nullable: false),
+                    LockedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlayerOverrides", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_PlayerOverrides_Players_PlayerId",
+                        column: x => x.PlayerId,
+                        principalTable: "Players",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_ClubDefinitions_Name",
                 table: "ClubDefinitions",
@@ -127,6 +145,16 @@ namespace XGArcade.Data.Migrations
                 name: "IX_PlayerAttributes_AttributeType_AttributeValue",
                 table: "PlayerAttributes",
                 columns: new[] { "AttributeType", "AttributeValue" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlayerData_PlayerId",
+                table: "PlayerData",
+                column: "PlayerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PlayerOverrides_PlayerId",
+                table: "PlayerOverrides",
+                column: "PlayerId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Players_WikidataQid",
@@ -161,10 +189,10 @@ namespace XGArcade.Data.Migrations
                 name: "PlayerOverrides");
 
             migrationBuilder.DropTable(
-                name: "Players");
+                name: "TrophyDefinitions");
 
             migrationBuilder.DropTable(
-                name: "TrophyDefinitions");
+                name: "Players");
         }
     }
 }

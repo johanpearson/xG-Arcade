@@ -34,6 +34,26 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<PlayerAttribute>()
             .HasIndex(pa => new { pa.AttributeType, pa.AttributeValue });
 
+        // PlayerData/PlayerOverride/PlayerAttribute all live inside COMP-06
+        // alongside Player, so (unlike ADR-0003's deliberate cross-boundary
+        // FK omission) there's no reason to leave these unconstrained — a
+        // row pointing at a nonexistent PlayerId is just bad data.
+        modelBuilder.Entity<PlayerData>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pd => pd.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlayerOverride>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(po => po.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlayerAttribute>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pa => pa.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // (Name) unique per implementation-document.md §5 — grid generation
         // picks from these directly (REQ-109); also prevents an admin
         // accidentally adding the same value twice under different casing

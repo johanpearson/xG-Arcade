@@ -109,4 +109,34 @@ public class CategoryValueRepositoryTests
 
         Assert.That(countries.Select(c => c.Name), Is.EquivalentTo(new[] { "Iceland" }));
     }
+
+    [Test]
+    public async Task AddCountryAsync_PersistsRow_VisibleToGetCountriesAsync()
+    {
+        await _repository.AddCountryAsync(new CountryDefinition { Id = Guid.NewGuid(), Name = "Sweden", WikidataQid = "Q34" });
+
+        var countries = await _repository.GetCountriesAsync();
+
+        Assert.That(countries.Select(c => c.Name), Is.EquivalentTo(new[] { "Sweden" }));
+    }
+
+    [Test]
+    public async Task AddClubAsync_PersistsRow_VisibleToGetClubsAsync()
+    {
+        await _repository.AddClubAsync(new ClubDefinition { Id = Guid.NewGuid(), Name = "Ajax", WikidataQid = "Q81888" });
+
+        var clubs = await _repository.GetClubsAsync();
+
+        Assert.That(clubs.Select(c => c.Name), Is.EquivalentTo(new[] { "Ajax" }));
+    }
+
+    [Test]
+    public async Task AddTrophyAsync_PersistsRow_VisibleToGetTrophiesAsync()
+    {
+        await _repository.AddTrophyAsync(new TrophyDefinition { Id = Guid.NewGuid(), Name = "Copa América", IsTeamTrophy = true, WikidataQid = "Q207177" });
+
+        var trophies = await _repository.GetTrophiesAsync();
+
+        Assert.That(trophies.Select(t => t.Name), Is.EquivalentTo(new[] { "Copa América" }));
+    }
 }

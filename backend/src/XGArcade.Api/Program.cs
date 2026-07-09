@@ -41,8 +41,11 @@ builder.Services.AddCors(options =>
     options.AddPolicy("Frontend", policy => policy.WithOrigins(corsAllowedOrigins).AllowAnyHeader().AllowAnyMethod());
 });
 
+var databaseConnectionString = builder.Configuration.GetConnectionString("Database")
+    ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
 builder.Services.AddDbContext<XGArcadeDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Database")));
+    options.UseNpgsql(databaseConnectionString));
 
 // COMP-06 (Data.PlayerStore) — the only path to category/player data;
 // see architecture-document.md boundary rule 1.

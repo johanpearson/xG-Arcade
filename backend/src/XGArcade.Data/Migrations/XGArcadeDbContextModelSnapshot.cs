@@ -134,6 +134,8 @@ namespace XGArcade.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PlayerId");
+
                     b.ToTable("PlayerData");
                 });
 
@@ -166,6 +168,8 @@ namespace XGArcade.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PlayerId");
+
                     b.ToTable("PlayerOverrides");
                 });
 
@@ -191,6 +195,33 @@ namespace XGArcade.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("TrophyDefinitions");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerAttribute", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerData", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerOverride", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
