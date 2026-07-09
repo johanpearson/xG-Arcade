@@ -32,6 +32,12 @@ param databaseConnectionString string
 @secure()
 param supabaseJwtSecret string
 
+@description('Supabase project URL — see modules/backend-container-app.bicep for guidance.')
+param supabaseUrl string
+
+@secure()
+param supabaseAnonKey string
+
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
@@ -59,6 +65,8 @@ module backendApi 'modules/backend-container-app.bicep' = {
     registryPassword: registryPassword
     databaseConnectionString: databaseConnectionString
     supabaseJwtSecret: supabaseJwtSecret
+    supabaseUrl: supabaseUrl
+    supabaseAnonKey: supabaseAnonKey
     corsAllowedOrigin: corsAllowedOrigin
     minReplicas: minReplicas
   }

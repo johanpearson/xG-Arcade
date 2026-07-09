@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/requirements-document.md (REQ-701), docs/architecture-document.md
+  (§6.4, §7 cross-cutting concerns), docs/implementation-document.md (§3
+  security middleware pipeline, §6a external API shapes) — doc sync for
+  S-004 (backend-mediated signup/login + JWT middleware, ADR-0013).
+  REQ-701 gained a "Status: Partially implemented (Tier 0, S-004)" note —
+  only the 16+ checkbox clause is built and server-enforced; password
+  policy and enumeration-safe errors remain unimplemented (Supabase's own
+  errors pass through as-is), consistent with `MVP-SCOPE.md`/`docs/backlog.md`
+  S-004 scoping. Fixed §6.4's signup/confirmation flow, which still read as
+  if REQ-701–705 were fully built: added a Tier 0 status note (checkbox-only
+  signup/login via `AuthController`, confirm-email off, `User.EmailConfirmed`
+  hardcoded `true` at creation, REQ-702–705 not yet built) ahead of the
+  full/long-term flow diagram, which is unchanged. Added an ADR-0013
+  reference to §7's Authentication row alongside the existing ADR-0004
+  reference. Corrected §6a's Supabase paragraph, which claimed the backend
+  "is not accessed as a REST API from the backend at all" — true for data
+  access (EF Core/Npgsql), no longer true for Supabase Auth specifically,
+  which `SupabaseAuthClient` now calls directly per ADR-0013; split into two
+  paragraphs (data vs. auth) rather than editing the data claim itself.
+  Updated §3's security middleware pipeline with a "Tier 0 status" note:
+  only HTTPS redirection/CORS/JWT validation are actually wired in
+  `Program.cs` (rate limiting and admin authorization remain unbuilt, per
+  `docs/backlog.md`'s S-012 for the latter), plus the concrete JWT details
+  (`MapInboundClaims = false`, issuer/audience/secret sourcing, and the
+  `Auth:Mode=local-e2e` test-only branch gated by `IsDevelopment()`).
+  Confirmed §5's `User` entity already matched the built shape exactly — no
+  change needed there. No new ADR beyond the already-committed ADR-0013 (not
+  this pass's job) and no requirements-document.md acceptance-criteria text
+  changed — REQ-701–705's full definitions are unchanged, only how much of
+  REQ-701 is currently built.
+
 - 2026-07-09 — docs/implementation-document.md (§5 data model) — doc sync
   for S-003 (database + EF Core baseline, REQ-109): reviewed the actual
   `XGArcade.Data` entities/DbContext/migration against §5 and the

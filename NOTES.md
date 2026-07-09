@@ -182,13 +182,90 @@ once — which itself was blocked by the lowercase bug above. Once
 secrets — `deploy-frontend` will keep failing on every run until then, by
 design, not by accident.
 
-### 2026-07-09 — dotnet SDK isn't installable in this sandbox (S-002)
-This session's outbound network policy blocks `builds.dotnet.microsoft.com`
-(confirmed via the agent proxy's `/__agentproxy/status`, a 403 policy
-denial, not a transient failure) — `dotnet-install.sh` can't run here.
-`nuget.org` itself is reachable (used to verify package versions exist
-before pinning them), just not the SDK installer. Backend C# changes in
-this session were written and manually reviewed but never locally compiled
-or test-run; `ci.yml`'s `backend-tests`/`e2e-tests` jobs are the actual
-verification once pushed. If a future session hits the same wall, don't
-retry the download — this is an org policy boundary, not a flaky network.
+### 2026-07-09 — dotnet SDK install: `dotnet-install.sh`/Microsoft's CDN is blocked, `apt` works (correcting an earlier S-002 note)
+S-002's session hit `builds.dotnet.microsoft.com` returning a 403 policy
+denial via the agent proxy and concluded the SDK couldn't be installed at
+all in this sandbox, leaving backend changes locally uncompiled that
+session. That conclusion was too broad: `dotnet-install.sh` and every
+Microsoft CDN host tried (`dotnetcli.azureedge.net`,
+`download.visualstudio.microsoft.com`, `dotnetcli.blob.core.windows.net`)
+are indeed blocked, but Ubuntu's own apt repositories are not — `sudo
+apt-get update && sudo apt-get install -y dotnet-sdk-10.0` installs .NET 10
+cleanly (installs to `/usr/lib/dotnet`, `dotnet ef` needs `export
+PATH="$PATH:/root/.dotnet/tools"` after `dotnet tool install --global
+dotnet-ef`). `nuget.org` itself was already known-reachable; this just
+closes the gap on the SDK itself. **A future session in this sandbox should
+try `apt-get install dotnet-sdk-10.0` before assuming the SDK is
+unavailable** — S-004 (this story) built, tested, and locally ran the API
+end-to-end this way, including exercising it live with `curl`.
+
+### 2026-07-09 — EF Core `UseInMemoryDatabase` inside a WebApplicationFactory `AddDbContext` lambda needs the db name captured outside the lambda (S-004)
+`AddDbContext<T>(options => options.UseInMemoryDatabase(Guid.NewGuid().ToString()))`
+looks like "one fixed database name for the test," but the configure lambda
+runs fresh every time a new scope builds `DbContextOptions<T>` — so a
+request's own DI scope and a test's own `factory.Services.CreateScope()`
+each got a *different* random database name, and data written by one was
+invisible to the other (test assertions saw `null` immediately after a 201
+response confirmed the write happened). Fix: capture the name in a local
+variable *before* the lambda (`var dbName = Guid.NewGuid().ToString();`
+then reference `dbName` inside), so every scope shares it. Also, simply
+`services.RemoveAll<DbContextOptions<XGArcadeDbContext>>()` +
+`RemoveAll<XGArcadeDbContext>()` is not enough to swap providers this way —
+`AddDbContext` also registers an internal `IDbContextOptionsConfiguration<T>`
+descriptor holding the *original* `UseNpgsql(...)` action, which survives
+and gets applied alongside the new `UseInMemoryDatabase(...)` action,
+producing "Only a single database provider can be registered." That
+internal type isn't ref-assembly-visible (`CS0234` if referenced directly),
+so filter and remove every service descriptor closed over the DbContext
+type by reflection instead (see
+`backend/tests/XGArcade.Api.Tests/AuthEndpointTests.cs`'s `SetUp`) rather
+than naming the internal type. **Any future WebApplicationFactory test that
+swaps `XGArcadeDbContext` for an in-memory provider should copy that
+pattern**, not just the two `RemoveAll<T>()` calls Microsoft's own basic
+docs example shows.
+
+### 2026-07-09 — ASP.NET Core JwtBearer remaps `sub`/`role` claims to long XML-Soap URIs unless `MapInboundClaims = false` (S-004)
+A JWT with a `"sub": "<guid>"` claim validated successfully (JwtBearer log:
+"Successfully validated the token"), but `User.FindFirstValue("sub")` in
+the controller returned `null` — the claim's `Type` had been silently
+rewritten to `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier`
+(and `"role"` to a similar long URI) by `JwtBearerOptions`' legacy inbound
+claim-type mapping, which is still on by default even with the newer
+`JsonWebTokenHandler`. Set `options.MapInboundClaims = false;` in
+`AddJwtBearer(...)` to keep claims exactly as issued — needed here so
+`ClaimsPrincipalExtensions.GetAuthProviderUserId()` can look up `"sub"`
+literally, and so a future admin-authorization check can look up `"role"`
+literally too, matching Supabase's own claim names instead of .NET's
+legacy remap.
+
+### 2026-07-09 — ci.yml's `Auth__Mode: "local-e2e"` (added ahead of time by S-002) is what S-004 actually implements against
+`ci.yml`'s `e2e-tests` job already carried `Auth__Mode: "local-e2e"` with a
+comment ("bypasses Supabase JWT validation with a local test signer —
+never enabled outside Development") before S-004 existed — S-002
+anticipated this need but left the actual mechanism unbuilt. S-004 builds
+it for real: `Program.cs` checks `Auth:Mode == "local-e2e" &&
+IsDevelopment()` and, only then, swaps in `LocalE2EAuthClient` (fakes
+Supabase signup/login, mints a locally HS256-signed JWT, no real password
+check) instead of the real `SupabaseAuthClient`. This is also why
+backend-mediated signup (ADR-0013) was workable at all for CI: `ci.yml` has
+no live Supabase project and never will for Tier 0's local-stack E2E run.
+**If a future story (S-010's login E2E test, most likely) needs to log a
+real account in during CI, this is already wired — call `/auth/login` with
+any email/password against the local stack, no Supabase secrets needed.**
+
+### 2026-07-09 — the deployed dev Container App never sets `ASPNETCORE_ENVIRONMENT` (found via S-004's architecture review, not yet fixed)
+Neither `infra/bicep/modules/backend-container-app.bicep` nor
+`.github/workflows/deploy.yml` sets `ASPNETCORE_ENVIRONMENT` for the
+Container App itself — only `ci.yml`'s local-stack `e2e-tests` job sets it
+(to `Development`, for a process it starts directly). ASP.NET Core defaults
+to `Production` when the variable is absent, so the *deployed* dev
+Container App is actually running as `Production` right now, despite
+`architecture-document.md` §9 describing dev as
+`ASPNETCORE_ENVIRONMENT != Production`. Harmless today (nothing yet checks
+the environment there), but COMP-09's `Testing.SeedManager` (ADR-0006,
+gated on `!= Production`) and S-004's own `Auth:Mode=local-e2e` gate (on
+`IsDevelopment()`) will both silently stay inactive in the deployed dev
+environment once built, if this isn't fixed first. **Whichever story wires
+up COMP-09 (S-005 or later) should add `ASPNETCORE_ENVIRONMENT=dev` (or
+similar non-Production value) to the Container App's env vars in
+`backend-container-app.bicep` before relying on that gate there.**

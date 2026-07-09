@@ -1,4 +1,9 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using XGArcade.Api.Auth;
+using XGArcade.Core.Auth;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 
@@ -52,6 +57,83 @@ builder.Services.AddDbContext<XGArcadeDbContext>(options =>
 builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
 builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
+// COMP-01 (Core.Users) — the only path to the local User profile table.
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+
+// ci.yml's local E2E stack has no live Supabase project to call, so it sets
+// Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
+// signed JWT instead. Re-check the environment here rather than trusting
+// the config flag alone — same "never guarded only by config/an attribute"
+// principle CLAUDE.md establishes for COMP-09's Testing.SeedManager
+// (ADR-0006) — so this can never accidentally activate outside Development.
+var useLocalE2EAuth = builder.Configuration["Auth:Mode"] == "local-e2e" && builder.Environment.IsDevelopment();
+
+if (useLocalE2EAuth)
+{
+    builder.Services.AddSingleton<ISupabaseAuthClient, LocalE2EAuthClient>();
+}
+else
+{
+    // Signup/login are mediated through Supabase Auth's REST API rather
+    // than the frontend calling Supabase directly — see ADR-0013.
+    var supabaseUrl = builder.Configuration["Supabase:Url"]
+        ?? throw new InvalidOperationException("Supabase:Url is not configured.");
+    var supabaseAnonKey = builder.Configuration["Supabase:AnonKey"]
+        ?? throw new InvalidOperationException("Supabase:AnonKey is not configured.");
+
+    builder.Services.AddHttpClient<ISupabaseAuthClient, SupabaseAuthClient>(client =>
+    {
+        client.BaseAddress = new Uri(supabaseUrl.TrimEnd('/') + "/");
+        client.DefaultRequestHeaders.Add("apikey", supabaseAnonKey);
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseAnonKey}");
+    });
+}
+
+// JWT validation middleware (REQ-606's pipeline): backend never manages
+// passwords, only validates the tokens Supabase Auth (or, in local-e2e
+// mode, LocalE2EAuthClient) already issued.
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        // Keep claim types as issued ("sub", "role", ...) instead of ASP.NET
+        // Core's legacy remap to long XML-Soap URIs.
+        options.MapInboundClaims = false;
+
+        if (useLocalE2EAuth)
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = LocalE2EAuth.SigningKey,
+                ValidateIssuer = true,
+                ValidIssuer = LocalE2EAuth.Issuer,
+                ValidateAudience = true,
+                ValidAudience = LocalE2EAuth.Audience,
+                ValidateLifetime = true,
+            };
+        }
+        else
+        {
+            var supabaseUrl = builder.Configuration["Supabase:Url"]
+                ?? throw new InvalidOperationException("Supabase:Url is not configured.");
+            var supabaseJwtSecret = builder.Configuration["Auth:SupabaseJwtSecret"]
+                ?? throw new InvalidOperationException("Auth:SupabaseJwtSecret is not configured.");
+
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(supabaseJwtSecret)),
+                ValidateIssuer = true,
+                ValidIssuer = $"{supabaseUrl.TrimEnd('/')}/auth/v1",
+                ValidateAudience = true,
+                ValidAudience = "authenticated",
+                ValidateLifetime = true,
+            };
+        }
+    });
+
+builder.Services.AddAuthorization();
+
 builder.Services.AddControllers();
 
 var app = builder.Build();
@@ -62,6 +144,7 @@ app.UseHttpsRedirection();
 
 app.UseCors("Frontend");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();

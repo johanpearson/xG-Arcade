@@ -15,6 +15,7 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,6 +68,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .IsUnique();
         modelBuilder.Entity<TrophyDefinition>()
             .HasIndex(t => t.Name)
+            .IsUnique();
+
+        // Every authenticated request resolves this first (implementation-
+        // document.md §5's required-indexes table).
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.AuthProviderUserId)
             .IsUnique();
     }
 }

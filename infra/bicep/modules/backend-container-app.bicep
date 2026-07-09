@@ -32,6 +32,13 @@ param databaseConnectionString string
 @description('Supabase project JWT secret, used to validate incoming auth tokens')
 param supabaseJwtSecret string
 
+@description('Supabase project URL (e.g. https://xxxx.supabase.co) — the backend calls its Auth REST API to mediate signup/login (ADR-0013). Not sensitive on its own (the same URL a frontend would use), but grouped with the other Supabase params for clarity.')
+param supabaseUrl string
+
+@secure()
+@description('Supabase project anon/publishable API key, sent as the "apikey"/Authorization header on Auth REST calls (ADR-0013). Publishable by Supabase\'s own design (safe in frontend bundles too), marked @secure() here only to keep it out of deployment logs, not because it is a true secret.')
+param supabaseAnonKey string
+
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
 
@@ -71,6 +78,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           name: 'supabase-jwt-secret'
           value: supabaseJwtSecret
         }
+        {
+          name: 'supabase-anon-key'
+          value: supabaseAnonKey
+        }
       ]
     }
     template: {
@@ -86,6 +97,14 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Auth__SupabaseJwtSecret'
               secretRef: 'supabase-jwt-secret'
+            }
+            {
+              name: 'Supabase__Url'
+              value: supabaseUrl
+            }
+            {
+              name: 'Supabase__AnonKey'
+              secretRef: 'supabase-anon-key'
             }
             {
               name: 'Cors__AllowedOrigins'
