@@ -34,13 +34,28 @@ which is exactly what ADR-0006 needs (dev + prod).
    Tier 0's one and only environment
 2. (Tier 1) create project **#2** — this becomes **prod**, once you need it
 3. From Project Settings on whichever project(s) you've created:
-   - **Connection string** (Settings → Database) — save it
+   - **Connection string** (Settings → Database) — save it. Supabase's
+     dashboard defaults to showing this in **URI** form
+     (`postgresql://user:pass@host:port/db`) — that format is **not**
+     valid for Npgsql/EF Core, which needs ADO.NET keyword=value pairs
+     instead. Switch the dashboard's connection-string tab to **.NET**
+     (or build it by hand: `Host=<host>;Port=5432;Database=postgres;
+     Username=postgres;Password=<password>;SSL Mode=Require;Trust Server
+     Certificate=true`) before saving it as `DEV_DATABASE_CONNECTION_STRING`
+     — pasting the URI form fails with an Npgsql
+     `ArgumentException: Format of the initialization string does not
+     conform to specification` as soon as anything actually opens a
+     connection with it (see `NOTES.md`)
    - **JWT secret** (Settings → API) — save it
    - **Project URL** and **anon/public key** (Settings → API) — save both;
      the backend calls Supabase Auth's REST API directly to mediate
      signup/login (ADR-0013), rather than the frontend calling Supabase
      itself. The anon key is publishable by Supabase's own design (safe in
-     a frontend bundle too), not a true secret
+     a frontend bundle too), not a true secret — but it's still a required
+     value: the backend throws at startup if `Supabase:AnonKey` isn't
+     configured (`Program.cs`), so an empty `DEV_SUPABASE_ANON_KEY` secret
+     also fails `deploy.yml`'s `deploy-infra` job (Azure rejects an empty
+     Container App secret value outright, before the app even starts)
 4. Don't touch Auth/SMTP settings yet — that needs Resend first (step 3)
 
 ## 3. Resend (email)

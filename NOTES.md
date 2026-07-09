@@ -253,6 +253,42 @@ no live Supabase project and never will for Tier 0's local-stack E2E run.
 real account in during CI, this is already wired — call `/auth/login` with
 any email/password against the local stack, no Supabase secrets needed.**
 
+### 2026-07-09 — `deploy.yml`'s three latest runs all failed on unconfigured/misformatted dev secrets, not code bugs
+Investigated runs #15 (S-004), #16 (ci fix), #17 (S-005) — all `failure`.
+Two distinct root causes, both secret-configuration, not application code:
+1. **`deploy-infra` (runs #15, #16):** Azure rejected the ARM deployment —
+   `ContainerAppSecretInvalid: Container app secret(s) with name(s)
+   'supabase-anon-key' are invalid: value or keyVaultUrl and identity
+   should be provided`. Cause: `DEV_SUPABASE_ANON_KEY` is empty/unset, so
+   `backend-container-app.bicep` tries to create a Container App secret
+   with an empty value, which Azure's Container Apps API rejects outright.
+   Not fixable by making the Bicep tolerate a blank value here — `Program.cs`
+   requires `Supabase:AnonKey` unconditionally outside `Auth:Mode=local-e2e`
+   (ADR-0013), so a blank-tolerant Bicep would only trade this clear,
+   fail-fast deploy-time error for a silent container crash-loop at
+   runtime. The actual fix is setting a real `DEV_SUPABASE_ANON_KEY` value
+   (Supabase dashboard → Settings → API → anon/public key).
+2. **`migrate-and-seed-database` (run #17, first run of this new S-005
+   job):** `Npgsql.NpgsqlConnectionStringBuilder` threw `ArgumentException:
+   Format of the initialization string does not conform to specification
+   starting at index 0` while EF Core's migrator tried to open the
+   connection. `ConnectionStrings__Database` comes straight from
+   `DEV_DATABASE_CONNECTION_STRING` via `AddEnvironmentVariables()` with no
+   other config source in play, so the string itself is malformed. Most
+   likely cause: Supabase's dashboard defaults to showing the connection
+   string in **URI** form (`postgresql://user:pass@host:port/db`), which
+   Npgsql's ADO.NET-style keyword=value parser can't read — it needs the
+   dashboard's **.NET** tab format instead (`Host=...;Username=...;
+   Password=...;Database=...`). This had been silently latent since S-002's
+   first deploy: `deploy-infra` only ever passed this string through to
+   Azure as an opaque secret value (no parsing), so it never got exercised
+   by anything that actually opens an Npgsql connection with it until this
+   job. **Any Supabase Postgres connection string secret must be saved in
+   .NET/ADO.NET format, never the URI form the dashboard defaults to** —
+   `SETUP.md` and `infra/README.md` updated to call this out explicitly.
+   Neither secret's actual value is visible to fix directly; both need the
+   repo owner to update them in GitHub Actions secrets.
+
 ### 2026-07-09 — the deployed dev Container App never sets `ASPNETCORE_ENVIRONMENT` (found via S-004's architecture review, not yet fixed)
 Neither `infra/bicep/modules/backend-container-app.bicep` nor
 `.github/workflows/deploy.yml` sets `ASPNETCORE_ENVIRONMENT` for the
