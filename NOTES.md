@@ -55,6 +55,30 @@ never return) from coming back. **When S-003 lands**, replace the stub body
 with the real migration/seed call — don't leave it silently doing nothing
 once there's something for it to do.
 
+### 2026-07-09 — Bicep decorator syntax errors blocked deploy-infra
+Once the lowercase image-tag bug was fixed, `deploy-infra` reached the
+actual `az deployment group create` step for the first time and failed
+compiling `backend-container-app.bicep` with BCP071/BCP236/BCP166 errors.
+Two distinct causes, both in that file:
+1. **New, from S-002**: `corsAllowedOrigin`'s `@description(...)` used `''`
+   to escape an apostrophe (`App''s hostname`) — that's SQL/Pascal-string
+   escaping, not Bicep's. Bicep escapes a literal single quote as `\'`
+   inside a single-quoted string. The `''` was silently accepted by every
+   local review pass (no Bicep compiler available in this sandbox either —
+   same network-policy wall as the missing dotnet SDK) because nothing
+   actually parsed it until Azure's own Bicep compiler ran.
+2. **Pre-existing, from S-001**: `minReplicas` had two stacked
+   `@description(...)` decorators on one param — Bicep doesn't allow
+   duplicate decorators of the same kind. Never caught because
+   `deploy-infra` never reached the compile step before (blocked first by
+   missing secrets, then by the lowercase image bug).
+Fixed by escaping the apostrophe correctly and merging the two `minReplicas`
+descriptions into one. **If a future Bicep edit needs a literal apostrophe
+in a description string, use `\'`, not `''`.** Also worth noting: this
+sandbox has no Bicep/az CLI to validate `.bicep` syntax locally, same
+limitation as the backend C# — `deploy.yml`'s actual run against Azure is
+the only real compile check available in this environment.
+
 ### 2026-07-09 — `dotnet run`'s launch profile overrides `ASPNETCORE_URLS` (S-002)
 `ci.yml`'s e2e-tests job set `ASPNETCORE_URLS: http://localhost:8080` as a
 step env var, but the API still bound to `:5028` and the health-wait curl
