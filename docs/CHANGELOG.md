@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/backlog.md (S-002 acceptance criteria) — `main`'s
+  branch protection requires every `ci.yml` status check to pass with no
+  bypass, but `e2e-tests` cannot pass in S-001's PR (needs `/health` and
+  `migrate-and-seed`, both S-002 scope). Rather than weaken branch
+  protection, `ci.yml`'s `e2e-tests` job had its Postgres
+  service/migrate-and-seed/Start-API steps commented out (not deleted) so
+  it only runs the backend-free placeholder Playwright test for now.
+  Added an explicit restore step to S-002's acceptance criteria
+  (uncomment those steps, add a real `/health`-wait loop) so it isn't
+  forgotten — full rationale, including two rejected approaches
+  (`timeout-minutes` alone, `continue-on-error`), in `NOTES.md`.
+
 - 2026-07-09 — docs/implementation-document.md (§4 project structure) —
   S-001 (repo + pipeline skeleton) landed the first real code in the repo
   (`backend/XGArcade.sln` with the Tier 0 project subset, `backend/Dockerfile`,
