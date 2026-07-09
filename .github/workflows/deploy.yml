@@ -64,6 +64,15 @@ jobs:
         # post-first-deploy (infra/README.md) — same chicken-and-egg shape as
         # DEV_BACKEND_HOSTNAME/the static web app token. Blank means CORS
         # allows nothing, which is safe (not a functional break) until then.
+        #
+        # registryPassword uses GHCR_TOKEN (a long-lived PAT), never
+        # GITHUB_TOKEN — GITHUB_TOKEN is scoped to this workflow run and
+        # expires shortly after it finishes, but the Container App (scale-to-
+        # zero, minReplicas: 0) needs to re-pull and re-authenticate to GHCR
+        # on every cold start, which can happen long after this run ends.
+        # Using GITHUB_TOKEN here deploys fine but then fails with
+        # ImagePullBackOff on the app's first cold start after the token
+        # expires (found via NOTES.md, S-002 first real deploy).
         run: |
           CORS_ORIGIN=""
           if [ -n "${{ secrets.DEV_FRONTEND_HOSTNAME }}" ]; then
@@ -75,7 +84,7 @@ jobs:
             --parameters infra/bicep/main.parameters.dev.json \
             --parameters containerImage=${{ needs.build-and-push-backend.outputs.image }} \
                          registryUsername=${{ github.actor }} \
-                         registryPassword=${{ secrets.GITHUB_TOKEN }} \
+                         registryPassword=${{ secrets.GHCR_TOKEN }} \
                          databaseConnectionString=${{ secrets.DEV_DATABASE_CONNECTION_STRING }} \
                          supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }} \
                          corsAllowedOrigin="$CORS_ORIGIN"

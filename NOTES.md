@@ -55,6 +55,41 @@ never return) from coming back. **When S-003 lands**, replace the stub body
 with the real migration/seed call — don't leave it silently doing nothing
 once there's something for it to do.
 
+### 2026-07-09 — GITHUB_TOKEN as the Container App's GHCR registry password breaks on cold start
+After every other deploy.yml blocker was cleared (lowercase tag, Bicep
+decorators, region, provider registration) and `deploy-infra` finally
+succeeded, the deployed app itself still didn't work: the backend
+Container App got stuck `ImagePullBackOff` / "Persistent Image Pull
+Errors" trying to pull its own just-pushed image, confirmed via Azure
+Portal's Container App system event log (Container Apps → app → Log
+stream → System logs — the *console* log stream is useless here since it
+can't attach to a container that never starts; the system log stream
+shows platform-level events like image pulls instead).
+
+Root cause: `deploy.yml` passed `secrets.GITHUB_TOKEN` as `registryPassword`
+for the Container App's GHCR credential. `GITHUB_TOKEN` is scoped to the
+workflow run and expires shortly after it finishes — fine for the
+`docker/login-action` push step earlier in the same run, but wrong for a
+credential the platform needs to keep re-using. The Container App has
+`minReplicas: 0` (scale-to-zero, keeps Tier 0 free), so it re-pulls and
+re-authenticates to GHCR on *every* cold start, which can happen minutes,
+hours, or days after the deploy workflow that set the credential already
+finished — by which point the token is dead and every cold start fails
+forever (`ContainerBackOff`, retry count climbing, no recovery without a
+new deploy).
+
+Fixed by switching `registryPassword` to a new secret, `GHCR_TOKEN` — a
+long-lived GitHub PAT (classic or fine-grained, `read:packages` scope),
+not tied to a workflow run. `infra/README.md` had actually already named
+`GHCR_TOKEN` as a secret, but wrongly scoped it to "manual first deploy
+only," on the same wrong assumption that `GITHUB_TOKEN` was fine for the
+automated path — corrected there too. **This class of bug (ephemeral
+workflow token used as a credential a scale-to-zero/serverless resource
+needs to keep re-authenticating with) is worth remembering generally**,
+not just for this one secret — any future `minReplicas: 0` resource
+pulling from a private registry needs a long-lived credential, not
+`GITHUB_TOKEN`, even if `GITHUB_TOKEN` looks like it works at deploy time.
+
 ### 2026-07-09 — Static Web Apps doesn't support swedencentral
 Once the Bicep decorator syntax errors above were fixed, `deploy-infra`
 compiled cleanly and actually called `az deployment group create` for the

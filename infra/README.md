@@ -133,6 +133,7 @@ Contributor on both resource groups):
 | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | OIDC federated login via `azure/login@v2` — no client secret needed |
 | `RESEND_API_KEY` | Used by `XGArcade.Email` for direct API calls (product notifications). Also used as the SMTP password when configuring Supabase Auth's custom SMTP — not stored in this repo either way |
 | `INTERNAL_JOB_TOKEN` | Shared bearer token authorizing calls to internal endpoints (`ci.yml`'s test-data reset, `sync-players.yml`, `generate-round.yml`) — generate any long random string and use the same value everywhere |
+| `GHCR_TOKEN` | GitHub PAT (classic or fine-grained, `read:packages` scope) used as `deploy.yml`'s `registryPassword` for the Container App — **not** `GITHUB_TOKEN`. `GITHUB_TOKEN` expires shortly after the workflow run ends, but a scale-to-zero Container App (`minReplicas: 0`) needs to re-authenticate to GHCR on every cold start, which can happen long after that. Deploying with `GITHUB_TOKEN` succeeds but the app then fails with `ImagePullBackOff` on its first cold start after the token expires — found the hard way on S-002's first real deploy, see `NOTES.md`. Username stays `github.actor`, only the password needs to be this PAT |
 
 Prod-specific:
 
@@ -155,9 +156,14 @@ Dev-specific:
 | `DEV_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints; also by Tier 1's `ci.yml` for the test-data reset call and E2E test target |
 | `DEV_FRONTEND_HOSTNAME` | Fed to `deploy.yml` as the backend's CORS-allowed origin (S-002) — the one real cross-environment coupling in an otherwise one-way deploy. Also used by Tier 1's `ci.yml` for the E2E test target |
 
-`GHCR_USERNAME`/`GHCR_TOKEN` are only needed for the manual first deploy
-below — the automated workflows use `github.actor`/`GITHUB_TOKEN` and
-never need a separate secret for GHCR.
+Note the corrected `GHCR_TOKEN` row in the shared-secrets table above:
+earlier revisions of this doc said the automated workflows didn't need a
+separate GHCR secret at all (`github.actor`/`GITHUB_TOKEN` was assumed
+sufficient) — that was wrong in a way that only surfaces after the app's
+first cold start post-deploy, see the row's own explanation. No separate
+`GHCR_USERNAME` secret is needed; the manual command below's
+`<ghcr-username>` placeholder is just `github.actor`'s value (your GitHub
+username), not a secret.
 
 ## Email setup (manual, one-time, not in Bicep)
 
