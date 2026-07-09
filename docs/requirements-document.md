@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.23"
+version: "0.24"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.23 · 2026-07-09
+Version 0.24 · 2026-07-09
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -562,6 +562,16 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
+- **Status: Partially implemented (Tier 0, S-004).** Only the 16+ checkbox
+  clause below is built and enforced server-side (`POST /auth/signup`
+  rejects the request with 400 before ever calling Supabase Auth if the
+  checkbox is false) — see ADR-0013 (backend-mediated signup/login) and
+  `MVP-SCOPE.md`. The password-policy clause (§5's "Decisions made as
+  sensible technical defaults") and the account-enumeration-safe error
+  message are not yet implemented; Supabase Auth's own error responses are
+  currently passed through as-is. The rest of this requirement's acceptance
+  criteria are recorded below as the full/long-term definition, not a claim
+  of current behavior.
 - Given a person provides an email address and a password meeting the
   platform's password policy
 - And they have checked a required confirmation "I am at least 16 years
