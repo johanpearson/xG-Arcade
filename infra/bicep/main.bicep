@@ -29,6 +29,9 @@ param databaseConnectionString string
 @secure()
 param supabaseJwtSecret string
 
+@description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
+param corsAllowedOrigin string = ''
+
 @description('Minimum backend replica count. See modules/backend-container-app.bicep for guidance.')
 param minReplicas int = 0
 
@@ -53,6 +56,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     registryPassword: registryPassword
     databaseConnectionString: databaseConnectionString
     supabaseJwtSecret: supabaseJwtSecret
+    corsAllowedOrigin: corsAllowedOrigin
     minReplicas: minReplicas
   }
 }

@@ -56,7 +56,15 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       - name: Deploy Bicep (Tier 0's one environment — dev naming)
+        # corsAllowedOrigin is blank until DEV_FRONTEND_HOSTNAME is filled in
+        # post-first-deploy (infra/README.md) — same chicken-and-egg shape as
+        # DEV_BACKEND_HOSTNAME/the static web app token. Blank means CORS
+        # allows nothing, which is safe (not a functional break) until then.
         run: |
+          CORS_ORIGIN=""
+          if [ -n "${{ secrets.DEV_FRONTEND_HOSTNAME }}" ]; then
+            CORS_ORIGIN="https://${{ secrets.DEV_FRONTEND_HOSTNAME }}"
+          fi
           az deployment group create \
             --resource-group ${{ secrets.DEV_AZURE_RESOURCE_GROUP }} \
             --template-file infra/bicep/main.bicep \
@@ -65,7 +73,8 @@ jobs:
                          registryUsername=${{ github.actor }} \
                          registryPassword=${{ secrets.GITHUB_TOKEN }} \
                          databaseConnectionString=${{ secrets.DEV_DATABASE_CONNECTION_STRING }} \
-                         supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }}
+                         supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }} \
+                         corsAllowedOrigin="$CORS_ORIGIN"
 
   deploy-frontend:
     runs-on: ubuntu-latest

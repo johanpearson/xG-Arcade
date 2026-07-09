@@ -32,6 +32,9 @@ param databaseConnectionString string
 @description('Supabase project JWT secret, used to validate incoming auth tokens')
 param supabaseJwtSecret string
 
+@description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App''s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
+param corsAllowedOrigin string = ''
+
 @description('Minimum replica count. Keep at 0 for max cost savings; raise to 1 if')
 @description('scheduled-job cold starts (see implementation-document.md open questions) become an issue')
 param minReplicas int = 0
@@ -84,6 +87,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Auth__SupabaseJwtSecret'
               secretRef: 'supabase-jwt-secret'
+            }
+            {
+              name: 'Cors__AllowedOrigins'
+              value: corsAllowedOrigin
             }
           ]
           resources: {
