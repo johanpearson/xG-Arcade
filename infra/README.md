@@ -152,7 +152,7 @@ Dev-specific:
 | Secret | Used for |
 |---|---|
 | `DEV_AZURE_RESOURCE_GROUP` | Target resource group for the Tier 1 `deploy-dev` job |
-| `DEV_DATABASE_CONNECTION_STRING` | Dev Supabase Postgres connection string — also the "dev" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml` |
+| `DEV_DATABASE_CONNECTION_STRING` | Dev Supabase Postgres connection string — used by `deploy.yml`'s `migrate-and-seed-database` job (S-005) to apply migrations and seed Tier 0 reference data on every push to `main`; also the "dev" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml` |
 | `DEV_SUPABASE_JWT_SECRET` | From the dev Supabase project's API settings |
 | `DEV_SUPABASE_URL` | The dev Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013). `ci.yml`'s local E2E stack doesn't need this at all — it runs with `Auth__Mode=local-e2e`, which swaps in a fake auth client instead (see S-004, `docs/backlog.md`) |
 | `DEV_SUPABASE_ANON_KEY` | The dev Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret |

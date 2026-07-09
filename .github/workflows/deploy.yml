@@ -48,9 +48,27 @@ jobs:
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
+  migrate-and-seed-database:
+    # S-005 (docs/backlog.md): applies pending EF Core migrations and seeds
+    # Tier 0's reference data (ReferenceDataSeeder) against dev's actual
+    # Supabase Postgres instance — ci.yml's own migrate-and-seed step only
+    # ever touches its ephemeral local Postgres container, so without this
+    # job dev's database never got either migrations or seed rows applied
+    # automatically. Idempotent, safe to run on every push to main.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Migrate + seed dev database
+        run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+
   deploy-infra:
     runs-on: ubuntu-latest
-    needs: build-and-push-backend
+    needs: [build-and-push-backend, migrate-and-seed-database]
     steps:
       - uses: actions/checkout@v7
       - name: Azure login (OIDC)

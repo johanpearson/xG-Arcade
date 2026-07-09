@@ -6,11 +6,12 @@ using XGArcade.Api.Auth;
 using XGArcade.Core.Auth;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
+using XGArcade.Data.Seeding;
 
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
 // server start) used by ci.yml's local E2E stack. Applies pending EF Core
-// migrations against ConnectionStrings:Database; seeding reference data is
-// S-005's job (still a no-op here until that story lands).
+// migrations against ConnectionStrings:Database, then seeds Tier 0's
+// hand-curated reference data (S-005) — idempotent, safe to re-run.
 if (args is ["migrate-and-seed"])
 {
     var migrationConfig = new ConfigurationBuilder()
@@ -25,8 +26,9 @@ if (args is ["migrate-and-seed"])
 
     await using var migrationDbContext = new XGArcadeDbContext(optionsBuilder.Options);
     await migrationDbContext.Database.MigrateAsync();
+    await ReferenceDataSeeder.SeedAsync(migrationDbContext);
 
-    Console.WriteLine("migrate-and-seed: migrations applied. Seeding lands in S-005 — nothing to seed yet.");
+    Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;
 }
 
