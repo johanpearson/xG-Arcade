@@ -1,0 +1,16 @@
+# .NET
+backend/**/bin/
+backend/**/obj/
+*.user
+
+# Node — frontend/.gitignore covers node_modules/dist; these are the
+# test-tooling output dirs it doesn't already list.
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# Editor/OS
+.vs/
+.vscode/
+.idea/
+.DS_Store

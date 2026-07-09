@@ -47,38 +47,48 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     needs: [backend-tests, frontend-unit-tests]
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: xgarcade_e2e
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s --health-timeout 5s --health-retries 10
+    timeout-minutes: 10
+    # Deliberately stripped down for S-001 (repo/pipeline skeleton): the
+    # full version of this job (Postgres service container, migrate-and-seed,
+    # starting the API and waiting on /health, Auth__Mode: local-e2e) needs
+    # things that don't exist until S-002 — commented out below rather than
+    # deleted so S-002 can restore this job by uncommenting, adding its own
+    # /health-wait step, and removing the "dumbed down" note. Until then, the
+    # frontend's own placeholder E2E test (tests/e2e/app-loads.spec.ts) needs
+    # no backend at all — playwright.config.ts's `webServer` boots the Vite
+    # dev server itself — so that's genuinely all this job can check today.
+    # services:
+    #   postgres:
+    #     image: postgres:16
+    #     env:
+    #       POSTGRES_PASSWORD: postgres
+    #       POSTGRES_DB: xgarcade_e2e
+    #     ports: ["5432:5432"]
+    #     options: >-
+    #       --health-cmd "pg_isready -U postgres"
+    #       --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
-      - name: Migrate + seed local database
-        run: dotnet run --project backend/XGArcade.Api -- migrate-and-seed
-        env:
-          ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
-      - name: Start API (background)
-        run: |
-          dotnet run --project backend/XGArcade.Api --configuration Release &
-          timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
-        env:
-          ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
-          Auth__Mode: "local-e2e"   # bypasses Supabase JWT validation with a local test signer — never enabled outside Development
-          ASPNETCORE_ENVIRONMENT: "Development"
+      # - uses: actions/setup-dotnet@v4
+      #   with:
+      #     dotnet-version: "10.0.x"
+      # - name: Migrate + seed local database
+      #   run: dotnet run --project backend/src/XGArcade.Api -- migrate-and-seed
+      #   env:
+      #     ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
+      # - name: Start API (background)
+      #   run: |
+      #     dotnet run --project backend/src/XGArcade.Api --configuration Release &
+      #     timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+      #   env:
+      #     ConnectionStrings__Default: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
+      #     Auth__Mode: "local-e2e"   # bypasses Supabase JWT validation with a local test signer — never enabled outside Development
+      #     ASPNETCORE_ENVIRONMENT: "Development"
       - name: E2E (Playwright against local stack)
         # playwright.config uses its `webServer` option to boot the Vite dev
         # server on :5173 itself — only the API needs manual starting above

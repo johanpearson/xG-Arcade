@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <ProjectReference Include="..\XGArcade.Games.XGGrid\XGArcade.Games.XGGrid.csproj" />
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+  </ItemGroup>
+
+</Project>

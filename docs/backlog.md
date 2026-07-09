@@ -26,7 +26,12 @@ tests; Docker image builds. *Deps:* none.
 its header comment) passes; `deploy.yml` deploys both to Azure **dev**
 (Tier 0's one environment — see `MVP-SCOPE.md` for why it's named "dev,"
 not "prod"); fill in the post-deploy secrets (`DEV_BACKEND_HOSTNAME`,
-static web app token).
+static web app token). Also restore `ci.yml`'s `e2e-tests` job to its full
+version — S-001's PR commented out the Postgres service container,
+migrate-and-seed, and "Start API"/wait-on-`/health` steps (branch
+protection couldn't be relaxed, and those steps need things that didn't
+exist yet); uncomment them, add a real `/health`-wait step, and remove the
+"dumbed down" note once `/health`/`migrate-and-seed` exist for real.
 *Accept:* the deployed URL shows the health status from the deployed API.
 *Deps:* S-001, `MVP-SCOPE.md` preconditions all checked.
 
