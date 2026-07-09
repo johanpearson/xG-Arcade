@@ -62,7 +62,10 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
 
     // Deterministic so signing up and later logging in with the same email
     // resolve to the same local User row, the same way Supabase's real
-    // identity id would stay stable across those two calls.
+    // identity id would stay stable across those two calls. MD5 chosen only
+    // for its convenient 16-byte output to build a Guid from — not used for
+    // any cryptographic property (collision resistance, etc.), and this
+    // whole class is unreachable outside Development (see LocalE2EAuth above).
     private static Guid DeterministicGuid(string email) =>
         new(MD5.HashData(Encoding.UTF8.GetBytes(email.Trim().ToLowerInvariant())));
 }

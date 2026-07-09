@@ -119,6 +119,55 @@ public class AuthEndpointTests
         Assert.That(user, Is.Not.Null);
     }
 
+    // Not REQ-701-named: this exercises Supabase's own rejection (e.g.
+    // duplicate email) surfacing as a client error, not the checkbox clause
+    // REQ-701 is narrowed to for this story (docs/backlog.md S-004).
+    [Test]
+    public async Task Signup_Post_ReturnsBadRequest_WhenSupabaseAuthRejectsSignup()
+    {
+        _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task Login_Post_ReturnsAccessToken_ForValidCredentials()
+    {
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = Guid.NewGuid(),
+            AccessToken = "a-fake-access-token",
+            RefreshToken = "a-fake-refresh-token",
+        };
+        var client = _factory.CreateClient();
+        var request = new LoginRequest("known-user@example.com", "a-reasonable-password");
+
+        var response = await client.PostAsJsonAsync("/auth/login", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.AccessToken, Is.EqualTo("a-fake-access-token"));
+        Assert.That(body.RefreshToken, Is.EqualTo("a-fake-refresh-token"));
+    }
+
+    [Test]
+    public async Task Login_Post_ReturnsUnauthorized_WhenSupabaseAuthRejectsCredentials()
+    {
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials" };
+        var client = _factory.CreateClient();
+        var request = new LoginRequest("known-user@example.com", "the-wrong-password");
+
+        var response = await client.PostAsJsonAsync("/auth/login", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
     [Test]
     public async Task ProtectedEndpoint_Get_RejectsAnonymousCalls()
     {

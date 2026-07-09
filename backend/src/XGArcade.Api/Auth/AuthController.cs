@@ -40,6 +40,8 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
         var user = await userRepository.AddAsync(new User
         {
             Id = Guid.NewGuid(),
+            // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
+            // Success = true without AuthProviderUserId set.
             AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
             Email = request.Email,
             EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
@@ -53,7 +55,12 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
         var signInResult = await authClient.SignInWithPasswordAsync(request.Email, request.Password, cancellationToken);
-        if (!signInResult.Success)
+
+        // ISupabaseAuthClient.Success only guarantees AuthProviderUserId is
+        // set (see SupabaseAuthClient.PostCredentialsAsync) — unlike Signup,
+        // Login's response is useless to the caller without a token, so
+        // that's checked explicitly here rather than force-unwrapped.
+        if (!signInResult.Success || signInResult.AccessToken is null)
         {
             return Problem(
                 title: "Login failed",
@@ -61,7 +68,7 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
-        return Ok(new LoginResponse(signInResult.AccessToken!, signInResult.RefreshToken));
+        return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
     }
 
     // The protected endpoint proving the JWT validation middleware works
