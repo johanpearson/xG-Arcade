@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.20"
+version: "0.21"
 status: draft
-last_updated: 2026-07-04
+last_updated: 2026-07-09
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.20 · 2026-07-08
+Version 0.21 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -167,6 +167,8 @@ misconfigured per-endpoint. See ADR-0006.
   /tests
     /XGArcade.Core.Tests       -> NUnit unit tests (scoring, override merge)
     /XGArcade.Games.XGGrid.Tests -> NUnit unit tests (grid generation, validation)
+    /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
+    /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP)
     /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
 
 /frontend

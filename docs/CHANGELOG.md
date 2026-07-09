@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/implementation-document.md (§4 project structure) —
+  S-001 (repo + pipeline skeleton) landed the first real code in the repo
+  (`backend/XGArcade.sln` with the Tier 0 project subset, `backend/Dockerfile`,
+  `frontend/` Vite+React+TS scaffold — commit 9aedd28, no REQ/ADR
+  attached, pure scaffolding). Cross-checked the actual folder layout
+  against §4: the Tier 0 subset (Api/Core/Games.XGGrid/Data/DataSync +
+  matching `.Tests` projects) matches, and the project-reference graph
+  respects ADR-0003 (`Core` never references `Games.XGGrid`) exactly as
+  `architecture-document.md`'s COMP-05/06/07 table already implied — no
+  architecture-document.md or requirements-document.md change needed.
+  Found and fixed a pre-existing gap while checking §4 literally against
+  disk: its `/tests` listing named only `Core.Tests`/`Games.XGGrid.Tests`/
+  `Api.Tests`, omitting `Data.Tests` and `DataSync.Tests`, which now exist.
+  `XGArcade.Email`/`XGArcade.Testing` remain correctly absent from disk —
+  both are Tier 1/deferred per `MVP-SCOPE.md` and CLAUDE.md's Getting
+  Started scoping, not a doc/code mismatch. The `Microsoft.AspNetCore.OpenApi`
+  package removal (NOTES.md, 2026-07-09) is an implementation detail with
+  no tech-stack-table or boundary impact, so intentionally not duplicated
+  here.
+
 - 2026-07-08 — MVP-SCOPE.md, docs/implementation-document.md,
   docs/backlog.md (S-006) — Swapped England (Q21) for United Kingdom
   (Q145) in Tier 0's country list, per direct feedback: since UK is a
