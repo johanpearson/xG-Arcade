@@ -95,3 +95,20 @@ Give the Wikidata call a real timeout; don't let a slow WDQS response block
 a guess-check indefinitely. If you're implementing this and find yourself
 calling API-Football first "for simplicity," stop — that's the exact
 mistake this ADR exists to correct.
+
+## Addendum, 2026-07-09: Wikidata timeout raised to 15s (S-006)
+
+The "Decision" section's "e.g. 5-10s" was only an illustrative example, not
+a specific chosen value — S-006 is the first real implementation of the
+Wikidata half of this waterfall, and picked **15s**, not a value inside
+that example range. Reasoning, raised directly during S-006's PR review:
+this ADR's own "Context" section already documents WDQS query times of
+9-27s under current load — an 8-10s timeout would treat a meaningful share
+of genuinely-successful-but-slow queries as failures, needlessly pushing
+otherwise-answerable lookups onto the Tier 1 API-Football fallback (or, for
+REQ-101, discarding an otherwise-valid grid combination). 15s covers most
+of that reported range while still bounding worst-case latency well short
+of the full 27s tail. `WikidataClient`'s timeout is a constructor parameter
+(not a hardcoded const), specifically so this number can be revisited again
+without a code-structure change if real usage data suggests otherwise.
+Nothing else about the waterfall's design changed.

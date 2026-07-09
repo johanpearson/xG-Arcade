@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.24"
+version: "0.25"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.24 · 2026-07-09
+Version 0.25 · 2026-07-09
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -136,6 +136,17 @@ returns a grid with an invalid cell)
 > from the local cache, so that more combinations become possible without
 > blocking generation, and without requiring a large upfront import.
 
+- **Status: Partially implemented (Tier 0, S-006).** Only the Wikidata half
+  is built: `WikidataClient`/`WikidataLookupService`
+  (`XGArcade.DataSync.Wikidata`) run the SPARQL intersection query
+  (implementation-document.md §6a), persist matches, and upsert
+  `skos:altLabel` results into `PlayerAlias`. The API-Football fallback
+  client does not exist yet (Tier 1). Nothing calls this lookup service yet
+  either — grid generation (S-007) is the first real caller, so this REQ's
+  "combination has no match in the local cache" trigger isn't wired up in
+  practice until then. The rest of this requirement's acceptance criteria
+  are recorded below as the full/long-term definition, not a claim of
+  current behavior.
 - Given a combination has no match in the local cache
 - When the system performs a live lookup against external sources
 - Then Wikidata is tried first, with a timeout — it isn't meaningfully
@@ -143,8 +154,10 @@ returns a grid with an invalid cell)
 - And API-Football is tried only if Wikidata times out, errors, or
   genuinely has no matching data (ADR-0011) — never queried first, never
   queried in parallel with Wikidata by default
-- And any matches, from either source, are stored in `PlayerData` with
-  `source="live_lookup"` and `confidence="unverified"`
+- And any matches are stored in `PlayerData` with `confidence="unverified"`
+  and `source` set to the specific provider that resolved it (`"wikidata"`
+  or `"api_football"` — see implementation-document.md §5 for the full
+  `Source` enum; there is no single generic `"live_lookup"` value)
 - And the cell may be used in the grid even while unverified, but is flagged internally
 - And if neither source finds a match, the combination is discarded (same
   flow as REQ-101)

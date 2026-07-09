@@ -34,6 +34,18 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerAliases
+            .AsNoTracking()
+            .Where(pa => pa.PlayerId == playerId)
+            .ToListAsync(cancellationToken);
+
+    public async Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default)
+    {
+        dbContext.PlayerAliases.Add(alias);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerOverrides
             .AsNoTracking()

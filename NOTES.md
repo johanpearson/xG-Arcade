@@ -333,3 +333,41 @@ environment once built, if this isn't fixed first. **Whichever story wires
 up COMP-09 (S-005 or later) should add `ASPNETCORE_ENVIRONMENT=dev` (or
 similar non-Production value) to the Container App's env vars in
 `backend-container-app.bicep` before relying on that gate there.**
+
+### 2026-07-09 — `infra/scripts/lib/game-data-tables.sh`'s allowlist uses singular table names; every EF Core table it references is actually plural (found via S-006's doc-sync, not fixed)
+The shared sync allowlist (ADR-0009) lists `public."Player"`,
+`public."PlayerOverride"`, `public."PlayerAttribute"`,
+`public."TrophyDefinition"`, and (added for S-006) `public."PlayerAlias"` —
+but EF Core's actual migrated table names are all plural
+(`Players`, `PlayerOverrides`, `PlayerAttributes`, `TrophyDefinitions`,
+`PlayerAliases`), matching each entity's `DbSet<T>` property name (verified
+directly against `20260709145146_InitialCreate.cs` and S-006's
+`20260709193223_AddPlayerAlias.cs`). Only `PlayerData` happens to already be
+correct (same word either way). Harmless today — `sync-prod-to-dev.sh`/
+`promote-dev-to-prod.sh` are unused until Tier 1's dev/prod split exists
+(`MVP-SCOPE.md`) — but every one of these entries needs pluralizing before
+either script is first run, or they'll reference nonexistent tables.
+**Whichever story first actually runs a sync (T-106) should fix the whole
+allowlist in one pass**, not just the entry a later story happens to touch —
+not fixed here since S-006 only introduced one of the five wrong entries
+and the fix is really "correct this file's naming convention throughout,"
+a distinct piece of work from S-006's own scope.
+
+### 2026-07-09 — this sandbox's outbound network policy blocks `wikidata.org` entirely (S-006)
+`curl https://www.wikidata.org/...` and `WebFetch` against any
+`wikidata.org`/`www.wikidata.org` URL both fail with a 403 at the agent
+proxy's CONNECT step (`gateway answered 403 to CONNECT` — see
+`$HTTPS_PROXY/__agentproxy/status`'s `recentRelayFailures`), independent of
+any code or Wikidata-side issue. This blocked S-006's backlog-mandated
+manual check ("verify at least 2-3 seeded clubs' QIDs point at the
+senior/first-team item, not a generic club concept... this can't be
+unit-tested, it's a data-curation check against real Wikidata pages") —
+could not be performed from this session. Unlike `query.wikidata.org` (the
+actual SPARQL endpoint `WikidataClient` calls, exercised only via mocked
+HTTP in tests here, never a real network call from this sandbox), the plain
+`www.wikidata.org` article pages used for this specific manual check are
+apparently not allowlisted. **Whoever next has real Wikidata access should
+do this spot-check before/soon after merging S-006** — the QIDs themselves
+were already verified correct (2026-07-08, see CHANGELOG) for
+country/club identity, just not yet for the senior-vs-youth-academy
+distinction implementation-document.md §6a flags as a known residual gap.

@@ -12,6 +12,7 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerData> PlayerData => Set<PlayerData>();
     public DbSet<PlayerOverride> PlayerOverrides => Set<PlayerOverride>();
     public DbSet<PlayerAttribute> PlayerAttributes => Set<PlayerAttribute>();
+    public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
@@ -35,10 +36,17 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<PlayerAttribute>()
             .HasIndex(pa => new { pa.AttributeType, pa.AttributeValue });
 
-        // PlayerData/PlayerOverride/PlayerAttribute all live inside COMP-06
-        // alongside Player, so (unlike ADR-0003's deliberate cross-boundary
-        // FK omission) there's no reason to leave these unconstrained — a
-        // row pointing at a nonexistent PlayerId is just bad data.
+        // Keyed on (PlayerId, NormalizedAlias) so re-running the same
+        // Wikidata intersection query (§6a's skos:altLabel fetch) never
+        // inserts a duplicate alias row for the same player.
+        modelBuilder.Entity<PlayerAlias>()
+            .HasKey(pa => new { pa.PlayerId, pa.NormalizedAlias });
+
+        // PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias all live
+        // inside COMP-06 alongside Player, so (unlike ADR-0003's deliberate
+        // cross-boundary FK omission) there's no reason to leave these
+        // unconstrained — a row pointing at a nonexistent PlayerId is just
+        // bad data.
         modelBuilder.Entity<PlayerData>()
             .HasOne<Player>()
             .WithMany()
@@ -50,6 +58,11 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasForeignKey(po => po.PlayerId)
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<PlayerAttribute>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pa => pa.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlayerAlias>()
             .HasOne<Player>()
             .WithMany()
             .HasForeignKey(pa => pa.PlayerId)

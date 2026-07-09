@@ -7,6 +7,7 @@ using XGArcade.Core.Auth;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
+using XGArcade.DataSync.Wikidata;
 
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
 // server start) used by ci.yml's local E2E stack. Applies pending EF Core
@@ -61,6 +62,20 @@ builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+
+// COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
+// Service, per implementation-document.md §6a. No API-Football fallback
+// client yet — that's Tier 1 (ADR-0011). Not yet called from any endpoint;
+// S-007 (grid generation) is the first caller.
+builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(client =>
+{
+    client.BaseAddress = new Uri("https://query.wikidata.org/");
+    // WDQS's own etiquette guidance asks for an identifiable User-Agent
+    // rather than a generic HttpClient default.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "xG-Arcade/1.0 (Tier 0 grid data sync; see docs/decisions/0011-wikidata-first-lookup-waterfall.md)");
+});
+builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
