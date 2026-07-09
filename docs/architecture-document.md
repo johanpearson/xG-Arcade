@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.17"
+version: "0.18"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.17 · 2026-07-09
+Version 0.18 · 2026-07-09
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -138,6 +138,17 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
 | COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5 | `XGArcade.Data` |
 
+**"Maps to" column note (ADR-0014):** for COMP-01 and COMP-05 specifically,
+this column names where each component's *business/orchestration logic*
+lives — it does not mean every entity or repository that component owns is
+physically defined in that project. `User` (COMP-01) and `GridTemplate`/
+`GridInstance`/`GridCell` (COMP-05) are EF Core entities defined in
+`XGArcade.Data` alongside their repositories, in the single shared
+`XGArcadeDbContext`, same as every other component's persistence code — see
+ADR-0014 for why. The component boundary itself (e.g. boundary rule 1) is
+enforced by which repository interfaces a component is allowed to call, not
+by which `.csproj` the entity class sits in.
+
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
 query `PlayerData`/`PlayerOverride` directly — this keeps the
@@ -194,6 +205,27 @@ request."
 ## 6. Key data flows
 
 **6.1 Grid generation flow** (realizes REQ-101, REQ-102, REQ-103, REQ-109)
+
+**Tier 0 status (S-007):** `Core.Rounds`/COMP-03 does not exist yet
+(S-008), so there is no real Round Scheduler Job calling into
+`Games.XGGrid` as the diagram below describes. The actual entry point
+today is a temporary, non-Production-only endpoint,
+`POST /internal/grid/generate` (`XGArcade.Api.Grid.InternalGridEndpoints`,
+gated the same way ADR-0006 requires for COMP-09), which find-or-creates a
+`GridTemplate` for the requested size and calls `GridGameModule
+.GenerateInstanceAsync` (`IGameModule`, COMP-05) directly — the last line
+of the diagram ("Core.Rounds: create Round...") is not built; the endpoint
+returns the persisted `GridInstance` directly instead. What is built and
+matches the diagram: reference-table-only candidate selection
+(`Data.PlayerStore`/COMP-06 → `CountryDefinition`/`ClubDefinition`,
+ADR-0012), cache-first-then-live-lookup per combination (S-006's
+Wikidata-only half — no API-Football leg, see REQ-103's status note), and
+persistence of the resulting `GridInstance`/`GridCell`s. Scoped further to
+Tier 0 (`MVP-SCOPE.md`): every grid is Country (rows) × Club (columns)
+only — never Country×Country (REQ-107, enforced structurally by always
+picking rows from countries and columns from clubs, not by a per-candidate
+check), never Trophy (REQ-108, deferred). This endpoint is expected to be
+retired once S-008 gives `Core.Rounds` a real caller.
 
 **Explicit rule, not just implied by the diagram below:** every live
 lookup this round's cells will ever need happens *during generation*,

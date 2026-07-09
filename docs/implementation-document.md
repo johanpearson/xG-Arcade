@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.25"
+version: "0.26"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.25 · 2026-07-09
+Version 0.26 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -361,10 +361,14 @@ public class ExternalApiUsage
     public const int GuessTimeLookupThreshold = 80;
 }
 
-// --- xG Grid game entities (XGArcade.Games.XGGrid) ---
-// These are internal to the xG Grid module. Core never references them
-// directly — see ADR-0003. Another game would define its own equivalent
-// instance entities without touching any of the types below.
+// --- xG Grid game entities (owned by Games.XGGrid, COMP-05) ---
+// These are internal to the xG Grid module conceptually — Core never
+// references them directly (ADR-0003), and another game would define its
+// own equivalent instance entities without touching any of the types
+// below. As EF Core classes they're physically defined in XGArcade.Data
+// alongside every other component's entities, in the one shared
+// XGArcadeDbContext — see ADR-0014 for why "owned by" doesn't mean
+// "defined in that component's own project."
 
 public class GridTemplate
 {
@@ -383,9 +387,22 @@ public class GridInstance
 public class GridCell
 {
     public Guid Id { get; set; }
+    public Guid GridInstanceId { get; set; }
     public int Row { get; set; }
     public int Col { get; set; }
+    // RowCategoryType/ColCategoryType ("country" | "club") were added in
+    // S-007, beyond this section's original illustrative shape: Tier 0
+    // fixes one axis to Country and the other to Club (MVP-SCOPE.md), so
+    // within a single grid these are redundant with
+    // GridTemplate.AllowedCategoryTypes today — but recording them per cell
+    // is what lets guess-checking (S-009) know whether to query
+    // PlayerAttribute's "nationality" or "club" AttributeType for a given
+    // cell without re-deriving it, and keeps the schema correct once a
+    // future Tier 1 grid mixes category types across an axis (REQ-107
+    // already allows Club x Club).
+    public string RowCategoryType { get; set; }
     public string RowCategoryValue { get; set; }
+    public string ColCategoryType { get; set; }
     public string ColCategoryValue { get; set; }
 }
 
@@ -579,6 +596,28 @@ for each cell (row, col) in NxN:
     until matchCount >= MIN_VALID_ANSWERS or attempts > MAX_ATTEMPTS
     if attempts exceeded: abort generation, log error, alert admin
 ```
+
+**Tier 0 status (S-007):** the pseudocode above is the full/long-term
+shape (independent per-cell retry, any category type on either axis,
+alerting an admin on abort). `GridGameModule.GenerateInstanceAsync`
+(`XGArcade.Games.XGGrid`) currently implements a narrower, structurally
+different-but-equivalent algorithm: row headers are N unique countries
+picked once up front (never retried individually — REQ-107's ban can
+never fire on a country picked alone), then column headers are picked one
+club at a time from the shuffled candidate pool and accepted only once
+validated against *every already-fixed row header* in one pass (all N
+match-counts computed together, not cell-by-cell) — a rejected club
+candidate is discarded and never revisited, and `attempts` counts
+column-candidates tried, not individual cell retries. Both shapes satisfy
+REQ-101/102's actual acceptance criteria (all N×N cells valid, N unique
+row/column headers, abort after `MaxAttempts` with a logged error) with
+the same `MinValidAnswers`/`MaxAttempts` defaults (3 / 500,
+`GridGenerationOptions`); "alert admin" is not implemented — abort
+currently only logs (`ILogger.LogError`) and returns a 500 from
+`POST /internal/grid/generate`, no separate alerting channel exists yet.
+This shape is also Tier 0-scoped to Country (rows) × Club (columns) only —
+never a mixed axis, never Trophy — so the "whichever category types this
+GridTemplate allows" line above doesn't yet vary in practice.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
