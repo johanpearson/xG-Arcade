@@ -55,6 +55,20 @@ never return) from coming back. **When S-003 lands**, replace the stub body
 with the real migration/seed call — don't leave it silently doing nothing
 once there's something for it to do.
 
+### 2026-07-09 — `dotnet run`'s launch profile overrides `ASPNETCORE_URLS` (S-002)
+`ci.yml`'s e2e-tests job set `ASPNETCORE_URLS: http://localhost:8080` as a
+step env var, but the API still bound to `:5028` and the health-wait curl
+loop timed out — confirmed via CI logs, not locally (see the next note).
+Cause: `dotnet run` without `--no-launch-profile` reads
+`Properties/launchSettings.json`'s `applicationUrl` and uses that in
+preference to an externally-set `ASPNETCORE_URLS`, even though the env var
+is already present in the process environment before `dotnet run` starts.
+Fixed by adding `--no-launch-profile` to the "Start API" step's `dotnet run`
+command. If a future workflow step starts the API via `dotnet run` and sets
+`ASPNETCORE_URLS`/`ASPNETCORE_HTTP_PORTS` to pick the port, add
+`--no-launch-profile` there too — this isn't a one-off, it'll bite any
+`dotnet run` invocation that also sets the port via env var.
+
 ### 2026-07-09 — dotnet SDK isn't installable in this sandbox (S-002)
 This session's outbound network policy blocks `builds.dotnet.microsoft.com`
 (confirmed via the agent proxy's `/__agentproxy/status`, a 403 policy

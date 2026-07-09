@@ -74,7 +74,10 @@ jobs:
           ConnectionStrings__Database: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
       - name: Start API (background)
         run: |
-          dotnet run --project backend/src/XGArcade.Api --configuration Release &
+          # --no-launch-profile: launchSettings.json's applicationUrl (port
+          # 5028) otherwise overrides ASPNETCORE_URLS below, so the API binds
+          # to the wrong port and the health-wait loop times out.
+          dotnet run --project backend/src/XGArcade.Api --configuration Release --no-launch-profile &
           timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
         env:
           ConnectionStrings__Database: "Host=localhost;Database=xgarcade_e2e;Username=postgres;Password=postgres"
