@@ -47,6 +47,11 @@ jobs:
   e2e-tests:
     runs-on: ubuntu-latest
     needs: [backend-tests, frontend-unit-tests]
+    # Until S-002 lands `/health` and a `migrate-and-seed` CLI verb, `dotnet
+    # run -- migrate-and-seed` ignores that arg and starts Kestrel via
+    # app.Run(), which never returns — without this the job hangs for
+    # GitHub's full default job timeout (360 min) instead of failing fast.
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16
