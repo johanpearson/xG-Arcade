@@ -17,6 +17,9 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<GridTemplate> GridTemplates => Set<GridTemplate>();
+    public DbSet<GridInstance> GridInstances => Set<GridInstance>();
+    public DbSet<GridCell> GridCells => Set<GridCell>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +90,23 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // document.md §5's required-indexes table).
         modelBuilder.Entity<User>()
             .HasIndex(u => u.AuthProviderUserId)
+            .IsUnique();
+
+        // GridInstance/GridCell are Games.XGGrid's (COMP-05) own entities —
+        // Core never holds a foreign key to either (ADR-0003). Their own
+        // internal relationship is a normal owned-collection FK, no
+        // cross-component boundary concern.
+        modelBuilder.Entity<GridCell>()
+            .HasOne<GridInstance>()
+            .WithMany(gi => gi.Cells)
+            .HasForeignKey(gc => gc.GridInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // A grid's guess-checking (S-009) always looks up a specific
+        // (row, col) cell — REQ-101/102's generation loop never produces two
+        // cells at the same coordinates within one instance.
+        modelBuilder.Entity<GridCell>()
+            .HasIndex(gc => new { gc.GridInstanceId, gc.Row, gc.Col })
             .IsUnique();
     }
 }

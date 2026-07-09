@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.25"
+version: "0.26"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.25 · 2026-07-09
+Version 0.26 · 2026-07-09
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -123,6 +123,17 @@ returns a grid with an invalid cell)
 > As an admin, I want to configure grid size (3x3, 4x4, 5x5) per GridTemplate,
 > so the game can be varied over time.
 
+- **Status: Partially implemented (Tier 0, S-007).** There is no admin CRUD
+  for `GridTemplate` yet — the `size = N` part of this requirement is
+  satisfied (the non-Production-only `POST /internal/grid/generate`
+  endpoint, `XGArcade.Api.Grid.InternalGridEndpoints`, accepts a `Size` of
+  3/4/5 and produces exactly N×N cells with N unique row and N unique
+  column categories, per the acceptance criteria below), but "as an admin,
+  I want to configure" is not: the endpoint find-or-creates a `GridTemplate`
+  for the requested size on demand rather than an admin creating/managing
+  templates through any dedicated interface. The rest of this requirement's
+  acceptance criteria are recorded below as the full/long-term definition,
+  not a claim of current behavior.
 - Given a GridTemplate with `size = N`
 - When a new grid is generated from this template
 - Then exactly N×N cells are created, with N unique row categories and N
@@ -136,17 +147,25 @@ returns a grid with an invalid cell)
 > from the local cache, so that more combinations become possible without
 > blocking generation, and without requiring a large upfront import.
 
-- **Status: Partially implemented (Tier 0, S-006).** Only the Wikidata half
-  is built: `WikidataClient`/`WikidataLookupService`
+- **Status: Partially implemented (Tier 0, S-006/S-007).** Only the
+  Wikidata half is built: `WikidataClient`/`WikidataLookupService`
   (`XGArcade.DataSync.Wikidata`) run the SPARQL intersection query
   (implementation-document.md §6a), persist matches, and upsert
   `skos:altLabel` results into `PlayerAlias`. The API-Football fallback
-  client does not exist yet (Tier 1). Nothing calls this lookup service yet
-  either — grid generation (S-007) is the first real caller, so this REQ's
-  "combination has no match in the local cache" trigger isn't wired up in
-  practice until then. The rest of this requirement's acceptance criteria
-  are recorded below as the full/long-term definition, not a claim of
-  current behavior.
+  client does not exist yet (Tier 1) — `GridGameModule.GetMatchCountAsync`
+  (`XGArcade.Games.XGGrid`) only ever calls `WikidataLookupService`; there
+  is no "Wikidata timed out/errored, try API-Football" branch to call yet.
+  As of S-007, grid generation is now the real caller: a local cache miss
+  (`CountPlayersWithBothAttributesAsync` returns 0) triggers a live
+  Wikidata lookup during `GenerateInstanceAsync`, and a genuine 0-match
+  result (Wikidata included) is treated as an ordinary failed candidate,
+  discarded and retried per REQ-101 — this is the "if neither source finds
+  a match, the combination is discarded" clause below, minus the
+  "neither source" part, since there's still only one source. The rest of
+  this requirement's acceptance criteria (the Wikidata/API-Football
+  waterfall itself, `confidence`/`source` bookkeeping beyond what
+  S-006 already persists) are recorded below as the full/long-term
+  definition, not a claim of current behavior.
 - Given a combination has no match in the local cache
 - When the system performs a live lookup against external sources
 - Then Wikidata is tried first, with a timeout — it isn't meaningfully

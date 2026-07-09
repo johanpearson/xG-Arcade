@@ -17,6 +17,14 @@ public interface IPlayerStoreRepository
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
 
+    // Grid generation's candidate-matching query (REQ-101): how many
+    // players satisfy both category values at once. A single indexed join
+    // rather than fetching both attribute lists and intersecting in memory.
+    Task<int> CountPlayersWithBothAttributesAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default);
     Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default);
 

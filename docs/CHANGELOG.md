@@ -13,6 +13,57 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/decisions/0014-shared-data-project-for-all-entities.md
+  (new), docs/architecture-document.md (§5 table footnote, §6.1),
+  docs/implementation-document.md (§5 header comment + `GridCell`, §6 grid-
+  generation pseudocode), docs/requirements-document.md (REQ-102, REQ-103) —
+  doc sync for S-007 (Grid generation): `IGameModule`/`RoundConfig`/
+  `GameInstance`/`ScoreResult` added to `XGArcade.Core.Games`;
+  `GridTemplate`/`GridInstance`/`GridCell` entities + `IGridInstanceRepository`
+  added to `XGArcade.Data`; `GridGameModule` (`XGArcade.Games.XGGrid`,
+  COMP-05) implements `GenerateInstanceAsync` for Tier 0's Country×Club-only
+  scope (`ScoreSubmissionAsync` still throws `NotImplementedException`,
+  that's S-009); a non-Production-only `POST /internal/grid/generate`
+  endpoint exercises it end to end ahead of S-008's real `Core.Rounds`
+  caller. Added ADR-0014 (an architecture-reviewer pass on this story
+  flagged that S-004's `User`/COMP-01 and now S-007's `GridTemplate`/
+  `GridInstance`/`GridCell`/COMP-05 both live in `XGArcade.Data` despite
+  architecture-document.md §5's "maps to" column naming a different
+  project, without ever documenting why) — the §5 table gained a footnote
+  pointing at it, and implementation-document.md §5's xG-Grid-entities
+  header comment now points at the ADR instead of implying the entities are
+  physically defined inside `XGArcade.Games.XGGrid`. §6.1's grid-generation
+  flow gained a Tier 0 status note (same pattern as §6.4's auth-flow note):
+  the diagram's "Round Scheduler Job → Games.XGGrid → ... → Core.Rounds:
+  create Round" still describes the full/long-term flow, but S-008
+  (`Core.Rounds`) doesn't exist yet, so today's real entry point is the
+  temporary internal endpoint calling `IGameModule` directly, and the
+  endpoint returns the persisted `GridInstance` itself rather than a
+  `Round`. Implementation-document.md §5's `GridCell` pseudocode gained the
+  `GridInstanceId` FK and `RowCategoryType`/`ColCategoryType` fields that
+  were missing from its original illustrative shape (present in the actual
+  entity since S-007, needed so future guess-checking, S-009, knows which
+  `PlayerAttribute.AttributeType` to query per cell without re-deriving it);
+  §6's grid-generation pseudocode gained a Tier 0 status note explaining
+  `GridGameModule`'s actual algorithm (N row headers fixed once, then
+  column headers picked one at a time and validated against every fixed
+  row in one pass) is structurally different from, but acceptance-
+  criteria-equivalent to, the pseudocode's simpler independent-per-cell-
+  retry model, and that "alert admin" on abort isn't implemented (only
+  `ILogger.LogError` + a 500 response). REQ-103 gained a "Status: Partially
+  implemented (Tier 0, S-006/S-007)" update: grid generation is now the
+  real caller of `WikidataLookupService`, invoked when a local cache miss
+  occurs during `GenerateInstanceAsync`, but the API-Football fallback branch
+  still doesn't exist, so a Wikidata miss is treated as an ordinary 0-match
+  result, not "neither source found a match." REQ-102 gained a "Status:
+  Partially implemented (Tier 0, S-007)" note: the size/uniqueness
+  acceptance criteria are satisfied by the internal endpoint, but there is
+  no admin CRUD for `GridTemplate` yet — it find-or-creates one by size on
+  demand. No requirements-document.md acceptance-criteria text was changed,
+  only status notes added, matching the existing REQ-103/REQ-701 pattern.
+  docs/backlog.md's S-007 entry checked against the actual diff and found
+  already accurate — no change made. REQ-101/102/103/107/109, ADR-0003,
+  ADR-0006, ADR-0011, ADR-0014.
 - 2026-07-09 — docs/decisions/0011-wikidata-first-lookup-waterfall.md
   (addendum), docs/implementation-document.md (§6, §6a), docs/backlog.md
   (S-006) — raised `WikidataClient`'s query timeout from 8s to 15s, per

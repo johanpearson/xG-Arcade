@@ -3,11 +3,14 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
+using XGArcade.Api.Grid;
 using XGArcade.Core.Auth;
+using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.Games.XGGrid;
 
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
 // server start) used by ci.yml's local E2E stack. Applies pending EF Core
@@ -76,6 +79,14 @@ builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(client =>
         "xG-Arcade/1.0 (Tier 0 grid data sync; see docs/decisions/0011-wikidata-first-lookup-waterfall.md)");
 });
 builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
+
+// COMP-05 (Games.XGGrid) — S-007's grid generation. Only one game module
+// exists yet, so a direct IGameModule registration is enough; resolving
+// several modules by GameKey is S-008's job (Round Scheduler) once a second
+// game or real round scheduling exists.
+builder.Services.AddSingleton(new GridGenerationOptions());
+builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
+builder.Services.AddScoped<IGameModule, GridGameModule>();
 
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
@@ -167,6 +178,8 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+
+app.MapInternalGridEndpoints();
 
 app.Run();
 

@@ -2,6 +2,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- COMP-06 (Data.PlayerStore) repositories and COMP-07's Wikidata
+         lookup service — boundary rule 1: Games.XGGrid reaches player/
+         category data only through these interfaces, never a DbContext
+         directly. -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
