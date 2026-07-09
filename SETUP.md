@@ -176,14 +176,19 @@ az deployment group create \
   --resource-group xg-arcade-dev-rg \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/main.parameters.dev.json \
-  --parameters containerImage=ghcr.io/<org>/<repo>-api:latest \
-               registryUsername=<your-github-username> \
-               registryPassword=<a-github-PAT-with-read:packages> \
-               databaseConnectionString=<dev-supabase-connection-string> \
-               supabaseJwtSecret=<dev-supabase-jwt-secret> \
-               supabaseUrl=<dev-supabase-url> \
-               supabaseAnonKey=<dev-supabase-anon-key>
+  --parameters containerImage="ghcr.io/<org>/<repo>-api:latest" \
+               registryUsername="<your-github-username>" \
+               registryPassword="<a-github-PAT-with-read:packages>" \
+               databaseConnectionString="<dev-supabase-connection-string>" \
+               supabaseJwtSecret="<dev-supabase-jwt-secret>" \
+               supabaseUrl="<dev-supabase-url>" \
+               supabaseAnonKey="<dev-supabase-anon-key>"
 ```
+
+**Quote every value** — a `.NET`-format Postgres connection string contains
+`;` and usually a space, and unquoted `;` is a bash command separator that
+will silently truncate the command and drop every parameter after it (see
+`NOTES.md`).
 
 And once for **prod** (Tier 1 — skip for MVP; same command, swap resource
 group + parameters file + values):
@@ -193,13 +198,13 @@ az deployment group create \
   --resource-group xg-arcade-prod-rg \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/main.parameters.json \
-  --parameters containerImage=ghcr.io/<org>/<repo>-api:latest \
-               registryUsername=<your-github-username> \
-               registryPassword=<a-github-PAT-with-read:packages> \
-               databaseConnectionString=<prod-supabase-connection-string> \
-               supabaseJwtSecret=<prod-supabase-jwt-secret> \
-               supabaseUrl=<prod-supabase-url> \
-               supabaseAnonKey=<prod-supabase-anon-key>
+  --parameters containerImage="ghcr.io/<org>/<repo>-api:latest" \
+               registryUsername="<your-github-username>" \
+               registryPassword="<a-github-PAT-with-read:packages>" \
+               databaseConnectionString="<prod-supabase-connection-string>" \
+               supabaseJwtSecret="<prod-supabase-jwt-secret>" \
+               supabaseUrl="<prod-supabase-url>" \
+               supabaseAnonKey="<prod-supabase-anon-key>"
 ```
 
 This won't fully succeed until `backend/Dockerfile` actually exists and an

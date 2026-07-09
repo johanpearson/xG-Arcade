@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — .github/workflows/deploy.yml, infra/README.md, SETUP.md,
+  NOTES.md — fixed a real bug in `deploy-infra`: unquoted
+  `${{ secrets.X }}` interpolation in the `az deployment group create`
+  `--parameters` line let an unquoted `;` in the (correctly-formatted)
+  Postgres connection string act as a bash command separator, silently
+  truncating the command and dropping `supabaseJwtSecret`/`supabaseUrl`/
+  `supabaseAnonKey` from the deployment (`ERROR: Missing input parameters`).
+  Quoted every interpolated value in `deploy.yml` and the matching manual-
+  deploy examples in `infra/README.md`/`SETUP.md`. No requirements/
+  architecture/implementation-document changes — infra/CI behavior only.
 - 2026-07-09 — SETUP.md, infra/README.md, NOTES.md — investigated
   `deploy.yml`'s three latest failed runs; both root causes are dev secret
   configuration (empty `DEV_SUPABASE_ANON_KEY`, `DEV_DATABASE_CONNECTION_STRING`

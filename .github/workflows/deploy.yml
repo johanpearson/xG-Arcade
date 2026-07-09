@@ -97,16 +97,16 @@ jobs:
             CORS_ORIGIN="https://${{ secrets.DEV_FRONTEND_HOSTNAME }}"
           fi
           az deployment group create \
-            --resource-group ${{ secrets.DEV_AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ secrets.DEV_AZURE_RESOURCE_GROUP }}" \
             --template-file infra/bicep/main.bicep \
             --parameters infra/bicep/main.parameters.dev.json \
-            --parameters containerImage=${{ needs.build-and-push-backend.outputs.image }} \
-                         registryUsername=${{ github.actor }} \
-                         registryPassword=${{ secrets.GHCR_TOKEN }} \
-                         databaseConnectionString=${{ secrets.DEV_DATABASE_CONNECTION_STRING }} \
-                         supabaseJwtSecret=${{ secrets.DEV_SUPABASE_JWT_SECRET }} \
-                         supabaseUrl=${{ secrets.DEV_SUPABASE_URL }} \
-                         supabaseAnonKey=${{ secrets.DEV_SUPABASE_ANON_KEY }} \
+            --parameters containerImage="${{ needs.build-and-push-backend.outputs.image }}" \
+                         registryUsername="${{ github.actor }}" \
+                         registryPassword="${{ secrets.GHCR_TOKEN }}" \
+                         databaseConnectionString="${{ secrets.DEV_DATABASE_CONNECTION_STRING }}" \
+                         supabaseJwtSecret="${{ secrets.DEV_SUPABASE_JWT_SECRET }}" \
+                         supabaseUrl="${{ secrets.DEV_SUPABASE_URL }}" \
+                         supabaseAnonKey="${{ secrets.DEV_SUPABASE_ANON_KEY }}" \
                          corsAllowedOrigin="$CORS_ORIGIN"
 
   deploy-frontend:

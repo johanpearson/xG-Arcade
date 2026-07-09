@@ -289,6 +289,34 @@ Two distinct root causes, both secret-configuration, not application code:
    Neither secret's actual value is visible to fix directly; both need the
    repo owner to update them in GitHub Actions secrets.
 
+### 2026-07-09 — `deploy-infra`'s unquoted `--parameters` interpolation broke on the real (semicolon-bearing) connection string
+Once `DEV_DATABASE_CONNECTION_STRING` was corrected to the real .NET/ADO.NET
+format (see the note above), `deploy-infra` hit a *new*, different failure:
+`ERROR: Missing input parameters: supabaseAnonKey, supabaseJwtSecret,
+supabaseUrl` — even though the job log showed all three masked as `***`
+(present, non-empty). Root cause: `deploy.yml`'s `az deployment group
+create` step interpolates `${{ secrets.X }}` directly into an unquoted
+`key=${{ secrets.X }}` shell token. A `.NET`-format connection string always
+contains `;` (and usually a space, e.g. `SSL Mode=Require`) — unquoted `;`
+is a bash command separator regardless of surrounding whitespace, so once
+GitHub Actions substituted the real value into the script, bash silently
+split the *one* `az deployment group create ...` invocation into several
+bogus commands at each `;`. The connection string itself got truncated at
+its first `;`, and every `--parameters` entry written after it in the
+source (`supabaseJwtSecret`, `supabaseUrl`, `supabaseAnonKey`) never reached
+`az` at all — they'd been shell-parsed as arguments to unrelated
+non-existent commands instead. Not visible with the earlier (broken, URI-form)
+connection string because that value happened to contain no `;`.
+Fixed by quoting every interpolated value in the `--parameters` line
+(`databaseConnectionString="${{ secrets.DEV_DATABASE_CONNECTION_STRING }}"`,
+etc.) — also fixed the same unquoted pattern in `infra/README.md`'s and
+`SETUP.md`'s manual-deploy command examples. **Any future workflow step
+that interpolates a GitHub secret directly into a shell command must quote
+it**, even if today's value happens not to contain a shell metacharacter —
+`ConnectionStrings`/passwords/tokens can gain one at any time and the
+failure mode (partial command truncation, wrong parameters silently
+missing) is much harder to diagnose than an empty-value error.
+
 ### 2026-07-09 — the deployed dev Container App never sets `ASPNETCORE_ENVIRONMENT` (found via S-004's architecture review, not yet fixed)
 Neither `infra/bicep/modules/backend-container-app.bicep` nor
 `.github/workflows/deploy.yml` sets `ASPNETCORE_ENVIRONMENT` for the
