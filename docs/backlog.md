@@ -63,7 +63,7 @@ now, no research needed.
 
 **S-006 · Wikidata client (COMP-07, Tier 0 half)**
 SPARQL intersection query per `implementation-document.md` §6a (P106/P27/
-P54, QIDs from the reference tables), ~8s timeout, bindings-format parser,
+P54, QIDs from the reference tables), ~15s timeout (ADR-0011 addendum), bindings-format parser,
 results persisted to `PlayerData`/`PlayerAttribute` as `unverified`
 (REQ-103's persist-immediately rule; skip the API-Football fallback half).
 Three correctness rules from §6a are non-negotiable: **no LIMIT** on the

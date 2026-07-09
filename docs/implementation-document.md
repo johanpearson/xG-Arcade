@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.24"
+version: "0.25"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.24 · 2026-07-09
+Version 0.25 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -491,7 +491,7 @@ function live_lookup(player_or_candidates, category_a, category_b):
     // Wikidata entirely and goes straight to the fallback, no error
     if category_a.WikidataQid != null AND category_b.WikidataQid != null:
         result = query_wikidata(player_or_candidates, category_a.WikidataQid,
-                                 category_b.WikidataQid, timeout: 8s)
+                                 category_b.WikidataQid, timeout: 15s)
         if result.resolved:
             ExternalApiUsage.increment("wikidata", today)  // observability only, never gates
             return result
@@ -692,8 +692,10 @@ SELECT ?player ?playerLabel WHERE {
 The response shape is SPARQL's own JSON results format (`head.vars` /
 `results.bindings`), not a simple object list — needs its own parsing
 logic, distinct from the two REST clients above. Response times are
-variable under current WDQS load; always call with a timeout (ADR-0011
-suggests ~8s) and treat a timeout the same as a miss, falling through to
+variable under current WDQS load; always call with a timeout (15s, per
+ADR-0011's 2026-07-09 addendum — chosen over the ADR's original "e.g.
+5-10s" illustrative range because the ADR's own evidence shows WDQS queries
+taking 9-27s under load) and treat a timeout the same as a miss, falling through to
 API-Football.
 
 Three rules that make this query correct, not just functional:

@@ -19,13 +19,16 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
     // registration in Program.cs, which supplies one automatically.
     private readonly ILogger<WikidataClient> _logger = logger ?? NullLogger<WikidataClient>.Instance;
 
-    // ADR-0011: "a reasonable timeout (e.g. 5-10s)" — WDQS is documented as
-    // measurably slower under current load; a timeout here is what makes a
-    // Wikidata miss/timeout fall through to the fallback source (Tier 1)
-    // instead of blocking grid generation indefinitely. Overridable
-    // (constructor param, not a hardcoded const) so tests can exercise the
-    // timeout path without waiting 8 real seconds.
-    private readonly TimeSpan _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(8);
+    // ADR-0011's original "e.g. 5-10s" was only an illustrative example;
+    // the ADR's own evidence (WDQS queries observed taking 9-27s under
+    // load) argues for a longer default — 8-10s would treat a large share
+    // of genuinely-successful-but-slow queries as timeouts, pushing
+    // otherwise-answerable lookups to the Tier 1 fallback unnecessarily.
+    // 15s covers most of that reported range without blocking grid
+    // generation indefinitely — see ADR-0011's 2026-07-09 addendum.
+    // Overridable (constructor param, not a hardcoded const) so tests can
+    // exercise the timeout path without waiting out a real multi-second delay.
+    private readonly TimeSpan _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(15);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

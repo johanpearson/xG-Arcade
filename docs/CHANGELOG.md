@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/decisions/0011-wikidata-first-lookup-waterfall.md
+  (addendum), docs/implementation-document.md (§6, §6a), docs/backlog.md
+  (S-006) — raised `WikidataClient`'s query timeout from 8s to 15s, per
+  direct PR review feedback on S-006 (#20): ADR-0011's original "e.g.
+  5-10s" was only an illustrative example, and the ADR's own evidence
+  (WDQS queries observed taking 9-27s under load) argues for a longer
+  default — 8-10s would misclassify a meaningful share of genuinely-
+  successful-but-slow queries as timeouts, needlessly pushing otherwise-
+  answerable lookups onto the Tier 1 API-Football fallback or discarding a
+  valid grid combination (REQ-101). Added as an ADR-0011 addendum rather
+  than editing the original decision text, matching this project's
+  established pattern for refining an already-accepted ADR. No requirements-
+  document.md/architecture-document.md change — the timeout value isn't
+  part of either document.
 - 2026-07-09 — docs/requirements-document.md (REQ-103), docs/architecture-document.md
   (§2 banner, §5 COMP-06/COMP-10 table, boundary rule 5) — doc sync for
   S-006 (Wikidata client, COMP-07 Tier 0 half): `WikidataClient`/
