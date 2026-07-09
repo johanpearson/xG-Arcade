@@ -13,6 +13,47 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — docs/requirements-document.md (REQ-103), docs/architecture-document.md
+  (§2 banner, §5 COMP-06/COMP-10 table, boundary rule 5) — doc sync for
+  S-006 (Wikidata client, COMP-07 Tier 0 half): `WikidataClient`/
+  `WikidataLookupService` (`XGArcade.DataSync.Wikidata`) run the SPARQL
+  country×club intersection query (implementation-document.md §6a),
+  persist matches as unverified `PlayerData`/`PlayerAttribute`, and upsert
+  `skos:altLabel` results into a new `PlayerAlias` entity via two new
+  `IPlayerStoreRepository` methods; not yet called by anything (S-007 is
+  the first caller). REQ-103 gained a "Status: Partially implemented (Tier
+  0, S-006)" note (only the Wikidata half is built, no API-Football
+  fallback yet, not yet wired to grid generation) and its `source` clause
+  was corrected — the actual stored value is the specific provider
+  (`"wikidata"`) per implementation-document.md §5's pre-existing `Source`
+  enum, not a generic `"live_lookup"` literal as the old wording implied.
+  Architecture-document.md's COMP-06 row now lists `PlayerAlias` alongside
+  PlayerData/PlayerOverride/PlayerAttribute (it's populated incrementally
+  like the rest of COMP-06, not bulk-imported like COMP-10's index), and
+  boundary rule 5 is clarified: it governs autocomplete (COMP-10-only,
+  no exceptions) and correctness-checking (COMP-06-only), not "COMP-06 and
+  COMP-10 can never be read together" — REQ-208's post-submission
+  candidate-resolution step (already documented in implementation-document.md
+  §6's `normalize()` pseudocode, predating this story) deliberately reads
+  both `PlayerNameIndex` (COMP-10) and `PlayerAlias` (COMP-06) to build the
+  candidate set, which is the intended design, not a violation. Also fixed
+  two stale "Wikidata client is Tier 1" banner lines (architecture-document.md
+  §2, implementation-document.md top-of-doc note) — Wikidata has been Tier 0
+  since the ADR-0011 correction; only the API-Football fallback and
+  `CountryDefinition`/`ClubDefinition`'s *dynamic* external-ID resolution
+  remain Tier 1. Updated `IPlayerStoreRepository`'s header doc-comment to
+  list `PlayerAlias` alongside the entities it already gated. No new ADR:
+  `PlayerAlias`'s shape and COMP-06-style incremental-growth pattern were
+  already specified in implementation-document.md §5/§6a and
+  architecture-document.md §6.7's sync allowlist before this story — this
+  was a documentation gap (COMP-06's own §5 row and boundary rule 5 hadn't
+  caught up), not a new structural decision. Flagged back, not fixed here:
+  `infra/scripts/lib/game-data-tables.sh` lists the sync allowlist entry as
+  `public."PlayerAlias"` (singular), but the actual EF-generated table name
+  is `"PlayerAliases"` (plural, following the `DbSet<PlayerAlias> PlayerAliases`
+  property name, same convention as `Players`/`PlayerAttributes`/
+  `PlayerOverrides`) — worth a follow-up fix, out of scope for a docs-only
+  change. REQ-103/REQ-109.
 - 2026-07-09 — .github/workflows/deploy.yml, infra/README.md, SETUP.md,
   NOTES.md — fixed a real bug in `deploy-infra`: unquoted
   `${{ secrets.X }}` interpolation in the `az deployment group create`

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.23"
+version: "0.24"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.23 · 2026-07-09
+Version 0.24 · 2026-07-09
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -37,8 +37,12 @@ References: `requirements-document.md`, `architecture-document.md`
 >
 > **This document describes the full system, not what's being built right
 > now.** See `MVP-SCOPE.md` (repo root) for the actual build order — e.g.
-> `ExternalApiUsage`, the Wikidata client, and `CountryDefinition`/
-> `ClubDefinition`'s external-ID resolution are all Tier 1.
+> `ExternalApiUsage`, the API-Football fallback client, and
+> `CountryDefinition`/`ClubDefinition`'s *dynamic* external-ID resolution
+> (an admin-driven incremental flow for new clubs) are all Tier 1. The
+> Wikidata client itself is Tier 0 (built in S-006, §6a) — Tier 0's fixed
+> reference-table QIDs are just hand-looked-up and hardcoded rather than
+> dynamically resolved.
 
 ## 1. Technology choices and rationale
 

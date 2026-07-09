@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.16"
+version: "0.17"
 status: draft
 last_updated: 2026-07-09
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.16 · 2026-07-09
+Version 0.17 · 2026-07-09
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -40,8 +40,9 @@ References: `requirements-document.md`, `implementation-document.md`
 >
 > **This document describes the full system, not what's being built right
 > now.** See `MVP-SCOPE.md` (repo root) for the actual build order — several
-> components below (COMP-07's Wikidata client, COMP-10, the dev/prod split)
-> are Tier 1, not needed to get a first playable version working.
+> components below (COMP-07's API-Football fallback client specifically —
+> its Wikidata client is Tier 0, built in S-006 — COMP-10, the dev/prod
+> split) are Tier 1, not needed to get a first playable version working.
 
 ## 1. Purpose and audience
 
@@ -131,11 +132,11 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` |
 | COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game | `XGArcade.Games.XGGrid` |
-| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute; override-merge logic | `XGArcade.Data` |
+| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic. `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
-| COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache — see ADR-0007 | `XGArcade.Data` |
+| COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5 | `XGArcade.Data` |
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -168,11 +169,27 @@ separate path. This guarantees test data is always structurally valid
 exactly like real data, and that a business-rule change only needs to be
 implemented once. See ADR-0006.
 
-**Boundary rule 5 (autocomplete/correctness separation):** Autocomplete and
-name matching (REQ-207/208/209) query only `Data.PlayerNameIndex` (COMP-10).
+**Boundary rule 5 (autocomplete/correctness separation):** Autocomplete
+specifically (typeahead suggestions shown before submission) queries only
+`Data.PlayerNameIndex` (COMP-10) — never COMP-06, at all, for any reason.
 Correctness-checking a submitted guess (REQ-203) queries only
-`Data.PlayerStore` (COMP-06), never COMP-10. These two paths must never be
-merged — doing so would leak answer validity through autocomplete. See ADR-0007.
+`Data.PlayerStore` (COMP-06, which includes `PlayerAlias`), never COMP-10.
+These two paths must never be merged — doing so would leak answer validity
+through autocomplete. See ADR-0007.
+
+This is a stricter rule than "name matching only ever touches one of the
+two" — REQ-208's post-submission candidate-resolution step (implementation-
+document.md §6's `normalize()` pseudocode) deliberately reads *both*
+`PlayerNameIndex` (COMP-10, the candidate pool) and `PlayerAlias` (COMP-06,
+alongside `PlayerAttribute`) together to resolve a submitted name to a
+candidate player. That's the documented design, not a violation of this
+rule: `PlayerAlias` is never read for autocomplete (upholding the rule
+above), and `PlayerNameIndex` is never used to *determine* correctness
+(candidates it returns still have to satisfy the cell's categories via
+COMP-06 before a guess is accepted, same as any other candidate). The
+boundary this rule protects is "nothing autocomplete shows implies
+correctness" — not "COMP-06 and COMP-10 may never be read in the same
+request."
 
 ## 6. Key data flows
 
