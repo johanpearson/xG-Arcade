@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-09 — SETUP.md, infra/README.md, NOTES.md — investigated
+  `deploy.yml`'s three latest failed runs; both root causes are dev secret
+  configuration (empty `DEV_SUPABASE_ANON_KEY`, `DEV_DATABASE_CONNECTION_STRING`
+  saved in Supabase's URI form instead of the .NET/ADO.NET format Npgsql
+  needs), not application or Bicep bugs. Clarified the connection-string
+  format requirement and the anon key's required-at-startup status in both
+  docs; no code change made since neither failure is fixable without the
+  actual secret values. No requirements/architecture/implementation-document
+  changes — no behavior changed.
 - 2026-07-09 — no changes to docs/requirements-document.md,
   docs/architecture-document.md, or docs/implementation-document.md —
   doc-sync review for S-005 (seed reference data, REQ-109):
