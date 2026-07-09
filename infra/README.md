@@ -202,14 +202,23 @@ az deployment group create \
   --resource-group xg-arcade-dev-rg \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/main.parameters.dev.json \
-  --parameters containerImage=ghcr.io/<org>/<repo>-api:latest \
-               registryUsername=<ghcr-username> \
-               registryPassword=<ghcr-token> \
-               databaseConnectionString=<dev-supabase-connection-string> \
-               supabaseJwtSecret=<dev-supabase-jwt-secret> \
-               supabaseUrl=<dev-supabase-url> \
-               supabaseAnonKey=<dev-supabase-anon-key>
+  --parameters containerImage="ghcr.io/<org>/<repo>-api:latest" \
+               registryUsername="<ghcr-username>" \
+               registryPassword="<ghcr-token>" \
+               databaseConnectionString="<dev-supabase-connection-string>" \
+               supabaseJwtSecret="<dev-supabase-jwt-secret>" \
+               supabaseUrl="<dev-supabase-url>" \
+               supabaseAnonKey="<dev-supabase-anon-key>"
 ```
+
+**Quote every value**, not just the ones that look like they need it — a
+`.NET`-format Postgres connection string always contains `;` and usually a
+space (`SSL Mode=Require`), and unquoted `;` is a bash command separator.
+`deploy.yml` learned this the hard way (see `NOTES.md`): an unquoted
+`databaseConnectionString=${{ secrets.DEV_DATABASE_CONNECTION_STRING }}`
+silently split one `az deployment group create` invocation into several
+broken commands, truncating the connection string and losing every
+`--parameters` entry after it.
 
 Tier 1 — same for prod, once it's created (swap the resource group and
 parameters file):
@@ -221,13 +230,13 @@ az deployment group create \
   --resource-group xg-arcade-prod-rg \
   --template-file infra/bicep/main.bicep \
   --parameters infra/bicep/main.parameters.json \
-  --parameters containerImage=ghcr.io/<org>/<repo>-api:latest \
-               registryUsername=<ghcr-username> \
-               registryPassword=<ghcr-token> \
-               databaseConnectionString=<prod-supabase-connection-string> \
-               supabaseJwtSecret=<prod-supabase-jwt-secret> \
-               supabaseUrl=<prod-supabase-url> \
-               supabaseAnonKey=<prod-supabase-anon-key>
+  --parameters containerImage="ghcr.io/<org>/<repo>-api:latest" \
+               registryUsername="<ghcr-username>" \
+               registryPassword="<ghcr-token>" \
+               databaseConnectionString="<prod-supabase-connection-string>" \
+               supabaseJwtSecret="<prod-supabase-jwt-secret>" \
+               supabaseUrl="<prod-supabase-url>" \
+               supabaseAnonKey="<prod-supabase-anon-key>"
 ```
 
 After this first manual pass, `deploy.yml` takes over for dev (every push
