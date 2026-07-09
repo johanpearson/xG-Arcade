@@ -98,6 +98,33 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
+    public async Task AddPlayerAliasAsync_ThenGetPlayerAliasesAsync_ReturnsOnlyThatPlayersAliases()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "Kaka", WikidataQid = "Q123" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAsync(otherPlayer);
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Titi", NormalizedAlias = "titi" });
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = otherPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+
+        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
+
+        Assert.That(aliases, Has.Count.EqualTo(1));
+        Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    [Test]
+    public async Task GetPlayerAliasesAsync_ReturnsEmpty_WhenPlayerHasNoAliases()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
+
+        Assert.That(aliases, Is.Empty);
+    }
+
+    [Test]
     public async Task AddPlayerDataAsync_PersistsRawSourceData()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };

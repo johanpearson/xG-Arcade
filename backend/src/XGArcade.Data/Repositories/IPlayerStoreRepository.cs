@@ -17,6 +17,9 @@ public interface IPlayerStoreRepository
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default);
+    Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default);
+
     Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default);
     Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default);
 }
