@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.28"
+version: "0.29"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.28 · 2026-07-10
+Version 0.29 · 2026-07-10
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -342,12 +342,15 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
-- **Status: Not implemented yet (deferred to S-011).** `Guess` (S-009) now
-  stores `PlayerAnswerId` per the deterministic lowest-Id pick this
-  requirement's disambiguation clause below describes — REQ-209's Tier 0
-  simplified handling already implements that pick — so the data this
-  calculation will read is being recorded correctly starting now, but no
-  code yet computes or serves `unique_percent` itself; that's S-011.
+- **Status: Implemented (Tier 0, S-011).** `UniquenessCalculator.Calculate`
+  (`XGArcade.Core.Scoring`) is the one place this formula is written, shared
+  by both the live read path below and REQ-205's round-close lock so they
+  can never disagree. `GET /rounds/current`
+  (`XGArcade.Api.Rounds.RoundEndpoints`) computes `UniquePercent` live, on
+  every request, for any cell the requesting player has correctly guessed —
+  never persisted until the round closes. Frontend: `CellState.tsx` shows
+  "X% unique" plus "updates until round closes on [date/time]" for state 1
+  (correct + round active), per `design-document.md` SCREEN-01a.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -373,20 +376,28 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-008/S-009).** `RoundCloseService`
-  (`XGArcade.Core.Rounds`) is a close-only stub: given a round, it pulls
-  `EndTime` forward (idempotently — never later than what's already
-  scheduled) to force immediate closure, which is what REQ-806's
-  `POST /internal/test-data/force-close-round/{roundId}` calls. `Guess`
-  (`XGArcade.Data`) and `Core.Scoring`'s guess-acceptance half
-  (`GuessSubmissionService`) now exist as of S-009, but `RoundCloseService`
-  does not yet read or write them at all — it still does not compute or
-  persist `final_uniqueness_score`/`final_points`; that computation itself
-  is deferred to S-011. There is also no automated scheduled job yet that
-  calls this at a round's real `end_time` in production — today it is only
-  ever invoked via REQ-806's non-Production-only endpoint. The rest of this
-  requirement's acceptance criteria are recorded below as the full/long-term
-  definition.
+- **Status: Partially implemented (Tier 0, S-011).** `RoundCloseService`
+  (`XGArcade.Core.Rounds`) pulls `EndTime` forward (idempotently — never
+  later than what's already scheduled) to force immediate closure, then
+  delegates the actual score locking to `IScoreLockingService`
+  /`ScoreLockingService` (`XGArcade.Core.Scoring`, COMP-04), added S-011:
+  for every `Guess` in the round, a correct guess gets
+  `FinalUniquenessScore` (via the same `UniquenessCalculator` REQ-204 uses)
+  and `FinalPoints = round(uniqueScore * ScoringRules.MaxPointsPerCell)`
+  (`MaxPointsPerCell = 100`, a Tier 0 default — no document specified an
+  exact value); an incorrect guess gets `FinalUniquenessScore = null` and
+  `FinalPoints = 0`. This is idempotent and safe to call again on an
+  already-closed round. What's still missing: there is no automated
+  scheduled job yet that calls round-close at a round's real `end_time` in
+  production — today it is only ever invoked via REQ-806's
+  non-Production-only `POST /internal/test-data/force-close-round/{roundId}`.
+  The UI's "clearly different styling/icon" clause is built for `CellState`'s
+  closed state (`cell-state--final`, "final" label, "X% unique · Y pts"),
+  but that state is only reachable via constructed props in
+  `CellState.test.tsx`, not via the live API (`GET /rounds/current` only
+  ever returns an Active round — same gap S-010's backlog entry already
+  recorded). The rest of this requirement's acceptance criteria are
+  recorded below as the full/long-term definition.
 - Given a Round whose `end_time` has passed
 - When the scoring job runs for the round
 - Then each guess's `final_uniqueness_score` and `final_points` are saved as
@@ -401,6 +412,17 @@ present, updates on refresh)
 > As a player, I want to see my total score for the whole grid, so I can
 > compare myself to others.
 
+- **Status note (Tier 0, S-011):** `ScoreCalculator.CalculateTotalPoints`
+  (`XGArcade.Core.Scoring`) implements this exact formula (`SUM(FinalPoints
+  ?? 0)`) and is unit-tested against it directly. Its contribution is
+  reflected correctly in the global leaderboard's running total (REQ-401,
+  via `GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s equivalent
+  database-side `SUM`/`GROUP BY`). However, there is currently no
+  per-round-specific total surfaced anywhere via API or UI — Tier 0 has no
+  "view a specific closed round" screen at all (`GET /rounds/current` only
+  ever returns an Active round), so there is nowhere to show one round's
+  total distinctly from the leaderboard's all-time running total. Not a
+  regression — revisit once/if a past-round-detail view exists.
 - Given all cells in a round have been locked (REQ-205)
 - When the total score is calculated
 - Then the sum of `final_points` across all N×N cells for the player is shown
@@ -672,6 +694,15 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a player, I want to automatically be part of a global leaderboard, so I
 > can compare myself to all users without extra steps.
 
+- **Status: Implemented (Tier 0, S-011).** `AuthController.Signup`
+  (`XGArcade.Api.Auth`) calls `ILeagueRepository.GetOrCreateGlobalLeagueAsync`
+  (idempotent get-or-create, guarded by a filtered unique index on
+  `League.Type = 'global'` plus a race-recovery catch for two concurrent
+  first-ever signups) followed by `AddMembershipAsync`, right after the
+  local `User` row is created — this is COMP-02 (Core.Leagues)'s first real
+  code. Two backfillers (`UserDisplayNameBackfiller`,
+  `LeagueMembershipBackfiller`, both run from `dotnet run --
+  migrate-and-seed`) cover rows that predate this feature.
 - Given a new user registers
 - Then the user is automatically added to `League(type="global")`
 - And this requires no action from the user
@@ -704,6 +735,17 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a player, I want to see the leaderboard for any league I'm a member of,
 > so I can track my ranking.
 
+- **Status: Partially implemented (Tier 0, S-011).** `GET
+  /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`)
+  → `ILeaderboardService`/`LeaderboardService` (`XGArcade.Core.Leagues`)
+  implements exactly this ranking (members' `SUM(FinalPoints ?? 0)`,
+  sorted descending, ties broken by display name) for the global league
+  only — custom leagues (REQ-402/403) don't exist yet, so there is exactly
+  one leaderboard to read today; SCREEN-03's frontend
+  (`LeaderboardScreen.tsx`) shows only the Global list, no tab switcher.
+  **Known gap:** the response is unbounded (every member in one payload) —
+  see REQ-607's own status note for why this is an acknowledged, deliberate
+  Tier 0 gap rather than an oversight.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -758,18 +800,26 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
-- **Status: Partially implemented (Tier 0, S-004).** Only the 16+ checkbox
+- **Status: Partially implemented (Tier 0, S-004/S-011).** The 16+ checkbox
   clause below is built and enforced server-side (`POST /auth/signup`
   rejects the request with 400 before ever calling Supabase Auth if the
   checkbox is false) — see ADR-0013 (backend-mediated signup/login) and
-  `MVP-SCOPE.md`. The password-policy clause (§5's "Decisions made as
-  sensible technical defaults") and the account-enumeration-safe error
-  message are not yet implemented; Supabase Auth's own error responses are
-  currently passed through as-is. The rest of this requirement's acceptance
-  criteria are recorded below as the full/long-term definition, not a claim
-  of current behavior.
+  `MVP-SCOPE.md`. As of S-011, the DisplayName clause below is also built
+  and enforced server-side (`AuthController.Signup` rejects with 400 if
+  `DisplayName` is empty or over 30 characters, before Supabase Auth is
+  ever called) and client-side (`AuthScreen.tsx` blocks submission with
+  "Choose a display name." without calling the API at all). The
+  password-policy clause (§5's "Decisions made as sensible technical
+  defaults") and the account-enumeration-safe error message are not yet
+  implemented; Supabase Auth's own error responses are currently passed
+  through as-is. The rest of this requirement's acceptance criteria are
+  recorded below as the full/long-term definition, not a claim of current
+  behavior.
 - Given a person provides an email address and a password meeting the
   platform's password policy
+- And a display name between 1 and 30 characters — this is the only
+  identity a leaderboard (REQ-401/404) ever shows another player; the
+  account's email address is never shown to other players
 - And they have checked a required confirmation "I am at least 16 years
   old" — self-declared, no age verification performed, but signup cannot
   proceed without it checked
@@ -917,6 +967,19 @@ its own explicit opt-in separate from this one, not be folded into it.
   of what "realizes REQ-606" before this bullet made it explicit here
 
 **REQ-607 – Performance baseline**
+
+- **Status: Partially implemented (Tier 0, S-011).** The pagination clause
+  immediately below is a real, currently-unmet gap, not tiered out anywhere
+  else: `GET /leagues/global/leaderboard`
+  (`XGArcade.Api.Leagues.LeaderboardEndpoints`) returns every member of the
+  global league in one unbounded response, no cursor/pageSize. Flagged by
+  an architecture-reviewer pass during S-011 and deliberately left
+  unfixed for this pass — pagination itself is out of scope. Trigger to
+  revisit: global league membership grows large enough that an unbounded
+  response becomes a real perf/payload concern (see
+  `implementation-document.md` §6's "Leaderboard pagination" pseudocode for
+  the intended shape once this is built). The other two bullets below are
+  unaffected by this note.
 - Leaderboard queries (REQ-404) must be paginated; the API must never
   return an entire league's membership in one unbounded response
 - Guess correctness/uniqueness lookups (REQ-203, REQ-204) must use indexed
@@ -1054,7 +1117,14 @@ flow: signup → guess → force-close → verify locked score)
   with one cell and a `Player` whose `PlayerAttribute` rows satisfy it,
   entirely through each owning component's normal repository write paths
   (`IGridInstanceRepository`/`IPlayerStoreRepository`/`IRoundRepository` —
-  ADR-0006 boundary rule 4), never a raw table write.
+  ADR-0006 boundary rule 4), never a raw table write. **Extended, not
+  replaced, in S-011:** the endpoint now also seeds a second valid player
+  ("Robert Pires") satisfying the same cell, so two different players can
+  each submit a different correct answer — needed for a meaningful REQ-204
+  live-uniqueness test (a single valid answer can only ever show "0%
+  unique"). The response gained `AlternateCorrectPlayerName` alongside the
+  existing `CorrectPlayerName`; the acceptance criteria below are otherwise
+  unchanged.
 - Given `ASPNETCORE_ENVIRONMENT` is not `Production`
 - When a test calls `POST /internal/test-data/seed-guessable-round`
 - Then an active Round and a single-cell `GridInstance` are created, together

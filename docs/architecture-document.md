@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.21"
+version: "0.22"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.21 · 2026-07-10
+Version 0.22 · 2026-07-10
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -152,16 +152,38 @@ persistence code — see ADR-0014 for why. The component boundary itself
 component is allowed to call, not by which `.csproj` the entity class sits
 in.
 
-**COMP-04 status (S-009):** `GuessSubmissionService`
-(`XGArcade.Core.Scoring`) is COMP-04's first real code — REQ-201/202/210's
-guess-acceptance, guess-change-policy, and attempt-cap/lock rules. REQ-204/
-205's actual namesake responsibility ("uniqueness calculation, score
-locking") is not built yet: no code computes `unique_percent` or persists
-`FinalUniquenessScore`/`FinalPoints` (deferred to S-011). `Guess.CellId`
-being a raw `Guid` typed only as "opaque submission reference" in practice
-resolves to a real `GridCell` — an accepted v1 simplification, same one
+**COMP-04 status (S-009/S-011):** `GuessSubmissionService`
+(`XGArcade.Core.Scoring`) was COMP-04's first real code (S-009) —
+REQ-201/202/210's guess-acceptance, guess-change-policy, and
+attempt-cap/lock rules. As of S-011, COMP-04's namesake responsibility
+("uniqueness calculation, score locking") is also built:
+`UniquenessCalculator.Calculate` (REQ-204) is the one place the formula is
+written, shared by the live read path (`GET /rounds/current`,
+`XGArcade.Api.Rounds.RoundEndpoints`) and `IScoreLockingService`
+/`ScoreLockingService` (REQ-205), which `Core.Rounds`' `RoundCloseService`
+calls at round close to persist `FinalUniquenessScore`/`FinalPoints` for
+every `Guess` in the round. `ScoreCalculator.CalculateTotalPoints`
+(REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
+all-time total (COMP-02, below) recomputes the same formula database-side
+rather than calling this directly (see `ScoreCalculator`'s own doc comment
+for why). An architecture-reviewer pass during S-011 caught this logic
+initially living in the wrong components (inline in `Core.Rounds`/the API
+layer) and it was extracted into `Core.Scoring`/`Core.Leagues` before
+merge — see COMP-02's status note below. `Guess.CellId` being a raw `Guid`
+typed only as "opaque submission reference" in practice resolves to a real
+`GridCell` — an accepted v1 simplification, same one
 `implementation-document.md` §5 already documents on the `Guess` entity
 itself.
+
+**COMP-02 status (S-011):** `ILeaderboardService`/`LeaderboardService`
+(`XGArcade.Core.Leagues`) is COMP-02's first real code — REQ-401's
+auto-enrollment (`ILeagueRepository`/`LeagueRepository`, called from
+`AuthController.Signup` right after the local `User` row is created) and
+REQ-404's Tier 0 slice (`GET /leagues/global/leaderboard` →
+`GetGlobalLeaderboardAsync`, the global league only — custom leagues,
+REQ-402/403, are deferred per `MVP-SCOPE.md`). Same thin-endpoint/
+owning-Core-service shape `GuessEndpoints` → `GuessSubmissionService`
+already establishes.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -317,13 +339,18 @@ Admin → Web Frontend (admin view) → Backend API: add new ClubDefinition
 
 **6.2 Guess submission and scoring flow** (realizes REQ-201–REQ-206, REQ-207–REQ-211)
 
-**Tier 0 status (S-009):** the diagram below is the full/long-term shape.
-What's actually built and real end to end: `POST
+**Tier 0 status (S-009/S-011):** the diagram below is the full/long-term
+shape. What's actually built and real end to end: `POST
 /rounds/{roundId}/cells/{cellId}/guesses` (`XGArcade.Api.Guesses
 .GuessEndpoints`) → `GuessSubmissionService` (`Core.Scoring`, COMP-04) →
 `GridGameModule.ScoreSubmissionAsync` (`Games.XGGrid`, COMP-05) →
 `Guess` persisted (`XGArcade.Data`), with correctness shown immediately
-and an immediate lock on a correct answer or on the 2nd attempt.
+and an immediate lock on a correct answer or on the 2nd attempt. As of
+S-011, the live-uniqueness and round-close-lock legs (below) are also real
+end to end: `GET /rounds/current` computes `UniquePercent` live via
+`UniquenessCalculator`, and `RoundCloseService` (`Core.Rounds`) calls
+`IScoreLockingService` (`Core.Scoring`) at round close to persist
+`FinalUniquenessScore`/`FinalPoints` for every `Guess` in the round.
 
 Several lines below do not match Tier 0's actual implementation, all
 deliberate per `MVP-SCOPE.md`, not bugs:
@@ -364,13 +391,25 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   `PlayerOverride` data is simply excluded from the matching set, not
   looked up live. This is Tier 1, deferred per `MVP-SCOPE.md`, same as the
   autocomplete leg above.
-- "Core.Scoring: compute live uniqueness on read, not on write" is not
-  built (REQ-204, deferred to S-011) — nothing computes or returns a
-  `unique_percent` value yet.
+- "Core.Scoring: compute live uniqueness on read, not on write" **is now
+  built (S-011)** — `GET /rounds/current` computes `UniquePercent` on every
+  request via `UniquenessCalculator.Calculate`, for any cell the requesting
+  player has correctly guessed. One attribution correction versus the
+  diagram: this line is drawn as part of the guess-submission response
+  path, but the actual read happens on `GET /rounds/current`
+  (`XGArcade.Api.Rounds.RoundEndpoints`), a separate request — the guess
+  submission response itself (`POST .../guesses`) does not include
+  `UniquePercent`, only the next `GET /rounds/current` does.
 - The final `[scheduled, at Round.EndTime]` block (locking
-  `FinalUniquenessScore`/`FinalPoints`) is not built — `RoundCloseService`
-  only pulls a round's `EndTime` forward, it does not touch `Guess` at all
-  (REQ-205's status note, S-011).
+  `FinalUniquenessScore`/`FinalPoints`) **is now built (S-011)** —
+  `RoundCloseService` (`Core.Rounds`) calls `IScoreLockingService`
+  (`Core.Scoring`), which persists `FinalUniquenessScore`/`FinalPoints` for
+  every `Guess` in the round. Still not built: the "[scheduled, at
+  Round.EndTime]" trigger itself — there is no automated job that calls
+  round-close at a round's real `end_time` in production yet; today this
+  is only ever invoked via REQ-806's non-Production-only
+  `POST /internal/test-data/force-close-round/{roundId}` (REQ-205's status
+  note).
 
 ```
 Player → Web Frontend: types a guess
@@ -409,6 +448,34 @@ Player → Web Frontend → Backend API: POST guess (selected/typed name)
 Round Scheduler Job → Core.Scoring: lock final scores for all guesses in round
   → Database: persist FinalUniquenessScore / FinalPoints
 ```
+
+**6.2a Global leaderboard flow** (realizes REQ-401, REQ-404 — Tier 0 slice
+only, added S-011)
+
+```
+Person → Web Frontend → Backend API: POST /auth/signup (new account)
+  → Core.Users (COMP-01): create User row (includes DisplayName)
+  → Core.Leagues (COMP-02): GetOrCreateGlobalLeagueAsync (idempotent
+    singleton, filtered unique index on League.Type="global"), then
+    AddMembershipAsync — "requires no action from the user" (REQ-401) is
+    enforced by this happening automatically inside signup, not a
+    separate step
+
+Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
+  → Core.Leagues (COMP-02): GetGlobalLeaderboardAsync
+    → Core.Leagues' own persistence: member user ids for the global league
+    → Core.Users (COMP-01): resolve each member's DisplayName
+    → Core.Scoring (COMP-04): each member's all-time SUM(FinalPoints ?? 0)
+      — computed database-side (GroupBy), not by re-summing REQ-206's
+      per-round ScoreCalculator in memory (see ScoreCalculator's own doc
+      comment on why these two call sites intentionally reimplement the
+      same formula at different scopes)
+  → sorted descending by total, response never paginated yet (REQ-607's
+    acknowledged Tier 0 gap)
+```
+
+Custom leagues (REQ-402/403 — create/join via invite code) are not built;
+this flow only ever has the one global league to read.
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
