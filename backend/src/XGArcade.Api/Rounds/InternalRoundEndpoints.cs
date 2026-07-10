@@ -3,6 +3,7 @@ using System.Text;
 using XGArcade.Api.Grid;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
 
@@ -78,6 +79,69 @@ public static class InternalRoundEndpoints
                 ? Results.NotFound()
                 : Results.Ok(new ForceCloseRoundResponse(round.Id, round.EndTime));
         });
+
+        // REQ-807: unlike guesses/users (created via the real signup/guess
+        // endpoints — REQ-806's own convention), a playable round's grid
+        // content can't be created deterministically without either a live,
+        // timing-variable Wikidata call (ADR-0011's addendum) or direct
+        // database access — and Playwright, running against a separately-
+        // started API process, has neither. Every write below goes through
+        // the same repository each owning component normally uses (ADR-0006
+        // boundary rule 4), never a raw table write.
+        app.MapPost("/internal/test-data/seed-guessable-round", async (
+            IGridInstanceRepository gridInstanceRepository,
+            IPlayerStoreRepository playerStoreRepository,
+            IRoundRepository roundRepository,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+
+            var instanceId = Guid.NewGuid();
+            var cellId = Guid.NewGuid();
+            var instance = await gridInstanceRepository.AddInstanceAsync(new GridInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Cells =
+                [
+                    new GridCell
+                    {
+                        Id = cellId,
+                        GridInstanceId = instanceId,
+                        Row = 0,
+                        Col = 0,
+                        RowCategoryType = CategoryPairingRules.Country,
+                        RowCategoryValue = "France",
+                        ColCategoryType = CategoryPairingRules.Club,
+                        ColCategoryValue = "Arsenal",
+                    },
+                ],
+            }, cancellationToken);
+
+            const string correctPlayerName = "Thierry Henry";
+            var player = await playerStoreRepository.AddPlayerAsync(
+                new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
+                cancellationToken);
+            await playerStoreRepository.AddPlayerAttributeAsync(
+                new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
+                cancellationToken);
+            await playerStoreRepository.AddPlayerAttributeAsync(
+                new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" },
+                cancellationToken);
+
+            var round = await roundRepository.AddAsync(new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = instance.Id,
+                StartTime = now.AddMinutes(-1),
+                EndTime = now.AddHours(1),
+                AllowGuessChange = true,
+            }, cancellationToken);
+
+            return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName));
+        });
     }
 
     private static bool IsAuthorized(HttpRequest request, IConfiguration configuration)
@@ -104,6 +168,8 @@ public static class InternalRoundEndpoints
 public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime StartTime, DateTime EndTime);
 
 public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
+
+public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.

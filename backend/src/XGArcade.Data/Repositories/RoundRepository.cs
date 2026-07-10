@@ -16,6 +16,15 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
     // saves it back via UpdateAsync in the same request/scope — matching
     // this repository's own read-then-write flow, unlike every other
     // repository in this codebase so far, which is add-only.
+    // REQ-303: RoundStatusExtensions.GetStatus's own definition of "active"
+    // (StartTime <= now <= EndTime), applied in the query rather than
+    // fetched-then-filtered in memory.
+    public async Task<Round?> GetActiveByGameKeyAsync(string gameKey, DateTime now, CancellationToken cancellationToken = default) =>
+        await dbContext.Rounds
+            .AsNoTracking()
+            .Where(r => r.GameKey == gameKey && r.StartTime <= now && r.EndTime >= now)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task<Round?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await dbContext.Rounds.FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
 

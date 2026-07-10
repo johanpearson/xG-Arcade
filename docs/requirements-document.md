@@ -624,6 +624,36 @@ match with no attribute data and budget exhausted → fails closed), API
 
 **Test level:** Unit, API
 
+**REQ-303 – Fetch the active round and grid for display**
+> As a player, I want to open the app and see the current round's grid with
+> my own progress on it, so I can play without already knowing a round id.
+
+- **Status: Implemented (Tier 0, S-010).** Added as part of building the
+  Grid UI (`docs/backlog.md` S-010): no read endpoint existed for a client
+  to discover "the round I can currently play" before this — `GET
+  /rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, `[RequireAuthorization]`)
+  resolves the caller's local `User` from the bearer token, finds the
+  currently `Active` (REQ-302) round for the xG Grid `GameKey` via the new
+  `IRoundRepository.GetActiveByGameKeyAsync`, and returns its cells (row/col
+  category type and value) joined with the caller's own `Guess` rows for
+  that round (`IGuessRepository.GetByRoundAndUserAsync`) — never another
+  player's. A cell the player hasn't attempted carries no guess object at
+  all, distinguishing "not attempted" from "attempted and pending."
+- Given a logged-in player
+- When they request the current round
+- Then the system returns the currently active round for the game (if any),
+  including its grid cells and, for each cell, the player's own guess state
+  if they've attempted it (correct/incorrect, attempts used, whether the
+  cell is locked)
+- And if no round is currently active, a clear "no active round" response is
+  returned rather than a generic error
+- And this endpoint never reveals another player's guesses — only the
+  requesting player's own
+- And an upcoming (not-yet-started) round scheduled one round ahead
+  (REQ-301) is never returned as if it were playable now
+
+**Test level:** API
+
 ---
 
 ### 4.4 Leagues
@@ -993,6 +1023,44 @@ against. REQ-801-804 remain the Tier 1 target once a real dev environment exists
 
 **Test level:** Integration (endpoint absent when Production), E2E (full
 flow: signup → guess → force-close → verify locked score)
+
+---
+
+**REQ-807 – Minimal guessable-round seeding for automated testing (Tier 0)**
+> As a developer, I want to deterministically create a round with a known,
+> guessable cell during automated tests, so UI/E2E behavior (REQ-201/203/210/303)
+> can be tested without depending on Wikidata's live, timing-variable query
+> service being reachable at all from the test environment.
+
+- **Status: Implemented (Tier 0, S-010).** Added for the same reason
+  REQ-806 exists: unlike guesses/users (created via the real signup/guess
+  endpoints, per REQ-806's own convention), a real playable round's grid
+  content genuinely cannot be created deterministically without either a
+  live Wikidata call (network-dependent, observed taking 9-27s per query,
+  ADR-0011's addendum) or direct database access — and Playwright, running
+  against a separately-started API process, has neither. `POST
+  /internal/test-data/seed-guessable-round`
+  (`XGArcade.Api.Rounds.InternalRoundEndpoints`) creates a `GridInstance`
+  with one cell and a `Player` whose `PlayerAttribute` rows satisfy it,
+  entirely through each owning component's normal repository write paths
+  (`IGridInstanceRepository`/`IPlayerStoreRepository`/`IRoundRepository` —
+  ADR-0006 boundary rule 4), never a raw table write.
+- Given `ASPNETCORE_ENVIRONMENT` is not `Production`
+- When a test calls `POST /internal/test-data/seed-guessable-round`
+- Then an active Round and a single-cell `GridInstance` are created, together
+  with one `Player` whose `PlayerAttribute` rows satisfy that cell's row and
+  column categories
+- And the response returns the created round id, cell id, and the exact
+  correct player name, so a test can deterministically submit both a correct
+  and an incorrect guess
+- And this endpoint is never registered when `ASPNETCORE_ENVIRONMENT ==
+  Production`, enforced in startup configuration, same discipline as
+  REQ-801/REQ-806
+- And test users are still created via the real signup endpoint (REQ-806's
+  existing convention) — only grid/round content is seeded this way
+
+**Test level:** Integration (endpoint absent when Production), used as E2E
+setup by S-010's Playwright suite
 
 ---
 

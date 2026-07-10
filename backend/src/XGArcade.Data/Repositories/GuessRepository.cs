@@ -12,6 +12,12 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
         await dbContext.Guesses.FirstOrDefaultAsync(
             g => g.RoundId == roundId && g.UserId == userId && g.CellId == cellId, cancellationToken);
 
+    public async Task<IReadOnlyList<Guess>> GetByRoundAndUserAsync(Guid roundId, Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.RoundId == roundId && g.UserId == userId)
+            .ToListAsync(cancellationToken);
+
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {
         dbContext.Guesses.Add(guess);
