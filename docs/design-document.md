@@ -355,6 +355,18 @@ Unchanged from v0.1:
   component. This should become a real token row in §2 (or be explicitly
   rejected in favor of per-component judgment) rather than staying an
   implementation-only convention future screens might diverge from.
+- **§2 also has no type scale or border-radius scale**, a gap of the same
+  kind as the spacing one above — found by `code-reviewer` on S-010's diff,
+  since the first pass only disclosed the spacing gap. SCREEN-01/01a/02 and
+  the login screen use ad-hoc, un-tokenized font sizes (9/10/11/12/13/14/
+  15/16/18/22px, scattered across `CategoryLabel.css`, `CellState.css`,
+  `Grid.css`, `GridScreen.css`, `GuessInput.css`, `AuthScreen.css`,
+  `App.css`) and border-radius values (4/8/12px, in `Grid.css`,
+  `GuessInput.css`, `AuthScreen.css`, `App.css`) with no shared variable
+  behind either. Same recommendation as the spacing gap: turn these into
+  real §2 token rows (a type scale, a radius scale) or explicitly decide
+  per-component judgment is fine here — don't let it stay an
+  implementation-only convention.
 - ~~SCREEN-01a's revealed player name has no data source~~ — **fixed** the
   same session this was flagged: `GET /rounds/current`'s guess object now
   includes `SubmittedName` (REQ-303), so a cell answered before the current

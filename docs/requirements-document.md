@@ -642,7 +642,12 @@ match with no attribute data and budget exhausted → fails closed), API
   guess object includes `SubmittedName` (closing a gap `ui-implementer`
   flagged while building S-010's UI, `docs/design-document.md` §7): without
   it, a cell the player answered before the current browser session had no
-  way to redisplay what they guessed.
+  way to redisplay what they guessed. Reading `GridInstance`/`GridCell`
+  content is done directly via `IGridInstanceRepository`, bypassing
+  `IGameModule` — `architecture-reviewer` confirmed this is a genuine (if
+  narrow) exception to ADR-0003's boundary rule 2, not covered by the
+  existing `GridTemplateResolver` precedent; recorded explicitly in the new
+  ADR-0016 rather than left as an undocumented shortcut.
 - Given a logged-in player
 - When they request the current round
 - Then the system returns the currently active round for the game (if any),

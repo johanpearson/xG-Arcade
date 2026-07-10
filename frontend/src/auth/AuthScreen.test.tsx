@@ -59,7 +59,7 @@ describe('AuthScreen', () => {
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc'));
   });
 
-  it('shows the server error detail on a failed login rather than a generic message', async () => {
+  it('REQ-701: shows the server error detail on a failed login rather than a generic message', async () => {
     const fetchMock = vi.fn().mockImplementation(() =>
       jsonResponse({ title: 'Login failed', detail: 'Invalid email or password.' }, 401),
     );

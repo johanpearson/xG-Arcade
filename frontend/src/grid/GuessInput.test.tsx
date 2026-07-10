@@ -20,27 +20,27 @@ function makeCell(overrides: Partial<CurrentRoundCell> = {}): CurrentRoundCell {
 
 // SCREEN-02: plain text input, no autocomplete (REQ-207 deferred / Tier 0).
 describe('GuessInput', () => {
-  it('shows the category header with both flag and club badge context', () => {
+  it('REQ-201: shows the category header with both flag and club badge context', () => {
     render(<GuessInput cell={makeCell()} onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('France')).toBeInTheDocument();
     expect(screen.getByText('Arsenal')).toBeInTheDocument();
   });
 
-  it('shows no attempt count line for an untried cell', () => {
+  it('REQ-210: shows no attempt count line for an untried cell', () => {
     render(<GuessInput cell={makeCell()} onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.queryByText(/attempts used/)).not.toBeInTheDocument();
   });
 
-  it('shows the attempt count once at least one attempt has been used', () => {
+  it('REQ-210: shows the attempt count once at least one attempt has been used', () => {
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 1, locked: false } });
     render(<GuessInput cell={cell} onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('1 of 2 attempts used')).toBeInTheDocument();
   });
 
-  it('submits the typed name and closes on success', async () => {
+  it('REQ-201: submits the typed name and closes on success', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
@@ -53,7 +53,7 @@ describe('GuessInput', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('shows the server error detail and stays open on failure', async () => {
+  it('REQ-202: shows the server error detail and stays open on failure', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockRejectedValue(new Error('No attempts remaining'));
     const onClose = vi.fn();
@@ -66,7 +66,7 @@ describe('GuessInput', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('hides the input entirely once the cell is locked', () => {
+  it('REQ-210: hides the input entirely once the cell is locked', () => {
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 2, locked: true } });
     render(<GuessInput cell={cell} onSubmit={vi.fn()} onClose={vi.fn()} />);
 

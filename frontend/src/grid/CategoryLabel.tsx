@@ -8,8 +8,11 @@ export interface CategoryLabelProps {
 }
 
 // design-document.md §2/§6: a flag or badge is always paired with its text
-// name — never the sole identifier. `categoryType` is treated as an opaque
-// string from the API (REQ-107) rather than a hardcoded axis assumption.
+// name — never the sole identifier. `categoryType` is a plain string at the
+// type level (REQ-107: which axis is country vs. club varies per cell,
+// never assumed statically) — but Tier 0 only ever has the two literal
+// values "country"/"club" (CategoryPairingRules on the backend), so the
+// branch below does compare against one of them directly.
 export function CategoryLabel({ categoryType, value, size = 'medium' }: CategoryLabelProps) {
   return (
     <span className={`category-label category-label--${size}`}>

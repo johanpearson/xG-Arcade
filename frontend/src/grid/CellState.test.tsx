@@ -74,7 +74,7 @@ describe('CellState', () => {
     expect(screen.getByText('final')).toBeInTheDocument();
   });
 
-  it('falls back to a non-fabricated label when no player name is known client-side', () => {
+  it('REQ-210: falls back to a non-fabricated label when no player name is known client-side', () => {
     render(
       <CellState isCorrect attemptCount={1} locked roundStatus="active" />,
     );

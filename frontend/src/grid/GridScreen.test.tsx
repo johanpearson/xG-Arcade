@@ -16,7 +16,7 @@ describe('GridScreen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows a calm empty-state invitation, not an error screen, on 404', async () => {
+  it('REQ-303: shows a calm empty-state invitation, not an error screen, on 404', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() => jsonResponse({ title: 'No active round' }, 404)),
@@ -29,7 +29,7 @@ describe('GridScreen', () => {
     );
   });
 
-  it('derives row/column headers and layout from a flat cells array and renders the grid', async () => {
+  it('REQ-303: derives row/column headers and layout from a flat cells array and renders the grid', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() =>
@@ -61,7 +61,7 @@ describe('GridScreen', () => {
     expect(screen.getByText('0/1 answered')).toBeInTheDocument();
   });
 
-  it('logs out via onAuthError when the round fetch is unauthorized', async () => {
+  it('REQ-303: logs out via onAuthError when the round fetch is unauthorized', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized' }, 401)),
@@ -73,7 +73,7 @@ describe('GridScreen', () => {
     await waitFor(() => expect(onAuthError).toHaveBeenCalled());
   });
 
-  it('opens the guess input, submits, and reflects the result in the cell', async () => {
+  it('REQ-201/203: opens the guess input, submits, and reflects the result in the cell', async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (String(url).endsWith('/rounds/current')) {

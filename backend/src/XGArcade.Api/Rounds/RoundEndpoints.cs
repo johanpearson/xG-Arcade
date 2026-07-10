@@ -42,11 +42,13 @@ public static class RoundEndpoints
                     statusCode: StatusCodes.Status404NotFound);
             }
 
-            // Same "the API layer may resolve a GridInstance directly, no
-            // boundary rule forbids it" precedent InternalGridEndpoints/
-            // GridTemplateResolver already established (architecture-
-            // document.md §6.1) — this is a read of non-player data, not a
-            // game-specific write, so IGameModule isn't involved.
+            // Reads GridInstance/GridCell directly, bypassing IGameModule —
+            // NOT the same precedent as GridTemplateResolver (that one is
+            // about GridTemplate, resolved before generation even runs, and
+            // is unrelated to ADR-0003's boundary rule 2). This is a
+            // narrower, explicitly documented exception: ADR-0016, scoped to
+            // read-only display queries only — generation/scoring must still
+            // always go through IGameModule.
             var instance = await gridInstanceRepository.GetInstanceByIdAsync(round.GameInstanceId, cancellationToken)
                 ?? throw new InvalidOperationException(
                     $"Round '{round.Id}' references GridInstance '{round.GameInstanceId}' which does not exist.");
