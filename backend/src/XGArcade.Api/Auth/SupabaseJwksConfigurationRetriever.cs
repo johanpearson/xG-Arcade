@@ -10,12 +10,12 @@ namespace XGArcade.Api.Auth;
 // document. The framework's stock OpenIdConnectConfigurationRetriever
 // expects a discovery document containing a "jwks_uri" field, so it can't
 // be pointed at the JWKS endpoint directly — this retriever fetches the
-// JWKS itself and wraps it in a minimal OpenIdConnectConfiguration (setting
-// .JsonWebKeySet auto-populates .SigningKeys), which is exactly what
-// OpenIdConnectConfigurationRetriever does internally once it has resolved
-// a jwks_uri. Used via a ConfigurationManager<OpenIdConnectConfiguration>
-// (Program.cs) so JwtBearerHandler gets the framework's own async
-// caching/refresh machinery instead of a hand-rolled synchronous resolver.
+// JWKS itself and wraps it in a minimal OpenIdConnectConfiguration,
+// explicitly populating .SigningKeys below (setting .JsonWebKeySet alone
+// does NOT do this — see that line's own comment). Used via a
+// ConfigurationManager<OpenIdConnectConfiguration> (Program.cs) so
+// JwtBearerHandler gets the framework's own async caching/refresh
+// machinery instead of a hand-rolled synchronous resolver.
 public class SupabaseJwksConfigurationRetriever : IConfigurationRetriever<OpenIdConnectConfiguration>
 {
     public async Task<OpenIdConnectConfiguration> GetConfigurationAsync(
@@ -60,6 +60,18 @@ public class SupabaseJwksConfigurationRetriever : IConfigurationRetriever<OpenId
         foreach (var signingKey in jwks.GetSigningKeys())
         {
             configuration.SigningKeys.Add(signingKey);
+        }
+
+        if (configuration.SigningKeys.Count == 0)
+        {
+            // A syntactically valid JWKS with zero usable signing keys (an
+            // empty "keys" array, or every key missing fields GetSigningKeys()
+            // needs) would otherwise silently reproduce the exact "Number of
+            // keys in Configuration: '0'" symptom ADR-0017 exists to make
+            // diagnosable — fail loudly here instead of one layer downstream
+            // in a generic authentication-failure log.
+            throw new InvalidOperationException(
+                $"Fetched a JWKS document from '{address}' but it contains no usable signing keys.");
         }
 
         return configuration;

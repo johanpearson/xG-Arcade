@@ -80,8 +80,11 @@ public class AuthEndpointTests
                     services.AddDbContext<XGArcadeDbContext>(options =>
                         options.UseInMemoryDatabase(inMemoryDatabaseName));
 
-                    // Swap the real HTTP-calling Supabase client (registered
-                    // via AddHttpClient in Program.cs) for a controllable fake.
+                    // Swap whichever ISupabaseAuthClient Program.cs registered
+                    // (LocalE2EAuthClient, per Auth:Mode=local-e2e set above)
+                    // for a controllable fake — this test suite wants to
+                    // dictate Supabase's response per-test (e.g. "signup
+                    // rejected"), not exercise the real local-e2e stand-in.
                     services.RemoveAll<ISupabaseAuthClient>();
                     services.AddSingleton<ISupabaseAuthClient>(_fakeAuthClient);
                 });

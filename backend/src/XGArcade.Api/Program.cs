@@ -237,6 +237,9 @@ var app = builder.Build();
 // user reports a login failure.
 if (!useLocalE2EAuth)
 {
+    // Safe: the AddJwtBearer setup above already did `?? throw` on this
+    // exact key for this same (!useLocalE2EAuth) branch — if we reached
+    // here, it was present.
     var configuredSupabaseUrl = app.Configuration["Supabase:Url"]!;
     var configuredJwksPath = app.Configuration["Auth:SupabaseJwksPath"] ?? "/auth/v1/.well-known/jwks.json";
     app.Logger.LogInformation(

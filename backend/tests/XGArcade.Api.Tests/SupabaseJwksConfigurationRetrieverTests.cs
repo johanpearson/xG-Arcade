@@ -68,6 +68,20 @@ public class SupabaseJwksConfigurationRetrieverTests
     }
 
     [Test]
+    public void GetConfigurationAsync_EmptyKeysArray_ThrowsRatherThanSilentlyProducingZeroKeys()
+    {
+        var retriever = new SupabaseJwksConfigurationRetriever();
+        var documentRetriever = new FakeDocumentRetriever(_ => Task.FromResult("""{"keys": []}"""));
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(() =>
+            retriever.GetConfigurationAsync(
+                "https://example.supabase.co/auth/v1/.well-known/jwks.json", documentRetriever, CancellationToken.None));
+
+        Assert.That(ex!.Message, Does.Contain("no usable signing keys"));
+        Assert.That(ex.Message, Does.Contain("https://example.supabase.co/auth/v1/.well-known/jwks.json"));
+    }
+
+    [Test]
     public void GetConfigurationAsync_FetchFails_ThrowsWithAddressAndReason()
     {
         var retriever = new SupabaseJwksConfigurationRetriever();
