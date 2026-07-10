@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.22"
+version: "0.23"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.22 · 2026-07-10
+Version 0.23 · 2026-07-10
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -132,7 +132,7 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
 | COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game | `XGArcade.Games.XGGrid` |
-| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note) | `XGArcade.Data` |
+| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
@@ -486,6 +486,20 @@ Sync Worker (CONT-04) → DataSync.Clients (COMP-07): fetch updates
 Admin → Web Frontend (admin view) → Backend API: approve/correct unverified data
   → Data.PlayerStore: create PlayerOverride or mark PlayerData verified
 ```
+
+**Tier 0 status (S-012):** the top half (sync writes PlayerData, merge-on-read
+prefers PlayerOverride) predates this story. This story built the bottom
+half's backend leg only, and only part of it: `XGArcade.Api.Admin
+.AdminEndpoints`, behind the new "Admin" authorization policy (§7 below),
+reaches `Data.PlayerStore` (COMP-06) exclusively through its existing
+`IPlayerStoreRepository` interface — no new data-access path, consistent
+with the COMP-06 boundary rule. `GET /admin/player-data/unverified` lists
+candidates; `POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` covers
+"create PlayerOverride". "Mark PlayerData verified" and "remove the data
+point" are not built — there is no way to flip a `PlayerData` row's
+`Confidence` or delete it via any endpoint yet (see REQ-503's status note).
+No "Web Frontend (admin view)" exists — the Admin actor above reaches the
+Backend API directly (e.g. via a REST client), not through a UI.
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 

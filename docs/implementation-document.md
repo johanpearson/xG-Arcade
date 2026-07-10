@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.31"
+version: "0.32"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.31 · 2026-07-10
+Version 0.32 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -147,15 +147,21 @@ HTTPS redirection
   → Controller action
 ```
 
-**Tier 0 status (S-004):** only HTTPS redirection, CORS, and JWT validation
-are actually wired in `Program.cs` today, in that order
-(`UseHttpsRedirection` → `UseCors("Frontend")` → `UseAuthentication` →
-`UseAuthorization` → `MapControllers`). Rate limiting and admin
-authorization are not yet implemented — no admin endpoints exist yet
-(`Admin__UserIds`-based authorization is S-012's job, per `docs/backlog.md`)
-and no story has wired ASP.NET Core's rate limiting middleware yet, so the
-pipeline above remains the full/long-term target, not current behavior for
-those two steps.
+**Tier 0 status (S-004, updated S-012):** HTTPS redirection, CORS, JWT
+validation, and admin authorization are wired in `Program.cs` today, in
+that order (`UseHttpsRedirection` → `UseCors("Frontend")` →
+`UseAuthentication` → `UseAuthorization` → `MapControllers`, with the
+"Admin" policy — `AdminRequirement`/`AdminAuthorizationHandler`,
+`XGArcade.Api.Auth.AdminAuthorization.cs` — registered alongside
+`AddAuthorization` and applied per-endpoint via `.RequireAuthorization
+("Admin")` on every `/admin/*` route in `XGArcade.Api.Admin
+.AdminEndpoints`, S-012). `AdminAuthorizationHandler` re-parses
+`Admin:UserIds` (env var `Admin__UserIds`, comma-separated GUIDs) on every
+request rather than caching it — see that class's own doc comment for why
+this is a deliberate Tier 0 simplicity choice, not an oversight. Rate
+limiting is still not implemented — no story has wired ASP.NET Core's rate
+limiting middleware yet, so that one step of the pipeline above remains the
+full/long-term target, not current behavior.
 
 JWT validation specifics as actually implemented: `AddJwtBearer` sets
 `MapInboundClaims = false` (keeps claim types as Supabase issues them —
