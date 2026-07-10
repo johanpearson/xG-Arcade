@@ -198,4 +198,122 @@ public class PlayerStoreRepositoryTests
         var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.PlayerId == player.Id);
         Assert.That(stored.Value, Is.EqualTo("Arsenal"));
     }
+
+    // ---- S-012: admin data correction (GetPlayerByIdAsync, unverified
+    // PlayerData listing, PlayerOverride CRUD's read/update/delete) --------
+
+    [Test]
+    public async Task GetPlayerByIdAsync_ReturnsMatchingPlayer()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        var found = await _repository.GetPlayerByIdAsync(player.Id);
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.FullName, Is.EqualTo("Thierry Henry"));
+    }
+
+    [Test]
+    public async Task GetPlayerByIdAsync_ReturnsNull_WhenNoPlayerMatches()
+    {
+        var found = await _repository.GetPlayerByIdAsync(Guid.NewGuid());
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test]
+    public async Task GetUnverifiedPlayerDataAsync_ReturnsOnlyUnverifiedRows()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerDataAsync(new PlayerData
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
+            Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
+        });
+        await _repository.AddPlayerDataAsync(new PlayerData
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "nationality", Value = "France",
+            Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow,
+        });
+
+        var unverified = await _repository.GetUnverifiedPlayerDataAsync();
+
+        Assert.That(unverified, Has.Count.EqualTo(1));
+        Assert.That(unverified[0].Field, Is.EqualTo("club"));
+    }
+
+    [Test]
+    public async Task GetOverrideByIdAsync_ReturnsMatchingOverride()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var playerOverride = new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        };
+        await _repository.AddOverrideAsync(playerOverride);
+
+        var found = await _repository.GetOverrideByIdAsync(playerOverride.Id);
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.Value, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task GetOverrideByIdAsync_ReturnsNull_WhenNoOverrideMatches()
+    {
+        var found = await _repository.GetOverrideByIdAsync(Guid.NewGuid());
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test]
+    public async Task UpdateOverrideAsync_PersistsChangedValue()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var playerOverride = new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        };
+        await _repository.AddOverrideAsync(playerOverride);
+
+        playerOverride.Value = "Barcelona";
+        playerOverride.Reason = "Corrected again";
+        await _repository.UpdateOverrideAsync(playerOverride);
+
+        var found = await _repository.GetOverrideByIdAsync(playerOverride.Id);
+        Assert.That(found!.Value, Is.EqualTo("Barcelona"));
+        Assert.That(found.Reason, Is.EqualTo("Corrected again"));
+    }
+
+    [Test]
+    public async Task DeleteOverrideAsync_RemovesRow_AndReturnsTrue()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var playerOverride = new PlayerOverride
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
+            Reason = "Manual correction", LockedByAdminId = Guid.NewGuid(), LockedAt = DateTime.UtcNow,
+        };
+        await _repository.AddOverrideAsync(playerOverride);
+
+        var deleted = await _repository.DeleteOverrideAsync(playerOverride.Id);
+
+        Assert.That(deleted, Is.True);
+        Assert.That(await _repository.GetOverrideByIdAsync(playerOverride.Id), Is.Null);
+    }
+
+    [Test]
+    public async Task DeleteOverrideAsync_ReturnsFalse_WhenNoOverrideMatches()
+    {
+        var deleted = await _repository.DeleteOverrideAsync(Guid.NewGuid());
+
+        Assert.That(deleted, Is.False);
+    }
 }

@@ -171,6 +171,35 @@ authorization = `Admin__UserIds` env var per `implementation-document.md`
 §4 — no role tables.
 *Accept:* REQ501-named test: override flips a cell's correctness; a
 non-admin user gets 403. *Deps:* S-009.
+**Built as:** backend-only, a deliberate scope decision — "page" in the
+plan above did not get built (SCREEN-04/`design-document.md` untouched);
+only the API did. New "Admin" authorization policy
+(`AdminRequirement`/`AdminAuthorizationHandler`,
+`XGArcade.Api.Auth.AdminAuthorization.cs`) checks the JWT `sub` claim
+against `Admin:UserIds`/`Admin__UserIds`, re-parsed per request, exactly as
+`implementation-document.md` §4 already planned. `XGArcade.Api.Admin
+.AdminEndpoints` adds `GET /admin/player-data/unverified` (REQ-503's list
+half) and full `PlayerOverride` CRUD (REQ-501) — `POST` 400s on missing
+field/value/reason, 404s on an unknown `PlayerId`, 409s if an override
+already exists for that `(PlayerId, Field)` (use `PUT` to update — one
+override per field, per ADR-0015). Reached `Data.PlayerStore`/COMP-06 only
+through the existing `IPlayerStoreRepository` interface — five new methods
+added there, no new data-access path, no schema/migration change. Not
+built, and out of scope for this story's acceptance criteria: REQ-503's
+"approve → verified" and "remove the data point" actions (no endpoint
+flips `PlayerData.Confidence` or deletes a row), and any separate audit-log
+table beyond `PlayerOverride.LockedByAdminId`/`LockedAt` on the override
+row itself. Rate limiting remains unimplemented, unrelated to this story.
+`Admin__UserIds` threaded through `infra/bicep` → `deploy.yml` from a new
+`DEV_ADMIN_USER_IDS` GitHub secret — not yet created, needs a human to set
+it to their own Supabase auth user id before any admin endpoint will
+succeed for anyone. Tests: `AdminEndpointTests.cs` (new file, full endpoint
+coverage plus the two REQ501-named tests the acceptance criteria call for)
+and new `PlayerStoreRepositoryTests.cs` coverage for the five repository
+additions. An architecture-reviewer pass and a code-reviewer pass both ran
+clean — no boundary violations, no ADR needed (this implements an
+already-decided design from `implementation-document.md` §4, not a new
+architecturally significant choice).
 
 **S-013 · First-release QA pass**
 Full E2E suite green in CI (local stack); a manual smoke test of the same

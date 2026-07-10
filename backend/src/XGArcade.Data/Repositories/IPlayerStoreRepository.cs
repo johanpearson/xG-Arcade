@@ -9,6 +9,7 @@ namespace XGArcade.Data.Repositories;
 public interface IPlayerStoreRepository
 {
     Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default);
+    Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
     // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): guess-time name matching
@@ -19,6 +20,11 @@ public interface IPlayerStoreRepository
         string normalizedFullName, CancellationToken cancellationToken = default);
 
     Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default);
+
+    // REQ-503 (S-012): the admin review view's candidate list — every
+    // PlayerData row still awaiting an admin's approve/correct/remove
+    // decision.
+    Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
@@ -36,7 +42,10 @@ public interface IPlayerStoreRepository
     Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default);
 
     Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default);
+    Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default);
+    Task UpdateOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default);
+    Task<bool> DeleteOverrideAsync(Guid id, CancellationToken cancellationToken = default);
 
     // REQ-203: "an override always takes precedence over synced/unverified
     // data" — the single effective-data check every correctness path

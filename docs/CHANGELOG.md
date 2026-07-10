@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/requirements-document.md (version 0.29 → 0.30),
+  docs/architecture-document.md (version 0.22 → 0.23),
+  docs/implementation-document.md (version 0.31 → 0.32), docs/backlog.md
+  (S-012 entry) — doc sync for S-012 (Admin data correction, REQ-501/502/
+  503). REQ-501: added a status note — the override-precedence merge logic
+  predates this story, S-012's addition is the admin-facing
+  `POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` CRUD behind the new
+  "Admin" authorization policy, covered end-to-end by
+  `REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess`.
+  REQ-502/503: added status notes recording real gaps against the full
+  acceptance criteria — `GET /admin/player-data/unverified` only surfaces
+  unverified rows (not "any player data point," REQ-502) and there is no
+  approve-to-verified or remove-the-data-point action (REQ-503) — no new
+  REQ text invented, just grounding against what's real, same pattern as
+  REQ-701's existing status note. architecture-document.md: added a "Tier 0
+  status (S-012)" note to §6.3's data sync flow (no prior status note
+  existed there) recording which half of that diagram is now real, and a
+  one-line addition to COMP-06's row noting `AdminEndpoints` as a second
+  caller reached only through `IPlayerStoreRepository` — no boundary
+  change. implementation-document.md: updated §4's security-pipeline "Tier
+  0 status" note — admin authorization is now wired (was previously "not
+  yet implemented, S-012's job"); rate limiting remains the one
+  still-unbuilt pipeline step. backlog.md: added S-012's "Built as:" note
+  (previously empty), following the S-009/S-010/S-011 pattern — notes the
+  deliberate backend-only scope (no admin page/SCREEN-04) and the specific
+  REQ-503 actions not built. No ADR added (architecture-reviewer and
+  code-reviewer both confirmed this implements an already-decided design
+  from implementation-document.md §4, not a new structural choice).
+  design-document.md and decisions/ untouched — no frontend work, no new
+  architecturally significant decision.
 - 2026-07-10 — docs/requirements-document.md (version 0.28 → 0.29),
   docs/architecture-document.md (version 0.21 → 0.22),
   docs/implementation-document.md (version 0.30 → 0.31),

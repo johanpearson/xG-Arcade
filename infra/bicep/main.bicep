@@ -45,6 +45,9 @@ param internalJobToken string
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
+@description('Comma-separated admin Supabase auth user ids (S-012). See modules/backend-container-app.bicep for guidance.')
+param adminUserIds string = ''
+
 @description('Minimum backend replica count. See modules/backend-container-app.bicep for guidance.')
 param minReplicas int = 0
 
@@ -73,6 +76,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseAnonKey: supabaseAnonKey
     internalJobToken: internalJobToken
     corsAllowedOrigin: corsAllowedOrigin
+    adminUserIds: adminUserIds
     minReplicas: minReplicas
   }
 }
