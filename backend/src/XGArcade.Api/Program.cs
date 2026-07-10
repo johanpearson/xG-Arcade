@@ -4,10 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
+using XGArcade.Api.Guesses;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
@@ -108,6 +110,10 @@ builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
 builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 
+// COMP-04 (Core.Scoring) — S-009's guess submission (REQ-201/202/203/208/210).
+builder.Services.AddScoped<IGuessRepository, GuessRepository>();
+builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
+
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
 // signed JWT instead. Re-check the environment here rather than trusting
@@ -201,6 +207,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
+app.MapGuessEndpoints();
 
 app.Run();
 

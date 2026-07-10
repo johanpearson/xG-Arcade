@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using XGArcade.Core.Games;
+using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
@@ -22,7 +24,8 @@ public class GridGameModule(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
     IWikidataLookupService wikidataLookupService,
-    GridGenerationOptions options) : IGameModule
+    GridGenerationOptions options,
+    ILogger<GridGameModule> logger) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 
@@ -73,9 +76,75 @@ public class GridGameModule(
         return new GameInstance { Id = instance.Id };
     }
 
-    public Task<ScoreResult> ScoreSubmissionAsync(
-        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException("Guess scoring is S-009's job (docs/backlog.md) — not built yet.");
+    // S-009: REQ-210's lock/attempt-cap checks and REQ-202's guess-change
+    // policy already happened in Core.Scoring before this was ever called
+    // (GuessSubmissionService) — everything here is REQ-207/208/209/211's
+    // name-resolution work.
+    public async Task<ScoreResult> ScoreSubmissionAsync(
+        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default)
+    {
+        var guessSubmission = (GuessSubmission)submission;
+
+        var instance = await gridInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new GuessScoringException($"GridInstance '{instanceId}' not found.");
+
+        var cell = instance.Cells.FirstOrDefault(c => c.Id == guessSubmission.CellId)
+            ?? throw new GuessScoringException($"Cell '{guessSubmission.CellId}' not found in grid instance '{instanceId}'.");
+
+        // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): normalize only — no
+        // PlayerAlias/fuzzy tolerance (both deferred, "defer the alias table
+        // and fuzzy typo tolerance").
+        var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
+        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken);
+
+        var matching = new List<Player>();
+        foreach (var candidate in candidates)
+        {
+            var satisfiesRow = await playerStoreRepository.HasEffectiveAttributeAsync(
+                candidate.Id, MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue, cancellationToken);
+            if (!satisfiesRow)
+                continue;
+
+            var satisfiesCol = await playerStoreRepository.HasEffectiveAttributeAsync(
+                candidate.Id, MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue, cancellationToken);
+            if (satisfiesCol)
+                matching.Add(candidate);
+        }
+
+        if (matching.Count == 0)
+            return new ScoreResult { IsCorrect = false };
+
+        // REQ-204: identical guesses by different players must always group
+        // as the same answer — the lowest Id among fits is the deterministic
+        // pick, same rule REQ-209's simplified Tier 0 disambiguation uses.
+        var accepted = matching.OrderBy(p => p.Id).First();
+
+        if (matching.Count > 1)
+        {
+            // REQ-209 (Tier 0 simplified, MVP-SCOPE.md): any fitting
+            // candidate is accepted, no disambiguation picker — logged so a
+            // real occurrence trips the Tier 1 "disambiguation UI" trigger
+            // ("log this case even in the simplified Tier 0 handling, so
+            // you'd notice if it happened").
+            logger.LogWarning(
+                "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
+                "accepted the lowest Id ({PlayerId}) per REQ-204's deterministic-pick rule.",
+                cell.Id, instanceId, matching.Count, accepted.Id);
+        }
+
+        return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
+    }
+
+    // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")
+    // differs from GridCell's RowCategoryType/ColCategoryType vocabulary
+    // ("country" | "club") — same mapping GetMatchCountAsync below already
+    // needs for grid generation.
+    private static string MapAttributeType(string categoryType) => categoryType switch
+    {
+        CategoryPairingRules.Country => NationalityAttributeType,
+        CategoryPairingRules.Club => ClubAttributeType,
+        _ => throw new GuessScoringException($"Unknown category type '{categoryType}'."),
+    };
 
     // REQ-101/107: tries club candidates one at a time (never repeating a
     // rejected one), accepting only those valid against every fixed row

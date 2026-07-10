@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
@@ -40,7 +41,8 @@ public class GridGameModuleTests
 
     private GridGameModule BuildModule(int minValidAnswers, int maxAttempts) =>
         new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
-            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts });
+            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts },
+            NullLogger<GridGameModule>.Instance);
 
     private GridTemplate SeedTemplate(int size)
     {
