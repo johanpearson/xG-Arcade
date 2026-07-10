@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -26,7 +27,7 @@ public class RoundCloseServiceScoringTests
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
-        _service = new RoundCloseService(_roundRepository, _guessRepository);
+        _service = new RoundCloseService(_roundRepository, new ScoreLockingService(_guessRepository));
     }
 
     [TearDown]

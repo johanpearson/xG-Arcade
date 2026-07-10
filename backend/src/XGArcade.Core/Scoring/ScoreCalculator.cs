@@ -2,10 +2,17 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Core.Scoring;
 
-// REQ-206: the sum of FinalPoints across a set of guesses. The caller
-// decides the scope — one round's cells for a per-round total, or every
-// guess a player has ever made for a leaderboard's all-time total — the
-// math is identical either way.
+// REQ-206: the sum of FinalPoints across a set of guesses, when the caller
+// already has the Guess rows in memory (e.g. one round's cells for a
+// per-round total). This is REQ-206's canonical formula, unit-tested in
+// isolation (ScoreCalculatorTests) — deliberately NOT called by the
+// leaderboard's all-time total (GuessRepository
+// .GetTotalFinalPointsByUserIdsAsync), which reimplements the same SUM as a
+// database-side GROUP BY instead: that path can cover many users' entire
+// guess history, and pulling every Guess row into memory just to re-sum
+// them here would be the wrong tradeoff at that scale (REQ-607). Both must
+// keep computing the same thing (FinalPoints ?? 0, summed); if this
+// formula ever changes, check GetTotalFinalPointsByUserIdsAsync too.
 public static class ScoreCalculator
 {
     // Unanswered cells never have a Guess row at all, so "unanswered cells

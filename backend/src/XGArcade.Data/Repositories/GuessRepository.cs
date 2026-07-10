@@ -29,6 +29,11 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .Where(g => g.RoundId == roundId)
             .ToListAsync(cancellationToken);
 
+    // REQ-206/401: the same "sum FinalPoints, treating null as 0" formula
+    // Core.Scoring.ScoreCalculator.CalculateTotalPoints implements, computed
+    // database-side instead — the leaderboard's scope (every guess a member
+    // has ever made) is too large to pull into memory just to re-sum it.
+    // Keep both in sync if this formula ever changes.
     public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) =>
         await dbContext.Guesses
             .AsNoTracking()

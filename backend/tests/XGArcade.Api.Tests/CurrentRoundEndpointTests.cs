@@ -348,4 +348,77 @@ public class CurrentRoundEndpointTests
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.Locked, Is.True, "REQ-210: a correct guess locks the cell immediately, even with attempts remaining");
     }
+
+    // ---- REQ-204: live unique_percent --------------------------------------
+
+    [Test]
+    public async Task REQ204_CurrentRound_Get_CorrectGuessWithNoOtherCorrectGuessesOnCell_ReturnsUniquePercentZero()
+    {
+        // A lone correct guesser is the entire correct-guess population for
+        // that cell (1/1) — per the REQ-204 formula that's 0% unique, which
+        // is intended, not a bug (see UniquenessCalculator's own tests).
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
+        Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.0));
+    }
+
+    [Test]
+    public async Task REQ204_CurrentRound_Get_SecondPlayerCorrectlyGuessedDifferentAnswerOnSameCell_ReturnsUniquePercentHalfForBoth()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var myGuess = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == firstCellId && g.UserId == userId);
+            Assert.That(myGuess.PlayerAnswerId, Is.Not.Null);
+
+            // Another player who correctly guessed a *different* fitting
+            // player for the same cell — REQ-204's denominator counts only
+            // correct guesses, one per player, so this makes 2 correct
+            // guesses total, each with a distinct answer.
+            await SeedCorrectGuessDirectlyAsync(roundId, firstCellId, Guid.NewGuid(), Guid.NewGuid());
+        }
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
+        Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.5));
+    }
+
+    [Test]
+    public async Task REQ204_CurrentRound_Get_IncorrectGuess_ReturnsUniquePercentNull()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Wrong Guess"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
+        Assert.That(guessedCell.Guess.UniquePercent, Is.Null,
+            "an incorrect guess has no real answer to measure rarity against");
+    }
 }
