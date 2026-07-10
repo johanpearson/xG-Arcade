@@ -64,7 +64,8 @@ public static class RoundEndpoints
                         : new CurrentRoundGuessResponse(
                             guess.IsCorrect,
                             guess.AttemptCount,
-                            guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell);
+                            guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
+                            guess.SubmittedName);
 
                     return new CurrentRoundCellResponse(
                         cell.Id,
@@ -103,4 +104,4 @@ public record CurrentRoundCellResponse(
     string ColCategoryValue,
     CurrentRoundGuessResponse? Guess);
 
-public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked);
+public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName);

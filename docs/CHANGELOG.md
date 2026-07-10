@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/design-document.md (§7 open questions, frontmatter
+  version 0.6 → 0.7) — doc sync for S-010 (Grid UI, SCREEN-01/01a/02):
+  flagged three gaps found while implementing against this document rather
+  than resolving them silently — (1) no SCREEN-xx spec exists for the
+  login/signup screen, built functionally with tokens-only styling but
+  unreviewed; (2) §2 has no numeric spacing scale, implementation used an
+  unreviewed 4px-based scale; (3) `GET /rounds/current` never returns the
+  guessed/revealed player's name, so SCREEN-01a can only show it for a
+  guess submitted in the current browser session, falling back to a
+  generic label otherwise — recommends adding a name field to that
+  response. No REQ/ADR changed; frontend code isn't tracked in this
+  changelog per its own header note, but the design-doc edit is.
 - 2026-07-10 — docs/requirements-document.md (REQ-201, REQ-202, REQ-203,
   REQ-204, REQ-205, REQ-208, REQ-209, REQ-210, REQ-302),
   docs/architecture-document.md (§5 COMP-04/COMP-06 rows, §5 "Maps to"

@@ -272,6 +272,8 @@ public class CurrentRoundEndpointTests
         Assert.That(firstPlayersCell.Guess!.IsCorrect, Is.False);
         Assert.That(firstPlayersCell.Guess.AttemptCount, Is.EqualTo(1));
         Assert.That(firstPlayersCell.Guess.Locked, Is.False, "one wrong attempt out of two must not lock the cell");
+        Assert.That(firstPlayersCell.Guess.SubmittedName, Is.EqualTo("Wrong Guess"),
+            "REQ-303: the submitted name must round-trip so the UI can redisplay it after a reload");
         Assert.That(firstBody.Cells.Single(c => c.CellId == secondCellId).Guess, Is.Null);
 
         var secondResponse = await secondClient.GetAsync("/rounds/current");

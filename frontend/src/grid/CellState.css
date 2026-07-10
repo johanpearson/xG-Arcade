@@ -1,0 +1,86 @@
+.cell-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: left;
+}
+
+.cell-state__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cell-state__name {
+  font-family: var(--font-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-state__icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.cell-state__icon--correct {
+  color: var(--color-accent-gold);
+}
+
+.cell-state__icon--incorrect {
+  color: var(--color-accent-red);
+}
+
+.cell-state__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.cell-state--correct .cell-state__meta {
+  color: var(--color-accent-gold);
+}
+
+.cell-state--incorrect .cell-state__meta {
+  color: var(--color-accent-red);
+}
+
+.cell-state--final .cell-state__meta {
+  color: var(--color-text-muted);
+}
+
+/* Small, quiet 4px dot with a slow opacity shift — design-document.md §3
+   ("not a heavy pulse"). Gated behind prefers-reduced-motion below. */
+.cell-state__live-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-accent-green);
+  display: inline-block;
+  animation: cell-state-live-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-state__live-dot {
+    animation: none;
+  }
+}
+
+@keyframes cell-state-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

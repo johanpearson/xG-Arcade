@@ -638,13 +638,18 @@ match with no attribute data and budget exhausted → fails closed), API
   category type and value) joined with the caller's own `Guess` rows for
   that round (`IGuessRepository.GetByRoundAndUserAsync`) — never another
   player's. A cell the player hasn't attempted carries no guess object at
-  all, distinguishing "not attempted" from "attempted and pending."
+  all, distinguishing "not attempted" from "attempted and pending." The
+  guess object includes `SubmittedName` (closing a gap `ui-implementer`
+  flagged while building S-010's UI, `docs/design-document.md` §7): without
+  it, a cell the player answered before the current browser session had no
+  way to redisplay what they guessed.
 - Given a logged-in player
 - When they request the current round
 - Then the system returns the currently active round for the game (if any),
   including its grid cells and, for each cell, the player's own guess state
   if they've attempted it (correct/incorrect, attempts used, whether the
-  cell is locked)
+  cell is locked, and the name they submitted — so the UI can still show
+  what was guessed after a page reload, not only immediately after submission)
 - And if no round is currently active, a clear "no active round" response is
   returned rather than a generic error
 - And this endpoint never reveals another player's guesses — only the
