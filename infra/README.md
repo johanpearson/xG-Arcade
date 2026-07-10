@@ -32,8 +32,10 @@ there lifts, if EU-only hosting matters by then.
 
 - Supabase (Postgres + Auth) — provisioned via the Supabase dashboard/CLI,
   not Azure. This is a deliberate boundary from ADR-0004: the database/auth
-  provider sits outside this IaC. Copy the connection string and JWT secret
-  into GitHub Actions secrets (see below).
+  provider sits outside this IaC. Copy the connection string into GitHub
+  Actions secrets (see below) — JWT validation needs no separate secret,
+  it derives from the Supabase project URL alone via the JWKS endpoint
+  (ADR-0017).
 - The Static Web App's build/deploy pipeline itself — handled by the
   `Azure/static-web-apps-deploy` GitHub Action in `deploy.yml`, using a
   deployment token, not by this Bicep template.
@@ -141,8 +143,7 @@ Prod-specific:
 |---|---|
 | `PROD_AZURE_RESOURCE_GROUP` | Target resource group for `deploy.yml` |
 | `PROD_DATABASE_CONNECTION_STRING` | Production Supabase Postgres connection string — also used by `backup-database.yml` and as the "prod" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml`. Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form (see `NOTES.md`) |
-| `PROD_SUPABASE_JWT_SECRET` | From the production Supabase project's API settings |
-| `PROD_SUPABASE_URL` | The production Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013) |
+| `PROD_SUPABASE_URL` | The production Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming JWTs against this project's JWKS endpoint (ADR-0017); no separate secret needed for that |
 | `PROD_SUPABASE_ANON_KEY` | The production Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret, but still **required**: `Program.cs` throws at startup if `Supabase:AnonKey` is unconfigured, and an empty value also fails Azure's Container App secret validation at deploy time |
 | `PROD_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the prod Static Web App resource |
 | `PROD_BACKEND_HOSTNAME` | Used by `sync-players.yml`/`generate-round.yml` to call scheduled internal endpoints on production |
@@ -153,8 +154,7 @@ Dev-specific:
 |---|---|
 | `DEV_AZURE_RESOURCE_GROUP` | Target resource group for the Tier 1 `deploy-dev` job |
 | `DEV_DATABASE_CONNECTION_STRING` | Dev Supabase Postgres connection string — used by `deploy.yml`'s `migrate-and-seed-database` job (S-005) to apply migrations and seed Tier 0 reference data on every push to `main`; also the "dev" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml`. Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form and fails with `ArgumentException: Format of the initialization string does not conform to specification` (see `NOTES.md`) |
-| `DEV_SUPABASE_JWT_SECRET` | From the dev Supabase project's API settings |
-| `DEV_SUPABASE_URL` | The dev Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013). `ci.yml`'s local E2E stack doesn't need this at all — it runs with `Auth__Mode=local-e2e`, which swaps in a fake auth client instead (see S-004, `docs/backlog.md`) |
+| `DEV_SUPABASE_URL` | The dev Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming JWTs against this project's JWKS endpoint (ADR-0017); no separate secret needed for that. `ci.yml`'s local E2E stack doesn't need this at all — it runs with `Auth__Mode=local-e2e`, which swaps in a fake auth client instead (see S-004, `docs/backlog.md`) |
 | `DEV_SUPABASE_ANON_KEY` | The dev Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret, but still **required**: `Program.cs` throws at startup if `Supabase:AnonKey` is unconfigured, and an empty value also fails Azure's Container App secret validation in `deploy.yml`'s `deploy-infra` job (`ContainerAppSecretInvalid`) before the app is ever deployed |
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the dev Static Web App resource |
 | `DEV_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints; also by Tier 1's `ci.yml` for the test-data reset call and E2E test target |
@@ -218,11 +218,19 @@ az deployment group create \
                registryUsername="<ghcr-username>" \
                registryPassword="<ghcr-token>" \
                databaseConnectionString="<dev-supabase-connection-string>" \
-               supabaseJwtSecret="<dev-supabase-jwt-secret>" \
                supabaseUrl="<dev-supabase-url>" \
                supabaseAnonKey="<dev-supabase-anon-key>" \
                internalJobToken="<internal-job-token>"
 ```
+
+**No `supabaseJwtSecret` parameter** — JWT validation fetches Supabase's
+public signing keys from its JWKS endpoint automatically, derived from
+`supabaseUrl` alone (ADR-0017). If a live deploy shows Supabase's actual
+JWKS path differs from the built-in default
+(`/auth/v1/.well-known/jwks.json`), add `supabaseJwksPath="<path>"` to this
+command (or `az containerapp update --set-env-vars
+Auth__SupabaseJwksPath=<path>` directly against the running Container App)
+— it's a plain (non-secret) override, no rebuild needed.
 
 **Quote every value**, not just the ones that look like they need it — a
 `.NET`-format Postgres connection string always contains `;` and usually a
@@ -247,7 +255,6 @@ az deployment group create \
                registryUsername="<ghcr-username>" \
                registryPassword="<ghcr-token>" \
                databaseConnectionString="<prod-supabase-connection-string>" \
-               supabaseJwtSecret="<prod-supabase-jwt-secret>" \
                supabaseUrl="<prod-supabase-url>" \
                supabaseAnonKey="<prod-supabase-anon-key>" \
                internalJobToken="<internal-job-token>"

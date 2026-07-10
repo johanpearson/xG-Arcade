@@ -244,8 +244,7 @@ public class RoundEndpointTests
             ("ASPNETCORE_ENVIRONMENT", "Production"),
             ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
             ("Supabase__Url", "http://localhost:54321"),
-            ("Supabase__AnonKey", "test-placeholder-anon-key"),
-            ("Auth__SupabaseJwtSecret", "test-placeholder-jwt-secret"));
+            ("Supabase__AnonKey", "test-placeholder-anon-key"));
 
         var productionFactory = _factory.WithWebHostBuilder(builder => { });
         var client = productionFactory.CreateClient();
@@ -282,8 +281,7 @@ public class RoundEndpointTests
             ("ASPNETCORE_ENVIRONMENT", "Production"),
             ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
             ("Supabase__Url", "http://localhost:54321"),
-            ("Supabase__AnonKey", "test-placeholder-anon-key"),
-            ("Auth__SupabaseJwtSecret", "test-placeholder-jwt-secret"));
+            ("Supabase__AnonKey", "test-placeholder-anon-key"));
 
         var productionFactory = _factory.WithWebHostBuilder(builder => { });
         var client = productionFactory.CreateClient();

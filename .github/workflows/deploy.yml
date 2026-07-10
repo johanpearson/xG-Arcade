@@ -104,7 +104,6 @@ jobs:
                          registryUsername="${{ github.actor }}" \
                          registryPassword="${{ secrets.GHCR_TOKEN }}" \
                          databaseConnectionString="${{ secrets.DEV_DATABASE_CONNECTION_STRING }}" \
-                         supabaseJwtSecret="${{ secrets.DEV_SUPABASE_JWT_SECRET }}" \
                          supabaseUrl="${{ secrets.DEV_SUPABASE_URL }}" \
                          supabaseAnonKey="${{ secrets.DEV_SUPABASE_ANON_KEY }}" \
                          internalJobToken="${{ secrets.INTERNAL_JOB_TOKEN }}" \

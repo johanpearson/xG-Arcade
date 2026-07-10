@@ -395,3 +395,40 @@ must be >= max(gaps between consecutive cron firings), never just an
 average or a rough match — change `RoundSchedulingOptions.RoundDuration`
 (`XGArcade.Api/Program.cs`) and `generate-round.yml`'s cron together, never
 independently.
+
+### 2026-07-10 — Supabase's JWT Signing Keys mean no single static secret validates production tokens (ADR-0017)
+Manually testing the deployed dev environment after S-010 (login succeeded
+per Supabase, but every following request 401'd and silently bounced back
+to the login screen) took a long live-debugging loop to pin down, mostly
+because the deployed default logging (`Microsoft.AspNetCore: Warning`)
+suppresses the JWT middleware's own failure logging — nothing showed up in
+the log stream at all until `Logging__LogLevel__Microsoft.AspNetCore=Information`
+was added as a temporary Container App env var (Azure Portal only, no
+redeploy) specifically to see past it. Once visible, the real error was
+`IDX10503: Signature validation failed... Number of keys in Configuration:
+'0'` — the token's `kid` header claim is the tell: this Supabase project
+signs with its newer asymmetric JWT Signing Keys (rotating keys, verified
+via a JWKS endpoint), not the static HS256 shared secret `Program.cs`
+assumed. **If a similar "logged in but every next request 401s" report
+comes up again**: check for a `kid` claim in the rejected token before
+assuming a copy-pasted secret is wrong — re-copying the same kind of secret
+will never fix a structural algorithm mismatch, and cost real time before
+this was recognized. `Auth:SupabaseJwtSecret` is gone now (ADR-0017); don't
+reintroduce it.
+
+Also worth remembering: `OpenIdConnectConfiguration.JsonWebKeySet`'s setter
+does **not** auto-populate `.SigningKeys` (Microsoft.IdentityModel.Protocols
+.OpenIdConnect 8.0.1) — that's not documented anywhere obvious, just
+confirmed by writing a unit test that failed with 0 keys until
+`.SigningKeys` was populated explicitly from `JsonWebKeySet.GetSigningKeys()`.
+Easy to get this wrong again if this code is ever rewritten from memory
+instead of copied.
+
+The exact JWKS path (`/auth/v1/.well-known/jwks.json`) was never verified
+against a live Supabase project from a dev sandbox — this sandbox's network
+policy blocks Supabase's API the same way it blocks `wikidata.org` (see the
+2026-07-09 entry above). It's Supabase's documented path for this system,
+and the fix's own startup log line (`Program.cs`) announces the resolved
+address so this is confirmable in one log-stream check on the next real
+deploy — but if a future session finds it wrong, that's expected to have
+needed live confirmation, not a sign the fix itself was rushed.
