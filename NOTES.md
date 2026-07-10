@@ -371,3 +371,27 @@ do this spot-check before/soon after merging S-006** — the QIDs themselves
 were already verified correct (2026-07-08, see CHANGELOG) for
 country/club identity, just not yet for the senior-vs-youth-academy
 distinction implementation-document.md §6a flags as a known residual gap.
+
+### 2026-07-10 — RoundDuration must be >= the longest gap between generate-round.yml's cron firings, not just "roughly matching" (S-008)
+REQ-301's "one round ahead" rule is an idempotency check (skip generation
+if an upcoming round already exists), not a counter — which made it easy
+to assume any RoundDuration "close enough" to generate-round.yml's cron
+cadence would work. It doesn't. Traced through by hand: `generate-round.yml`'s
+`0 6 * * 2,5` (Tue+Fri 06:00 UTC) has *unequal* gaps — Tue->Fri is 3 days,
+Fri->Tue is 4 days, since 7 isn't evenly divisible by 2. With
+RoundDuration=3 days (matching only the shorter gap), simulating the chain
+by hand shows a round closes a full day before the next cron fire ever
+generates its successor (e.g. a round ending day 6 with the next cron fire
+not until day 7) — a real, recurring gap, not a one-off. Setting
+RoundDuration to the *longer* gap (4 days) instead fixes it: each new
+round's StartTime chains from the previous round's fixed EndTime (not from
+"now" when cron fires), and since 4 days always exceeds the cron's actual
+firing interval (average ~3.5 days), the chain's end times grow faster than
+real time passes, so a cron firing always finds the latest round already
+active or still upcoming, never fully closed. Generation sometimes runs
+"early" (round N+1 created while N still has a day or two left) — that's
+REQ-301's intended behavior, not a bug. **Rule of thumb**: RoundDuration
+must be >= max(gaps between consecutive cron firings), never just an
+average or a rough match — change `RoundSchedulingOptions.RoundDuration`
+(`XGArcade.Api/Program.cs`) and `generate-round.yml`'s cron together, never
+independently.

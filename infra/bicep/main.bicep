@@ -38,6 +38,10 @@ param supabaseUrl string
 @secure()
 param supabaseAnonKey string
 
+@secure()
+@description('Shared bearer token authorizing calls to /internal/* endpoints. See modules/backend-container-app.bicep for guidance.')
+param internalJobToken string
+
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
@@ -67,6 +71,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseJwtSecret: supabaseJwtSecret
     supabaseUrl: supabaseUrl
     supabaseAnonKey: supabaseAnonKey
+    internalJobToken: internalJobToken
     corsAllowedOrigin: corsAllowedOrigin
     minReplicas: minReplicas
   }

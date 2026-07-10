@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.26"
+version: "0.27"
 status: draft
-last_updated: 2026-07-09
+last_updated: 2026-07-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.26 · 2026-07-09
+Version 0.27 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -408,7 +408,13 @@ public class GridCell
 
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
 // Game-agnostic. Round deliberately holds no foreign key to GridInstance or
-// any other game-specific table — see ADR-0003.
+// any other game-specific table — see ADR-0003. Like User below and the xG
+// Grid entities above, these classes are physically defined as EF Core
+// entities in XGArcade.Data (alongside IRoundRepository/RoundRepository),
+// not inside XGArcade.Core itself — "(XGArcade.Core)" names where the
+// business/orchestration logic that owns them lives (Core.Rounds'
+// RoundGenerationService/RoundCloseService), not where the class file sits.
+// See ADR-0014.
 
 // Password credentials live in Supabase Auth, not here — this table only
 // mirrors the minimal profile/state XGArcade.Core needs. See ADR-0004/0005.
@@ -613,8 +619,11 @@ REQ-101/102's actual acceptance criteria (all N×N cells valid, N unique
 row/column headers, abort after `MaxAttempts` with a logged error) with
 the same `MinValidAnswers`/`MaxAttempts` defaults (3 / 500,
 `GridGenerationOptions`); "alert admin" is not implemented — abort
-currently only logs (`ILogger.LogError`) and returns a 500 from
-`POST /internal/grid/generate`, no separate alerting channel exists yet.
+currently only logs (`ILogger.LogError`) and returns a 500, from either
+`POST /internal/grid/generate` or (as of S-008) `POST /internal/generate-round`
+(`XGArcade.Api.Rounds.InternalRoundEndpoints`, which catches the same
+`GridGenerationException` and surfaces it the same way), no separate
+alerting channel exists yet.
 This shape is also Tier 0-scoped to Country (rows) × Club (columns) only —
 never a mixed axis, never Trophy — so the "whichever category types this
 GridTemplate allows" line above doesn't yet vary in practice.
@@ -648,6 +657,18 @@ Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 (insert/update, no incremental counter to keep in sync) — the calculation is
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
+
+**Tier 0 status (S-008):** only the "at Round.EndTime" half's *closure*
+mechanism exists so far, and only as a stub: `RoundCloseService`
+(`XGArcade.Core.Rounds`) pulls a round's `EndTime` forward to force
+immediate closure (idempotently — never later than what's already
+scheduled), invoked today only via REQ-806's non-Production
+`POST /internal/test-data/force-close-round/{roundId}`. The
+`for each Guess in Round: compute uniqueScore ... persist` body above is
+not implemented at all yet — `Guess` doesn't exist as an entity until S-009,
+and the scoring/locking logic itself lands in S-011. There is also no
+automated scheduled job that calls round-close at a round's real
+`end_time` in any environment yet.
 
 **Leaderboard pagination (REQ-607)**
 

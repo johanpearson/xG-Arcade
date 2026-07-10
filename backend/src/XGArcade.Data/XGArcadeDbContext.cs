@@ -3,9 +3,10 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Data;
 
-// COMP-06 (Data.PlayerStore)'s DbContext. Scoped to S-003 (docs/backlog.md):
-// only the entities Tier 0 needs so far. Other components' entities (Round,
-// Guess, User, GridInstance, ...) are added by the stories that own them.
+// The single shared DbContext for every component (ADR-0014) — not just
+// COMP-06 (Data.PlayerStore), despite the name predating that decision.
+// Scoped to Tier 0: only the entities each backlog story has needed so far.
+// Guess (COMP-04/Core.Scoring) is still not added — that's S-009's job.
 public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : DbContext(options)
 {
     public DbSet<Player> Players => Set<Player>();
@@ -20,6 +21,7 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridTemplate> GridTemplates => Set<GridTemplate>();
     public DbSet<GridInstance> GridInstances => Set<GridInstance>();
     public DbSet<GridCell> GridCells => Set<GridCell>();
+    public DbSet<Round> Rounds => Set<Round>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -108,5 +110,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<GridCell>()
             .HasIndex(gc => new { gc.GridInstanceId, gc.Row, gc.Col })
             .IsUnique();
+
+        // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
+        // every scheduled generation invocation — the hot path for this table.
+        modelBuilder.Entity<Round>()
+            .HasIndex(r => new { r.GameKey, r.EndTime });
     }
 }

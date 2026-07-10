@@ -39,6 +39,10 @@ param supabaseUrl string
 @description('Supabase project anon/publishable API key, sent as the "apikey"/Authorization header on Auth REST calls (ADR-0013). Publishable by Supabase\'s own design (safe in frontend bundles too), marked @secure() here only to keep it out of deployment logs, not because it is a true secret.')
 param supabaseAnonKey string
 
+@secure()
+@description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, sync-players.yml) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
+param internalJobToken string
+
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
 
@@ -82,6 +86,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           name: 'supabase-anon-key'
           value: supabaseAnonKey
         }
+        {
+          name: 'internal-job-token'
+          value: internalJobToken
+        }
       ]
     }
     template: {
@@ -109,6 +117,24 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Cors__AllowedOrigins'
               value: corsAllowedOrigin
+            }
+            {
+              name: 'Internal__JobToken'
+              secretRef: 'internal-job-token'
+            }
+            {
+              // Neither this module nor deploy.yml ever set this before
+              // (NOTES.md, 2026-07-09) — ASP.NET Core defaults to
+              // "Production" when unset, so the deployed Container App was
+              // silently running as Production regardless of environmentTag,
+              // meaning every non-Production-only endpoint (COMP-09's
+              // force-close-round, S-007's /internal/grid/generate) was
+              // unreachable there. "Dev" (not "Development") deliberately:
+              // IsProduction() is false either way, but "Development" would
+              // also flip IsDevelopment()-gated code (e.g. Auth:Mode=local-e2e)
+              // on in a real deployed environment, which must never happen.
+              name: 'ASPNETCORE_ENVIRONMENT'
+              value: environmentTag == 'prod' ? 'Production' : 'Dev'
             }
           ]
           resources: {

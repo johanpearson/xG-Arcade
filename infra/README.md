@@ -169,6 +169,18 @@ first cold start post-deploy, see the row's own explanation. No separate
 `<ghcr-username>` placeholder is just `github.actor`'s value (your GitHub
 username), not a secret.
 
+`backend-container-app.bicep` now sets `ASPNETCORE_ENVIRONMENT` on the
+Container App itself (S-008) — `"Production"` when `environmentTag == 'prod'`,
+`"Dev"` otherwise. Neither this module nor `deploy.yml` set this before,
+so the deployed dev Container App was silently running as `Production`
+(ASP.NET Core's default when the variable is absent) regardless of
+`environmentTag`, meaning every non-Production-only endpoint (COMP-09's
+`/internal/test-data/force-close-round`, S-007's `/internal/grid/generate`)
+was unreachable there (see `NOTES.md`). `"Dev"`, not `"Development"`,
+deliberately: it still makes `IsProduction()` false, but doesn't also flip
+on `IsDevelopment()`-gated code (e.g. `Auth:Mode=local-e2e`'s fake auth
+client) in a real deployed environment.
+
 ## Email setup (manual, one-time, not in Bicep)
 
 Per ADR-0005, email has two independent sending paths on one Resend account:
@@ -208,7 +220,8 @@ az deployment group create \
                databaseConnectionString="<dev-supabase-connection-string>" \
                supabaseJwtSecret="<dev-supabase-jwt-secret>" \
                supabaseUrl="<dev-supabase-url>" \
-               supabaseAnonKey="<dev-supabase-anon-key>"
+               supabaseAnonKey="<dev-supabase-anon-key>" \
+               internalJobToken="<internal-job-token>"
 ```
 
 **Quote every value**, not just the ones that look like they need it — a
@@ -236,7 +249,8 @@ az deployment group create \
                databaseConnectionString="<prod-supabase-connection-string>" \
                supabaseJwtSecret="<prod-supabase-jwt-secret>" \
                supabaseUrl="<prod-supabase-url>" \
-               supabaseAnonKey="<prod-supabase-anon-key>"
+               supabaseAnonKey="<prod-supabase-anon-key>" \
+               internalJobToken="<internal-job-token>"
 ```
 
 After this first manual pass, `deploy.yml` takes over for dev (every push
