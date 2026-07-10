@@ -47,7 +47,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   async function clearAnyExistingActiveRound(request: APIRequestContext): Promise<void> {
     const email = `test-probe-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', ageConfirmed: true },
+      data: { email, password: 'password123', displayName: 'Probe', ageConfirmed: true },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
       data: { email, password: 'password123' },
