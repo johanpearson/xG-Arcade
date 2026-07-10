@@ -23,7 +23,18 @@ internal class FakeGameModule(string gameKey) : IGameModule
         return Task.FromResult(GenerateInstanceResult(config));
     }
 
+    // REQ-210's "checked before any name resolution work, not after" ordering
+    // requirement (GuessSubmissionServiceTests) is asserted by reading this
+    // count after a rejected submission — it must stay zero.
+    public int ScoreSubmissionAsyncCallCount { get; private set; }
+
+    public Func<Guid, Guid, object, ScoreResult> ScoreSubmissionResult { get; set; } =
+        (_, _, _) => throw new NotImplementedException("Not exercised by round-generation/close tests.");
+
     public Task<ScoreResult> ScoreSubmissionAsync(
-        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException("Not exercised by round-generation/close tests.");
+        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default)
+    {
+        ScoreSubmissionAsyncCallCount++;
+        return Task.FromResult(ScoreSubmissionResult(instanceId, userId, submission));
+    }
 }

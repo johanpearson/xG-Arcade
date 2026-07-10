@@ -124,6 +124,60 @@ public class PlayerStoreRepositoryTests
         Assert.That(aliases, Is.Empty);
     }
 
+    // ---- REQ-203: an override always takes precedence over synced/unverified
+    // data ---------------------------------------------------------------
+
+    [Test]
+    public async Task REQ203_HasEffectiveAttributeAsync_ReturnsTrue_WhenPlayerAttributeMatches_AndNoOverrideExists()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+
+        var hasIt = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Arsenal");
+
+        Assert.That(hasIt, Is.True);
+    }
+
+    [Test]
+    public async Task REQ203_HasEffectiveAttributeAsync_ReturnsFalse_WhenNoOverrideOrAttributeMatches()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+
+        var hasIt = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Barcelona");
+
+        Assert.That(hasIt, Is.False);
+    }
+
+    [Test]
+    public async Task REQ203_HasEffectiveAttributeAsync_OverridePresent_WinsOverConflictingCachedPlayerAttribute()
+    {
+        // The cached (unverified) PlayerAttribute says "Arsenal", but an
+        // admin override for the same field says "Barcelona" — the override
+        // must always win, per REQ-203/REQ-501.
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _repository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = player.Id,
+            Field = "club",
+            Value = "Barcelona",
+            Reason = "Manual correction",
+            LockedByAdminId = Guid.NewGuid(),
+            LockedAt = DateTime.UtcNow,
+        });
+
+        var stillMatchesCachedValue = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Arsenal");
+        var matchesOverrideValue = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Barcelona");
+
+        Assert.That(stillMatchesCachedValue, Is.False, "the stale cached PlayerAttribute must no longer count once an override exists for that field");
+        Assert.That(matchesOverrideValue, Is.True);
+    }
+
     [Test]
     public async Task AddPlayerDataAsync_PersistsRawSourceData()
     {

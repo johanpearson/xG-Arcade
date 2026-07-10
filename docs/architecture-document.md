@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.19"
+version: "0.20"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.19 · 2026-07-10
+Version 0.20 · 2026-07-10
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -130,20 +130,21 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-01 | Core.Users | User accounts, auth integration | `XGArcade.Core` |
 | COMP-02 | Core.Leagues | Global + custom leagues, membership | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
-| COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` |
+| COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
 | COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game | `XGArcade.Games.XGGrid` |
-| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic. `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index | `XGArcade.Data` |
+| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note) | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
 | COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5 | `XGArcade.Data` |
 
-**"Maps to" column note (ADR-0014):** for COMP-01, COMP-03, and COMP-05
-specifically, this column names where each component's
+**"Maps to" column note (ADR-0014):** for COMP-01, COMP-03, COMP-04, and
+COMP-05 specifically, this column names where each component's
 *business/orchestration logic* lives — it does not mean every entity or
 repository that component owns is physically defined in that project.
 `User` (COMP-01), `Round` (COMP-03, `IRoundRepository`/`RoundRepository`,
-added in S-008), and `GridTemplate`/`GridInstance`/`GridCell` (COMP-05) are
+added in S-008), `Guess` (COMP-04, `IGuessRepository`/`GuessRepository`,
+added in S-009), and `GridTemplate`/`GridInstance`/`GridCell` (COMP-05) are
 EF Core entities defined in `XGArcade.Data` alongside their repositories, in
 the single shared `XGArcadeDbContext`, same as every other component's
 persistence code — see ADR-0014 for why. The component boundary itself
@@ -151,12 +152,28 @@ persistence code — see ADR-0014 for why. The component boundary itself
 component is allowed to call, not by which `.csproj` the entity class sits
 in.
 
+**COMP-04 status (S-009):** `GuessSubmissionService`
+(`XGArcade.Core.Scoring`) is COMP-04's first real code — REQ-201/202/210's
+guess-acceptance, guess-change-policy, and attempt-cap/lock rules. REQ-204/
+205's actual namesake responsibility ("uniqueness calculation, score
+locking") is not built yet: no code computes `unique_percent` or persists
+`FinalUniquenessScore`/`FinalPoints` (deferred to S-011). `Guess.CellId`
+being a raw `Guid` typed only as "opaque submission reference" in practice
+resolves to a real `GridCell` — an accepted v1 simplification, same one
+`implementation-document.md` §5 already documents on the `Guess` entity
+itself.
+
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
 query `PlayerData`/`PlayerOverride` directly — this keeps the
-override-precedence rule (REQ-501) enforced in exactly one place. If a new
-game module needs a different kind of data store, that's a signal for an
-ADR, not a workaround.
+override-precedence rule (REQ-501) enforced in exactly one place (see
+ADR-0015 for the exact precedence semantics that single place enforces).
+If a new game module needs a different kind of data store, that's a signal
+for an ADR, not a workaround. `GridGameModule.ScoreSubmissionAsync` (S-009)
+respects this rule: it reaches player data only through
+`IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
+`HasEffectiveAttributeAsync`, never a direct `PlayerAttribute`/
+`PlayerOverride` query.
 
 **Boundary rule 2 (Round genericity):** `Core.Rounds` (COMP-03) must never
 hold a foreign key to a game-specific entity such as `GridInstance`. A
@@ -292,6 +309,61 @@ Admin → Web Frontend (admin view) → Backend API: add new ClubDefinition
 ```
 
 **6.2 Guess submission and scoring flow** (realizes REQ-201–REQ-206, REQ-207–REQ-211)
+
+**Tier 0 status (S-009):** the diagram below is the full/long-term shape.
+What's actually built and real end to end: `POST
+/rounds/{roundId}/cells/{cellId}/guesses` (`XGArcade.Api.Guesses
+.GuessEndpoints`) → `GuessSubmissionService` (`Core.Scoring`, COMP-04) →
+`GridGameModule.ScoreSubmissionAsync` (`Games.XGGrid`, COMP-05) →
+`Guess` persisted (`XGArcade.Data`), with correctness shown immediately
+and an immediate lock on a correct answer or on the 2nd attempt.
+
+Several lines below do not match Tier 0's actual implementation, all
+deliberate per `MVP-SCOPE.md`, not bugs:
+
+- The `Data.PlayerNameIndex`/autocomplete leg does not exist at all — no
+  COMP-10, no frontend. Nothing about that is checked or exercised.
+- **"Core.Rounds: validate round is active, guess-change policy" is
+  attributed to the wrong component in this diagram** even in what Tier 0
+  built: it is `GuessSubmissionService` (COMP-04, not COMP-03) that reads
+  the `Round` row (via `IRoundRepository`) and performs both checks itself,
+  before resolving the owning `IGameModule`. `Core.Rounds` exposes no
+  guess-validation method of its own — COMP-04 reaches `Round` data
+  directly, the same way it's always been described as allowed to (Round
+  is a Core-owned table, not a game-specific one; no boundary rule
+  restricts this the way boundary rule 1 restricts player-data access).
+  This line should read `Core.Scoring` once this diagram is next revised.
+- **"Games.XGGrid: reject immediately if this cell is already correct, or
+  if 2 attempts are already used (REQ-210)" is also mis-attributed.** This
+  check happens entirely in `GuessSubmissionService` (COMP-04) *before*
+  `Games.XGGrid` is ever called at all — `Games.XGGrid` is only reached
+  once REQ-210's checks have already passed. Matches the acceptance
+  criteria's substance ("checked before any name resolution work"), just
+  not this diagram's component attribution.
+- Name resolution is real but much narrower than described: `normalize +
+  alias + fuzzy match against Data.PlayerNameIndex (REQ-208)` should read
+  "normalize (lowercase/diacritics/punctuation only) and look up exact
+  matches against `Player.NormalizedFullName` via `Data.PlayerStore`
+  (COMP-06) directly" — no alias matching, no fuzzy tolerance, and no
+  `PlayerNameIndex`/COMP-10 involved in matching at all (REQ-208's own
+  status note).
+- The disambiguation branch ("more than one → return a disambiguation
+  prompt") is not built — Tier 0 auto-accepts the lowest-`Id` fitting
+  candidate and logs a warning instead (REQ-209's status note); there is
+  no disambiguation prompt or extra round-trip.
+- REQ-211's live-lookup branch (the entire "if Data.PlayerStore has NO
+  record at all ... DataSync.Clients performs a live lookup" block) is not
+  built at all — a candidate with no cached `PlayerAttribute`/
+  `PlayerOverride` data is simply excluded from the matching set, not
+  looked up live. This is Tier 1, deferred per `MVP-SCOPE.md`, same as the
+  autocomplete leg above.
+- "Core.Scoring: compute live uniqueness on read, not on write" is not
+  built (REQ-204, deferred to S-011) — nothing computes or returns a
+  `unique_percent` value yet.
+- The final `[scheduled, at Round.EndTime]` block (locking
+  `FinalUniquenessScore`/`FinalPoints`) is not built — `RoundCloseService`
+  only pulls a round's `EndTime` forward, it does not touch `Guess` at all
+  (REQ-205's status note, S-011).
 
 ```
 Player → Web Frontend: types a guess
@@ -526,6 +598,7 @@ new ADR that references the old one.
 | ADR-0012 | Category value reference tables, each with resolved external IDs (Wikidata QID / API-Football team ID) | Accepted |
 | ADR-0013 | Backend-mediated signup/login (proxying Supabase Auth's REST API), not frontend-direct | Accepted |
 | ADR-0014 | All EF Core entities and repositories live in `XGArcade.Data`, regardless of which component owns them | Accepted |
+| ADR-0015 | A `PlayerOverride` replaces an entire attribute type, not one value within it | Accepted |
 
 ## 11. Glossary
 

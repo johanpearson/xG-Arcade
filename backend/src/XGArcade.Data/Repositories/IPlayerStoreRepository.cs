@@ -11,6 +11,13 @@ public interface IPlayerStoreRepository
     Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default);
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
+    // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): guess-time name matching
+    // queries Player.NormalizedFullName directly — no PlayerNameIndex/COMP-10
+    // (deferred, Tier 1) and no PlayerAlias (also deferred for matching
+    // purposes — "defer the alias table" in MVP-SCOPE.md's Tier 0 scoping).
+    Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
+        string normalizedFullName, CancellationToken cancellationToken = default);
+
     Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
@@ -30,4 +37,13 @@ public interface IPlayerStoreRepository
 
     Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default);
     Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default);
+
+    // REQ-203: "an override always takes precedence over synced/unverified
+    // data" — the single effective-data check every correctness path
+    // (grid-generation's cache read is count-only and doesn't need this;
+    // guess-checking, S-009, does) must use, so override precedence is
+    // enforced in exactly one place (architecture-document.md's Data
+    // integrity row).
+    Task<bool> HasEffectiveAttributeAsync(
+        Guid playerId, string attributeType, string attributeValue, CancellationToken cancellationToken = default);
 }

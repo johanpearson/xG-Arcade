@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.27"
+version: "0.28"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.27 · 2026-07-10
+Version 0.28 · 2026-07-10
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -262,6 +262,16 @@ without erroring), API
 > As a player, I want to guess a player for a cell, so I can participate in
 > the round.
 
+- **Status: Implemented (Tier 0, S-009).** `GuessSubmissionService`
+  (`XGArcade.Core.Scoring`) plus `POST /rounds/{roundId}/cells/{cellId}/guesses`
+  (`XGArcade.Api.Guesses.GuessEndpoints`) satisfy every acceptance criterion
+  below for Tier 0's scope: a `Guess` row is stored with `UserId`, `CellId`,
+  `SubmittedName` (the "answer"), and `CreatedAt`; the unique
+  `(RoundId, UserId, CellId)` index plus overwrite-on-resubmit logic enforce
+  "one active guess per cell per round"; correctness is determined and
+  returned in the same response, not deferred. What "correctness" itself can
+  currently determine is Tier 0-scoped — see REQ-203/208/209's own status
+  notes for what name-matching does and doesn't yet cover.
 - Given an active (not closed) round and a logged-in player
 - When the player submits a guess for a cell
 - Then the guess is stored with `user_id`, `cell_id`, `answer`, `timestamp`
@@ -277,6 +287,13 @@ without erroring), API
 > As a player, I want to know whether I can change my guess or not, so I'm
 > not confused by the rules.
 
+- **Status: Implemented (Tier 0, S-009).** `GuessSubmissionService` checks
+  REQ-210's lock/attempt-cap first (always taking precedence, per the
+  acceptance criteria below) and only then `Round.AllowGuessChange`; the API
+  layer (`GuessEndpoints`) maps each of `RoundNotFound`/`RoundNotActive`/
+  `CellAlreadySolved`/`NoAttemptsRemaining`/`GuessChangeNotAllowed` to a
+  distinct `ProblemDetails` title/detail — never one generic message for
+  every rejection reason.
 - Given the configuration `allow_guess_change = true/false` per Round
 - When a player attempts to change an already-submitted guess
 - Then the system either allows the change (overwrite) or rejects it,
@@ -292,6 +309,22 @@ without erroring), API
 > As a player, I want to know if my guess is valid for the cell, so I know
 > whether I'll receive points.
 
+- **Status: Partially implemented (Tier 0, S-009).** The effective-data
+  check itself is fully built and enforces override precedence exactly as
+  described below: `IPlayerStoreRepository.HasEffectiveAttributeAsync`
+  (`XGArcade.Data`) checks `PlayerOverride` first and only falls through to
+  `PlayerAttribute` when no override exists for that field — see ADR-0015
+  for the exact precedence semantics (an override replaces its entire
+  attribute type, not one value within it). Correctness is determined and
+  shown immediately, and a correct guess locks the cell immediately
+  (REQ-210), both as described below. What's not yet exercised: this check
+  only ever runs against candidates found by REQ-208's Tier 0-scoped name
+  matching (no alias table, no fuzzy tolerance — see REQ-208's own status
+  note) and never triggers REQ-211's live lookup (Tier 1, not built) — a
+  genuinely correct guess for a real player with no cached `PlayerAttribute`
+  data at all is currently scored incorrect, not looked up live. "0 points
+  regardless of uniqueness" isn't independently verifiable yet since point
+  computation itself doesn't exist until S-011.
 - Given a guess for cell X
 - When the answer is checked against the effective data (an override always
   takes precedence over synced/unverified data)
@@ -309,6 +342,12 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
+- **Status: Not implemented yet (deferred to S-011).** `Guess` (S-009) now
+  stores `PlayerAnswerId` per the deterministic lowest-Id pick this
+  requirement's disambiguation clause below describes — REQ-209's Tier 0
+  simplified handling already implements that pick — so the data this
+  calculation will read is being recorded correctly starting now, but no
+  code yet computes or serves `unique_percent` itself; that's S-011.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -334,17 +373,20 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-008).** `RoundCloseService`
+- **Status: Partially implemented (Tier 0, S-008/S-009).** `RoundCloseService`
   (`XGArcade.Core.Rounds`) is a close-only stub: given a round, it pulls
   `EndTime` forward (idempotently — never later than what's already
   scheduled) to force immediate closure, which is what REQ-806's
-  `POST /internal/test-data/force-close-round/{roundId}` calls. It does not
-  yet compute or persist `final_uniqueness_score`/`final_points` — that's
-  deferred to S-011, once `Guess`/`Core.Scoring` exist. There is also no
-  automated scheduled job yet that calls this at a round's real `end_time`
-  in production — today it is only ever invoked via REQ-806's
-  non-Production-only endpoint. The rest of this requirement's acceptance
-  criteria are recorded below as the full/long-term definition.
+  `POST /internal/test-data/force-close-round/{roundId}` calls. `Guess`
+  (`XGArcade.Data`) and `Core.Scoring`'s guess-acceptance half
+  (`GuessSubmissionService`) now exist as of S-009, but `RoundCloseService`
+  does not yet read or write them at all — it still does not compute or
+  persist `final_uniqueness_score`/`final_points`; that computation itself
+  is deferred to S-011. There is also no automated scheduled job yet that
+  calls this at a round's real `end_time` in production — today it is only
+  ever invoked via REQ-806's non-Production-only endpoint. The rest of this
+  requirement's acceptance criteria are recorded below as the full/long-term
+  definition.
 - Given a Round whose `end_time` has passed
 - When the scoring job runs for the round
 - Then each guess's `final_uniqueness_score` and `final_points` are saved as
@@ -391,6 +433,24 @@ grids don't make guessing trivially easy)
 > player's name to be accepted, so I'm not penalized for not knowing exact
 > diacritics or punctuation.
 
+- **Status: Partially implemented (Tier 0's "simple half" only, S-009, per
+  `MVP-SCOPE.md`).** Built: `PlayerNameNormalizer.Normalize`
+  (`XGArcade.Data`) lowercases, strips diacritics, strips punctuation
+  (added in S-009 — this closes a real pre-existing gap left over from
+  S-006, which stripped diacritics but not punctuation), and collapses
+  whitespace; `Player.NormalizedFullName` is kept in lockstep with
+  `FullName` via its setter and backfilled for pre-existing rows
+  (`PlayerNormalizedFullNameBackfiller`); `GridGameModule
+  .ScoreSubmissionAsync` compares the normalized guess directly against
+  `Player.NormalizedFullName` (`IPlayerStoreRepository
+  .GetPlayersByNormalizedFullNameAsync`). **Not built** (deliberately
+  deferred per `MVP-SCOPE.md`'s Tier 0 scoping, not an oversight): matching
+  via a maintained alias/stage-name list (`PlayerAlias` exists as an entity
+  since S-006 but is not queried for guess-time matching at all — only
+  exact `NormalizedFullName` equality is checked), and edit-distance/fuzzy
+  typo tolerance. A guess with a typo or an alias name (e.g. "Kaká" typed
+  as a nickname rather than a spelling variant of the same string) that
+  isn't an exact normalized match to `FullName` is scored incorrect today.
 - Given a submitted guess
 - When it is compared against a candidate player's known name(s)
 - Then comparison is done on a normalized form: lowercased, diacritics
@@ -410,6 +470,19 @@ typos, and confirming near-miss strings that should NOT match are rejected)
 > As a player, I want a fair resolution when my guess matches more than one
 > real player, so the cell's categories — not luck — decide correctness.
 
+- **Status: Partially implemented (Tier 0's simplified handling only,
+  S-009, per `MVP-SCOPE.md`).** The "exactly one candidate satisfies both
+  categories → accept automatically" branch is fully built and matches the
+  acceptance criteria below exactly. The "no candidate satisfies both
+  categories → incorrect" branch is also fully built. **Simplified,
+  per `MVP-SCOPE.md`'s explicit Tier 0 scoping:** when more than one
+  candidate satisfies both categories, Tier 0 does not show a
+  disambiguation prompt at all — `GridGameModule.ScoreSubmissionAsync`
+  auto-accepts the lowest-`Id` fitting candidate (the same deterministic
+  pick REQ-204 already specifies for uniqueness grouping) and logs a
+  warning (`ILogger.LogWarning`) so a real occurrence is visible and can
+  trip `MVP-SCOPE.md`'s Tier 1 "build the disambiguation UI" trigger. No
+  player-facing disambiguation prompt/picker UI exists.
 - Given a normalized/alias/fuzzy-matched guess resolves to more than one
   distinct player record
 - When those candidates are checked against the cell's row and column
@@ -432,6 +505,15 @@ required, no valid candidate), UI (disambiguation prompt)
 > cell, so the game stays a genuine test of knowledge rather than something
 > solvable by trial and error against immediate feedback.
 
+- **Status: Implemented (Tier 0, S-009).** `GuessSubmissionService`
+  (`XGArcade.Core.Scoring`) checks the existing `Guess` row's
+  `IsCorrect`/`AttemptCount` before calling the owning `IGameModule` at
+  all — "checked before any name resolution work, not after" — and locks
+  immediately on a correct answer even if only 1 of 2 attempts was used.
+  The disambiguation-doesn't-consume-an-extra-attempt clause is currently
+  inapplicable rather than violated: REQ-209's Tier 0 simplification never
+  produces a disambiguation prompt to resolve as a separate step, so there
+  is nothing for that clause to apply to yet.
 - Given a cell where `allow_guess_change` is true for the round (REQ-202)
 - When a player submits a guess for that cell
 - Then they may submit at most 2 guesses total for that cell in that round
@@ -526,13 +608,14 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a player, I want to always know whether a round is open, closed, or
 > upcoming, so I know if I can play.
 
-- **Status: Partially implemented (Tier 0, S-008).** The status calculation
+- **Status: Implemented (Tier 0, S-008/S-009).** The status calculation
   itself is fully built and tested exactly as described below:
   `RoundStatusExtensions.GetStatus` (`XGArcade.Core.Rounds`) derives
   `Upcoming`/`Active`/`Closed` live from a `Round`'s `StartTime`/`EndTime`
   and the current time, with no separate stored status field. "Only
-  `active` rounds accept new guesses" is not enforced yet — there is no
-  guess-submission endpoint to enforce it against (S-009).
+  `active` rounds accept new guesses" is now enforced too, as of S-009:
+  `GuessSubmissionService` calls `GetStatus` and rejects with
+  `RoundNotActive` (409) for any round that isn't currently `Active`.
 - Given a Round's `start_time` and `end_time`
 - When a player visits the platform
 - Then the Round status (`upcoming` / `active` / `closed`) is calculated

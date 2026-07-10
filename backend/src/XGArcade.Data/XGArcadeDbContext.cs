@@ -6,7 +6,6 @@ namespace XGArcade.Data;
 // The single shared DbContext for every component (ADR-0014) — not just
 // COMP-06 (Data.PlayerStore), despite the name predating that decision.
 // Scoped to Tier 0: only the entities each backlog story has needed so far.
-// Guess (COMP-04/Core.Scoring) is still not added — that's S-009's job.
 public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : DbContext(options)
 {
     public DbSet<Player> Players => Set<Player>();
@@ -22,6 +21,7 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridInstance> GridInstances => Set<GridInstance>();
     public DbSet<GridCell> GridCells => Set<GridCell>();
     public DbSet<Round> Rounds => Set<Round>();
+    public DbSet<Guess> Guesses => Set<Guess>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,5 +115,31 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // every scheduled generation invocation — the hot path for this table.
         modelBuilder.Entity<Round>()
             .HasIndex(r => new { r.GameKey, r.EndTime });
+
+        // REQ-208's guess-time name matching (S-009) queries this directly —
+        // no PlayerNameIndex/COMP-10 in Tier 0 (MVP-SCOPE.md).
+        modelBuilder.Entity<Player>()
+            .HasIndex(p => p.NormalizedFullName);
+
+        // REQ-201: at most one Guess row per (round, user, cell) — a
+        // resubmission overwrites this row, never inserts a second one.
+        modelBuilder.Entity<Guess>()
+            .HasIndex(g => new { g.RoundId, g.UserId, g.CellId })
+            .IsUnique();
+
+        // REQ-204's uniqueness calculation (S-011) counts/groups by cell on
+        // every read (implementation-document.md §5's required-indexes table).
+        modelBuilder.Entity<Guess>()
+            .HasIndex(g => g.CellId);
+
+        // Round and Guess are both Core-owned tables in the same schema
+        // (ADR-0014) — unlike Round.GameInstanceId's deliberate FK omission
+        // (ADR-0003, a boundary against a *game-specific* table), there's no
+        // boundary reason to leave this one unconstrained.
+        modelBuilder.Entity<Guess>()
+            .HasOne<Round>()
+            .WithMany()
+            .HasForeignKey(g => g.RoundId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
