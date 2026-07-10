@@ -22,5 +22,11 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Co-located *.test.tsx (coding-guidelines.md) aren't part of the
+  // production build — same as tests/unit/ before them, which was never
+  // included here either. Vitest type-checks/transforms them separately
+  // (vite.config.ts) and picks up @testing-library/jest-dom's matcher
+  // augmentation via tests/unit/setup.ts at test-run time.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

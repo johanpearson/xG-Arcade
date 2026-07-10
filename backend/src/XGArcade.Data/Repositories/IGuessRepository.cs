@@ -12,6 +12,11 @@ public interface IGuessRepository
     // second row.
     Task<Guess?> GetAsync(Guid roundId, Guid userId, Guid cellId, CancellationToken cancellationToken = default);
 
+    // REQ-303: every guess a player has made in one round, for rendering
+    // their own progress across the whole grid in a single query rather than
+    // one GetAsync call per cell.
+    Task<IReadOnlyList<Guess>> GetByRoundAndUserAsync(Guid roundId, Guid userId, CancellationToken cancellationToken = default);
+
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(Guess guess, CancellationToken cancellationToken = default);

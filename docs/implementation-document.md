@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.28"
+version: "0.29"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.28 · 2026-07-10
+Version 0.29 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -62,6 +62,7 @@ References: `requirements-document.md`, `architecture-document.md`
 | Email | Resend | Custom SMTP for Supabase Auth's confirmation/reset emails, plus direct API calls from `Core.Notifications` for product notifications — see ADR-0005 |
 | Backend test framework | NUnit + WebApplicationFactory | Matches an already-used pattern (SpecOps generates NUnit tests) |
 | Frontend/UI test framework | Playwright + Vitest | Playwright for E2E/UI, Vitest for component/unit tests in TS |
+| Web fonts | Google Fonts CDN (`fonts.googleapis.com`/`fonts.gstatic.com`), loaded via `<link>` tags in `frontend/index.html` | Serves the three typefaces `design-document.md` §2 specifies (Space Grotesk, Inter, IBM Plex Mono) without vendoring font files. Added S-010 when the first real screens shipped. This is a new runtime third party every visitor's browser talks to directly (not proxied through the backend) — `docs/legal/privacy-policy-draft.md`'s "Who we share it with" section was updated to name it in the same iteration this table was; if this later moves to self-hosted fonts, update both places again |
 
 ## 2. Data strategy: incremental cache, not upfront database
 
@@ -199,12 +200,24 @@ misconfigured per-endpoint. See ADR-0006.
     /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
 
 /frontend
-  /src
-    /components                 -> Grid, Cell, GuessInput, Leaderboard, LiveUniqueBadge
-    /pages                      -> Home, League, Admin
-    /api                        -> typed API client (possibly generated via OpenAPI)
+  /src                          -> feature folders, not the layer folders this
+                                   section originally sketched (S-010 built
+                                   /auth, /grid; /lib holds the hand-written
+                                   fetch API client + shared types/rules, not
+                                   an OpenAPI-generated one as first guessed).
+                                   Component tests are co-located next to
+                                   their component (*.test.tsx under /src),
+                                   per docs/coding-guidelines.md, not kept in
+                                   a separate /tests/unit tree.
+    /auth                        -> AuthScreen (login/signup, REQ-701)
+    /grid                        -> GridScreen, Grid, GridCell, CellState,
+                                     GuessInput, CategoryLabel (SCREEN-01/01a/02)
+    /lib                          -> api.ts (typed fetch client), types.ts,
+                                     categoryDisplay.ts, guessRules.ts
   /tests
-    /unit                       -> Vitest (component logic, formatting)
+    /unit                       -> Vitest — only the pre-S-010 App/health-check
+                                   test remains here; newer component tests
+                                   live under /src (see above)
     /e2e                        -> Playwright (full user flows)
 
 /infra

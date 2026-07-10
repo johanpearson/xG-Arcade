@@ -182,7 +182,14 @@ hold a foreign key to a game-specific entity such as `GridInstance`. A
 type Core understands). Resolving that ID into an actual `GridInstance` is
 the responsibility of the owning game module (COMP-05), reached through
 `IGameModule`. This is what makes it possible to add a second game later
-without changing `Core.Rounds` at all — see ADR-0003.
+without changing `Core.Rounds` at all — see ADR-0003. **Narrow, documented
+exception (ADR-0016, S-010):** `GET /rounds/current`
+(`XGArcade.Api.Rounds.RoundEndpoints`, REQ-303) reads `GridInstance`/
+`GridCell` directly via `IGridInstanceRepository`, bypassing `IGameModule`,
+for display purposes only — never for generation or scoring, which must
+still always go through `IGameModule`. See ADR-0016 for why (no second game
+module exists yet to design a real generic read method against) and its
+explicit trigger for revisiting this.
 
 **Boundary rule 3 (email separation):** Auth-lifecycle emails (signup
 confirmation, password reset) are never sent by `XGArcade.Core` code — they
@@ -599,6 +606,7 @@ new ADR that references the old one.
 | ADR-0013 | Backend-mediated signup/login (proxying Supabase Auth's REST API), not frontend-direct | Accepted |
 | ADR-0014 | All EF Core entities and repositories live in `XGArcade.Data`, regardless of which component owns them | Accepted |
 | ADR-0015 | A `PlayerOverride` replaces an entire attribute type, not one value within it | Accepted |
+| ADR-0016 | Read-only display queries against an already-generated instance may bypass `IGameModule` | Accepted |
 
 ## 11. Glossary
 

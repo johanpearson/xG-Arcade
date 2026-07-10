@@ -13,6 +13,95 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/design-document.md (§7 open questions, frontmatter
+  version 0.6 → 0.7) — doc sync for S-010 (Grid UI, SCREEN-01/01a/02):
+  flagged two open gaps found while implementing against this document
+  rather than resolving them silently — (1) no SCREEN-xx spec exists for the
+  login/signup screen, built functionally with tokens-only styling but
+  unreviewed; (2) §2 has no numeric spacing scale, implementation used an
+  unreviewed 4px-based scale — and recorded a third as fixed within this
+  same story rather than left open: (3) `GET /rounds/current` originally
+  never returned the guessed/revealed player's name, so SCREEN-01a could
+  only show it for a guess submitted in the current browser session; closed
+  by adding `SubmittedName` to that endpoint's response (REQ-303) before
+  this story's UI work finished, so §7 records it struck through as
+  "fixed," not as an open recommendation. No REQ/ADR changed by this
+  specific edit; frontend code isn't tracked in this changelog per its own
+  header note, but the design-doc edit is — the REQ-303 change itself is
+  logged separately below.
+- 2026-07-10 — docs/requirements-document.md (REQ-303, REQ-807),
+  docs/architecture-document.md (§5 boundary rule 2, §10 ADR table),
+  docs/decisions/0016-display-reads-bypass-igamemodule.md (new),
+  docs/design-document.md (§7, one more flagged gap), docs/backlog.md
+  (S-010 entry), docs/implementation-document.md (§1 tech-stack table, §4
+  project structure, frontmatter version 0.28 → 0.29),
+  docs/legal/privacy-policy-draft.md (§"Who we share it with", frontmatter
+  version 0.2 → 0.3) — doc sync for the rest of S-010's diff beyond the
+  design-doc pass logged above: two new backend endpoints the Grid UI
+  needed to have anything real to render/seed against. **REQ-303** (`GET
+  /rounds/current`, `XGArcade.Api.Rounds.RoundEndpoints`) — the read path
+  for "the round I can currently play," resolving the caller from their
+  bearer token and returning the active round's cells joined with only the
+  caller's own `Guess` rows (`IRoundRepository.GetActiveByGameKeyAsync`,
+  `IGuessRepository.GetByRoundAndUserAsync`, both new), including
+  `SubmittedName` per the fix already logged above. **REQ-807** (`POST
+  /internal/test-data/seed-guessable-round`, non-Production only, same
+  discipline as REQ-806) — deterministically seeds a one-cell `GridInstance`
+  plus a `Player`/`PlayerAttribute` pair that satisfies it, entirely through
+  each component's normal repository writes (ADR-0006 boundary rule 4),
+  used as Playwright E2E setup so the suite never depends on a live
+  Wikidata call. **ADR-0016** (new): `architecture-reviewer` found that
+  `GET /rounds/current` reading `GridInstance`/`GridCell` directly via
+  `IGridInstanceRepository` is a genuine exception to ADR-0003's boundary
+  rule 2 — not covered by the existing `GridTemplateResolver` precedent,
+  which is about `GridTemplate` specifically (resolved before generation,
+  not player data). Rather than design a speculative generic read method on
+  `IGameModule` against a single game module, ADR-0016 records this as a
+  narrow, Tier-0-scoped, display-reads-only exception (never for generation
+  or scoring), with an explicit trigger to revisit once a second game module
+  exists to design the real interface against; architecture-document.md's
+  boundary rule 2 and REQ-303's status note were updated to reference it.
+  `GuessRules.MaxAttemptsPerCell` was also extracted from a private constant
+  in `GuessSubmissionService` to a shared `Core.Scoring` constant so
+  REQ-303's read path and REQ-210's write path enforce/report the same
+  attempt cap from one place — a pure refactor, no documented behavior
+  changed, so no doc edit was needed for it beyond what §5's existing
+  "capped at 2" note already said. design-document.md gained a fourth §7
+  entry (added by a later commit in this same story, never logged until
+  now): `code-reviewer` found §2 also has no type scale or border-radius
+  scale, the same kind of gap as the already-logged spacing-scale one,
+  citing the exact ad-hoc px values used across six component stylesheets.
+  docs/backlog.md's S-010 entry was corrected, not just checked: its
+  original accept criteria implied all four SCREEN-01a cell states were
+  exercised through the Playwright suite, but the "round closed/final"
+  state isn't reachable through `GET /rounds/current` yet (S-011 scope,
+  same reason design-document.md's implementation note gives) and is only
+  covered by `CellState.test.tsx` (Vitest, constructed props) — reworded to
+  say so precisely, and to name REQ-303/REQ-807 as part of what this story
+  built, not only the UI. docs/implementation-document.md gained a new
+  tech-stack row for Google Fonts (`frontend/index.html` now loads Space
+  Grotesk/Inter/IBM Plex Mono — already specified in design-document.md §2
+  — directly from `fonts.googleapis.com`/`fonts.gstatic.com`) and its §4
+  frontend project-structure block was corrected from the original
+  `/components`/`/pages`/`/api` layer-folder sketch to the feature-folder
+  layout actually built (`/src/auth`, `/src/grid`, `/src/lib`, with
+  component tests co-located under `/src` rather than kept in a separate
+  `/tests/unit` tree, per `docs/coding-guidelines.md`) — this is the same
+  kind of "keep the illustrative shape honest" correction prior stories'
+  doc-sync passes made for backend entities. docs/legal/privacy-policy-draft.md
+  gained a new "Who we share it with" line for Google Fonts: loading fonts
+  directly from Google's CDN in the browser means Google sees every
+  visitor's IP address on every page load, a real third party this draft
+  didn't previously name, per CLAUDE.md's rule that any change touching
+  which third parties see data must update the legal draft in the same
+  iteration — flagged back as worth a human call on whether to self-host
+  the fonts instead, not decided here. Also corrected a stale claim in this
+  same CHANGELOG file's own S-010 design-doc entry above (see that entry's
+  rewritten text) — it described the `SubmittedName` gap as still open when
+  the same commit that wrote it had already closed it. No REQ/ADR text was
+  invented or renumbered; REQ-303/REQ-807/ADR-0016 were authored earlier in
+  this same session/branch and are only being reconciled against the final
+  code and logged here for the first time. REQ-303, REQ-807, ADR-0016.
 - 2026-07-10 — docs/requirements-document.md (REQ-201, REQ-202, REQ-203,
   REQ-204, REQ-205, REQ-208, REQ-209, REQ-210, REQ-302),
   docs/architecture-document.md (§5 COMP-04/COMP-06 rows, §5 "Maps to"

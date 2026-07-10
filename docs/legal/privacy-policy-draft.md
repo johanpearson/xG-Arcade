@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.2"
+version: "0.3"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-07
+last_updated: 2026-07-10
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -46,6 +46,11 @@ last_updated: 2026-07-07
   on our behalf; sees your email address and the content of those emails
 - **Microsoft Azure** (hosting) — runs the application; doesn't have
   independent access to your data beyond what's needed to run the service
+- **Google Fonts** (web fonts) — the app's pages load typefaces directly
+  from Google's font CDN in your browser, which means Google receives your
+  IP address and browser details on every page load, the same as loading a
+  font from any third-party CDN would. We do not send your account or
+  gameplay data to Google.
 - We do not sell your data to anyone, for any reason.
 
 ## How long we keep it

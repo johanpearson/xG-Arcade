@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.6"
+version: "0.7"
 status: draft
-last_updated: 2026-07-04
+last_updated: 2026-07-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -341,3 +341,36 @@ Unchanged from v0.1:
   given club (lower-league/historical clubs) — likely the same generic
   initial-chip already used as v1's default, but not yet designed as an
   explicit "missing crest" state distinct from "v1 doesn't have crests at all"
+- **No SCREEN-xx spec exists for the login/signup screen** (flagged by
+  `ui-implementer` building S-010). Built functionally for Tier 0 —
+  email/password fields, the REQ-701 age-confirmation checkbox, a "Log in"/
+  "Sign up" tab toggle, tokens-only styling — but this document has no
+  wireframe, copy, or state list for it the way SCREEN-01/01a/02 do. Needs a
+  real SCREEN-00 entry (loading/submitting state, error copy, the exact
+  tab/toggle pattern) rather than leaving the built version as the
+  unreviewed de facto spec.
+- **§2 has no numeric spacing scale.** SCREEN-01/01a/02's implementation
+  (S-010) used an unreviewed 4px-based scale (4/8/12/16/24/32/48) for
+  padding/gaps in the absence of one, rather than one-off values per
+  component. This should become a real token row in §2 (or be explicitly
+  rejected in favor of per-component judgment) rather than staying an
+  implementation-only convention future screens might diverge from.
+- **§2 also has no type scale or border-radius scale**, a gap of the same
+  kind as the spacing one above — found by `code-reviewer` on S-010's diff,
+  since the first pass only disclosed the spacing gap. SCREEN-01/01a/02 and
+  the login screen use ad-hoc, un-tokenized font sizes (9/10/11/12/13/14/
+  15/16/18/22px, scattered across `CategoryLabel.css`, `CellState.css`,
+  `Grid.css`, `GridScreen.css`, `GuessInput.css`, `AuthScreen.css`,
+  `App.css`) and border-radius values (4/8/12px, in `Grid.css`,
+  `GuessInput.css`, `AuthScreen.css`, `App.css`) with no shared variable
+  behind either. Same recommendation as the spacing gap: turn these into
+  real §2 token rows (a type scale, a radius scale) or explicitly decide
+  per-component judgment is fine here — don't let it stay an
+  implementation-only convention.
+- ~~SCREEN-01a's revealed player name has no data source~~ — **fixed** the
+  same session this was flagged: `GET /rounds/current`'s guess object now
+  includes `SubmittedName` (REQ-303), so a cell answered before the current
+  browser session can still show what was guessed after a reload. The
+  client-side same-session cache (`GridScreen`'s `knownPlayerNames`) is kept
+  only as the immediate-feedback path, since `POST .../guesses`' own
+  response still doesn't echo the name back.

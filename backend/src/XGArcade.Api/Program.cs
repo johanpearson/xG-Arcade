@@ -211,6 +211,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
+app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 
 app.Run();

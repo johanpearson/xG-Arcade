@@ -1,0 +1,114 @@
+.guess-input-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 31, 28, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 10;
+}
+
+.guess-input {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 12px 12px 0 0;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Desktop: inline popover — centered card instead of a bottom sheet. */
+@media (min-width: 768px) {
+  .guess-input-backdrop {
+    align-items: center;
+  }
+
+  .guess-input {
+    border-radius: 12px;
+  }
+}
+
+.guess-input__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.guess-input__categories {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.guess-input__x {
+  color: var(--color-text-muted);
+}
+
+.guess-input__cancel {
+  min-height: var(--touch-target-min);
+  min-width: 44px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.guess-input__attempts {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.guess-input__locked {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.guess-input__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guess-input__field {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.guess-input__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.guess-input__submit {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.guess-input__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

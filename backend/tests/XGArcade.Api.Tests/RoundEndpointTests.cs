@@ -255,6 +255,44 @@ public class RoundEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
+    // ---- REQ-807: seed-guessable-round is a non-Production-only test control --
+
+    [Test]
+    public async Task REQ807_SeedGuessableRound_Post_CreatesAnActiveRoundWithOneGuessableCell()
+    {
+        var response = await _factory.CreateClient().PostAsync("/internal/test-data/seed-guessable-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SeedGuessableRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.CorrectPlayerName, Is.Not.Empty);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = await dbContext.Rounds.SingleAsync(r => r.Id == body.RoundId);
+        Assert.That(round.GetStatus(DateTime.UtcNow), Is.EqualTo(RoundStatus.Active));
+        var instance = await dbContext.GridInstances.Include(gi => gi.Cells).SingleAsync(gi => gi.Id == round.GameInstanceId);
+        Assert.That(instance.Cells.Select(c => c.Id), Does.Contain(body.CellId));
+    }
+
+    [Test]
+    public async Task SeedGuessableRound_Post_IsNeverRegistered_WhenEnvironmentIsProduction()
+    {
+        using var _ = TemporaryEnvironmentVariables(
+            ("ASPNETCORE_ENVIRONMENT", "Production"),
+            ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
+            ("Supabase__Url", "http://localhost:54321"),
+            ("Supabase__AnonKey", "test-placeholder-anon-key"),
+            ("Auth__SupabaseJwtSecret", "test-placeholder-jwt-secret"));
+
+        var productionFactory = _factory.WithWebHostBuilder(builder => { });
+        var client = productionFactory.CreateClient();
+
+        var response = await client.PostAsync("/internal/test-data/seed-guessable-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
     // Sets process environment variables for the duration of one test,
     // restoring each to its original value (including "unset") on dispose.
     private static IDisposable TemporaryEnvironmentVariables(params (string Name, string Value)[] variables)

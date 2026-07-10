@@ -20,9 +20,6 @@ public class GuessSubmissionService(
     IGameModuleResolver gameModuleResolver,
     TimeProvider timeProvider) : IGuessSubmissionService
 {
-    // REQ-210: at most 2 attempts per cell per round.
-    private const int MaxAttempts = 2;
-
     public async Task<GuessSubmissionResult> SubmitGuessAsync(
         Guid roundId, Guid userId, Guid cellId, string submittedName, CancellationToken cancellationToken = default)
     {
@@ -42,7 +39,7 @@ public class GuessSubmissionService(
         // call to IGameModule happens until we know an attempt is allowed.
         if (existingGuess is not null && existingGuess.IsCorrect)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.CellAlreadySolved);
-        if (existingGuess is not null && existingGuess.AttemptCount >= MaxAttempts)
+        if (existingGuess is not null && existingGuess.AttemptCount >= GuessRules.MaxAttemptsPerCell)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.NoAttemptsRemaining);
 
         // REQ-202: guess-change policy — subordinate to REQ-210's lock/cap
@@ -81,7 +78,7 @@ public class GuessSubmissionService(
 
         // REQ-210: locks immediately on a correct answer, even if only 1 of
         // the 2 attempts was used; otherwise locks once both are used.
-        var locked = scoreResult.IsCorrect || attemptCount >= MaxAttempts;
+        var locked = scoreResult.IsCorrect || attemptCount >= GuessRules.MaxAttemptsPerCell;
         return GuessSubmissionResult.Accepted(scoreResult.IsCorrect, attemptCount, locked);
     }
 }

@@ -1,0 +1,45 @@
+.category-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-body);
+  color: var(--color-text-primary);
+}
+
+.category-label__flag {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+/* Circular initial-badge — design-document.md §1's "Imagery note": the real
+   v1 design for clubs, not a placeholder awaiting crests (Phase 2). */
+.category-label__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-hairline);
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.category-label--small .category-label__badge {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+
+.category-label__name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.category-label--small {
+  font-size: 13px;
+}
