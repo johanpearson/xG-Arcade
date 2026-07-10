@@ -19,6 +19,7 @@ public static class GuessEndpoints
             ClaimsPrincipal principal,
             IUserRepository userRepository,
             IGuessSubmissionService guessSubmissionService,
+            ILogger<GuessEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.SubmittedName))
@@ -47,11 +48,15 @@ public static class GuessEndpoints
             {
                 // The cellId didn't resolve to a real cell in this round's
                 // grid instance — a malformed/stale request, not an ordinary
-                // incorrect-guess outcome.
-                return Results.Problem(
-                    title: "Cell not found",
-                    detail: ex.Message,
-                    statusCode: StatusCodes.Status404NotFound);
+                // incorrect-guess outcome. Logged server-side (coding-
+                // guidelines.md), same discipline InternalRoundEndpoints
+                // uses for GridGenerationException; the client gets the
+                // same bare 404 as RoundNotFound below — both are plain
+                // "this id doesn't resolve to anything" outcomes, so they
+                // share one response shape rather than one being a richer
+                // Problem body than the other for no real reason.
+                logger.LogError(ex, "Guess submission failed: cell not found.");
+                return Results.NotFound();
             }
 
             // REQ-202: every rejection reason is distinct and specific —
@@ -86,3 +91,7 @@ public static class GuessEndpoints
 public record SubmitGuessRequest(string SubmittedName);
 
 public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked);
+
+// Pure log-category marker for ILogger<T> — same pattern as
+// InternalRoundEndpoints.RoundGenerationLogCategory.
+internal sealed class GuessEndpointsLogCategory;

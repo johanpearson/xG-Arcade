@@ -35,6 +35,10 @@ if (args is ["migrate-and-seed"])
     await using var migrationDbContext = new XGArcadeDbContext(optionsBuilder.Options);
     await migrationDbContext.Database.MigrateAsync();
     await ReferenceDataSeeder.SeedAsync(migrationDbContext);
+    // S-009: backfills Player.NormalizedFullName for any row that predates
+    // that column (or predates PlayerNameNormalizer's punctuation-stripping
+    // fix) — see PlayerNormalizedFullNameBackfiller's own doc comment.
+    await PlayerNormalizedFullNameBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;

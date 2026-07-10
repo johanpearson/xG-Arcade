@@ -41,4 +41,16 @@ public class PlayerNameNormalizerTests
     {
         Assert.That(PlayerNameNormalizer.Normalize(input), Is.EqualTo(expected));
     }
+
+    // Edge cases: punctuation stripping runs before the existing
+    // trim/collapse-whitespace steps, so a name that's entirely (or only
+    // leading/trailing) punctuation must still resolve cleanly rather than
+    // leaving stray whitespace or throwing.
+    [TestCase("...", "")]
+    [TestCase("-", "")]
+    [TestCase("'Pele'", "pele")]
+    public void Normalize_HandlesPunctuationOnlyOrSurroundingInput(string input, string expected)
+    {
+        Assert.That(PlayerNameNormalizer.Normalize(input), Is.EqualTo(expected));
+    }
 }

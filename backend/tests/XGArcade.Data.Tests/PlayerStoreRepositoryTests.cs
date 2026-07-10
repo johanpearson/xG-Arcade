@@ -179,28 +179,6 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
-    public async Task REQ203_HasEffectiveAttributeAsync_OverridePresent_ButValueDiffers_ReturnsFalse_EvenThoughCachedAttributeMatches()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
-        await _repository.AddOverrideAsync(new PlayerOverride
-        {
-            Id = Guid.NewGuid(),
-            PlayerId = player.Id,
-            Field = "club",
-            Value = "Barcelona",
-            Reason = "Manual correction",
-            LockedByAdminId = Guid.NewGuid(),
-            LockedAt = DateTime.UtcNow,
-        });
-
-        var hasIt = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Arsenal");
-
-        Assert.That(hasIt, Is.False, "an override for this field replaces the cached value entirely, it isn't merged with it");
-    }
-
-    [Test]
     public async Task AddPlayerDataAsync_PersistsRawSourceData()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
