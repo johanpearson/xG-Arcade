@@ -26,6 +26,13 @@ export function GridCell({ cell, roundStatus, knownPlayerName, onOpenGuess }: Gr
           ? `Guess ${cell.rowCategoryValue} × ${cell.colCategoryValue}`
           : undefined
       }
+      // aria-label is intentionally only set for the unattempted state above
+      // (an attempted cell's accessible name comes from CellState's own
+      // rendered text instead). data-testid gives E2E tests a stable way to
+      // re-select the same cell across that state change without depending
+      // on exact copy — added for S-010's Playwright suite
+      // (tests/e2e/play-grid.spec.ts).
+      data-testid={`grid-cell-${cell.cellId}`}
     >
       {guess === null ? (
         <span className="grid-cell__empty" aria-hidden="true">

@@ -283,6 +283,29 @@ public class CurrentRoundEndpointTests
     }
 
     [Test]
+    public async Task REQ303_CurrentRound_Get_MultipleActiveRoundsForSameGame_DeterministicallyReturnsMostRecentlyStarted()
+    {
+        // Leftover data (e.g. a stale local/test database) can leave more
+        // than one Active round for the same GameKey even though REQ-301's
+        // steady-state scheduling never produces that — this must still
+        // resolve deterministically rather than depending on row order.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (olderRoundId, _, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-3), DateTime.UtcNow.AddDays(3));
+        var (newerRoundId, _, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/rounds/current");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        Assert.That(body!.RoundId, Is.EqualTo(newerRoundId));
+        Assert.That(body.RoundId, Is.Not.EqualTo(olderRoundId));
+    }
+
+    [Test]
     public async Task REQ303_CurrentRound_Get_CorrectGuess_ReportsLockedTrue()
     {
         var authProviderUserId = Guid.NewGuid();
