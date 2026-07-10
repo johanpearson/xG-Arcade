@@ -15,7 +15,22 @@ public class LeagueRepository(XGArcadeDbContext dbContext) : ILeagueRepository
 
         var league = new League { Id = Guid.NewGuid(), Name = "Global", Type = LeagueTypes.Global };
         dbContext.Leagues.Add(league);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Two concurrent first-ever signups both raced past the check
+            // above — the filtered unique index on Type ("global") let only
+            // one insert win. Detach this loser's now-invalid tracked entry
+            // and return the winner instead of surfacing a raw 500.
+            dbContext.Entry(league).State = EntityState.Detached;
+            return await dbContext.Leagues
+                .AsNoTracking()
+                .SingleAsync(l => l.Type == LeagueTypes.Global, cancellationToken);
+        }
+
         return league;
     }
 

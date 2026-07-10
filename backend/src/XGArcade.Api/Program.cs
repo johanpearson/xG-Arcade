@@ -46,6 +46,10 @@ if (args is ["migrate-and-seed"])
     // S-011: backfills User.DisplayName for any row that predates that
     // column — see UserDisplayNameBackfiller's own doc comment.
     await UserDisplayNameBackfiller.BackfillAsync(migrationDbContext);
+    // S-011: backfills LeagueMembership for any User row that predates
+    // REQ-401's auto-enrollment-at-signup — see LeagueMembershipBackfiller's
+    // own doc comment.
+    await LeagueMembershipBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;

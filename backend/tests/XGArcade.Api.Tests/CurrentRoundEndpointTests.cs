@@ -70,6 +70,7 @@ public class CurrentRoundEndpointTests
             Id = Guid.NewGuid(),
             AuthProviderUserId = authProviderUserId,
             Email = $"{authProviderUserId}@example.com",
+            DisplayName = "Test Player",
             EmailConfirmed = true,
             CreatedAt = DateTime.UtcNow,
         };

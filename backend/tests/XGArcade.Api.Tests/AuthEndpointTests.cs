@@ -101,7 +101,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_BlockedWithoutAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", AgeConfirmed: false);
+        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: false);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -115,7 +115,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_SucceedsWithAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", AgeConfirmed: true);
+        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: true);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -126,6 +126,7 @@ public class AuthEndpointTests
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         var user = await dbContext.Users.SingleOrDefaultAsync(u => u.Email == "confirmed-age@example.com");
         Assert.That(user, Is.Not.Null);
+        Assert.That(user!.DisplayName, Is.EqualTo("Test Player"));
     }
 
     // Not REQ-701-named: this exercises Supabase's own rejection (e.g.
@@ -136,7 +137,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
         var client = _factory.CreateClient();
-        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", AgeConfirmed: true);
+        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: true);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -200,6 +201,7 @@ public class AuthEndpointTests
                 Id = Guid.NewGuid(),
                 AuthProviderUserId = authProviderUserId,
                 Email = "known-user@example.com",
+                DisplayName = "Known User",
                 EmailConfirmed = true,
                 CreatedAt = DateTime.UtcNow,
             });
