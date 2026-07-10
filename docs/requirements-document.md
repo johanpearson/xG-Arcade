@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.29"
+version: "0.30"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -559,6 +559,23 @@ an extra attempt), API
 > correct even if that specific player wasn't part of the original grid's
 > sample data, so I'm never wrongly told I'm wrong.
 
+- **Status: Partially implemented (Tier 0 simplified, S-011 follow-up,
+  ADR-0018).** `GridGameModule.ScoreSubmissionAsync`
+  (`XGArcade.Games.XGGrid`) now falls back to a live Wikidata lookup
+  (re-running the cell's own country×club intersection query) whenever
+  cached data doesn't already resolve a guess, then re-checks. This closes
+  the real gap ADR-0010 predicted and MVP-SCOPE.md's trigger condition
+  confirmed in practice. What differs from the full criteria below: the
+  trigger is "cached data didn't already answer this guess," not "guess
+  matched a `PlayerNameIndex` candidate" — `PlayerNameIndex` (REQ-207) is
+  still Tier 1 and not built, so there is no name-index pre-filter yet
+  (ADR-0018 explains why Tier 0 doesn't need one for correctness). There is
+  also still only one live source (Wikidata) — no API-Football fallback or
+  `ExternalApiUsage` budget-gating exists yet, same as REQ-103's status.
+  The rest of this requirement's acceptance criteria (the full
+  `PlayerNameIndex` gate, the Wikidata/API-Football waterfall, budget
+  fail-closed behavior) are recorded below as the full/long-term
+  definition, not a claim of current behavior.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither

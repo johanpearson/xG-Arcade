@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/requirements-document.md (version 0.29 → 0.30),
+  docs/architecture-document.md (version 0.22 → 0.23), MVP-SCOPE.md,
+  docs/decisions/0018-req-211-tier-0-without-playername-index.md (new) —
+  Fixed a reported major bug: genuinely correct guesses (e.g. Messi for
+  Argentina×Barcelona) were wrongly marked incorrect because grid
+  generation's cache-based validity check (REQ-101/MinValidAnswers) only
+  ever needed to prove a cell had *some* cached answers, never every one
+  (ADR-0010's documented gap). `GridGameModule.ScoreSubmissionAsync` now
+  falls back to a live Wikidata lookup (re-running the cell's own
+  country×club query) when cached data doesn't already answer a guess,
+  pulling REQ-211 forward from Tier 1 once MVP-SCOPE.md's own trigger for
+  it fired — but without its `PlayerNameIndex` prerequisite (still Tier 1,
+  see ADR-0018 for why that's safe for Tier 0). Added a reproduction test
+  (`REQ211_ScoreSubmissionAsync_NoCachedCandidateSatisfiesCell_...`) that
+  fails against the pre-fix code and passes after — REQ-101/REQ-103/REQ-211.
 - 2026-07-10 — docs/requirements-document.md (version 0.28 → 0.29),
   docs/architecture-document.md (version 0.21 → 0.22),
   docs/implementation-document.md (version 0.30 → 0.31),

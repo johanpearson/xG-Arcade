@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.22"
+version: "0.23"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -299,13 +299,18 @@ structurally by always picking rows from countries and columns from
 clubs, not by a per-candidate check), never Trophy (REQ-108, deferred).
 
 **Explicit rule, not just implied by the diagram below:** every live
-lookup this round's cells will ever need happens *during generation*,
-before `Round` (the thing players can actually see/play) is created at
-all. There is no "player guesses, we fetch on demand" path at grid-gen
-time — a `Round` only exists once every cell already has a validated,
-cached answer. This is what makes the "local DB only, no guess-time
-Wikidata fallback" answer-checking strategy (REQ-211 deferred to Tier 1)
-defensible: by the time anyone can play, the data is already there.
+lookup this round's cells will ever need to reach `MinValidAnswers` happens
+*during generation*, before `Round` (the thing players can actually
+see/play) is created at all — a `Round` only exists once every cell has
+enough cached matches to clear REQ-101's threshold. This was originally
+read as making a "local DB only, no guess-time Wikidata fallback"
+answer-checking strategy defensible, on the theory that "enough cached
+matches" meant "every true match already cached." **That theory was wrong
+in practice (ADR-0010's predicted gap, confirmed 2026-07-10, ADR-0018):**
+clearing the threshold only proves *some* valid answers exist, not that
+every one does, so a real player can still be missing from the cache for a
+cell that's otherwise valid. REQ-211's guess-time fallback (below, S-011
+follow-up) exists precisely to cover that remaining gap — see 6.2.
 
 ```
 Round Scheduler Job (COMP-03)
@@ -385,12 +390,20 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   prompt") is not built — Tier 0 auto-accepts the lowest-`Id` fitting
   candidate and logs a warning instead (REQ-209's status note); there is
   no disambiguation prompt or extra round-trip.
-- REQ-211's live-lookup branch (the entire "if Data.PlayerStore has NO
-  record at all ... DataSync.Clients performs a live lookup" block) is not
-  built at all — a candidate with no cached `PlayerAttribute`/
-  `PlayerOverride` data is simply excluded from the matching set, not
-  looked up live. This is Tier 1, deferred per `MVP-SCOPE.md`, same as the
-  autocomplete leg above.
+- **REQ-211's live-lookup branch is now partially built (S-011 follow-up,
+  ADR-0018), pulled forward from Tier 1 once its documented MVP-SCOPE.md
+  trigger fired.** `GridGameModule.ScoreSubmissionAsync` falls back to
+  re-running the cell's own Wikidata country×club intersection query
+  (`DataSync.Wikidata.WikidataLookupService`, the same call
+  `GenerateInstanceAsync` uses) whenever cached data doesn't already answer
+  the guess, then re-checks. This differs from the diagram's full shape in
+  one deliberate way: the trigger is "cached data didn't resolve this
+  guess," not "guess matched a `Data.PlayerNameIndex` candidate" —
+  `PlayerNameIndex`/COMP-10 (REQ-207) is still not built, and ADR-0018
+  explains why Tier 0 doesn't need it as a prerequisite here (Wikidata has
+  no scarce daily budget to protect, unlike API-Football). There is still
+  no API-Football fallback leg or `ExternalApiUsage` budget-gating for this
+  call site, same as REQ-103's status.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011)** — `GET /rounds/current` computes `UniquePercent` on every
   request via `UniquenessCalculator.Calculate`, for any cell the requesting

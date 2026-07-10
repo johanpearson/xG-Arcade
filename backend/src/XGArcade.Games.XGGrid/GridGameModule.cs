@@ -95,7 +95,39 @@ public class GridGameModule(
         // PlayerAlias/fuzzy tolerance (both deferred, "defer the alias table
         // and fuzzy typo tolerance").
         var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
-        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken);
+
+        var result = await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
+        if (result.IsCorrect)
+            return result;
+
+        // REQ-211 (Tier 0 simplified — no PlayerNameIndex prerequisite,
+        // ADR-0010's documented gap): grid generation's cached match count
+        // (REQ-101/MinValidAnswers) only ever needed to prove this cell had
+        // *some* valid answers, never to catalog every one, so a guess can
+        // be genuinely correct even though nothing cached confirms it yet —
+        // either because this exact player was never synced at all, or
+        // because they already exist with one category's attribute cached
+        // (from an unrelated cell) but not this cell's other one. Re-running
+        // this cell's own country x club intersection query is an upsert,
+        // not a fresh insert (WikidataLookupService.GetOrCreatePlayerAsync),
+        // so one call fixes both cases and completes the cell's whole
+        // answer key for later guesses too, not just this one name. Full
+        // REQ-211 gates this on a PlayerNameIndex match first (Tier 1, not
+        // built) to keep the trigger narrow against a scarce API budget;
+        // Wikidata alone isn't meaningfully capped (ADR-0011), so Tier 0
+        // skips that prerequisite and simply retries once per guess that
+        // didn't already resolve from cache — bounded by REQ-210's 2-attempt
+        // cap, same as every other guess-time cost.
+        if (!await RefreshCellFromLiveLookupAsync(cell, cancellationToken))
+            return result;
+
+        return await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
+    }
+
+    private async Task<ScoreResult> FindMatchAsync(
+        GridCell cell, string normalizedName, Guid instanceId, CancellationToken cancellationToken)
+    {
+        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
 
         var matching = new List<Player>();
         foreach (var candidate in candidates)
@@ -133,6 +165,31 @@ public class GridGameModule(
         }
 
         return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
+    }
+
+    // REQ-211's Tier 0 fallback only knows how to refresh a Country x Club
+    // cell (the only pairing GenerateInstanceAsync ever produces right now)
+    // — a category-value pair that can't be resolved from the reference
+    // tables at all (including any future non-Country/Club pairing) is left
+    // to fail closed via the caller's existing cached-only result, same as a
+    // genuinely-incorrect guess.
+    private async Task<bool> RefreshCellFromLiveLookupAsync(GridCell cell, CancellationToken cancellationToken)
+    {
+        if (cell.RowCategoryType != CategoryPairingRules.Country || cell.ColCategoryType != CategoryPairingRules.Club)
+            return false;
+
+        var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
+        var country = countries.FirstOrDefault(c => c.Name == cell.RowCategoryValue);
+        if (country is null)
+            return false;
+
+        var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
+        var club = clubs.FirstOrDefault(c => c.Name == cell.ColCategoryValue);
+        if (club is null)
+            return false;
+
+        await wikidataLookupService.LookupAndPersistAsync(country, club, cancellationToken);
+        return true;
     }
 
     // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")

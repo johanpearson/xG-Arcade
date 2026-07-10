@@ -33,7 +33,7 @@ public class GridGameModuleTests
         _gridInstanceRepository = new GridInstanceRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
-        _wikidataLookupService = new FakeWikidataLookupService();
+        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository);
     }
 
     [TearDown]
@@ -211,8 +211,9 @@ public class GridGameModuleTests
         Assert.That(instance!.Cells, Has.Count.EqualTo(1));
         Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Arsenal"));
         Assert.That(await _playerStoreRepository.CountPlayersWithBothAttributesAsync(
-            "nationality", "France", "club", "Arsenal"), Is.EqualTo(0),
-            "the cache itself was never populated — the match came only from the fake live lookup");
+            "nationality", "France", "club", "Arsenal"), Is.EqualTo(3),
+            "a live lookup persists immediately, same request, same as the real WikidataLookupService (ADR-0010) — " +
+            "not left for the cache to somehow already have known about");
     }
 
     [Test]
@@ -420,6 +421,72 @@ public class GridGameModuleTests
 
         Assert.That(result.IsCorrect, Is.True, "the override must be effective even though the cached PlayerAttribute alone would fail the club category");
         Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    // ---- REQ-211: guess-time live verification (Tier 0 simplified) --------
+    // Reproduces the reported bug: grid generation's cache-based validity
+    // check (REQ-101/MinValidAnswers) only ever needs to prove a cell has
+    // *some* cached matches, never to catalog every one — ADR-0010's
+    // documented gap. A genuinely correct player (e.g. Messi for
+    // Barcelona x Argentina) can have no PlayerAttribute data at all for
+    // this specific cell and get wrongly marked incorrect, even though a
+    // live Wikidata lookup would confirm the guess.
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        SeedCountry("Argentina");
+        SeedClub("Barcelona");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Argentina", "Barcelona");
+        // Some other player already satisfies this cell in the cache — this
+        // is what let grid generation accept the pairing in the first place
+        // (REQ-101) — but the guessed player himself was never synced, so
+        // nothing cached confirms or denies him.
+        await SeedPlayerAsync("Javier Mascherano", "Argentina", "Barcelona");
+        var messi = new Player { Id = Guid.NewGuid(), FullName = "Lionel Messi", WikidataQid = "Qmessi" };
+        _wikidataLookupService.SetMatches("Argentina", "Barcelona", [messi]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Lionel Messi"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(messi.Id));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_LiveLookupFallback_NeverTriggeredWhenCachedDataAlreadyAnswersTheGuess()
+    {
+        // The fallback must be narrow (ADR-0010) — a guess that already
+        // resolves from cached data must never trigger a live call at all.
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync("Thierry Henry", "France", "Arsenal");
+        // Configured but must never be consulted, since the cache already
+        // answers this guess correctly.
+        _wikidataLookupService.SetMatches("France", "Arsenal", [new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Qother" }]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Thierry Henry"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_GenuinelyIncorrectGuess_LiveLookupFindsNoMatch_StaysIncorrect()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        // No matches configured on the fake at all — mirrors a genuine
+        // Wikidata no-match, not merely an untried combination.
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
+
+        Assert.That(result.IsCorrect, Is.False);
     }
 
     [Test]
