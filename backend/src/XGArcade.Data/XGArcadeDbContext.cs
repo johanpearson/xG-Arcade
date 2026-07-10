@@ -3,9 +3,10 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Data;
 
-// COMP-06 (Data.PlayerStore)'s DbContext. Scoped to S-003 (docs/backlog.md):
-// only the entities Tier 0 needs so far. Other components' entities (Round,
-// Guess, User, GridInstance, ...) are added by the stories that own them.
+// The single shared DbContext for every component (ADR-0014) — not just
+// COMP-06 (Data.PlayerStore), despite the name predating that decision.
+// Scoped to Tier 0: only the entities each backlog story has needed so far.
+// Guess (COMP-04/Core.Scoring) is still not added — that's S-009's job.
 public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : DbContext(options)
 {
     public DbSet<Player> Players => Set<Player>();

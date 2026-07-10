@@ -92,8 +92,10 @@ public static class InternalRoundEndpoints
         var expectedBytes = Encoding.UTF8.GetBytes($"Bearer {expectedToken}");
         var actualBytes = Encoding.UTF8.GetBytes(authHeader.ToString());
 
-        // Constant-time: this token authorizes a real write action, worth
-        // the trivial cost of avoiding a length/content timing side-channel.
+        // FixedTimeEquals rejects a length mismatch immediately on its own —
+        // this token authorizes a real write action, so constant-time
+        // comparison is used rather than a plain ==, not for any extra
+        // protection the explicit length check below would add.
         return expectedBytes.Length == actualBytes.Length
             && CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
     }
