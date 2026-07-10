@@ -93,6 +93,51 @@ public class GridGameModuleTests
             .Select(i => new Player { Id = Guid.NewGuid(), FullName = $"{label}-Live{i}", WikidataQid = $"Qlive-{label}-{i}" })
             .ToList();
 
+    // Seeds a single-cell GridInstance directly (bypassing GenerateInstanceAsync
+    // entirely) — S-009's ScoreSubmissionAsync tests only need a fixed cell to
+    // score guesses against, not a whole generated grid.
+    private async Task<(Guid InstanceId, Guid CellId)> SeedGridInstanceAsync(
+        string rowCategoryValue, string colCategoryValue,
+        string rowCategoryType = CategoryPairingRules.Country, string colCategoryType = CategoryPairingRules.Club)
+    {
+        var instanceId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        var instance = new GridInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Cells =
+            [
+                new GridCell
+                {
+                    Id = cellId,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 0,
+                    RowCategoryType = rowCategoryType,
+                    RowCategoryValue = rowCategoryValue,
+                    ColCategoryType = colCategoryType,
+                    ColCategoryValue = colCategoryValue,
+                },
+            ],
+        };
+        await _gridInstanceRepository.AddInstanceAsync(instance);
+        return (instanceId, cellId);
+    }
+
+    // Seeds a Player with cached PlayerAttribute rows for both nationality and
+    // club — the "effective data" ScoreSubmissionAsync's guess-checking reads
+    // via HasEffectiveAttributeAsync (REQ-203).
+    private async Task<Player> SeedPlayerAsync(string fullName, string nationality, string club)
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = nationality });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club });
+        await _dbContext.SaveChangesAsync();
+        return player;
+    }
+
     // ---- REQ-101: generate a valid grid -----------------------------------
 
     [Test]
@@ -301,5 +346,199 @@ public class GridGameModuleTests
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells[0].RowCategoryValue, Is.EqualTo("Ruritania"));
         Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("GoodClub"));
+    }
+
+    // ---- REQ-203/210: guess correctness validation (ScoreSubmissionAsync) --
+    // REQ-210's lock/attempt-cap checks and REQ-202's guess-change policy
+    // already happened in Core.Scoring before ScoreSubmissionAsync is ever
+    // called (GuessSubmissionServiceTests) — these tests exercise only the
+    // name-resolution/correctness-checking half owned by this game module.
+
+    [Test]
+    public async Task REQ203_ScoreSubmissionAsync_CandidateSatisfiesBothCategories_ReturnsCorrectWithPlayerAnswerId()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync("Thierry Henry", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Thierry Henry"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ203_ScoreSubmissionAsync_NoCandidateWithThatName_ReturnsIncorrectWithNullPlayerAnswerId()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        await SeedPlayerAsync("Thierry Henry", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Someone Else"));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ203_ScoreSubmissionAsync_CandidateSatisfiesOnlyRowCategory_ReturnsIncorrect()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        // Right nationality, wrong club — must satisfy BOTH the row and
+        // column categories, not just one.
+        await SeedPlayerAsync("Thierry Henry", "France", "Barcelona");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Thierry Henry"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ203_ScoreSubmissionAsync_OverridePresent_WinsOverConflictingCachedPlayerAttribute_EndToEnd()
+    {
+        // Cached (unverified) data says Barcelona, but an admin override for
+        // the same field corrects it to Arsenal — the override must be what
+        // guess-checking sees, exercised here through the full
+        // ScoreSubmissionAsync path (unit-level coverage of the same rule
+        // lives in XGArcade.Data.Tests/PlayerStoreRepositoryTests).
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync("Thierry Henry", "France", "Barcelona");
+        await _playerStoreRepository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = player.Id,
+            Field = "club",
+            Value = "Arsenal",
+            Reason = "Manual correction",
+            LockedByAdminId = Guid.NewGuid(),
+            LockedAt = DateTime.UtcNow,
+        });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Thierry Henry"));
+
+        Assert.That(result.IsCorrect, Is.True, "the override must be effective even though the cached PlayerAttribute alone would fail the club category");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public void ScoreSubmissionAsync_UnknownInstanceId_ThrowsGuessScoringException()
+    {
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        Assert.ThrowsAsync<GuessScoringException>(async () =>
+            await module.ScoreSubmissionAsync(Guid.NewGuid(), Guid.NewGuid(), new GuessSubmission(Guid.NewGuid(), "Anyone")));
+    }
+
+    [Test]
+    public async Task ScoreSubmissionAsync_UnknownCellId_ThrowsGuessScoringException()
+    {
+        var (instanceId, _) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        Assert.ThrowsAsync<GuessScoringException>(async () =>
+            await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(Guid.NewGuid(), "Anyone")));
+    }
+
+    // ---- REQ-208: name normalization and matching --------------------------
+
+    [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
+    [TestCase("thierry henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_CaseIgnored")]
+    [TestCase("Thierry   Henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_ExtraWhitespaceIgnored")]
+    [TestCase("  Thierry Henry  ", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_LeadingAndTrailingWhitespaceIgnored")]
+    public async Task REQ208_ScoreSubmissionAsync_NormalizedVariant_StillMatches(string submittedName, string storedFullName)
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync(storedFullName, "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, submittedName));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_GenuinelyDifferentName_DoesNotMatch()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        await SeedPlayerAsync("Thierry Henry", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_AliasOnlyMatch_DoesNotMatch_TierZeroScopeBoundary()
+    {
+        // Tier 0 explicitly defers the alias table for matching purposes
+        // (MVP-SCOPE.md, "defer the alias table and fuzzy typo tolerance") —
+        // guess-time matching queries only Player.NormalizedFullName
+        // (GetPlayersByNormalizedFullNameAsync), never PlayerAlias. A guess
+        // that only matches a recorded alias, with no exact FullName match,
+        // is therefore NOT found in Tier 0, even though the alias itself
+        // exists in the data. This documents that scope boundary rather than
+        // asserting REQ-208's full "known aliases/stage names" criterion,
+        // which is not yet implemented.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
+
+        Assert.That(result.IsCorrect, Is.False, "Tier 0 matches only Player.FullName, not PlayerAlias — see MVP-SCOPE.md");
+    }
+
+    // ---- REQ-209: disambiguating multiple players with a matching name -----
+    // (Tier 0 simplified per MVP-SCOPE.md: no disambiguation prompt — any
+    // fitting candidate is accepted, deterministically the lowest Id.)
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ExactlyOneCandidateSatisfiesBothCategories_AcceptedAutomatically()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var fittingPlayer = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        // Same name, but doesn't satisfy the cell's categories — the
+        // categories themselves must disambiguate.
+        await SeedPlayerAsync("John Smith", "England", "Chelsea");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(fittingPlayer.Id));
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesSatisfyBothCategories_AcceptsDeterministicallyLowestId()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var expected = new[] { first, second }.OrderBy(p => p.Id).First();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(expected.Id),
+            "REQ-204's deterministic-pick rule: the lowest Id among fitting candidates is always chosen");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_NoCandidateSatisfiesBothCategories_ReturnsIncorrect_RegardlessOfSameNamedPlayersElsewhere()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        await SeedPlayerAsync("John Smith", "England", "Chelsea");
+        await SeedPlayerAsync("John Smith", "Spain", "Barcelona");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.IsCorrect, Is.False);
     }
 }

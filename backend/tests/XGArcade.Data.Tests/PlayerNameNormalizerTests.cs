@@ -29,4 +29,16 @@ public class PlayerNameNormalizerTests
     {
         Assert.That(PlayerNameNormalizer.Normalize("  Pele  "), Is.EqualTo("pele"));
     }
+
+    // REQ-208: "punctuation ... ignored" — stripped outright, not replaced
+    // with a space, so a punctuation mark never introduces a word split that
+    // wasn't already there.
+    [TestCase("O'Neil", "oneil")]
+    [TestCase("Jean-Pierre", "jeanpierre")]
+    [TestCase("Sane.", "sane")]
+    [TestCase("D'Angelo, Jr.", "dangelo jr")]
+    public void Normalize_StripsPunctuation(string input, string expected)
+    {
+        Assert.That(PlayerNameNormalizer.Normalize(input), Is.EqualTo(expected));
+    }
 }
