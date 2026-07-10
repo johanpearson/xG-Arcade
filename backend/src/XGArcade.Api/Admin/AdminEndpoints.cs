@@ -110,6 +110,7 @@ public static class AdminEndpoints
 
             playerOverride.Value = request.Value;
             playerOverride.Reason = request.Reason;
+            // Policy above already required a valid "sub" claim to reach here.
             playerOverride.LockedByAdminId = principal.GetAuthProviderUserId()!.Value;
             playerOverride.LockedAt = DateTime.UtcNow;
             await playerStoreRepository.UpdateOverrideAsync(playerOverride, cancellationToken);
