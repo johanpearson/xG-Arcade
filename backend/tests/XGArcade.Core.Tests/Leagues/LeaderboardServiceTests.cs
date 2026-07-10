@@ -97,8 +97,9 @@ public class LeaderboardServiceTests
 
         var rows = await _service.GetGlobalLeaderboardAsync(you.Id);
 
-        Assert.That(rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "Sam", "You" }));
-        Assert.That(rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 142, 120, 138 }));
+        // Descending by TotalPoints: Alex (142) > You (50 + 88 = 138) > Sam (120).
+        Assert.That(rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You", "Sam" }));
+        Assert.That(rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 142, 138, 120 }));
         Assert.That(rows.Single(r => r.DisplayName == "You").IsRequestingUser, Is.True);
         Assert.That(rows.Where(r => r.DisplayName != "You").All(r => !r.IsRequestingUser), Is.True);
     }
