@@ -1,5 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <!-- ADR-0014: Round/IRoundRepository (COMP-03's own persistence) live in
+         XGArcade.Data alongside every other entity/repository, regardless of
+         which component conceptually owns them. Core.Rounds (this project)
+         reaches Round only through IRoundRepository, never a DbContext
+         directly (same boundary-enforcement-via-repository-interface pattern
+         Games.XGGrid already uses against XGArcade.Data). -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

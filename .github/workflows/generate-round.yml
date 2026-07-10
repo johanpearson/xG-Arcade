@@ -1,17 +1,21 @@
 name: generate-round
 
 # Creates a new Round + game instance per the configured frequency (REQ-301).
-# Tier 0 workflow, but the endpoint doesn't exist until backlog story
-# S-008 — schedule disabled until then so it doesn't fail on a timer while
-# earlier stories are still being built. Enable the cron as part of S-008.
-# Original note: adjust the cron once Core.Rounds'
-# scheduling configuration (see requirements-document.md REQ-301) is
-# implemented, and keep this in sync with that configuration rather than
-# letting the two drift apart.
+# S-008 (docs/backlog.md): Core.Rounds' RoundGenerationService now backs
+# /internal/generate-round, so this cron is enabled.
+#
+# This cron's cadence and XGArcade.Api/Program.cs's RoundSchedulingOptions.
+# RoundDuration are coupled, not independent settings — RoundDuration must
+# be at least as long as the longest gap between two consecutive firings
+# below (Tue+Fri weekly: Fri->Tue is 4 days, the longer of the two
+# alternating gaps), or a round can fully close before the next scheduled
+# run ever generates its successor, recreating the exact "dead app" gap
+# REQ-301 exists to prevent — just via misconfiguration instead of a
+# failure. See NOTES.md for the full derivation. Change the two together.
 
 on:
-  # schedule:
-  #   - cron: "0 6 * * 2,5" # example: Tue+Fri 06:00 UTC — enable at S-008
+  schedule:
+    - cron: "0 6 * * 2,5" # Tue+Fri 06:00 UTC
   workflow_dispatch: {}
 
 jobs:

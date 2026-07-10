@@ -4,8 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
+using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
+using XGArcade.Core.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
@@ -80,13 +82,31 @@ builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(client =>
 });
 builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 
-// COMP-05 (Games.XGGrid) — S-007's grid generation. Only one game module
-// exists yet, so a direct IGameModule registration is enough; resolving
-// several modules by GameKey is S-008's job (Round Scheduler) once a second
-// game or real round scheduling exists.
+// COMP-05 (Games.XGGrid) — S-007's grid generation.
 builder.Services.AddSingleton(new GridGenerationOptions());
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
+builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
+
+// COMP-03 (Core.Rounds) — S-008's round generation/scheduling (REQ-301) and
+// round-close (REQ-205's stub half; S-011 extends RoundCloseService with
+// real scoring once Guess/Core.Scoring exist).
+builder.Services.AddSingleton(TimeProvider.System);
+// RoundDuration must be at least as long as the longest gap between two
+// consecutive generate-round.yml cron firings (Tue+Fri weekly: Fri->Tue is
+// 4 days, the longer of its two alternating gaps), or a round can close
+// before the next scheduled run generates its successor — see
+// RoundSchedulingOptions' own doc comment and NOTES.md for the full
+// derivation. Change this together with generate-round.yml's cron, never
+// independently.
+builder.Services.AddSingleton(new RoundSchedulingOptions
+{
+    GameKey = GridGameModule.XGGridGameKey,
+    RoundDuration = TimeSpan.FromDays(4),
+});
+builder.Services.AddScoped<IRoundRepository, RoundRepository>();
+builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
+builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
@@ -180,6 +200,7 @@ app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapInternalGridEndpoints();
+app.MapInternalRoundEndpoints();
 
 app.Run();
 

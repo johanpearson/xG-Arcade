@@ -10,6 +10,11 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <!-- S-008: RoundGenerationServiceTests/RoundCloseServiceTests follow this
+         repo's no-mocking-framework pattern (docs/coding-guidelines.md) —
+         real, InMemory-backed RoundRepository, same setup
+         XGArcade.Games.XGGrid.Tests/GridGameModuleTests.cs already uses. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.0" />
     <PackageReference Include="NUnit" Version="4.3.2" />
     <PackageReference Include="NUnit.Analyzers" Version="4.7.0" />
@@ -22,6 +27,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- Transitively available via XGArcade.Core (ADR-0014), referenced
+         directly for the same reason XGArcade.Games.XGGrid.Tests references
+         XGArcade.Data directly: real repository/DbContext instances, not
+         just the interface types. -->
+    <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
   </ItemGroup>
 
 </Project>

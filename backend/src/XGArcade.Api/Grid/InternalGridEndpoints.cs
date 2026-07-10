@@ -35,15 +35,7 @@ public static class InternalGridEndpoints
             // Tier 0 has no admin-driven template management (REQ-102's full
             // scope) — find-or-create a template for this size on demand,
             // fixed to Tier 0's only allowed pairing (MVP-SCOPE.md).
-            var template = await gridInstanceRepository.GetTemplateBySizeAsync(request.Size, cancellationToken)
-                ?? await gridInstanceRepository.AddTemplateAsync(
-                    new GridTemplate
-                    {
-                        Id = Guid.NewGuid(),
-                        Size = request.Size,
-                        AllowedCategoryTypes = [CategoryPairingRules.Country, CategoryPairingRules.Club],
-                    },
-                    cancellationToken);
+            var template = await GridTemplateResolver.GetOrCreateBySizeAsync(gridInstanceRepository, request.Size, cancellationToken);
 
             GameInstance instance;
             try

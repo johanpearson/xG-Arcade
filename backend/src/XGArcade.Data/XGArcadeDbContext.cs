@@ -20,6 +20,7 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridTemplate> GridTemplates => Set<GridTemplate>();
     public DbSet<GridInstance> GridInstances => Set<GridInstance>();
     public DbSet<GridCell> GridCells => Set<GridCell>();
+    public DbSet<Round> Rounds => Set<Round>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -108,5 +109,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<GridCell>()
             .HasIndex(gc => new { gc.GridInstanceId, gc.Row, gc.Col })
             .IsUnique();
+
+        // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
+        // every scheduled generation invocation — the hot path for this table.
+        modelBuilder.Entity<Round>()
+            .HasIndex(r => new { r.GameKey, r.EndTime });
     }
 }
