@@ -107,13 +107,14 @@ reference to know if you're ready:
 
 - [ ] GitHub repo secrets set: `AZURE_CLIENT_ID`/`AZURE_TENANT_ID`/
   `AZURE_SUBSCRIPTION_ID`, `INTERNAL_JOB_TOKEN`, `DEV_AZURE_RESOURCE_GROUP`,
-  `DEV_DATABASE_CONNECTION_STRING`, `DEV_SUPABASE_JWT_SECRET`,
-  `DEV_SUPABASE_URL`, `DEV_SUPABASE_ANON_KEY` (the last four filled in
+  `DEV_DATABASE_CONNECTION_STRING`, `DEV_SUPABASE_URL`,
+  `DEV_SUPABASE_ANON_KEY` (the last three filled in
   after step 2's Supabase project exists — the backend calls Supabase
   Auth's REST API directly to mediate signup/login, ADR-0013, rather than
   the frontend calling Supabase itself; `ci.yml`'s local E2E stack doesn't
   need any of these, since it runs with `Auth__Mode=local-e2e` instead, see
-  `docs/backlog.md` S-004); `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`,
+  `docs/backlog.md` S-004; JWT validation needs no separate secret at all —
+  it derives from `DEV_SUPABASE_URL` alone, ADR-0017); `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`,
   `DEV_BACKEND_HOSTNAME`, and `DEV_FRONTEND_HOSTNAME` filled in after the
   first deploy — the last of these is also what `deploy.yml` feeds to the
   backend as its CORS-allowed origin, so the frontend can't actually reach

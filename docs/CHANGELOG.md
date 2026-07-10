@@ -13,6 +13,73 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/decisions/0017-supabase-jwks-validation.md (new),
+  docs/architecture-document.md (§6.4 auth-flow status note, §10 ADR
+  table), docs/implementation-document.md (JWT validation specifics),
+  MVP-SCOPE.md (precondition secrets checklist), SETUP.md (JWT secret
+  step removed, both secrets tables, both manual-deploy examples),
+  infra/README.md (both secrets tables, both manual-deploy examples, new
+  `supabaseJwksPath` override note) — fixed a real production bug found
+  while manually testing the deployed dev environment after S-010: signup
+  and login both succeeded, but every subsequent authenticated request was
+  silently rejected (401), bouncing the player straight back to the login
+  screen. Live log-stream debugging traced this to `IDX10503: Signature
+  validation failed... Number of keys in Configuration: '0'` — the
+  deployed Supabase project signs tokens with its newer asymmetric JWT
+  Signing Keys system (a `kid` header claim identifies the rotating key),
+  not the static HS256 shared secret `Program.cs`'s JWT validation
+  (`Auth:SupabaseJwtSecret`, built under ADR-0013) assumed. No secret
+  value could ever have fixed this — replaced with JWKS-endpoint
+  validation via a new `SupabaseJwksConfigurationRetriever`
+  (`XGArcade.Api.Auth`) feeding a `ConfigurationManager
+  <OpenIdConnectConfiguration>` (framework's own async caching/refresh,
+  not a hand-rolled blocking resolver — see ADR-0017 for why that
+  distinction matters and the alternatives considered), with the JWKS path
+  configurable (`Auth:SupabaseJwksPath`) so a wrong path is a one-line env
+  var correction, not a rebuild. `Auth:SupabaseJwtSecret`/
+  `DEV_SUPABASE_JWT_SECRET` removed entirely, not left as dead config — no
+  code reads it anymore and no live prod environment exists yet to
+  accidentally depend on it (confirmed via `deploy.yml`: no prod deploy
+  job exists). `Auth:Mode=local-e2e` (CI's fake in-process auth) is
+  unchanged; the three `XGArcade.Api.Tests` files that previously minted
+  their own JWT against the now-removed static-secret branch
+  (`AuthEndpointTests`, `CurrentRoundEndpointTests`, `GuessEndpointTests`)
+  were reconfigured to use `Auth:Mode=local-e2e` via a new
+  `LocalE2EAuth.MintToken` method instead — API/unit tests must never
+  depend on live network (`docs/coding-guidelines.md`), and the removed
+  branch now requires it. Added `SupabaseJwksConfigurationRetrieverTests.cs`
+  (the one genuinely new piece of logic with no other coverage) — writing
+  it caught a real bug in the first draft of the retriever itself: setting
+  `OpenIdConnectConfiguration.JsonWebKeySet` does not auto-populate
+  `.SigningKeys` (undocumented behavior of
+  `Microsoft.IdentityModel.Protocols.OpenIdConnect` 8.0.1, verified
+  directly against the resolved assembly), so `.SigningKeys` must be
+  populated explicitly from `JsonWebKeySet.GetSigningKeys()`. A follow-up
+  `code-reviewer` pass on this same branch (second commit) found one more
+  gap in the retriever: a syntactically valid JWKS document with zero
+  usable signing keys (an empty `keys` array, or every key missing fields
+  `GetSigningKeys()` needs) would otherwise have silently reproduced the
+  exact "Number of keys in Configuration: '0'" symptom this whole fix
+  exists to make diagnosable, just one layer downstream in a generic
+  authentication-failure log instead of at the source — the retriever now
+  throws `InvalidOperationException` immediately in that case, covered by
+  a new
+  `GetConfigurationAsync_EmptyKeysArray_ThrowsRatherThanSilentlyProducingZeroKeys`
+  test; the doc edits and ADR-0017 listed above already describe this
+  corrected final state, not the first commit alone — no further doc
+  change needed for this addition beyond this note. §6.4's
+  auth-flow status note and the JWT validation paragraph in
+  implementation-document.md updated to describe JWKS validation instead
+  of a static secret; §10 gained a new ADR-0017 row. `MVP-SCOPE.md`'s
+  precondition checklist, `SETUP.md`, and `infra/README.md` all had their
+  "JWT secret" copy-step/secrets-table-row/manual-deploy-parameter removed
+  and replaced with a note that JWT validation now derives from the
+  already-saved Supabase project URL alone, plus documentation of the new
+  `supabaseJwksPath` override escape hatch. No requirements-document.md
+  change: REQ-606 describes JWT validation *behavior* ("the backend
+  validates JWTs on every request"), not the signing algorithm, so this
+  fix doesn't change any acceptance criteria. ADR-0017.
+
 - 2026-07-10 — docs/design-document.md (§7 open questions, frontmatter
   version 0.6 → 0.7) — doc sync for S-010 (Grid UI, SCREEN-01/01a/02):
   flagged two open gaps found while implementing against this document

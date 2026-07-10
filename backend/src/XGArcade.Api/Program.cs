@@ -1,6 +1,8 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
@@ -191,18 +193,50 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             var supabaseUrl = builder.Configuration["Supabase:Url"]
                 ?? throw new InvalidOperationException("Supabase:Url is not configured.");
-            var supabaseJwtSecret = builder.Configuration["Auth:SupabaseJwtSecret"]
-                ?? throw new InvalidOperationException("Auth:SupabaseJwtSecret is not configured.");
+
+            // ADR-0017: Supabase signs production tokens with its rotating
+            // asymmetric JWT Signing Keys system (a `kid` header claim
+            // identifies which key), verified via a JWKS endpoint — not a
+            // static shared secret, which is what this branch assumed until
+            // a real deployment surfaced IDX10503 "Number of keys in
+            // Configuration: '0'" (NOTES.md, 2026-07-10). The path is
+            // configurable (not a bare literal) so it can be corrected via
+            // an env var alone, no rebuild, if live testing shows it wrong.
+            var jwksPath = builder.Configuration["Auth:SupabaseJwksPath"] ?? "/auth/v1/.well-known/jwks.json";
+            var jwksAddress = supabaseUrl.TrimEnd('/') + jwksPath;
+
+            options.ConfigurationManager = new ConfigurationManager<OpenIdConnectConfiguration>(
+                jwksAddress,
+                new SupabaseJwksConfigurationRetriever(),
+                new HttpDocumentRetriever { RequireHttps = jwksAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase) });
 
             options.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(supabaseJwtSecret)),
                 ValidateIssuer = true,
                 ValidIssuer = $"{supabaseUrl.TrimEnd('/')}/auth/v1",
                 ValidateAudience = true,
                 ValidAudience = "authenticated",
                 ValidateLifetime = true,
+            };
+
+            // The one time this matters is exactly when the JWKS fetch/parse
+            // itself is broken (e.g. wrong path) — the default JwtBearer
+            // failure log gives no indication why. See ADR-0017's
+            // rollout-risk note: this is the log line that turns the next
+            // failed login into an actionable message instead of another
+            // bare signature-mismatch dead end.
+            options.Events = new JwtBearerEvents
+            {
+                OnAuthenticationFailed = context =>
+                {
+                    var logger = context.HttpContext.RequestServices
+                        .GetRequiredService<ILoggerFactory>()
+                        .CreateLogger("XGArcade.Api.Auth.SupabaseJwt");
+                    logger.LogError(context.Exception,
+                        "JWT validation failed (JWKS endpoint: {JwksAddress}).", jwksAddress);
+                    return Task.CompletedTask;
+                },
             };
         }
     });
@@ -212,6 +246,23 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 
 var app = builder.Build();
+
+// ADR-0017's rollout-risk mitigation: fires unconditionally at boot, before
+// anyone can even attempt to log in, so the very first thing visible in the
+// log stream after a deploy is the resolved JWKS address — if the path is
+// wrong, that's visible within seconds of checking, not after a confused
+// user reports a login failure.
+if (!useLocalE2EAuth)
+{
+    // Safe: the AddJwtBearer setup above already did `?? throw` on this
+    // exact key for this same (!useLocalE2EAuth) branch — if we reached
+    // here, it was present.
+    var configuredSupabaseUrl = app.Configuration["Supabase:Url"]!;
+    var configuredJwksPath = app.Configuration["Auth:SupabaseJwksPath"] ?? "/auth/v1/.well-known/jwks.json";
+    app.Logger.LogInformation(
+        "JWT validation configured against Supabase JWKS endpoint {JwksAddress}.",
+        configuredSupabaseUrl.TrimEnd('/') + configuredJwksPath);
+}
 
 // Configure the HTTP request pipeline.
 

@@ -28,12 +28,11 @@ param registryPassword string
 @description('Supabase Postgres connection string')
 param databaseConnectionString string
 
-@secure()
-@description('Supabase project JWT secret, used to validate incoming auth tokens')
-param supabaseJwtSecret string
-
-@description('Supabase project URL (e.g. https://xxxx.supabase.co) — the backend calls its Auth REST API to mediate signup/login (ADR-0013). Not sensitive on its own (the same URL a frontend would use), but grouped with the other Supabase params for clarity.')
+@description('Supabase project URL (e.g. https://xxxx.supabase.co) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming auth tokens against this project\'s JWKS endpoint (ADR-0017). Not sensitive on its own (the same URL a frontend would use), but grouped with the other Supabase params for clarity.')
 param supabaseUrl string
+
+@description('Path appended to supabaseUrl to fetch Supabase\'s JWKS document for JWT validation (ADR-0017) — override only if live testing shows Supabase\'s actual path differs from the documented default. Not secret: a JWKS endpoint publishes public keys by design.')
+param supabaseJwksPath string = '/auth/v1/.well-known/jwks.json'
 
 @secure()
 @description('Supabase project anon/publishable API key, sent as the "apikey"/Authorization header on Auth REST calls (ADR-0013). Publishable by Supabase\'s own design (safe in frontend bundles too), marked @secure() here only to keep it out of deployment logs, not because it is a true secret.')
@@ -79,10 +78,6 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           value: databaseConnectionString
         }
         {
-          name: 'supabase-jwt-secret'
-          value: supabaseJwtSecret
-        }
-        {
           name: 'supabase-anon-key'
           value: supabaseAnonKey
         }
@@ -103,12 +98,12 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
               secretRef: 'database-connection-string'
             }
             {
-              name: 'Auth__SupabaseJwtSecret'
-              secretRef: 'supabase-jwt-secret'
-            }
-            {
               name: 'Supabase__Url'
               value: supabaseUrl
+            }
+            {
+              name: 'Auth__SupabaseJwksPath'
+              value: supabaseJwksPath
             }
             {
               name: 'Supabase__AnonKey'

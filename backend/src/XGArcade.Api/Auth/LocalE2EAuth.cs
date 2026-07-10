@@ -20,6 +20,30 @@ public static class LocalE2EAuth
 
     public static readonly SymmetricSecurityKey SigningKey =
         new(Encoding.UTF8.GetBytes("local-e2e-test-signing-key-never-used-outside-development"));
+
+    // Mints a token for a caller-chosen sub — used directly by
+    // XGArcade.Api.Tests' WebApplicationFactory-based tests
+    // (AuthEndpointTests, CurrentRoundEndpointTests, GuessEndpointTests),
+    // which need a token for a specific pre-seeded (or deliberately
+    // unseeded) authProviderUserId, not one derived from an email the way
+    // LocalE2EAuthClient.Authenticate below needs. Never reachable outside
+    // Development — same gating as the rest of this class.
+    public static string MintToken(Guid authProviderUserId, string role = "authenticated")
+    {
+        var handler = new JsonWebTokenHandler();
+        return handler.CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = Audience,
+            Claims = new Dictionary<string, object>
+            {
+                [JwtRegisteredClaimNames.Sub] = authProviderUserId.ToString(),
+                ["role"] = role,
+            },
+            Expires = DateTime.UtcNow.AddHours(1),
+            SigningCredentials = new SigningCredentials(SigningKey, SecurityAlgorithms.HmacSha256),
+        });
+    }
 }
 
 // Stand-in for ISupabaseAuthClient so Playwright can sign real accounts up
@@ -38,25 +62,11 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     {
         var authProviderUserId = DeterministicGuid(email);
 
-        var handler = new JsonWebTokenHandler();
-        var token = handler.CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = LocalE2EAuth.Issuer,
-            Audience = LocalE2EAuth.Audience,
-            Claims = new Dictionary<string, object>
-            {
-                [JwtRegisteredClaimNames.Sub] = authProviderUserId.ToString(),
-                ["role"] = "authenticated",
-            },
-            Expires = DateTime.UtcNow.AddHours(1),
-            SigningCredentials = new SigningCredentials(LocalE2EAuth.SigningKey, SecurityAlgorithms.HmacSha256),
-        });
-
         return new SupabaseAuthResult
         {
             Success = true,
             AuthProviderUserId = authProviderUserId,
-            AccessToken = token,
+            AccessToken = LocalE2EAuth.MintToken(authProviderUserId),
         };
     }
 
