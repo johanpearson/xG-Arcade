@@ -6,15 +6,16 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.Core.Tests.Rounds;
 
-// REQ-205/REQ-806 (docs/requirements-document.md §4.3/§4.9): S-008's Tier 0
-// scope is only the "close" half — making a round's EndTime reflect
-// immediate closure. Locking Guess.final_uniqueness_score/final_points is
-// S-011's job, once Guess/Core.Scoring exist (docs/backlog.md).
+// REQ-205/REQ-806 (docs/requirements-document.md §4.3/§4.9): the EndTime-
+// pull-forward half built in S-008. Locking Guess.FinalUniquenessScore/
+// FinalPoints is REQ-205's other half, built in S-011 — see
+// RoundCloseServiceScoringTests for those cases.
 public class RoundCloseServiceTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IRoundRepository _roundRepository = null!;
+    private IGuessRepository _guessRepository = null!;
     private RoundCloseService _service = null!;
 
     [SetUp]
@@ -25,7 +26,8 @@ public class RoundCloseServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
-        _service = new RoundCloseService(_roundRepository);
+        _guessRepository = new GuessRepository(_dbContext);
+        _service = new RoundCloseService(_roundRepository, _guessRepository);
     }
 
     [TearDown]

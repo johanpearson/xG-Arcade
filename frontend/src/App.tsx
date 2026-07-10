@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import './App.css';
 import { AuthScreen } from './auth/AuthScreen';
 import { GridScreen } from './grid/GridScreen';
+import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 
 type HealthState =
   | { phase: 'loading' }
@@ -11,11 +12,14 @@ type HealthState =
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 
+type Screen = 'grid' | 'leaderboard';
+
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
   const [accessToken, setAccessToken] = useState<string | null>(() =>
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
+  const [screen, setScreen] = useState<Screen>('grid');
 
   useEffect(() => {
     let cancelled = false
@@ -57,15 +61,37 @@ function App() {
       <header className="app__header">
         <h1 className="app__title">xG Arcade</h1>
         {accessToken && (
-          <button type="button" className="app__logout" onClick={handleLogout}>
-            Log out
-          </button>
+          <div className="app__header-actions">
+            <button
+              type="button"
+              className="app__nav-link"
+              aria-current={screen === 'grid' ? 'page' : undefined}
+              onClick={() => setScreen('grid')}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              className="app__nav-link"
+              aria-current={screen === 'leaderboard' ? 'page' : undefined}
+              onClick={() => setScreen('leaderboard')}
+            >
+              Leaderboard
+            </button>
+            <button type="button" className="app__logout" onClick={handleLogout}>
+              Log out
+            </button>
+          </div>
         )}
       </header>
 
       <main className="app__main">
         {accessToken ? (
-          <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
+          screen === 'grid' ? (
+            <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
+          ) : (
+            <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
+          )
         ) : (
           <AuthScreen onAuthenticated={handleAuthenticated} />
         )}

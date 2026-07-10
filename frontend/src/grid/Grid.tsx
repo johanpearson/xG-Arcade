@@ -7,6 +7,7 @@ import './Grid.css';
 export interface GridProps {
   cells: CurrentRoundCell[];
   roundStatus: RoundStatus;
+  roundEndTime: string;
   knownPlayerNames: Record<string, string>;
   onCellClick: (cell: CurrentRoundCell) => void;
 }
@@ -15,7 +16,7 @@ export interface GridProps {
 // headers and the (row, col) grid layout are derived here, not assumed to
 // be pre-grouped, and work for any N×N size (seeded rounds are sometimes
 // just one cell).
-export function Grid({ cells, roundStatus, knownPlayerNames, onCellClick }: GridProps) {
+export function Grid({ cells, roundStatus, roundEndTime, knownPlayerNames, onCellClick }: GridProps) {
   const rowHeaders = uniqueByAxis(cells, 'row');
   const colHeaders = uniqueByAxis(cells, 'col');
   const cellByPosition = new Map(cells.map((cell) => [positionKey(cell.row, cell.col), cell]));
@@ -55,6 +56,7 @@ export function Grid({ cells, roundStatus, knownPlayerNames, onCellClick }: Grid
                       <GridCell
                         cell={cell}
                         roundStatus={roundStatus}
+                        roundEndTime={roundEndTime}
                         knownPlayerName={knownPlayerNames[cell.cellId]}
                         onOpenGuess={onCellClick}
                       />

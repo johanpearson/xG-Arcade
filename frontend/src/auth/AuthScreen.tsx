@@ -15,6 +15,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +23,14 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+
+    // REQ-401/404: signup is blocked client-side without a display name, not
+    // just relying on the server's 400 — this is what a leaderboard shows
+    // another player instead of their email.
+    if (mode === 'signup' && displayName.trim().length === 0) {
+      setError('Choose a display name.');
+      return;
+    }
 
     // REQ-701: signup is blocked client-side without the age checkbox, not
     // just relying on the server's 400.
@@ -33,7 +42,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        await signup(email, password, ageConfirmed);
+        await signup(email, password, displayName, ageConfirmed);
         // Tier 0 UX: auto-login with the same credentials rather than
         // forcing the player through the form twice.
         const { accessToken } = await login(email, password);
@@ -101,6 +110,23 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             disabled={submitting}
           />
         </label>
+
+        {mode === 'signup' && (
+          <label className="auth-screen__field">
+            <span>Display name</span>
+            {/* No native `required` here on purpose, same reasoning as the
+                age checkbox below — the JS check above shows a specific
+                message rather than the browser's generic validation popup,
+                which would otherwise block handleSubmit from running at all. */}
+            <input
+              type="text"
+              maxLength={30}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              disabled={submitting}
+            />
+          </label>
+        )}
 
         {mode === 'signup' && (
           <label className="auth-screen__checkbox">

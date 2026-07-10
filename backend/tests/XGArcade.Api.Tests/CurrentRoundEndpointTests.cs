@@ -136,6 +136,32 @@ public class CurrentRoundEndpointTests
         return (round.Id, firstCellId, secondCellId);
     }
 
+    // REQ-204: seeds a second player's already-correct Guess directly into
+    // the DbContext, bypassing GuessSubmissionService/POST entirely — this
+    // endpoint's uniqueness calculation reads straight from the Guess table
+    // (GetCorrectByCellIdsAsync), so it doesn't matter how the row got
+    // there, only that IsCorrect/PlayerAnswerId are set. Same
+    // seed-directly-via-DbContext pattern SeedUserAsync/SeedRoundWithCellsAsync
+    // already use in this file.
+    private async Task SeedCorrectGuessDirectlyAsync(Guid roundId, Guid cellId, Guid userId, Guid playerAnswerId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = roundId,
+            UserId = userId,
+            CellId = cellId,
+            SubmittedName = "Someone Else",
+            PlayerAnswerId = playerAnswerId,
+            IsCorrect = true,
+            AttemptCount = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
     {
         var client = _factory.CreateClient();

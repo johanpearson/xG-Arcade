@@ -1,5 +1,6 @@
 import type {
   CurrentRoundResponse,
+  LeaderboardResponse,
   LoginResponse,
   SignupResponse,
   SubmitGuessResponse,
@@ -47,12 +48,13 @@ export function describeError(error: unknown): string {
 export async function signup(
   email: string,
   password: string,
+  displayName: string,
   ageConfirmed: boolean,
 ): Promise<SignupResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, ageConfirmed }),
+    body: JSON.stringify({ email, password, displayName, ageConfirmed }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SignupResponse;
@@ -101,4 +103,14 @@ export async function submitGuess(
   );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SubmitGuessResponse;
+}
+
+// REQ-401/404: the global leaderboard (SCREEN-03) — the only league Tier 0
+// has (custom leagues are deferred, MVP-SCOPE.md).
+export async function fetchLeaderboard(accessToken: string): Promise<LeaderboardResponse> {
+  const response = await fetch(`${API_BASE_URL}/leagues/global/leaderboard`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LeaderboardResponse;
 }

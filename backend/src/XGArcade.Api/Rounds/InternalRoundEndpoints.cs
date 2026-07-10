@@ -130,6 +130,24 @@ public static class InternalRoundEndpoints
                 new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" },
                 cancellationToken);
 
+            // REQ-807 originally seeded only one valid player — enough for
+            // REQ-201/203/210/303, but REQ-204's live uniqueness needs at
+            // least two distinct correct answers to demonstrate anything
+            // other than "0% unique" (every correct guesser necessarily
+            // sharing the one and only valid answer). A second, equally
+            // real Arsenal/France player added here so S-011's E2E suite can
+            // have two players each pick a different correct answer.
+            const string alternateCorrectPlayerName = "Robert Pires";
+            var alternatePlayer = await playerStoreRepository.AddPlayerAsync(
+                new Player { Id = Guid.NewGuid(), FullName = alternateCorrectPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
+                cancellationToken);
+            await playerStoreRepository.AddPlayerAttributeAsync(
+                new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "nationality", AttributeValue = "France" },
+                cancellationToken);
+            await playerStoreRepository.AddPlayerAttributeAsync(
+                new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "club", AttributeValue = "Arsenal" },
+                cancellationToken);
+
             var round = await roundRepository.AddAsync(new Round
             {
                 Id = Guid.NewGuid(),
@@ -140,7 +158,7 @@ public static class InternalRoundEndpoints
                 AllowGuessChange = true,
             }, cancellationToken);
 
-            return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName));
+            return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
     }
 
@@ -169,7 +187,7 @@ public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime Start
 
 public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 
-public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName);
+public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName, string AlternateCorrectPlayerName);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.

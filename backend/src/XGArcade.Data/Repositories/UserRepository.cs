@@ -14,4 +14,7 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
         await dbContext.SaveChangesAsync(cancellationToken);
         return user;
     }
+
+    public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToListAsync(cancellationToken);
 }

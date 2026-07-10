@@ -22,6 +22,8 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridCell> GridCells => Set<GridCell>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
+    public DbSet<League> Leagues => Set<League>();
+    public DbSet<LeagueMembership> LeagueMemberships => Set<LeagueMembership>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -140,6 +142,33 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasOne<Round>()
             .WithMany()
             .HasForeignKey(g => g.RoundId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-401: at most one Type="global" League row can ever exist —
+        // guards LeagueRepository.GetOrCreateGlobalLeagueAsync's
+        // check-then-insert against a concurrent double-create, same
+        // filtered-unique-index pattern as Player.WikidataQid.
+        modelBuilder.Entity<League>()
+            .HasIndex(l => l.Type)
+            .IsUnique()
+            .HasFilter($"\"Type\" = '{LeagueTypes.Global}'");
+
+        // implementation-document.md §5's required-indexes table: leaderboard
+        // queries filter by league, and this also enforces no duplicate
+        // membership (REQ-401's "requires no action from the user" implies
+        // signup never double-enrolls the same user).
+        modelBuilder.Entity<LeagueMembership>()
+            .HasKey(m => new { m.LeagueId, m.UserId });
+
+        modelBuilder.Entity<LeagueMembership>()
+            .HasOne<League>()
+            .WithMany()
+            .HasForeignKey(m => m.LeagueId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<LeagueMembership>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(m => m.UserId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

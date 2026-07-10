@@ -58,6 +58,13 @@
   color: var(--color-text-muted);
 }
 
+/* REQ-204's "updates until round closes on [date/time]" line stays muted
+   even inside a correct (gold-tinted) cell — it's secondary microcopy, not
+   the live value itself. */
+.cell-state__meta--muted {
+  color: var(--color-text-muted);
+}
+
 /* Small, quiet 4px dot with a slow opacity shift — design-document.md §3
    ("not a heavy pulse"). Gated behind prefers-reduced-motion below. */
 .cell-state__live-dot {

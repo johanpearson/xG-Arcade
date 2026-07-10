@@ -4,6 +4,7 @@ import type { CurrentRoundCell } from '../lib/types';
 export interface GridCellProps {
   cell: CurrentRoundCell;
   roundStatus: RoundStatus;
+  roundEndTime: string;
   knownPlayerName?: string;
   onOpenGuess: (cell: CurrentRoundCell) => void;
 }
@@ -11,7 +12,7 @@ export interface GridCellProps {
 // Guard clause for the implicit fifth visual (an unattempted cell) lives
 // here, before CellState's four-state logic — not a fifth case inside that
 // component (SCREEN-01a).
-export function GridCell({ cell, roundStatus, knownPlayerName, onOpenGuess }: GridCellProps) {
+export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onOpenGuess }: GridCellProps) {
   const { guess } = cell;
   const canOpen = guess === null || !guess.locked;
 
@@ -51,6 +52,8 @@ export function GridCell({ cell, roundStatus, knownPlayerName, onOpenGuess }: Gr
           attemptCount={guess.attemptCount}
           locked={guess.locked}
           roundStatus={roundStatus}
+          uniquePercent={guess.uniquePercent}
+          roundEndTime={roundEndTime}
         />
       )}
     </button>

@@ -18,6 +18,20 @@ export interface CellStateProps {
   // up a live "closed round" flow that GET /rounds/current can't produce
   // today (S-011 scope).
   roundStatus: RoundStatus;
+  // REQ-204: live unique_percent (0-1), re-derived on every request. Only
+  // ever set when isCorrect — undefined/null means "not correct yet" or
+  // (state 4) "not wired to a live source yet," never fabricated.
+  uniquePercent?: number | null;
+  // REQ-204's "updates until round closes on [date/time]" microcopy — only
+  // rendered alongside uniquePercent, since it describes that value's
+  // liveness, not the cell generally.
+  roundEndTime?: string;
+  // REQ-205/206: the locked, permanent score — only meaningful once
+  // roundStatus is "closed". Not reachable via GET /rounds/current today
+  // (that endpoint only ever returns an Active round, same S-011-scope gap
+  // as SCREEN-01a's state 4 generally), so this is exercised via
+  // constructed props only, same as roundStatus="closed" itself.
+  finalPoints?: number | null;
 }
 
 // SCREEN-01a: the four "attempted" cell states from REQ-210. An unattempted
@@ -30,6 +44,9 @@ export function CellState({
   attemptCount,
   locked,
   roundStatus,
+  uniquePercent,
+  roundEndTime,
+  finalPoints,
 }: CellStateProps) {
   const name = playerName ?? 'Guess submitted';
 
@@ -41,14 +58,18 @@ export function CellState({
         className={`cell-state cell-state--final cell-state--${isCorrect ? 'correct' : 'incorrect'}`}
       >
         <Row name={name} correct={isCorrect} />
+        {isCorrect && uniquePercent != null && finalPoints != null && (
+          <p className="cell-state__meta">
+            {formatPercent(uniquePercent)}% unique · {finalPoints} pts
+          </p>
+        )}
         <p className="cell-state__meta">final</p>
       </div>
     );
   }
 
   // State 1: correct, round still active — locked from further guessing,
-  // but still "live" until round close (REQ-203/204 — no uniqueness percent
-  // exists yet, so that line is omitted rather than fabricated).
+  // but still "live" until round close (REQ-203/204).
   if (isCorrect) {
     return (
       <div className="cell-state cell-state--live cell-state--correct">
@@ -57,6 +78,16 @@ export function CellState({
           <span className="cell-state__live-dot" aria-hidden="true" />
           live
         </p>
+        {uniquePercent != null && (
+          <>
+            <p className="cell-state__meta mono-figure">{formatPercent(uniquePercent)}% unique</p>
+            {roundEndTime && (
+              <p className="cell-state__meta cell-state__meta--muted">
+                updates until round closes on {formatDateTime(roundEndTime)}
+              </p>
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -83,6 +114,19 @@ export function CellState({
       <p className="cell-state__meta">no attempts left</p>
     </div>
   );
+}
+
+// REQ-204: uniquePercent arrives as a 0-1 fraction from the API.
+function formatPercent(uniquePercent: number): number {
+  return Math.round(uniquePercent * 100);
+}
+
+function formatDateTime(isoDateTime: string): string {
+  return new Date(isoDateTime).toLocaleString(undefined, {
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function Row({ name, correct }: { name: string; correct: boolean }) {

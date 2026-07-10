@@ -18,6 +18,25 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .Where(g => g.RoundId == roundId && g.UserId == userId)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Guess>> GetCorrectByCellIdsAsync(IReadOnlyCollection<Guid> cellIds, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.IsCorrect && cellIds.Contains(g.CellId))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Guess>> GetByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .Where(g => g.RoundId == roundId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.UserId != null && userIds.Contains(g.UserId.Value))
+            .GroupBy(g => g.UserId!.Value)
+            .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
+            .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
+
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {
         dbContext.Guesses.Add(guess);

@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
+using XGArcade.Api.Leagues;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
@@ -73,6 +74,10 @@ builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+
+// COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)
+// and the global-leaderboard read path.
+builder.Services.AddScoped<ILeagueRepository, LeagueRepository>();
 
 // COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
 // Service, per implementation-document.md §6a. No API-Football fallback
@@ -213,6 +218,7 @@ app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
 app.MapRoundEndpoints();
 app.MapGuessEndpoints();
+app.MapLeaderboardEndpoints();
 
 app.Run();
 
