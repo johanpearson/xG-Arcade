@@ -29,11 +29,11 @@ param registryPassword string
 @secure()
 param databaseConnectionString string
 
-@secure()
-param supabaseJwtSecret string
-
 @description('Supabase project URL — see modules/backend-container-app.bicep for guidance.')
 param supabaseUrl string
+
+@description('Supabase JWKS path override (ADR-0017) — see modules/backend-container-app.bicep for guidance.')
+param supabaseJwksPath string = '/auth/v1/.well-known/jwks.json'
 
 @secure()
 param supabaseAnonKey string
@@ -68,8 +68,8 @@ module backendApi 'modules/backend-container-app.bicep' = {
     registryUsername: registryUsername
     registryPassword: registryPassword
     databaseConnectionString: databaseConnectionString
-    supabaseJwtSecret: supabaseJwtSecret
     supabaseUrl: supabaseUrl
+    supabaseJwksPath: supabaseJwksPath
     supabaseAnonKey: supabaseAnonKey
     internalJobToken: internalJobToken
     corsAllowedOrigin: corsAllowedOrigin

@@ -161,14 +161,22 @@ JWT validation specifics as actually implemented: `AddJwtBearer` sets
 `MapInboundClaims = false` (keeps claim types as Supabase issues them —
 `sub`, `role`, etc. — instead of ASP.NET Core's legacy remap to long
 XML-SOAP claim URIs), validates the issuer as `{Supabase:Url}/auth/v1` and
-the audience as `"authenticated"`, and signs against
-`Auth:SupabaseJwtSecret` (HS256). A test-only branch,
-`Auth:Mode=local-e2e`, swaps in a locally-signed JWT (`LocalE2EAuth`'s
-fixed signing key/issuer/audience) instead of Supabase's — gated by
+the audience as `"authenticated"`, and validates the signature against
+Supabase's JWKS endpoint (`{Supabase:Url}/auth/v1/.well-known/jwks.json`
+by default, overridable via `Auth:SupabaseJwksPath`) via a custom
+`SupabaseJwksConfigurationRetriever` feeding a
+`ConfigurationManager<OpenIdConnectConfiguration>` — Supabase's JWT
+Signing Keys system issues rotating asymmetric keys identified by a `kid`
+header claim, not a static shared secret (see ADR-0017; a real deployment
+failing with `IDX10503`/"Number of keys in Configuration: '0'" is what
+surfaced the original static-HS256-secret assumption as wrong). A
+test-only branch, `Auth:Mode=local-e2e`, swaps in a locally-signed JWT
+(`LocalE2EAuth`'s fixed signing key/issuer/audience, HS256, purely
+in-process) instead of Supabase's — gated by
 `builder.Environment.IsDevelopment()` checked directly in `Program.cs`
 alongside the config flag, never by the config flag alone (the same
 never-guarded-only-by-config discipline ADR-0006 established for COMP-09).
-See ADR-0013.
+See ADR-0013 and ADR-0017.
 
 `Testing.SeedManager` (COMP-09) endpoints are only added to the routing
 table when `ASPNETCORE_ENVIRONMENT != Production`, checked in `Program.cs`

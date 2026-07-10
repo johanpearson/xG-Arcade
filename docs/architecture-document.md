@@ -427,7 +427,10 @@ backend-mediated signup/login, not the full confirmation loop described
 below. `POST /auth/signup`/`POST /auth/login` on `XGArcade.Api`'s
 `AuthController` proxy Supabase Auth's REST API directly (the frontend
 never calls Supabase itself), and `GET /auth/me` is protected by JWT
-bearer middleware validated against `Auth:SupabaseJwtSecret`. Supabase's
+bearer middleware validated against Supabase's JWKS endpoint (ADR-0017;
+originally assumed a static shared secret, corrected after a real
+deployment's tokens — signed with Supabase's rotating asymmetric JWT
+Signing Keys — failed that assumption). Supabase's
 confirm-email requirement is turned off for Tier 0 (per `MVP-SCOPE.md`), so
 `Core.Users`' `User.EmailConfirmed` is hardcoded `true` at creation time —
 nothing yet sets it to `false` or checks it. The diagram below is the
@@ -607,6 +610,7 @@ new ADR that references the old one.
 | ADR-0014 | All EF Core entities and repositories live in `XGArcade.Data`, regardless of which component owns them | Accepted |
 | ADR-0015 | A `PlayerOverride` replaces an entire attribute type, not one value within it | Accepted |
 | ADR-0016 | Read-only display queries against an already-generated instance may bypass `IGameModule` | Accepted |
+| ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
 
 ## 11. Glossary
 

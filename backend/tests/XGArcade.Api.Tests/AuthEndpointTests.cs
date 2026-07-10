@@ -1,14 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Auth;
 using XGArcade.Data;
@@ -39,6 +35,16 @@ public class AuthEndpointTests
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                // Program.cs's real-Supabase JWT validation branch now
+                // fetches a live JWKS document (ADR-0017) — unit/API tests
+                // must never depend on live network (docs/coding-
+                // guidelines.md), so this test host uses the same in-process
+                // HS256 signer/validator ci.yml's local E2E stack uses
+                // instead. The test host's environment is already
+                // Development by default, satisfying local-e2e's other
+                // gating condition for free.
+                builder.UseSetting("Auth:Mode", "local-e2e");
+
                 builder.ConfigureServices(services =>
                 {
                     // Swap the real Npgsql-backed XGArcadeDbContext for a
@@ -198,7 +204,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", MintValidJwt(authProviderUserId));
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
 
         var response = await client.GetAsync("/auth/me");
 
@@ -207,36 +213,6 @@ public class AuthEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Email, Is.EqualTo("known-user@example.com"));
         Assert.That(body.EmailConfirmed, Is.True);
-    }
-
-    // Mints a JWT signed with the same secret/issuer/audience the test host's
-    // JwtBearer middleware validates against (Program.cs's non-local-e2e
-    // branch): issuer "{Supabase:Url}/auth/v1", audience "authenticated",
-    // HS256 with Auth:SupabaseJwtSecret. Read from the running host's own
-    // configuration rather than hardcoded here, so it can't silently drift
-    // from appsettings.Development.json.
-    private string MintValidJwt(Guid authProviderUserId)
-    {
-        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
-        var supabaseUrl = configuration["Supabase:Url"]
-            ?? throw new InvalidOperationException("Supabase:Url is not configured for the test host.");
-        var jwtSecret = configuration["Auth:SupabaseJwtSecret"]
-            ?? throw new InvalidOperationException("Auth:SupabaseJwtSecret is not configured for the test host.");
-
-        var handler = new JsonWebTokenHandler();
-        return handler.CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = $"{supabaseUrl.TrimEnd('/')}/auth/v1",
-            Audience = "authenticated",
-            Claims = new Dictionary<string, object>
-            {
-                [JwtRegisteredClaimNames.Sub] = authProviderUserId.ToString(),
-                ["role"] = "authenticated",
-            },
-            Expires = DateTime.UtcNow.AddHours(1),
-            SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)), SecurityAlgorithms.HmacSha256),
-        });
     }
 
     // Test double for ISupabaseAuthClient (COMP-01's only path to the auth

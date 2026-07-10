@@ -1,15 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
+using XGArcade.Api.Auth;
 using XGArcade.Api.Guesses;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
@@ -38,6 +35,14 @@ public class GuessEndpointTests
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                // Program.cs's real-Supabase JWT validation branch now
+                // fetches a live JWKS document (ADR-0017) — unit/API tests
+                // must never depend on live network (docs/coding-
+                // guidelines.md), so this test host uses the same in-process
+                // HS256 signer/validator ci.yml's local E2E stack uses
+                // instead.
+                builder.UseSetting("Auth:Mode", "local-e2e");
+
                 builder.ConfigureServices(services =>
                 {
                     // Same in-memory-DbContext swap as every other
@@ -138,35 +143,8 @@ public class GuessEndpointTests
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
     {
         var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", MintValidJwt(authProviderUserId));
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
         return client;
-    }
-
-    // Mints a JWT signed with the same secret/issuer/audience the test
-    // host's JwtBearer middleware validates against — same helper as
-    // AuthEndpointTests.MintValidJwt.
-    private string MintValidJwt(Guid authProviderUserId)
-    {
-        var configuration = _factory.Services.GetRequiredService<IConfiguration>();
-        var supabaseUrl = configuration["Supabase:Url"]
-            ?? throw new InvalidOperationException("Supabase:Url is not configured for the test host.");
-        var jwtSecret = configuration["Auth:SupabaseJwtSecret"]
-            ?? throw new InvalidOperationException("Auth:SupabaseJwtSecret is not configured for the test host.");
-
-        var handler = new JsonWebTokenHandler();
-        return handler.CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = $"{supabaseUrl.TrimEnd('/')}/auth/v1",
-            Audience = "authenticated",
-            Claims = new Dictionary<string, object>
-            {
-                [JwtRegisteredClaimNames.Sub] = authProviderUserId.ToString(),
-                ["role"] = "authenticated",
-            },
-            Expires = DateTime.UtcNow.AddHours(1),
-            SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)), SecurityAlgorithms.HmacSha256),
-        });
     }
 
     // ---- Auth / request-validation guardrails ------------------------------
