@@ -107,7 +107,8 @@ jobs:
                          supabaseUrl="${{ secrets.DEV_SUPABASE_URL }}" \
                          supabaseAnonKey="${{ secrets.DEV_SUPABASE_ANON_KEY }}" \
                          internalJobToken="${{ secrets.INTERNAL_JOB_TOKEN }}" \
-                         corsAllowedOrigin="$CORS_ORIGIN"
+                         corsAllowedOrigin="$CORS_ORIGIN" \
+                         adminUserIds="${{ secrets.DEV_ADMIN_USER_IDS }}"
 
   deploy-frontend:
     runs-on: ubuntu-latest

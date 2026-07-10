@@ -8,6 +8,9 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
     public async Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
         await dbContext.Players.AsNoTracking().FirstOrDefaultAsync(p => p.WikidataQid == wikidataQid, cancellationToken);
 
+    public async Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await dbContext.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+
     public async Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default)
     {
         dbContext.Players.Add(player);
@@ -27,6 +30,12 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         dbContext.PlayerData.Add(data);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerData
+            .AsNoTracking()
+            .Where(pd => pd.Confidence == "unverified")
+            .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
@@ -77,10 +86,30 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             .AsNoTracking()
             .FirstOrDefaultAsync(o => o.PlayerId == playerId && o.Field == field, cancellationToken);
 
+    public async Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerOverrides.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+
     public async Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default)
     {
         dbContext.PlayerOverrides.Add(playerOverride);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task UpdateOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default)
+    {
+        dbContext.PlayerOverrides.Update(playerOverride);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> DeleteOverrideAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var playerOverride = await dbContext.PlayerOverrides.FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+        if (playerOverride is null)
+            return false;
+
+        dbContext.PlayerOverrides.Remove(playerOverride);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<bool> HasEffectiveAttributeAsync(

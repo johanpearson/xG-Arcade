@@ -1,9 +1,11 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using XGArcade.Api.Admin;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
@@ -245,7 +247,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         }
     });
 
-builder.Services.AddAuthorization();
+// S-012: admin-only endpoints (Admin/AdminEndpoints.cs) check the "Admin"
+// policy below, backed by AdminAuthorizationHandler's Admin__UserIds check —
+// see architecture-document.md's security pipeline and implementation-
+// document.md §4.
+builder.Services.AddSingleton<IAuthorizationHandler, AdminAuthorizationHandler>();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Admin", policy => policy.Requirements.Add(new AdminRequirement()));
+});
 
 builder.Services.AddControllers();
 
@@ -286,6 +296,7 @@ app.MapInternalRoundEndpoints();
 app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
+app.MapAdminEndpoints();
 
 app.Run();
 

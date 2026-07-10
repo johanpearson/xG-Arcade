@@ -159,6 +159,7 @@ Dev-specific:
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the dev Static Web App resource |
 | `DEV_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints; also by Tier 1's `ci.yml` for the test-data reset call and E2E test target |
 | `DEV_FRONTEND_HOSTNAME` | Fed to `deploy.yml` as the backend's CORS-allowed origin (S-002) — the one real cross-environment coupling in an otherwise one-way deploy. Also used by Tier 1's `ci.yml` for the E2E test target |
+| `DEV_ADMIN_USER_IDS` (S-012) | Comma-separated Supabase auth user ids (the JWT `sub` claim) authorized to call `/admin/*` endpoints — fed to `Admin__UserIds` (`AdminAuthorizationHandler`, `implementation-document.md` §4). Not set means no admin endpoint succeeds for anyone; look up your own id under the dev Supabase project's Authentication → Users once you've signed up, and set this secret to it |
 
 Note the corrected `GHCR_TOKEN` row in the shared-secrets table above:
 earlier revisions of this doc said the automated workflows didn't need a
