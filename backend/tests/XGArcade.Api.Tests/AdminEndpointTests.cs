@@ -7,8 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using XGArcade.Api.Admin;
 using XGArcade.Api.Auth;
+using XGArcade.Api.Guesses;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.Games.XGGrid;
 
 namespace XGArcade.Api.Tests;
 
@@ -106,6 +108,80 @@ public class AdminEndpointTests
         dbContext.PlayerOverrides.Add(playerOverride);
         await dbContext.SaveChangesAsync();
         return playerOverride.Id;
+    }
+
+    // Same shape as GuessEndpointTests.SeedUserAsync — needed here too since
+    // REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess
+    // submits a real guess through the player-facing endpoint, which
+    // requires a matching local User row for the bearer token's "sub".
+    private async Task SeedGuessingUserAsync(Guid authProviderUserId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.Users.Add(new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = authProviderUserId,
+            Email = $"{authProviderUserId}@example.com",
+            DisplayName = "Test Player",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
+    // Seeds a Round/GridCell requiring nationality=France + club=Arsenal
+    // (same shape as GuessEndpointTests.SeedRoundWithCellAsync), plus a
+    // player who satisfies the row category (nationality=France) but NOT
+    // the column category (cached club=Barcelona, not Arsenal) — so a guess
+    // of that player's name is incorrect until an admin override for
+    // "club" flips it, per ADR-0015. AllowGuessChange=true so the same
+    // cell/round can be guessed a second time after the override exists.
+    private async Task<(Guid RoundId, Guid CellId, Guid PlayerId, string PlayerFullName)> SeedRoundWithCellAndMisfitPlayerAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        dbContext.GridInstances.Add(new GridInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Cells =
+            [
+                new GridCell
+                {
+                    Id = cellId,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 0,
+                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryValue = "France",
+                    ColCategoryType = CategoryPairingRules.Club,
+                    ColCategoryValue = "Arsenal",
+                },
+            ],
+        });
+
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Misfit Player", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        dbContext.Players.Add(player);
+        dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Barcelona" });
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = instanceId,
+            StartTime = DateTime.UtcNow.AddDays(-1),
+            EndTime = DateTime.UtcNow.AddDays(1),
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return (round.Id, cellId, player.Id, player.FullName);
     }
 
     private HttpClient CreateAdminClient() => CreateAuthenticatedClient(AdminAuthProviderUserId);
@@ -304,5 +380,50 @@ public class AdminEndpointTests
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         Assert.That(await dbContext.PlayerOverrides.AnyAsync(o => o.Id == overrideId), Is.False);
+    }
+
+    // ---- REQ-501: manual override always wins ------------------------------
+
+    [Test]
+    public async Task REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuessingUserAsync(authProviderUserId);
+        var (roundId, cellId, playerId, playerFullName) = await SeedRoundWithCellAndMisfitPlayerAsync();
+        var guessingClient = CreateAuthenticatedClient(authProviderUserId);
+        var adminClient = CreateAdminClient();
+
+        var before = await guessingClient.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(playerFullName));
+
+        Assert.That(before.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var beforeBody = await before.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(beforeBody, Is.Not.Null);
+        Assert.That(beforeBody!.IsCorrect, Is.False, "player's cached club (Barcelona) does not satisfy the cell's club=Arsenal requirement before any override exists");
+
+        var overrideResponse = await adminClient.PostAsJsonAsync(
+            "/admin/player-overrides", new CreatePlayerOverrideRequest(playerId, "club", "Arsenal", "Corrected: player actually plays for Arsenal"));
+
+        Assert.That(overrideResponse.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+
+        var after = await guessingClient.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(playerFullName));
+
+        Assert.That(after.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var afterBody = await after.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(afterBody, Is.Not.Null);
+        Assert.That(afterBody!.IsCorrect, Is.True, "REQ-501/ADR-0015: an admin override must flip the same cell/guess from incorrect to correct, replacing the entire 'club' attribute type for this player");
+    }
+
+    [Test]
+    public async Task REQ501_CreatePlayerOverride_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var playerId = await SeedPlayerAsync();
+        var client = CreateAuthenticatedClient(Guid.NewGuid());
+
+        var response = await client.PostAsJsonAsync(
+            "/admin/player-overrides", new CreatePlayerOverrideRequest(playerId, "club", "Arsenal", "Manual correction"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
 }
