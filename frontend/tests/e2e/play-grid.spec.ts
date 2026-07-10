@@ -15,13 +15,16 @@ interface SeedGuessableRoundResponse {
 // REQ-303's GET /rounds/current resolves "the" currently Active round for
 // the whole xG Grid game key — it has no per-caller/per-test scoping, and
 // REQ-807's seed endpoint creates a brand-new Active round on every call.
-// RoundRepository.GetActiveByGameKeyAsync has no ORDER BY, so if two Active
-// rounds existed at once, which one a given request gets back would be
+// RoundRepository.GetActiveByGameKeyAsync originally had no ORDER BY, so if
+// two Active rounds existed at once, which one a given request got back was
 // nondeterministic — confirmed while writing this suite: a round left over
 // from an earlier local run (never closed, still within its 1h window) made
 // a fresh run's very first assertion fail because /rounds/current returned
-// the stale round instead of the one just seeded. This suite avoids that
-// race by (a) running its tests serially rather than relying on
+// the stale round instead of the one just seeded. That query is now fixed
+// (OrderByDescending(StartTime), plus a dedicated regression test — see
+// CurrentRoundEndpointTests.REQ303_..._MultipleActiveRoundsForSameGame_...),
+// but this suite keeps its own defense in depth rather than depending on
+// that fix alone: (a) running its tests serially rather than relying on
 // playwright.config.ts's project-wide fullyParallel for this file
 // specifically, (b) sweeping away any pre-existing Active round before the
 // first seed call (clearAnyExistingActiveRound, for state left over from a
@@ -30,10 +33,7 @@ interface SeedGuessableRoundResponse {
 // against an already-migrated DB can), and (c) force-closing the round each
 // test seeded before the next test seeds its own. Each test still seeds its
 // own fresh round/cell — this is purely about never having two Active
-// rounds coexist, not about tests depending on each other's data. Flagged
-// back as a real Tier 0 gap worth a follow-up (e.g. a roundId-scoped read,
-// or the seed endpoint closing any pre-existing Active round itself) rather
-// than silently special-cased here forever.
+// rounds coexist, not about tests depending on each other's data.
 test.describe.configure({ mode: 'serial' })
 
 test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {

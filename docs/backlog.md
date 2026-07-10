@@ -119,9 +119,20 @@ in those REQs' test-level notes. *Deps:* S-008, S-004.
 **S-010 · Grid UI (SCREEN-01/01a/02)**
 Grid home + guess input per `docs/design-document.md` (ui-implementer
 rules: tokens only, four cell states, text-not-color-only, 44px targets,
-reduced-motion). Plain text input — no autocomplete.
-*Accept:* Playwright: log in → open round → submit guess → see immediate
-correct/incorrect + attempt count; all four cell states render. *Deps:* S-009.
+reduced-motion). Plain text input — no autocomplete. Also added the two
+backend pieces this screen needed to have anything real to render/seed
+against: `GET /rounds/current` (REQ-303) and the non-Production
+`POST /internal/test-data/seed-guessable-round` (REQ-807).
+*Accept:* Playwright: log in → open round → submit a wrong guess (see
+immediate incorrect + attempt count) → submit the correct one (locks live);
+a second E2E case covers the two-wrong-guesses lock path. **Built as:**
+three of the four cell states (correct/live, incorrect-with-attempts,
+incorrect-locked) are exercised through Playwright; the fourth
+(round-closed/"final") isn't reachable via the live API yet (`GET
+/rounds/current` only ever returns an Active round — round-close is S-011
+scope) and is instead covered by `CellState.test.tsx` (Vitest, constructed
+props) — so "all four cell states render" is true, but not all four via
+Playwright as originally phrased here. *Deps:* S-009.
 
 **S-011 · Scoring + leaderboard (REQ-204/205/206/401)**
 Live uniqueness on read; round-close job locks `final_*` fields and blocks
