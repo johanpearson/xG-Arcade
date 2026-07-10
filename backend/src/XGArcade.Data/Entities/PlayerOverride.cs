@@ -1,6 +1,9 @@
 namespace XGArcade.Data.Entities;
 
-// Manual correction, always wins over PlayerData — see REQ-501.
+// Manual correction, always wins over PlayerData — see REQ-501. A row here
+// replaces the *entire* attribute type for correctness-checking, not just
+// the one cached value it corrects — see ADR-0015 for why, and
+// IPlayerStoreRepository.HasEffectiveAttributeAsync for the read side.
 public class PlayerOverride
 {
     public Guid Id { get; set; }

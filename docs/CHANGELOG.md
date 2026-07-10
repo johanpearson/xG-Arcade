@@ -13,6 +13,112 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/requirements-document.md (REQ-201, REQ-202, REQ-203,
+  REQ-204, REQ-205, REQ-208, REQ-209, REQ-210, REQ-302),
+  docs/architecture-document.md (§5 COMP-04/COMP-06 rows, §5 "Maps to"
+  footnote, §5 boundary rule 1, §6.2 flow diagram status note, §10 ADR
+  table), docs/implementation-document.md (§5 `Player`/`Guess` illustrative
+  shapes, §5 required-indexes table, §6 `normalize()` formula and
+  name-matching/disambiguation pseudocode status note, §6 uniqueness-score
+  status note) — doc sync for S-009 (Guess submission): `Guess` entity
+  (`XGArcade.Data`, COMP-04 per ADR-0014, same pattern as `Round`/COMP-03)
+  with `PlayerAnswerId` nullable and a new `SubmittedName` field, both
+  diverging from implementation-document.md §5's old illustrative shape;
+  `Player.NormalizedFullName` (auto-maintained by `FullName`'s setter,
+  backfilled via `PlayerNormalizedFullNameBackfiller`);
+  `PlayerNameNormalizer` gained punctuation-stripping (closes a real
+  pre-existing S-006 gap — REQ-208/MVP-SCOPE.md both called for it, the
+  original implementation never did it); `IPlayerStoreRepository
+  .GetPlayersByNormalizedFullNameAsync`/`HasEffectiveAttributeAsync`
+  (override-aware, see ADR-0015); `Core.Scoring`'s first real code
+  (`GuessSubmissionService`/`IGuessSubmissionService`/
+  `GuessSubmissionResult`) — REQ-201/202/210's guess-acceptance,
+  guess-change-policy, and attempt-cap/lock rules, checked before any name
+  resolution work; `GridGameModule.ScoreSubmissionAsync` implemented
+  (REQ-207/208/209's name-resolution, was `NotImplementedException`);
+  `POST /rounds/{roundId}/cells/{cellId}/guesses`
+  (`XGArcade.Api.Guesses.GuessEndpoints`), mapping every rejection outcome
+  to a distinct `ProblemDetails` title (REQ-202). REQ-201/202/210 gained
+  "Status: Implemented (Tier 0, S-009)" notes — their acceptance criteria
+  are fully satisfied for what Tier 0 scopes them to. REQ-203 gained a
+  "Status: Partially implemented" note: the override-precedence
+  effective-data check and immediate correctness/lock are fully built, but
+  it only ever runs against REQ-208's Tier 0-scoped candidates and never
+  triggers REQ-211's live lookup (Tier 1, not built) — a genuinely correct
+  guess for a real player with no cached `PlayerAttribute` data is
+  currently scored incorrect, not looked up live. REQ-208 gained a
+  precise "Tier 0's simple half only" status note: normalization
+  (lowercase/diacritics/punctuation, now complete) is built; the
+  maintained alias list and edit-distance fuzzy tolerance are not (both
+  deliberately deferred per `MVP-SCOPE.md`, not oversights). REQ-209
+  gained a matching status note: the auto-accept-when-exactly-one-fits and
+  incorrect-when-none-fit branches are fully built; the
+  more-than-one-fits branch is Tier 0's simplified handling (auto-accept
+  lowest `Id`, logged) rather than the full disambiguation-prompt UI.
+  REQ-204 gained a brief status note: still unimplemented (S-011), but the
+  `Guess.PlayerAnswerId` data it will read is now being recorded correctly
+  via REQ-209's deterministic lowest-Id pick. REQ-205's existing status
+  note updated: `Guess`/`Core.Scoring`'s guess-acceptance half now exist
+  (S-009), but `RoundCloseService` still doesn't read/write `Guess` at all
+  and still computes no `final_uniqueness_score`/`final_points` (S-011) —
+  the note previously implied `Guess`/`Core.Scoring` didn't exist yet at
+  all, which is now stale. REQ-302's existing status note updated: "only
+  active rounds accept new guesses" is now enforced
+  (`GuessSubmissionService` checks `GetStatus` and rejects
+  `RoundNotActive`), correcting the S-008-era note that said no
+  guess-submission endpoint existed yet to enforce it. Architecture-
+  document.md's COMP-04 row gained a "Maps to" detail and a new "COMP-04
+  status (S-009)" note clarifying `GuessSubmissionService` is COMP-04's
+  first real code, but REQ-204/205's actual namesake responsibility
+  (uniqueness calculation, score locking) isn't built yet; COMP-06's row
+  and boundary rule 1 gained pointers to the new ADR-0015; the §5 "Maps
+  to" footnote now names COMP-04 alongside COMP-01/03/05 for the same
+  "entity lives in `XGArcade.Data` despite the table's 'maps to' column"
+  reason (`Guess`/`IGuessRepository`/`GuessRepository`); §6.2's guess-
+  submission-and-scoring flow diagram gained a "Tier 0 status (S-009)"
+  note (matching §6.1's established pattern) — the diagram misattributes
+  two checks to the wrong component even for what Tier 0 built (round-
+  active/guess-change-policy and the REQ-210 lock/attempt-cap check are
+  both `Core.Scoring`, not `Core.Rounds`/`Games.XGGrid` as the diagram's
+  arrows imply), and several branches aren't built at all yet
+  (`PlayerNameIndex`/autocomplete, alias/fuzzy matching, REQ-209's
+  disambiguation prompt, REQ-211's live lookup, REQ-204's live uniqueness
+  calc, and REQ-205's round-close scoring — all Tier 1 or S-011, per
+  `MVP-SCOPE.md`); §10's ADR table gained a row for ADR-0015 (already
+  accepted and committed on this branch, not authored in this pass).
+  Implementation-document.md §5's `Player` illustrative shape gained the
+  real `NormalizedFullName` field it was missing; `Guess`'s illustrative
+  shape fixed to match the built entity (`PlayerAnswerId` now nullable,
+  new `SubmittedName` field) — same "keep the illustrative shape honest"
+  precedent as S-007's `GridCell` fix; the required-indexes table's
+  `Guess` row corrected from `(RoundId, UserId)` to the actually-built
+  `(RoundId, UserId, CellId)` unique index (a plain `(RoundId, UserId)`
+  index can't be unique — a user has many guesses per round), and gained a
+  new `Player (NormalizedFullName)` row; §6's `normalize()` formula gained
+  the punctuation-stripping step to match `PlayerNameNormalizer`; §6's
+  name-matching/disambiguation pseudocode gained a Tier 0 status note
+  (matching the existing grid-generation/uniqueness-score note pattern)
+  spelling out exactly which lines are real (the two lock/cap checks,
+  `normalize()`, the 0-and-1-candidate branches) versus deliberately
+  unbuilt (alias/fuzzy matching, REQ-211's live lookup, the disambiguation
+  prompt); §6's uniqueness-score status note corrected — it previously
+  said `Guess` "doesn't exist as an entity until S-009," which is now
+  stale since `Guess` exists as of this story; clarified that neither the
+  live nor round-close halves of the calculation read it yet regardless
+  (still S-011). docs/backlog.md's S-009 entry checked against the actual
+  diff and found already accurate — no change made. MVP-SCOPE.md checked
+  against the diff and confirmed nothing Tier 1 was pulled forward (no
+  `PlayerNameIndex`, no alias table, no fuzzy tolerance, no disambiguation
+  UI, no guess-time live lookup) — no change made. No new ADR needed for
+  this pass: ADR-0015 (override replaces entire attribute type) was
+  already authored and accepted on this branch, reviewed by
+  architecture-reviewer prior to this doc-sync pass; this pass only added
+  the cross-references to it from architecture-document.md that were
+  still missing. `PlayerOverride.cs` (`XGArcade.Data.Entities`)'s own doc
+  comment — flagged by this pass as still only saying "see REQ-501" with no
+  pointer to ADR-0015's precedence semantics — was fixed directly afterward
+  (source change, not a doc-sync edit). REQ-201/202/203/204/205/208/209/210/302,
+  ADR-0015.
 - 2026-07-10 — docs/requirements-document.md (REQ-301, REQ-302, REQ-205),
   docs/architecture-document.md (§5 table footnote, §6.1, §10 ADR table),
   docs/implementation-document.md (§5 Core-entities header comment, §6

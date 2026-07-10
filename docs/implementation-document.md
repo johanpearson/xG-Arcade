@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.27"
+version: "0.28"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.27 · 2026-07-10
+Version 0.28 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -222,6 +222,12 @@ public class Player
 {
     public Guid Id { get; set; }
     public string FullName { get; set; }
+    // Auto-maintained by FullName's setter (S-009) via the shared
+    // PlayerNameNormalizer.Normalize function below — never assigned
+    // directly by callers. REQ-208's Tier 0 "simple half" guess-time name
+    // matching (GetPlayersByNormalizedFullNameAsync) queries this column
+    // directly; no PlayerNameIndex/COMP-10 in Tier 0 (MVP-SCOPE.md).
+    public string NormalizedFullName { get; set; }
     // Dedup identity: the same player returned by two different
     // intersection queries (France×Arsenal and Brazil×Barcelona, say) must
     // upsert into ONE row, keyed on this — never insert-blindly per query.
@@ -462,7 +468,15 @@ public class Guess
                                           // uniqueness scores depend on the
                                           // total guess count staying intact)
     public Guid CellId { get; set; }
-    public Guid PlayerAnswerId { get; set; }
+    // REQ-201's "answer" — the raw text the player typed, kept even when it
+    // matched no candidate at all, so a rejected guess can still be
+    // spot-checked later (REQ-211's Tier 1 trigger, MVP-SCOPE.md). Added
+    // S-009, beyond this section's original illustrative shape.
+    public string SubmittedName { get; set; }
+    // Nullable, unlike this section's original illustrative shape (S-009
+    // fix): an incorrect guess has no real player to point at, so this is
+    // null whenever IsCorrect is false and no candidate matched at all.
+    public Guid? PlayerAnswerId { get; set; }
     public bool IsCorrect { get; set; }
     public int AttemptCount { get; set; }                // REQ-210, capped at 2
     public double? FinalUniquenessScore { get; set; }   // null until the round closes
@@ -492,10 +506,11 @@ public class LeagueMembership
 | Table | Index | Reason |
 |---|---|---|
 | `Guess` | `(CellId)` | Uniqueness calculation (REQ-204) counts/groups by cell on every read |
-| `Guess` | `(RoundId, UserId)` | Total-score lookup (REQ-206) and the "one active guess per cell per round" check (REQ-201) |
+| `Guess` | `(RoundId, UserId, CellId)` unique | Built in S-009 as `(RoundId, UserId, CellId)`, not the `(RoundId, UserId)` this row originally said — the extra `CellId` column is what actually enforces the "one active guess per cell per round" check (REQ-201); a plain `(RoundId, UserId)` index alone can't be unique (a user has many guesses per round, one per cell). Also serves REQ-206's total-score lookup as its leading-columns prefix |
 | `LeagueMembership` | `(LeagueId, UserId)` composite/unique | Leaderboard queries filter by league; also enforces no duplicate membership |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
-| `PlayerNameIndex` | `(NormalizedName)` | Every guess submission normalizes and looks up against this first (REQ-208) |
+| `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
+| `PlayerNameIndex` | `(NormalizedName)` | Not built (Tier 1, no `PlayerNameIndex` table exists yet) — recorded here as the long-term index once autocomplete/COMP-10 exist. Every guess submission normalizes and looks up against this first (REQ-208) |
 | `PlayerAlias` | `(NormalizedAlias)` | Alias lookup on the fallback path when the primary name doesn't match (REQ-208) |
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |
@@ -529,7 +544,7 @@ function live_lookup(player_or_candidates, category_a, category_b):
 **Name matching and disambiguation (REQ-207, REQ-208, REQ-209, REQ-210, REQ-211)**
 
 ```
-normalize(s) = lowercase(strip_diacritics(NFKD(s))).trim().collapse_whitespace()
+normalize(s) = lowercase(strip_diacritics(strip_punctuation(NFKD(s)))).trim().collapse_whitespace()
 
 on guess submission with typed/selected name N (isDisambiguationResolution: bool):
     if existingGuess.IsCorrect == true:
@@ -579,6 +594,41 @@ on guess submission with typed/selected name N (isDisambiguationResolution: bool
 REQ-101/203 (`PlayerAttribute` merged with `PlayerOverride`) — disambiguation
 doesn't introduce a second correctness rule, it just applies the existing
 one to more than one candidate at once.
+
+**Tier 0 status (S-009):** the pseudocode above is the full/long-term
+shape. What `GuessSubmissionService` (`XGArcade.Core.Scoring`) +
+`GridGameModule.ScoreSubmissionAsync` (`XGArcade.Games.XGGrid`) actually
+implement, real and tested:
+
+- The two REQ-210 lock/attempt-cap checks at the top, exactly as written —
+  performed in `Core.Scoring`, before `IGameModule` is ever called.
+- `normalize(N)` exactly as written (now including `strip_punctuation`,
+  S-009's fix to a pre-existing gap — S-006's original implementation
+  stripped diacritics but not punctuation).
+- The `matchingCandidates.count == 0` and `== 1` branches, matching this
+  pseudocode's logic (checked via `Data.PlayerStore`/COMP-06, effective
+  data, override-aware — `HasEffectiveAttributeAsync`, see ADR-0015).
+
+Deliberately narrower than the pseudocode above, per `MVP-SCOPE.md`'s Tier
+0 scoping (not a bug to fix):
+
+- `candidates = ...` is a single exact-match lookup against
+  `Player.NormalizedFullName` only — no `PlayerNameIndex` (doesn't exist),
+  no `PlayerAlias` union, and no `fuzzy_search` fallback at all. A guess
+  that doesn't exactly-normalize-match `Player.FullName` is incorrect,
+  full stop — there is no "candidates is empty → fuzzy search" step.
+- The `matchingCandidates.count == 0 AND candidates.count == 1` REQ-211
+  live-lookup block does not exist. A single name-matching candidate with
+  no cached `PlayerAttribute`/`PlayerOverride` data for the cell's
+  categories is simply excluded from `matchingCandidates` — never
+  triggers `live_lookup`.
+- `if matchingCandidates.count > 1: → return disambiguation prompt` is
+  replaced entirely: Tier 0 auto-accepts the lowest-`Id` candidate (the
+  same deterministic pick REQ-204's future uniqueness grouping depends on)
+  and logs a warning instead, per REQ-209's status note. There is no
+  disambiguation prompt, no `isDisambiguationResolution` parameter, and no
+  extra round-trip — a multi-candidate guess is scored and its attempt
+  consumed in the same request as any other guess.
 
 **Grid generation (REQ-101, REQ-102, REQ-103)**
 
@@ -658,17 +708,20 @@ Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
 
-**Tier 0 status (S-008):** only the "at Round.EndTime" half's *closure*
-mechanism exists so far, and only as a stub: `RoundCloseService`
+**Tier 0 status (S-008/S-009):** only the "at Round.EndTime" half's
+*closure* mechanism exists so far, and only as a stub: `RoundCloseService`
 (`XGArcade.Core.Rounds`) pulls a round's `EndTime` forward to force
 immediate closure (idempotently — never later than what's already
 scheduled), invoked today only via REQ-806's non-Production
-`POST /internal/test-data/force-close-round/{roundId}`. The
-`for each Guess in Round: compute uniqueScore ... persist` body above is
-not implemented at all yet — `Guess` doesn't exist as an entity until S-009,
-and the scoring/locking logic itself lands in S-011. There is also no
-automated scheduled job that calls round-close at a round's real
-`end_time` in any environment yet.
+`POST /internal/test-data/force-close-round/{roundId}`. `Guess` now exists
+as an entity (S-009), and is written on every guess submission
+(`AttemptCount`, `IsCorrect`, `PlayerAnswerId`), but neither of this
+section's actual calculations reads it yet: `RoundCloseService` does not
+touch `Guess` at all, and no code computes a live `uniqueScore` on read
+either — both the "live" and "at Round.EndTime" halves of this pseudocode's
+body are unimplemented, deferred to S-011. There is also no automated
+scheduled job that calls round-close at a round's real `end_time` in any
+environment yet.
 
 **Leaderboard pagination (REQ-607)**
 
