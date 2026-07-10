@@ -13,6 +13,73 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/requirements-document.md (REQ-301, REQ-302, REQ-205),
+  docs/architecture-document.md (§5 table footnote, §6.1, §10 ADR table),
+  docs/implementation-document.md (§5 Core-entities header comment, §6
+  grid-generation and uniqueness-score pseudocode) — doc sync for S-008
+  (Rounds + scheduling): `Round` entity + `IRoundRepository`/`RoundRepository`
+  (`XGArcade.Data`, per ADR-0014, same pattern as `User`/COMP-01 and
+  `GridTemplate`/COMP-05); `RoundGenerationService` implements REQ-301's
+  one-round-ahead rule via the new `IGameModuleResolver`; `RoundStatusExtensions`
+  implements REQ-302's live status calculation; `RoundCloseService` is
+  REQ-205's close-only Tier 0 stub (real scoring lands in S-011 once
+  `Guess`/`Core.Scoring` exist); `POST /internal/generate-round`
+  (bearer-token-protected, every environment — CONT-05's real job) and
+  REQ-806's `POST /internal/test-data/force-close-round/{id}` (non-Production
+  only). `generate-round.yml`'s cron re-enabled; `RoundSchedulingOptions.RoundDuration`
+  set to 4 days to match the longest gap in the cron's alternating Tue/Fri
+  schedule (full derivation in NOTES.md). REQ-301/302/205 each gained a
+  "Status: Partially implemented (Tier 0, S-008)" note (same pattern as
+  REQ-102/103/701): REQ-301's one-round-ahead idempotency rule and cron
+  trigger are built, but "configured...without a code change" isn't —
+  `RoundSchedulingOptions` is a plain C# object with hardcoded defaults in
+  `Program.cs`, and the schedule itself lives in `generate-round.yml`'s cron
+  expression, so changing frequency today means editing code either way;
+  REQ-302's status calculation is fully built and tested, but "only active
+  rounds accept guesses" isn't enforced yet (no guess endpoint exists until
+  S-009); REQ-205's `RoundCloseService` only pulls a round's `EndTime`
+  forward and is only ever invoked via REQ-806's endpoint today — there is
+  no automated scheduled job calling it at a round's real `end_time`, and it
+  computes no `final_uniqueness_score`/`final_points` at all (S-011). REQ-806
+  checked against the diff and found already accurate — no change made.
+  Architecture-document.md's §5 ADR-0014 footnote now names COMP-03
+  alongside COMP-01/COMP-05 (identical "entity lives in `XGArcade.Data`
+  despite the table's 'maps to' column" pattern); while there, also added a
+  missing §10 ADR-table row for ADR-0014 itself (accepted in S-007's
+  doc-sync but never given a row in that table — a pre-existing gap, not
+  caused by this diff, fixed here since it's directly adjacent to the
+  footnote edit). §6.1's grid-generation flow status note rewritten: the
+  full flow (Round Scheduler Job → Games.XGGrid → ... → Core.Rounds: create
+  Round) is now real end to end, but two things the S-007-era note predicted
+  did not happen as expected — `POST /internal/grid/generate` (S-007) was
+  deliberately kept rather than retired (still useful for isolated manual
+  testing, has its own test coverage), and the new `/internal/generate-round`
+  endpoint's own template resolution still bypasses `IGameModule` (a shared
+  `GridTemplateResolver` helper calls `IGridInstanceRepository` directly,
+  same shortcut S-007 already took — not a boundary violation, `GridTemplate`
+  isn't player data, but the "temporary until S-008" gap actually carried
+  forward into the production-intended endpoint instead of closing).
+  Implementation-document.md §5's Core-entities header comment (preceding
+  `User`/`Round`/`Guess`/`League`) gained the same ADR-0014 pointer the xG
+  Grid entities section already had (S-007) — it previously implied `Round`
+  (and `User`, before it) were physically defined inside `XGArcade.Core`,
+  which is only true of the business logic, not the EF Core class; the
+  `Round` illustrative shape itself already matched the built entity exactly
+  (`Id`/`GameKey`/`GameInstanceId`/`StartTime`/`EndTime`/`AllowGuessChange`),
+  no field-level change needed, unlike `GridCell`'s S-007 gap. §6's
+  grid-generation pseudocode's Tier 0 status note updated to note the abort
+  path (log + 500) is now reachable from both grid-generation endpoints, not
+  just `/internal/grid/generate`. §6's uniqueness-score pseudocode gained a
+  new Tier 0 status note: only the closure half exists, and only as a stub
+  (`RoundCloseService`), invoked only via REQ-806 today; the actual
+  scoring/locking body has no implementation at all yet (`Guess` doesn't
+  exist until S-009, the logic itself is S-011). docs/backlog.md's S-008
+  entry checked against the actual diff and found already accurate — no
+  change made. No new ADR: architecture-reviewer/code-reviewer passes on
+  this story's diff found no boundary violations and no decision requiring
+  one (the `XGArcade.Data → XGArcade.Core` reference swap to
+  `XGArcade.Core → XGArcade.Data` follows ADR-0014's already-established
+  direction, not a new one). REQ-301/302/205/806, ADR-0003, ADR-0014.
 - 2026-07-09 — docs/decisions/0014-shared-data-project-for-all-entities.md
   (new), docs/architecture-document.md (§5 table footnote, §6.1),
   docs/implementation-document.md (§5 header comment + `GridCell`, §6 grid-

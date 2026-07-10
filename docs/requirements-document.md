@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.26"
+version: "0.27"
 status: draft
-last_updated: 2026-07-09
+last_updated: 2026-07-10
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.26 · 2026-07-09
+Version 0.27 · 2026-07-10
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -334,6 +334,17 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
+- **Status: Partially implemented (Tier 0, S-008).** `RoundCloseService`
+  (`XGArcade.Core.Rounds`) is a close-only stub: given a round, it pulls
+  `EndTime` forward (idempotently — never later than what's already
+  scheduled) to force immediate closure, which is what REQ-806's
+  `POST /internal/test-data/force-close-round/{roundId}` calls. It does not
+  yet compute or persist `final_uniqueness_score`/`final_points` — that's
+  deferred to S-011, once `Guess`/`Core.Scoring` exist. There is also no
+  automated scheduled job yet that calls this at a round's real `end_time`
+  in production — today it is only ever invoked via REQ-806's
+  non-Production-only endpoint. The rest of this requirement's acceptance
+  criteria are recorded below as the full/long-term definition.
 - Given a Round whose `end_time` has passed
 - When the scoring job runs for the round
 - Then each guess's `final_uniqueness_score` and `final_points` are saved as
@@ -475,6 +486,29 @@ match with no attribute data and budget exhausted → fails closed), API
 > As an admin, I want to configure how often new rounds are created (e.g.
 > twice per week), so play frequency can be adjusted without a code change.
 
+- **Status: Partially implemented (Tier 0, S-008).** The "one round ahead"
+  rule itself is fully built: `RoundGenerationService`
+  (`XGArcade.Core.Rounds`) skips generation if an upcoming/not-yet-started
+  round already exists for the `GameKey`, otherwise resolves the owning
+  `IGameModule` (via the new `IGameModuleResolver`), generates its instance,
+  and chains the new round's `StartTime` from the previous round's
+  `EndTime` — exactly the acceptance criteria below. `generate-round.yml`'s
+  cron (Tue+Fri 06:00 UTC) triggers this via the bearer-token-protected
+  `POST /internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`),
+  registered in every environment since this is a legitimate scheduled job
+  (CONT-05), not a test-data endpoint. What's not built: "configured...so
+  play frequency can be adjusted without a code change" — the schedule
+  lives in `generate-round.yml`'s cron expression, and `RoundSchedulingOptions`
+  (`GameKey`/`RoundDuration`/`AllowGuessChange`/`GridSize`) is a plain C#
+  object with hardcoded defaults registered in `Program.cs` (same
+  non-appsettings-bound pattern as `Games.XGGrid`'s `GridGenerationOptions`),
+  not an admin-facing configuration surface — changing frequency today means
+  editing both files together (the cron and `RoundDuration`, which must stay
+  coupled — see `RoundSchedulingOptions`' own doc comment and NOTES.md), a
+  code change either way. `GridSize`'s find-or-create-a-`GridTemplate`-by-size
+  shortcut is the same Tier 0 gap already noted on REQ-102, reused via the
+  new shared `GridTemplateResolver` helper. The rest of this requirement's
+  acceptance criteria are recorded below as the full/long-term definition.
 - Given a cron expression configured in the system
 - When the scheduler runs
 - Then a new Round and its associated GridInstance are created automatically
@@ -492,6 +526,13 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a player, I want to always know whether a round is open, closed, or
 > upcoming, so I know if I can play.
 
+- **Status: Partially implemented (Tier 0, S-008).** The status calculation
+  itself is fully built and tested exactly as described below:
+  `RoundStatusExtensions.GetStatus` (`XGArcade.Core.Rounds`) derives
+  `Upcoming`/`Active`/`Closed` live from a `Round`'s `StartTime`/`EndTime`
+  and the current time, with no separate stored status field. "Only
+  `active` rounds accept new guesses" is not enforced yet — there is no
+  guess-submission endpoint to enforce it against (S-009).
 - Given a Round's `start_time` and `end_time`
 - When a player visits the platform
 - Then the Round status (`upcoming` / `active` / `closed`) is calculated
