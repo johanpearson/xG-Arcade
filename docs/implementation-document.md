@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.29"
+version: "0.30"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.29 · 2026-07-10
+Version 0.30 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.

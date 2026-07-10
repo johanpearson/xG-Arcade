@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.20"
+version: "0.21"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.20 · 2026-07-10
+Version 0.21 · 2026-07-10
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.

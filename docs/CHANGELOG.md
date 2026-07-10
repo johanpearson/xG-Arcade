@@ -54,7 +54,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `.SigningKeys` (undocumented behavior of
   `Microsoft.IdentityModel.Protocols.OpenIdConnect` 8.0.1, verified
   directly against the resolved assembly), so `.SigningKeys` must be
-  populated explicitly from `JsonWebKeySet.GetSigningKeys()`. §6.4's
+  populated explicitly from `JsonWebKeySet.GetSigningKeys()`. A follow-up
+  `code-reviewer` pass on this same branch (second commit) found one more
+  gap in the retriever: a syntactically valid JWKS document with zero
+  usable signing keys (an empty `keys` array, or every key missing fields
+  `GetSigningKeys()` needs) would otherwise have silently reproduced the
+  exact "Number of keys in Configuration: '0'" symptom this whole fix
+  exists to make diagnosable, just one layer downstream in a generic
+  authentication-failure log instead of at the source — the retriever now
+  throws `InvalidOperationException` immediately in that case, covered by
+  a new
+  `GetConfigurationAsync_EmptyKeysArray_ThrowsRatherThanSilentlyProducingZeroKeys`
+  test; the doc edits and ADR-0017 listed above already describe this
+  corrected final state, not the first commit alone — no further doc
+  change needed for this addition beyond this note. §6.4's
   auth-flow status note and the JWT validation paragraph in
   implementation-document.md updated to describe JWKS validation instead
   of a static secret; §10 gained a new ADR-0017 row. `MVP-SCOPE.md`'s
