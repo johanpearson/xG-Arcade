@@ -13,6 +13,11 @@ public class User
 
     public required string Email { get; set; }
 
+    // REQ-401/REQ-404: leaderboards show this, never the raw Email, to every
+    // other player — collected at signup (REQ-701) precisely so a public
+    // leaderboard never has to expose an email address to do its job.
+    public required string DisplayName { get; set; }
+
     // Mirrors Supabase Auth's confirmed state; see REQ-702 (deferred — Tier
     // 0 has confirm-email off, so this is always true at creation for now).
     public bool EmailConfirmed { get; set; }

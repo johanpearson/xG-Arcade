@@ -24,6 +24,24 @@ describe('CellState', () => {
     expect(screen.queryByText(/pts/i)).not.toBeInTheDocument();
   });
 
+  it('REQ-204: correct + round active with a live uniqueness value shows it in mono numerals plus "updates until" copy', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        roundEndTime="2026-07-11T18:00:00Z"
+      />,
+    );
+
+    expect(screen.getByText('live')).toBeInTheDocument();
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText(/updates until round closes on/)).toBeInTheDocument();
+  });
+
   it('REQ-210 state 2: incorrect with one attempt remaining spells out the count as text', () => {
     render(
       <CellState
@@ -71,6 +89,23 @@ describe('CellState', () => {
       />,
     );
 
+    expect(screen.getByText('final')).toBeInTheDocument();
+  });
+
+  it('REQ-205/206: round closed with a locked score shows "X% unique · Y pts" alongside "final"', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="closed"
+        uniquePercent={0.12}
+        finalPoints={88}
+      />,
+    );
+
+    expect(screen.getByText('12% unique · 88 pts')).toBeInTheDocument();
     expect(screen.getByText('final')).toBeInTheDocument();
   });
 

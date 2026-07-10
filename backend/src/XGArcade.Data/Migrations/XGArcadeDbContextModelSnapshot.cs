@@ -182,6 +182,50 @@ namespace XGArcade.Data.Migrations
                     b.ToTable("Guesses");
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.League", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InviteCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Type")
+                        .IsUnique()
+                        .HasFilter("\"Type\" = 'global'");
+
+                    b.ToTable("Leagues");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.LeagueMembership", b =>
+                {
+                    b.Property<Guid>("LeagueId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("LeagueId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("LeagueMemberships");
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.Player", b =>
                 {
                     b.Property<Guid>("Id")
@@ -379,6 +423,10 @@ namespace XGArcade.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("text");
@@ -408,6 +456,21 @@ namespace XGArcade.Data.Migrations
                     b.HasOne("XGArcade.Data.Entities.Round", null)
                         .WithMany()
                         .HasForeignKey("RoundId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.LeagueMembership", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.League", null)
+                        .WithMany()
+                        .HasForeignKey("LeagueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("XGArcade.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

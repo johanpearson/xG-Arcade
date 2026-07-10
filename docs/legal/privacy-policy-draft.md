@@ -1,7 +1,7 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.3"
+version: "0.4"
 status: draft — NOT LEGALLY REVIEWED
 last_updated: 2026-07-10
 ---
@@ -21,9 +21,9 @@ last_updated: 2026-07-10
 
 ## What we collect
 
-- **Account data:** your email address and password (your password is
-  never stored or seen by us directly — it's handled by our authentication
-  provider, Supabase Auth)
+- **Account data:** your email address, password (your password is never
+  stored or seen by us directly — it's handled by our authentication
+  provider, Supabase Auth), and a display name you choose at signup
 - **Gameplay data:** the guesses you submit, which rounds and leagues you
   participate in, your scores
 - **Nothing else by default:** we don't collect browsing behavior, device
@@ -40,6 +40,11 @@ last_updated: 2026-07-10
 
 ## Who we share it with
 
+- **Other players:** your display name and scores are visible to other
+  players — on the global leaderboard, and on any leaderboard for a league
+  you're a member of. Your email address is never shown to other players;
+  the display name exists specifically so a leaderboard never has to
+  expose it.
 - **Supabase** (database and authentication) — stores your account and
   gameplay data
 - **Resend** (email delivery) — sends confirmation and notification emails

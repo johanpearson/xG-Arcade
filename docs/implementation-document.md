@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.30"
+version: "0.31"
 status: draft
 last_updated: 2026-07-10
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.30 · 2026-07-10
+Version 0.31 · 2026-07-10
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -220,6 +220,8 @@ misconfigured per-endpoint. See ADR-0006.
     /auth                        -> AuthScreen (login/signup, REQ-701)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
                                      GuessInput, CategoryLabel (SCREEN-01/01a/02)
+    /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
+                                     Tier 0 slice — added S-011, global league only)
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts
   /tests
@@ -450,6 +452,11 @@ public class User
     public Guid Id { get; set; }
     public Guid AuthProviderUserId { get; set; }  // Supabase Auth's user id
     public string Email { get; set; }
+    // Added S-011 (REQ-401/404/701): the only identity a leaderboard shows
+    // another player — collected at signup, 1-30 chars, required. Rows that
+    // predate this column were backfilled (UserDisplayNameBackfiller) from
+    // the email's local part (before "@").
+    public string DisplayName { get; set; }
     public bool EmailConfirmed { get; set; }       // mirrors Supabase Auth's confirmed state; see REQ-702
     public DateTime CreatedAt { get; set; }
 }
@@ -509,9 +516,13 @@ public class League
 {
     public Guid Id { get; set; }
     public string Name { get; set; }
-    public string Type { get; set; }          // "global" | "custom"
-    public string? InviteCode { get; set; }
-    public Guid? CreatedByUserId { get; set; }
+    public string Type { get; set; }          // "global" | "custom" — Tier 0
+                                                // (S-011) only ever writes
+                                                // "global"; a filtered
+                                                // unique index enforces at
+                                                // most one such row exists
+    public string? InviteCode { get; set; }   // Tier 1 (REQ-402), always null for "global"
+    public Guid? CreatedByUserId { get; set; } // Tier 1 (REQ-402), always null for "global"
 }
 
 public class LeagueMembership
@@ -528,7 +539,8 @@ public class LeagueMembership
 |---|---|---|
 | `Guess` | `(CellId)` | Uniqueness calculation (REQ-204) counts/groups by cell on every read |
 | `Guess` | `(RoundId, UserId, CellId)` unique | Built in S-009 as `(RoundId, UserId, CellId)`, not the `(RoundId, UserId)` this row originally said — the extra `CellId` column is what actually enforces the "one active guess per cell per round" check (REQ-201); a plain `(RoundId, UserId)` index alone can't be unique (a user has many guesses per round, one per cell). Also serves REQ-206's total-score lookup as its leading-columns prefix |
-| `LeagueMembership` | `(LeagueId, UserId)` composite/unique | Leaderboard queries filter by league; also enforces no duplicate membership |
+| `LeagueMembership` | `(LeagueId, UserId)` composite/unique (also the primary key) | Leaderboard queries filter by league; also enforces no duplicate membership |
+| `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
 | `PlayerNameIndex` | `(NormalizedName)` | Not built (Tier 1, no `PlayerNameIndex` table exists yet) — recorded here as the long-term index once autocomplete/COMP-10 exist. Every guess submission normalizes and looks up against this first (REQ-208) |
@@ -712,37 +724,50 @@ every nationality found, answer many country combinations from that one call).
 
 ```
 live (on every page load, not persisted permanently until the Round closes):
-    totalGuesses = COUNT(Guess WHERE CellId = X)
-    sameAnswer   = COUNT(Guess WHERE CellId = X AND PlayerAnswerId = myAnswer)
+    // The denominator counts ONLY correct guesses, one per player — never
+    // incorrect guesses or burned attempts. This was a real bug in an
+    // earlier draft of this pseudocode (review-2026-07-07-design.md,
+    // finding 2): counting every Guess including incorrect ones let how
+    // much *failing* happened on a cell distort everyone's score, which
+    // has nothing to do with answer rarity. See REQ-204's own acceptance
+    // criteria and UniquenessCalculator's doc comment for the same rule.
+    totalGuesses = COUNT(Guess WHERE CellId = X AND IsCorrect = true)
+    sameAnswer   = COUNT(Guess WHERE CellId = X AND IsCorrect = true AND PlayerAnswerId = myAnswer)
     uniqueScore  = 1 - (sameAnswer / totalGuesses)
 
 at Round.EndTime (scheduled job):
     for each Guess in Round:
-        compute uniqueScore as above (now against final data)
-        Guess.FinalUniquenessScore = uniqueScore
+        if IsCorrect: compute uniqueScore as above (now against final data)
+        Guess.FinalUniquenessScore = uniqueScore if IsCorrect else null
         Guess.FinalPoints = round(uniqueScore * MAX_POINTS_PER_CELL) if IsCorrect else 0
     persist
 ```
+
+`MAX_POINTS_PER_CELL` resolves to `100` (`ScoringRules.MaxPointsPerCell`,
+`XGArcade.Core.Scoring`) — no document specified an exact value for "how
+many points is a 100%-unique correct guess worth"; this is the Tier 0
+default, chosen and recorded here (S-011), same non-appsettings-bound,
+plain-constant pattern as `GuessRules.MaxAttemptsPerCell`.
 
 Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 (insert/update, no incremental counter to keep in sync) — the calculation is
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
 
-**Tier 0 status (S-008/S-009):** only the "at Round.EndTime" half's
-*closure* mechanism exists so far, and only as a stub: `RoundCloseService`
-(`XGArcade.Core.Rounds`) pulls a round's `EndTime` forward to force
-immediate closure (idempotently — never later than what's already
-scheduled), invoked today only via REQ-806's non-Production
-`POST /internal/test-data/force-close-round/{roundId}`. `Guess` now exists
-as an entity (S-009), and is written on every guess submission
-(`AttemptCount`, `IsCorrect`, `PlayerAnswerId`), but neither of this
-section's actual calculations reads it yet: `RoundCloseService` does not
-touch `Guess` at all, and no code computes a live `uniqueScore` on read
-either — both the "live" and "at Round.EndTime" halves of this pseudocode's
-body are unimplemented, deferred to S-011. There is also no automated
-scheduled job that calls round-close at a round's real `end_time` in any
-environment yet.
+**Tier 0 status (S-008/S-009/S-011):** as of S-011, both halves of this
+pseudocode are implemented, in `XGArcade.Core.Scoring`:
+`UniquenessCalculator.Calculate` is the "live" half, called both by `GET
+/rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, on every request,
+never persisted) and by `IScoreLockingService`/`ScoreLockingService`'s "at
+Round.EndTime" half, which `RoundCloseService` (`XGArcade.Core.Rounds`)
+now calls at round close — the same formula is shared, so the live value
+and the final locked value can never disagree by construction.
+`RoundCloseService` itself still only pulls a round's `EndTime` forward
+(idempotently — never later than what's already scheduled) before
+delegating; that trigger remains invoked today only via REQ-806's
+non-Production `POST /internal/test-data/force-close-round/{roundId}` —
+there is still no automated scheduled job that calls round-close at a
+round's real `end_time` in any environment.
 
 **Leaderboard pagination (REQ-607)**
 
@@ -761,6 +786,20 @@ Cursor-based (not raw offset) pagination is preferred once league sizes grow
 large enough for offset pagination's performance to degrade; for MVP scale,
 a simple offset is acceptable but the API contract should already look
 cursor-shaped so switching the implementation later doesn't change callers.
+
+**Tier 0 status (S-011):** the pseudocode above is the full/long-term
+shape; it is not built yet. What's actually built: `GET
+/leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`
+→ `ILeaderboardService`/`LeaderboardService`, `XGArcade.Core.Leagues`)
+implements the aggregation itself (member `DisplayName`s joined with each
+member's `SUM(Guess.FinalPoints ?? 0)`, computed database-side via
+`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s `GROUP BY`, sorted
+descending), but for the global league only (no `{leagueId}` route
+parameter — custom leagues don't exist yet) and with no pagination at all:
+the endpoint returns every member's row in one response, unbounded. This
+is a real, deliberately-acknowledged gap against REQ-607's own pagination
+clause, not a Tier-0-scoped-out item — see REQ-607's status note in
+`requirements-document.md` for the explicit trigger to revisit.
 
 **Account deletion — anonymize, don't hard-delete Guess rows (REQ-710)**
 

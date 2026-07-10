@@ -10,6 +10,7 @@ interface SeedGuessableRoundResponse {
   roundId: string
   cellId: string
   correctPlayerName: string
+  alternateCorrectPlayerName: string
 }
 
 // REQ-303's GET /rounds/current resolves "the" currently Active round for
@@ -46,7 +47,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   async function clearAnyExistingActiveRound(request: APIRequestContext): Promise<void> {
     const email = `test-probe-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', ageConfirmed: true },
+      data: { email, password: 'password123', displayName: 'Probe', ageConfirmed: true },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
       data: { email, password: 'password123' },
@@ -93,6 +94,47 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   // seeded directly), with the required age checkbox checked. AuthScreen
   // auto-logs-in after signup (see AuthScreen.tsx's handleSubmit), so no
   // separate login step is needed here.
+  // S-011: signs up and logs in purely via the API (no browser page needed)
+  // — REQ-806's own convention (real signup endpoint, @test.invalid emails),
+  // used here so two players' guesses can be submitted without juggling two
+  // separate browser contexts for a scenario that only needs one page for
+  // the leaderboard assertion itself.
+  async function signUpAndLoginViaApi(
+    request: APIRequestContext,
+    email: string,
+    displayName: string,
+  ): Promise<string> {
+    const signupResponse = await request.post(`${API_BASE_URL}/auth/signup`, {
+      data: { email, password: 'password123', displayName, ageConfirmed: true },
+    })
+    expect(signupResponse.ok(), `signup failed: ${signupResponse.status()}`).toBeTruthy()
+
+    const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
+      data: { email, password: 'password123' },
+    })
+    expect(loginResponse.ok(), `login failed: ${loginResponse.status()}`).toBeTruthy()
+    const { accessToken } = (await loginResponse.json()) as { accessToken: string }
+    return accessToken
+  }
+
+  async function submitGuessViaApi(
+    request: APIRequestContext,
+    accessToken: string,
+    roundId: string,
+    cellId: string,
+    submittedName: string,
+  ): Promise<{ isCorrect: boolean }> {
+    const response = await request.post(
+      `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/guesses`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { submittedName },
+      },
+    )
+    expect(response.ok(), `submit guess failed: ${response.status()}`).toBeTruthy()
+    return response.json()
+  }
+
   async function signUpNewPlayer(page: Page): Promise<void> {
     const email = `test-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
 
@@ -100,6 +142,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
     await page.getByLabel('Password').fill('password123')
+    await page.getByLabel('Display name').fill('Test Player')
     await page.getByLabel(/at least 16 years old/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
   }
@@ -188,5 +231,67 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText('Wrong Guess Number Two')).toBeVisible()
     await expect(cell.getByText('no attempts left')).toBeVisible()
     await expect(cell).toBeDisabled()
+  })
+
+  // S-011 (docs/backlog.md): REQ-204 (denominator = correct guesses only,
+  // one per player)/REQ-205 (score locking)/REQ-206 (total score)/REQ-401
+  // (global league auto-membership). Two players each correctly guess a
+  // *different* one of the cell's two valid answers (REQ-807's seed now
+  // provides two) — each is the sole correct guesser of their own answer,
+  // so REQ-204's uniqueness splits 50/50 and both lock in at 50 points
+  // (ScoringRules.MaxPointsPerCell = 100) once force-closed, never the 0 or
+  // 100 a version that (incorrectly) counted incorrect/burned guesses in
+  // the denominator would produce.
+  test('REQ-204/205/206/401: two players guess, force-close locks scores, the global leaderboard shows the locked totals', async ({
+    page,
+    request,
+  }) => {
+    const seed = await seedFreshRound(request)
+    // A short unique tag (not just the email) — repeated local runs against
+    // a persisted dev DB would otherwise accumulate multiple "Leaderboard
+    // Alex" rows and break the row locators' strict-mode single-match
+    // requirement below. ci.yml's Postgres container is fresh per run, so
+    // this only matters for local reruns, same reasoning as the email
+    // suffix already used elsewhere in this file.
+    const tag = Math.random().toString(36).slice(2, 8)
+    const playerAEmail = `test-leaderboard-a-${Date.now()}-${tag}@test.invalid`
+    const playerBEmail = `test-leaderboard-b-${Date.now()}-${tag}@test.invalid`
+    const playerADisplayName = `Alex ${tag}`
+    const playerBDisplayName = `Sam ${tag}`
+
+    const playerAToken = await signUpAndLoginViaApi(request, playerAEmail, playerADisplayName)
+    const playerBToken = await signUpAndLoginViaApi(request, playerBEmail, playerBDisplayName)
+
+    const guessA = await submitGuessViaApi(
+      request, playerAToken, seed.roundId, seed.cellId, seed.correctPlayerName,
+    )
+    expect(guessA.isCorrect).toBe(true)
+    const guessB = await submitGuessViaApi(
+      request, playerBToken, seed.roundId, seed.cellId, seed.alternateCorrectPlayerName,
+    )
+    expect(guessB.isCorrect).toBe(true)
+
+    const closeResponse = await request.post(
+      `${API_BASE_URL}/internal/test-data/force-close-round/${seed.roundId}`,
+    )
+    expect(closeResponse.ok(), `force-close-round failed: ${closeResponse.status()}`).toBeTruthy()
+
+    // View the leaderboard as Player A, through the real UI (not the API) —
+    // this is the one part of the scenario SCREEN-03 itself needs to prove.
+    await page.goto('/')
+    await page.getByLabel('Email').fill(playerAEmail)
+    await page.getByLabel('Password').fill('password123')
+    await page.getByRole('button', { name: 'Log in' }).click()
+    await page.getByRole('button', { name: 'Leaderboard' }).click()
+
+    const rowA = page.getByRole('listitem').filter({ hasText: playerADisplayName })
+    await expect(rowA).toBeVisible()
+    await expect(rowA.getByText('50 pts')).toBeVisible()
+    await expect(rowA.getByText('you')).toBeVisible()
+
+    const rowB = page.getByRole('listitem').filter({ hasText: playerBDisplayName })
+    await expect(rowB).toBeVisible()
+    await expect(rowB.getByText('50 pts')).toBeVisible()
+    await expect(rowB.getByText('you')).not.toBeVisible()
   })
 })

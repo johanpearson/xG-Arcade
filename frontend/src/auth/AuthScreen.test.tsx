@@ -26,6 +26,7 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     expect(
@@ -35,10 +36,28 @@ describe('AuthScreen', () => {
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
 
+  it('REQ-401/404: blocks signup client-side without a display name, without calling the API', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByLabelText(/at least 16/));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByText('Choose a display name.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
   it('REQ-701: signs up, then auto-logs-in with the same credentials', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (String(url).endsWith('/auth/signup')) {
-        return jsonResponse({ id: 'user-1', email: 'player@example.com' }, 201);
+        return jsonResponse({ id: 'user-1', email: 'player@example.com', displayName: 'Player One' }, 201);
       }
       if (String(url).endsWith('/auth/login')) {
         return jsonResponse({ accessToken: 'token-abc', refreshToken: null });
@@ -53,6 +72,7 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
     await user.click(screen.getByLabelText(/at least 16/));
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 

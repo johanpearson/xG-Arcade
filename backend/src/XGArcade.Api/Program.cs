@@ -7,9 +7,11 @@ using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
+using XGArcade.Api.Leagues;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
+using XGArcade.Core.Leagues;
 using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
 using XGArcade.Data;
@@ -41,6 +43,13 @@ if (args is ["migrate-and-seed"])
     // that column (or predates PlayerNameNormalizer's punctuation-stripping
     // fix) — see PlayerNormalizedFullNameBackfiller's own doc comment.
     await PlayerNormalizedFullNameBackfiller.BackfillAsync(migrationDbContext);
+    // S-011: backfills User.DisplayName for any row that predates that
+    // column — see UserDisplayNameBackfiller's own doc comment.
+    await UserDisplayNameBackfiller.BackfillAsync(migrationDbContext);
+    // S-011: backfills LeagueMembership for any User row that predates
+    // REQ-401's auto-enrollment-at-signup — see LeagueMembershipBackfiller's
+    // own doc comment.
+    await LeagueMembershipBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;
@@ -76,6 +85,13 @@ builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
+// COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)
+// and the global-leaderboard read path. ILeaderboardService also depends on
+// IGuessRepository (COMP-04, registered below) — DI resolves the dependency
+// graph regardless of registration order.
+builder.Services.AddScoped<ILeagueRepository, LeagueRepository>();
+builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+
 // COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
 // Service, per implementation-document.md §6a. No API-Football fallback
 // client yet — that's Tier 1 (ADR-0011). Not yet called from any endpoint;
@@ -97,8 +113,10 @@ builder.Services.AddScoped<IGameModule, GridGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 
 // COMP-03 (Core.Rounds) — S-008's round generation/scheduling (REQ-301) and
-// round-close (REQ-205's stub half; S-011 extends RoundCloseService with
-// real scoring once Guess/Core.Scoring exist).
+// round-close (EndTime pull-forward). RoundCloseService's REQ-205 score
+// locking is delegated to Core.Scoring's IScoreLockingService, registered
+// below — DI resolves the dependency graph regardless of registration
+// order, so the forward reference here is fine.
 builder.Services.AddSingleton(TimeProvider.System);
 // RoundDuration must be at least as long as the longest gap between two
 // consecutive generate-round.yml cron firings (Tue+Fri weekly: Fri->Tue is
@@ -116,9 +134,12 @@ builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
 builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 
-// COMP-04 (Core.Scoring) — S-009's guess submission (REQ-201/202/203/208/210).
+// COMP-04 (Core.Scoring) — S-009's guess submission (REQ-201/202/203/208/210)
+// and S-011's score locking (REQ-205, IScoreLockingService — Core.Rounds'
+// RoundCloseService calls this rather than computing scores itself).
 builder.Services.AddScoped<IGuessRepository, GuessRepository>();
 builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
+builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
 
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
@@ -264,6 +285,7 @@ app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
 app.MapRoundEndpoints();
 app.MapGuessEndpoints();
+app.MapLeaderboardEndpoints();
 
 app.Run();
 

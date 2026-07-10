@@ -139,6 +139,28 @@ Live uniqueness on read; round-close job locks `final_*` fields and blocks
 further guesses; total score; global-leaderboard endpoint + SCREEN-03.
 *Accept:* REQ204/205/206-named tests; E2E: two users guess, REQ-806's
 force-close endpoint ends the round, leaderboard shows locked totals. *Deps:* S-010.
+**Built as:** matches the plan closely, plus one deliberate scope addition
+and one acknowledged gap. `UniquenessCalculator`/`ScoreLockingService`/
+`ScoreCalculator` (`XGArcade.Core.Scoring`) and `ILeaderboardService`
+(`XGArcade.Core.Leagues`, COMP-02's first real code) implement REQ-204/
+205/206/401 as scoped. Added, not originally planned: a required
+`User.DisplayName` field collected at signup (`AuthController.Signup`,
+`AuthScreen.tsx`), so the leaderboard never has to show another player's
+email — this was a deliberate, explicitly-confirmed scope decision, not a
+silent expansion (touches REQ-401/404/701; see
+`docs/legal/privacy-policy-draft.md`). REQ-807's seeding endpoint was
+extended (not replaced) to seed a second valid player per cell
+(`AlternateCorrectPlayerName` in the response) so two players could each
+score a different correct answer for a meaningful REQ-204 uniqueness test.
+An architecture-reviewer pass caught score-locking/leaderboard-aggregation
+logic initially living in the wrong components (inline in `Core.Rounds`/
+the API layer) and it was extracted into `Core.Scoring`/`Core.Leagues`
+before merge — no ADR needed, this was a fix, not a new structural
+decision. **Acknowledged gap, not fixed this story:** `GET
+/leagues/global/leaderboard` returns every league member unbounded — REQ-
+607's pagination clause is not met; see that REQ's status note for the
+explicit revisit trigger. Custom leagues (REQ-402/403) remain unbuilt, as
+planned.
 
 ## Epic 4 — Playable-release hardening (still Tier 0)
 

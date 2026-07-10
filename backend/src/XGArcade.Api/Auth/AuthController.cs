@@ -12,7 +12,10 @@ namespace XGArcade.Api.Auth;
 // runs with Supabase's "confirm email" requirement turned off.
 [ApiController]
 [Route("auth")]
-public class AuthController(ISupabaseAuthClient authClient, IUserRepository userRepository) : ControllerBase
+public class AuthController(
+    ISupabaseAuthClient authClient,
+    IUserRepository userRepository,
+    ILeagueRepository leagueRepository) : ControllerBase
 {
     [HttpPost("signup")]
     public async Task<IActionResult> Signup([FromBody] SignupRequest request, CancellationToken cancellationToken)
@@ -25,6 +28,18 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
             return Problem(
                 title: "Age confirmation required",
                 detail: "You must confirm you are at least 16 years old to create an account.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // REQ-401/404: DisplayName is what a leaderboard shows another
+        // player instead of their email — required, same "checked before
+        // any call to Supabase" discipline as the age checkbox above.
+        var displayName = request.DisplayName.Trim();
+        if (string.IsNullOrEmpty(displayName) || displayName.Length > 30)
+        {
+            return Problem(
+                title: "Display name required",
+                detail: "Display name must be between 1 and 30 characters.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -44,11 +59,18 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
             // Success = true without AuthProviderUserId set.
             AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
             Email = request.Email,
+            DisplayName = displayName,
             EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
             CreatedAt = DateTime.UtcNow,
         }, cancellationToken);
 
-        return CreatedAtAction(nameof(Me), null, new SignupResponse(user.Id, user.Email));
+        // REQ-401: "requires no action from the user" — done automatically
+        // here, right after the local User row exists, never left to a
+        // separate step the player (or a caller of this endpoint) could skip.
+        var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
+        await leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id, cancellationToken);
+
+        return CreatedAtAction(nameof(Me), null, new SignupResponse(user.Id, user.Email, user.DisplayName));
     }
 
     [HttpPost("login")]
@@ -89,6 +111,6 @@ public class AuthController(ISupabaseAuthClient authClient, IUserRepository user
             return NotFound();
         }
 
-        return Ok(new MeResponse(user.Id, user.Email, user.EmailConfirmed));
+        return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed));
     }
 }

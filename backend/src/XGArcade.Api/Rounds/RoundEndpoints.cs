@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Scoring;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
 
@@ -56,18 +57,39 @@ public static class RoundEndpoints
             var guesses = await guessRepository.GetByRoundAndUserAsync(round.Id, user.Id, cancellationToken);
             var guessByCellId = guesses.ToDictionary(g => g.CellId);
 
+            // REQ-204: live unique_percent, recalculated on every read. Only
+            // fetched for cells this player has actually solved — an
+            // unattempted or still-incorrect cell has nothing to show yet.
+            var correctlyGuessedCellIds = guesses.Where(g => g.IsCorrect).Select(g => g.CellId).ToList();
+            var correctGuessesByCell = correctlyGuessedCellIds.Count == 0
+                ? new Dictionary<Guid, List<Guess>>()
+                : (await guessRepository.GetCorrectByCellIdsAsync(correctlyGuessedCellIds, cancellationToken))
+                    .GroupBy(g => g.CellId)
+                    .ToDictionary(group => group.Key, group => group.ToList());
+
             var cells = instance.Cells
                 .OrderBy(c => c.Row).ThenBy(c => c.Col)
                 .Select(cell =>
                 {
                     guessByCellId.TryGetValue(cell.Id, out var guess);
-                    var guessResponse = guess is null
-                        ? null
-                        : new CurrentRoundGuessResponse(
+                    CurrentRoundGuessResponse? guessResponse = null;
+                    if (guess is not null)
+                    {
+                        // Safe: only correct guesses land in
+                        // correctGuessesByCell, and a correct ScoreResult
+                        // always sets PlayerAnswerId (ScoreResult's own doc
+                        // comment).
+                        double? uniquePercent = guess.IsCorrect
+                            ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
+                            : null;
+
+                        guessResponse = new CurrentRoundGuessResponse(
                             guess.IsCorrect,
                             guess.AttemptCount,
                             guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
-                            guess.SubmittedName);
+                            guess.SubmittedName,
+                            uniquePercent);
+                    }
 
                     return new CurrentRoundCellResponse(
                         cell.Id,
@@ -106,4 +128,7 @@ public record CurrentRoundCellResponse(
     string ColCategoryValue,
     CurrentRoundGuessResponse? Guess);
 
-public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName);
+// UniquePercent (REQ-204) is null until the guess is correct — an
+// incorrect guess has no answer to measure rarity against, and it is
+// re-derived on every request (never persisted) until the round closes.
+public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, double? UniquePercent);

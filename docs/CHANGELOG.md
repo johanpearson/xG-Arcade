@@ -13,6 +13,75 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10 — docs/requirements-document.md (version 0.28 → 0.29),
+  docs/architecture-document.md (version 0.21 → 0.22),
+  docs/implementation-document.md (version 0.30 → 0.31),
+  docs/legal/privacy-policy-draft.md (version 0.3 → 0.4), docs/backlog.md
+  (S-011 entry) — doc sync for S-011 (Scoring + leaderboard, REQ-204/205/
+  206/401). REQ-204: status flipped to Implemented — `UniquenessCalculator`
+  (`XGArcade.Core.Scoring`) now backs a live `UniquePercent` on `GET
+  /rounds/current`. REQ-205: status updated to reflect `IScoreLockingService`
+  /`ScoreLockingService` locking `FinalUniquenessScore`/`FinalPoints` at
+  round close (still no production scheduling job — that gap remains).
+  REQ-206: added an explicit status note recording a real, non-regression
+  gap — `ScoreCalculator.CalculateTotalPoints` is correct and tested, but
+  there is nowhere to view one round's total distinctly from the
+  leaderboard's all-time running total (no past-round-detail screen yet).
+  REQ-401: added a status note (COMP-02/Core.Leagues' first real code —
+  auto-enrollment at signup via `ILeagueRepository`). REQ-404: added a
+  status note (global league only; unbounded response, see REQ-607).
+  REQ-607: added a status note recording the leaderboard's unbounded
+  response as a real, acknowledged (not tiered-out) gap against its own
+  pagination clause, with an explicit revisit trigger — flagged by an
+  architecture-reviewer pass, deliberately not fixed this story. REQ-701:
+  added a `DisplayName` (1-30 chars) acceptance criterion and updated its
+  status note — this is a deliberate, explicitly-confirmed scope addition
+  (not a silent expansion) so the leaderboard never has to show another
+  player's email. REQ-807: recorded its extension (`AlternateCorrectPlayerName`
+  in the seed response, needed for a meaningful REQ-204 uniqueness test).
+  Fixed a real pre-existing bug in implementation-document.md §6's
+  "Uniqueness score" pseudocode, unrelated to new drift from this story:
+  the `totalGuesses`/`sameAnswer` denominator/numerator still counted ALL
+  guesses including incorrect ones, the exact bug
+  review-2026-07-07-design.md finding 2 already fixed in the real
+  implementation and in REQ-204's own prose — this one pseudocode block
+  had just never been updated to match; now reads `WHERE ... AND IsCorrect
+  = true`. Recorded `MAX_POINTS_PER_CELL = 100`
+  (`ScoringRules.MaxPointsPerCell`) as the resolved Tier 0 default for a
+  previously-unspecified placeholder. Updated the "Leaderboard pagination"
+  section with a Tier 0 status note (built: the aggregation query, for the
+  global league only, unpaginated; not built: the `{leagueId}` route and
+  cursor/offset pagination itself). Added a `User.DisplayName` field and a
+  `League` filtered-unique-index row to the data model/required-indexes
+  sections, and a `/leaderboard` line to the frontend project-structure
+  tree. architecture-document.md: added a "COMP-02 status (S-011)" note
+  mirroring COMP-04's own S-009 note, updated COMP-04's status note to
+  describe the now-built uniqueness/score-locking code (including that an
+  architecture-reviewer pass caught this logic initially misplaced in
+  `Core.Rounds`/the API layer and had it extracted before merge — no new
+  ADR needed, this was a fix, not a new structural decision), updated
+  §6.2's data-flow diagram caveats (the "not built... deferred to S-011"
+  bullets for REQ-204's live-read and REQ-205's round-close-lock are now
+  stale and were corrected to describe what's actually built, including
+  one new attribution note: the live-uniqueness read happens on a separate
+  `GET /rounds/current` request, not inline in the guess-submission
+  response), and added a new §6.2a data-flow diagram for the
+  signup-auto-enrollment and global-leaderboard-read flows (REQ-401/404),
+  which had no diagram before. docs/legal/privacy-policy-draft.md: added
+  DisplayName under "what we collect" and a new "Other players" bullet
+  under "who we share it with" — display names (never email addresses) are
+  now visible to every other player on the leaderboard, a new
+  visible-to-third-parties-shaped exposure this draft needs to reflect.
+  docs/backlog.md: updated S-011's entry with a "Built as:" note (mirroring
+  S-010's own) covering the DisplayName addition, the REQ-807 extension,
+  the architecture-reviewer extraction fix, and the REQ-607 gap; confirmed
+  S-010's entry needed no change (it doesn't reference the old
+  single-player seed-response shape). No new ADR: the
+  architecture-reviewer-flagged component misplacement was fixed by
+  extraction, not documented as a permanent decision, so ADR-0001/0002/
+  0003/0007/0014/0015/0016 remain accurate as-is. REQ-204/205/206/401/404/
+  607/701/807.
+
 - 2026-07-10 — docs/decisions/0017-supabase-jwks-validation.md (new),
   docs/architecture-document.md (§6.4 auth-flow status note, §10 ADR
   table), docs/implementation-document.md (JWT validation specifics),

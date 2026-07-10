@@ -12,6 +12,9 @@ export interface CurrentRoundGuess {
   attemptCount: number;
   locked: boolean;
   submittedName: string;
+  // REQ-204: null until the guess is correct — re-derived on every request,
+  // not persisted, until the round closes.
+  uniquePercent: number | null;
 }
 
 export interface CurrentRoundCell {
@@ -42,9 +45,22 @@ export interface SubmitGuessResponse {
 export interface SignupResponse {
   id: string;
   email: string;
+  displayName: string;
 }
 
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string | null;
+}
+
+// SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).
+export interface LeaderboardRow {
+  userId: string;
+  displayName: string;
+  totalPoints: number;
+  isRequestingUser: boolean;
+}
+
+export interface LeaderboardResponse {
+  rows: LeaderboardRow[];
 }
