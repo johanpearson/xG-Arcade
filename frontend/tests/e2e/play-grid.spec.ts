@@ -59,9 +59,18 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   // only way to discover one) until none remains. A throwaway probe account
   // is used purely to read that endpoint, never to submit guesses.
   async function clearAnyExistingActiveRound(request: APIRequestContext): Promise<void> {
-    const email = `test-probe-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
+    // REQ-701 (S-017): a hardcoded "Probe" display name only ever avoided
+    // colliding by relying on ci.yml's Postgres service container being
+    // fresh per run — repeating this suite locally against the same
+    // long-lived dev DB (this file already accounts for that possibility
+    // elsewhere, see the comment above) would hit REQ-701's uniqueness
+    // check on the second run and silently mint a token for a User row
+    // that was never created (LocalE2EAuthClient's login never checks the
+    // DB), surfacing as a confusing 401 further down rather than here.
+    const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const email = `test-probe-${tag}@test.invalid`
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', confirmPassword: 'password123', displayName: 'Probe', ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName: `Probe ${tag}`, ageConfirmed: true },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
       data: { email, password: 'password123' },
@@ -150,14 +159,21 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   }
 
   async function signUpNewPlayer(page: Page): Promise<void> {
-    const email = `test-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
+    // REQ-701 (S-017): display names are now unique, so this suite's two
+    // separate signUpNewPlayer calls (one per test, serial mode) can't
+    // share a hardcoded name the way the email already avoids sharing an
+    // address — same compact tag drives both. Kept short (base-36
+    // timestamp + a few random chars) since DisplayName has a 30-character
+    // cap and "Test Player " alone is already 12 of those.
+    const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const email = `test-${tag}@test.invalid`
 
     await page.goto('/')
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
     await page.getByLabel('Password', { exact: true }).fill('password123')
     await page.getByLabel('Confirm password').fill('password123')
-    await page.getByLabel('Display name').fill('Test Player')
+    await page.getByLabel('Display name').fill(`Test Player ${tag}`)
     await page.getByLabel(/at least 16 years old/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
   }
