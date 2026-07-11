@@ -29,11 +29,17 @@ public class User
             // deliberate decision against reshaping this into a
             // username-style field. Kept in lockstep the same way
             // Player.NormalizedFullName tracks Player.FullName.
-            NormalizedDisplayName = value.ToLowerInvariant();
+            NormalizedDisplayName = NormalizeCase(value);
         }
     }
 
     public string NormalizedDisplayName { get; private set; } = string.Empty;
+
+    // The one place "case-insensitive" is defined for DisplayName —
+    // UserRepository.DisplayNameExistsAsync calls this too, so the setter
+    // above and that pre-check can never quietly disagree on what counts as
+    // a match.
+    public static string NormalizeCase(string displayName) => displayName.ToLowerInvariant();
 
     // Mirrors Supabase Auth's confirmed state; see REQ-702 (deferred — Tier
     // 0 has confirm-email off, so this is always true at creation for now).

@@ -211,6 +211,37 @@ public class AuthEndpointTests
         Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
     }
 
+    // REQ-701's uniqueness check runs against the already-trimmed
+    // DisplayName (see Signup's existing `request.DisplayName.Trim()`), so a
+    // leading/trailing-whitespace variant of an existing name must still be
+    // caught as a collision — not treated as a distinct name.
+    [Test]
+    public async Task REQ701_Signup_BlockedWhenDisplayNameMatchesExistingUserAfterTrimming()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "existing-name-owner-4@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("new-signup-untrimmed@example.com", "a-reasonable-password", "a-reasonable-password", "  Test Player  ", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
     [Test]
     public async Task REQ701_Signup_LeavesExistingUsersDisplayNameUnchanged_AfterFailedCollidingSignup()
     {

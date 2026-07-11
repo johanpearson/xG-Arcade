@@ -15,7 +15,7 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
 
     public async Task<bool> DisplayNameExistsAsync(string displayName, CancellationToken cancellationToken = default)
     {
-        var normalized = displayName.ToLowerInvariant();
+        var normalized = User.NormalizeCase(displayName);
         return await dbContext.Users.AsNoTracking().AnyAsync(u => u.NormalizedDisplayName == normalized, cancellationToken);
     }
 

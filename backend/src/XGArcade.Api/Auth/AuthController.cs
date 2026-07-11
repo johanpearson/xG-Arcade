@@ -15,7 +15,8 @@ namespace XGArcade.Api.Auth;
 public class AuthController(
     ISupabaseAuthClient authClient,
     IUserRepository userRepository,
-    ILeagueRepository leagueRepository) : ControllerBase
+    ILeagueRepository leagueRepository,
+    ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("signup")]
     public async Task<IActionResult> Signup([FromBody] SignupRequest request, CancellationToken cancellationToken)
@@ -44,20 +45,6 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // REQ-701: uniqueness is case-insensitive only — spaces and
-        // formatting stay exactly as entered, no username-style reshaping.
-        // Checked before Supabase Auth is ever called, same discipline as
-        // the checks above; the DB's own unique index (UserRepository
-        // .AddAsync) is the race-safety net behind this check, not the
-        // primary mechanism.
-        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken))
-        {
-            return Problem(
-                title: "Display name already in use",
-                detail: "That display name is already taken. Please choose another.",
-                statusCode: StatusCodes.Status409Conflict);
-        }
-
         // REQ-701: signup cannot proceed without the checkbox — checked
         // before any call to Supabase, so an unchecked box never creates an
         // identity anywhere.
@@ -67,6 +54,18 @@ public class AuthController(
                 title: "Age confirmation required",
                 detail: "You must confirm you are at least 16 years old to create an account.",
                 statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // REQ-701: uniqueness is case-insensitive only — spaces and
+        // formatting stay exactly as entered, no username-style reshaping.
+        // Checked before Supabase Auth is ever called, same discipline as
+        // the checks above (ordered last among the free, local-only checks
+        // since it's the only one that costs a DB round trip); the DB's own
+        // unique index (UserRepository.AddAsync) is the race-safety net
+        // behind this check, not the primary mechanism.
+        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken))
+        {
+            return DisplayNameConflictProblem();
         }
 
         var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, cancellationToken);
@@ -93,15 +92,16 @@ public class AuthController(
                 CreatedAt = DateTime.UtcNow,
             }, cancellationToken);
         }
-        catch (DisplayNameAlreadyInUseException)
+        catch (DisplayNameAlreadyInUseException ex)
         {
             // The check above raced with another signup for the same
             // display name and lost — same clear error either way, never a
-            // raw 500 from the DB's constraint violation.
-            return Problem(
-                title: "Display name already in use",
-                detail: "That display name is already taken. Please choose another.",
-                statusCode: StatusCodes.Status409Conflict);
+            // raw 500 from the DB's constraint violation. Logged (coding-
+            // guidelines.md: "log the full exception server-side") since
+            // this is otherwise invisible — DisplayNameExistsAsync's own
+            // pre-check already returned false moments earlier.
+            logger.LogWarning(ex, "Signup lost a race on display name uniqueness.");
+            return DisplayNameConflictProblem();
         }
 
         // REQ-401: "requires no action from the user" — done automatically
@@ -153,4 +153,13 @@ public class AuthController(
 
         return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed));
     }
+
+    // Shared by both places REQ-701's uniqueness rule can reject a signup —
+    // the pre-check and the DB-constraint race fallback — so both give the
+    // caller the exact same 409 shape.
+    private ObjectResult DisplayNameConflictProblem() =>
+        Problem(
+            title: "Display name already in use",
+            detail: "That display name is already taken. Please choose another.",
+            statusCode: StatusCodes.Status409Conflict);
 }
