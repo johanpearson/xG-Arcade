@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.30"
+version: "0.31"
 status: draft
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -854,15 +854,21 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
-- **Status: Partially implemented (Tier 0, S-004/S-011).** The 16+ checkbox
-  clause below is built and enforced server-side (`POST /auth/signup`
-  rejects the request with 400 before ever calling Supabase Auth if the
-  checkbox is false) — see ADR-0013 (backend-mediated signup/login) and
-  `MVP-SCOPE.md`. As of S-011, the DisplayName clause below is also built
-  and enforced server-side (`AuthController.Signup` rejects with 400 if
-  `DisplayName` is empty or over 30 characters, before Supabase Auth is
+- **Status: Partially implemented (Tier 0, S-004/S-011/S-016).** The 16+
+  checkbox clause below is built and enforced server-side (`POST
+  /auth/signup` rejects the request with 400 before ever calling Supabase
+  Auth if the checkbox is false) — see ADR-0013 (backend-mediated
+  signup/login) and `MVP-SCOPE.md`. As of S-011, the DisplayName clause
+  below is also built and enforced server-side (`AuthController.Signup`
+  rejects with 400 if `DisplayName` is empty or over 30 characters, before
+  Supabase Auth is ever called) and client-side (`AuthScreen.tsx` blocks
+  submission with "Choose a display name." without calling the API at
+  all). As of S-016, the confirm-password clause below is also built and
+  enforced the same way: server-side (`AuthController.Signup` rejects with
+  400, "Passwords do not match", if `ConfirmPassword != Password`, checked
+  before the DisplayName/AgeConfirmed checks and before Supabase Auth is
   ever called) and client-side (`AuthScreen.tsx` blocks submission with
-  "Choose a display name." without calling the API at all). The
+  "Passwords do not match." without calling the API at all). The
   password-policy clause (§5's "Decisions made as sensible technical
   defaults") and the account-enumeration-safe error message are not yet
   implemented; Supabase Auth's own error responses are currently passed
@@ -871,6 +877,9 @@ match with no attribute data and budget exhausted → fails closed), API
   behavior.
 - Given a person provides an email address and a password meeting the
   platform's password policy
+- And they confirm the password by re-entering it in a second field, which
+  must match exactly — a mismatch blocks signup with a clear error
+  ("Passwords do not match") before Supabase Auth is ever called
 - And a display name between 1 and 30 characters — this is the only
   identity a leaderboard (REQ-401/404) ever shows another player; the
   account's email address is never shown to other players

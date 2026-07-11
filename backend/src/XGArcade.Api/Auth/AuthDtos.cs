@@ -4,8 +4,10 @@ namespace XGArcade.Api.Auth;
 // rejected before Supabase Auth is ever called — see ADR-0013. DisplayName
 // (added S-011, REQ-401/404) is the only identity a leaderboard ever shows
 // another player — collected here rather than derived from Email so a
-// public leaderboard never has to expose an email address.
-public record SignupRequest(string Email, string Password, string DisplayName, bool AgeConfirmed);
+// public leaderboard never has to expose an email address. ConfirmPassword
+// (added S-016) must match Password or signup is rejected the same way,
+// before Supabase Auth is ever called.
+public record SignupRequest(string Email, string Password, string ConfirmPassword, string DisplayName, bool AgeConfirmed);
 
 public record SignupResponse(Guid Id, string Email, string DisplayName);
 

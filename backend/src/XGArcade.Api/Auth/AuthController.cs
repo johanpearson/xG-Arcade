@@ -20,6 +20,30 @@ public class AuthController(
     [HttpPost("signup")]
     public async Task<IActionResult> Signup([FromBody] SignupRequest request, CancellationToken cancellationToken)
     {
+        // REQ-701: confirm-password must match before Supabase Auth is ever
+        // called — same "checked before any call to Supabase" discipline as
+        // the age checkbox and DisplayName checks below. Checked first,
+        // matching AuthScreen.tsx's client-side check order.
+        if (request.Password != request.ConfirmPassword)
+        {
+            return Problem(
+                title: "Passwords do not match",
+                detail: "Password and confirm password must match.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // REQ-401/404: DisplayName is what a leaderboard shows another
+        // player instead of their email — required, same "checked before
+        // any call to Supabase" discipline as the confirm-password check above.
+        var displayName = request.DisplayName.Trim();
+        if (string.IsNullOrEmpty(displayName) || displayName.Length > 30)
+        {
+            return Problem(
+                title: "Display name required",
+                detail: "Display name must be between 1 and 30 characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         // REQ-701: signup cannot proceed without the checkbox — checked
         // before any call to Supabase, so an unchecked box never creates an
         // identity anywhere.
@@ -28,18 +52,6 @@ public class AuthController(
             return Problem(
                 title: "Age confirmation required",
                 detail: "You must confirm you are at least 16 years old to create an account.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        // REQ-401/404: DisplayName is what a leaderboard shows another
-        // player instead of their email — required, same "checked before
-        // any call to Supabase" discipline as the age checkbox above.
-        var displayName = request.DisplayName.Trim();
-        if (string.IsNullOrEmpty(displayName) || displayName.Length > 30)
-        {
-            return Problem(
-                title: "Display name required",
-                detail: "Display name must be between 1 and 30 characters.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 

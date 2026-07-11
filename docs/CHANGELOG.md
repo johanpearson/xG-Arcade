@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — doc-sync for S-016 (branch claude/story-s-016-t31r8j, commit
+  08ab8b2): requirements-document.md (REQ-701) — added the confirm-password
+  Given/When/Then clause to the acceptance criteria and updated the status
+  note to record it as built and enforced both server-side
+  (`AuthController.Signup`, checked before the DisplayName/AgeConfirmed
+  pre-checks and before Supabase Auth is ever called, same discipline as
+  ADR-0013) and client-side (`AuthScreen.tsx`), matching the existing
+  age-checkbox/DisplayName pattern; version 0.30 → 0.31. backlog.md — added
+  a "Built as:" note to S-016 summarizing the implementation (matches the
+  plan exactly, no deviations) since this wasn't done during
+  implementation. architecture-document.md and implementation-document.md
+  checked against the diff and left unedited: `ConfirmPassword` is a
+  request-only DTO field, never persisted (same category as the existing
+  `AgeConfirmed` field, which neither doc mentions at the field level) —
+  unlike `DisplayName`, which is a persisted `User` column and is
+  documented in implementation-document.md's data model. No component,
+  boundary, or data-flow change; no new ADR — an architecture-reviewer pass
+  already confirmed this before this doc-sync ran. 220 backend / 39
+  frontend tests green. REQ-701.
+
 - 2026-07-11 — doc-sync for S-015 (branch claude/s-015-badge-dock-hs9b42,
   commits 23b889b/0e069ae): no docs edited this pass — checked
   requirements-document.md (REQ-204/205), architecture-document.md, and

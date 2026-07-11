@@ -15,6 +15,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -23,6 +24,13 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+
+    // REQ-701: signup is blocked client-side when the passwords don't
+    // match, not just relying on the server's 400.
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
 
     // REQ-401/404: signup is blocked client-side without a display name, not
     // just relying on the server's 400 — this is what a leaderboard shows
@@ -42,7 +50,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        await signup(email, password, displayName, ageConfirmed);
+        await signup(email, password, confirmPassword, displayName, ageConfirmed);
         // Tier 0 UX: auto-login with the same credentials rather than
         // forcing the player through the form twice.
         const { accessToken } = await login(email, password);
@@ -110,6 +118,23 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             disabled={submitting}
           />
         </label>
+
+        {mode === 'signup' && (
+          <label className="auth-screen__field">
+            <span>Confirm password</span>
+            {/* No native `required` here on purpose, same reasoning as the
+                age checkbox below — the JS check above shows a specific
+                message rather than the browser's generic validation popup,
+                which would otherwise block handleSubmit from running at all. */}
+            <input
+              type="password"
+              minLength={8}
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              disabled={submitting}
+            />
+          </label>
+        )}
 
         {mode === 'signup' && (
           <label className="auth-screen__field">

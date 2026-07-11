@@ -303,6 +303,19 @@ pre-checks in `AuthController.Signup`). Update REQ-701's acceptance
 criteria to include this clause.
 *Accept:* REQ701-named test: signup is rejected with mismatched
 confirm-password, without calling Supabase Auth. *Deps:* S-004.
+**Built as:** matches the plan exactly, no deviations. `SignupRequest`
+(`AuthDtos.cs`) gained `ConfirmPassword`; `AuthController.Signup` checks
+`Password != ConfirmPassword` first, before the existing DisplayName/
+AgeConfirmed pre-checks and before Supabase Auth is ever called, same
+"checked before Supabase" discipline as ADR-0013. `AuthScreen.tsx` adds a
+signup-only "Confirm password" field with a matching client-side check
+("Passwords do not match.") that blocks submission without calling the
+API. `REQ701_Signup_BlockedWithMismatchedConfirmPassword`
+(`AuthEndpointTests.cs`) and a matching Vitest case
+(`AuthScreen.test.tsx`) cover it; `tests/e2e/play-grid.spec.ts`'s signup
+step was updated to fill the new field so the existing E2E flow keeps
+passing. 220 backend / 39 frontend tests green. No new component or
+boundary — architecture-reviewer pass confirmed no ADR needed.
 
 **S-017 · Enforce display-name uniqueness (REQ-401/701)**
 Add a case-insensitive uniqueness constraint on `User.DisplayName` (DB

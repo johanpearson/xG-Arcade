@@ -61,7 +61,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   async function clearAnyExistingActiveRound(request: APIRequestContext): Promise<void> {
     const email = `test-probe-${Date.now()}-${Math.random().toString(36).slice(2)}@test.invalid`
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', displayName: 'Probe', ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName: 'Probe', ageConfirmed: true },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
       data: { email, password: 'password123' },
@@ -119,7 +119,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     displayName: string,
   ): Promise<string> {
     const signupResponse = await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', displayName, ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName, ageConfirmed: true },
     })
     expect(signupResponse.ok(), `signup failed: ${signupResponse.status()}`).toBeTruthy()
 
@@ -155,7 +155,8 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.goto('/')
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
-    await page.getByLabel('Password').fill('password123')
+    await page.getByLabel('Password', { exact: true }).fill('password123')
+    await page.getByLabel('Confirm password').fill('password123')
     await page.getByLabel('Display name').fill('Test Player')
     await page.getByLabel(/at least 16 years old/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
