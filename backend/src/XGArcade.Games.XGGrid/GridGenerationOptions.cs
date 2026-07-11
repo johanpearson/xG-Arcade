@@ -5,6 +5,6 @@ namespace XGArcade.Games.XGGrid;
 // branches don't need hundreds of iterations to exercise.
 public class GridGenerationOptions
 {
-    public int MinValidAnswers { get; set; } = 3;
+    public int MinValidAnswers { get; set; } = 5;
     public int MaxAttempts { get; set; } = 500;
 }
