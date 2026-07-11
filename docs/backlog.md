@@ -268,6 +268,33 @@ forward.
 
 **Tier 0 complete when S-013 passes.** Play it for a while before touching Tier 1.
 
+## Epic 5 — Post-launch tuning (Tier 0, found during play-testing)
+
+Findings from playing the completed Tier 0 build, triaged against
+`MVP-SCOPE.md`'s Tier 0/1 split on 2026-07-11 (see that session's
+discussion) — both items below tune or complete already-decided Tier 0
+scope, neither pulls Tier 1/2 complexity forward.
+
+**S-014 · Raise minimum valid answers per cell (REQ-101)**
+Live play testing found cells generated with only `MIN_VALID_ANSWERS`
+(default 3) matching players felt too thin. Raise the default to 5 in
+`GridGenerationOptions`; update REQ-101's acceptance text to match the new
+default.
+*Accept:* REQ101-named test asserts the new default; existing
+grid-generation unit tests updated for the new threshold. *Deps:* S-007.
+
+**S-015 · Badge-dock guess animation (SCREEN-01a, `design-document.md` §2)**
+Implement the "badge dock" slide-in animation already specified in
+`design-document.md` §2 (row/column badge slides inward and settles by the
+revealed player name) on a correct guess and on round-close reveal,
+including the already-specified `prefers-reduced-motion` fallback (a
+background color flash instead of the slide). This was part of the
+original design S-010 was scoped against but the animation itself was
+never built — closing that gap, not designing something new.
+*Accept:* Playwright/Vitest coverage confirms a correct guess triggers the
+animation (or its reduced-motion fallback); verified visually against
+`design-document.md`'s mock. *Deps:* S-010.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

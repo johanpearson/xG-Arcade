@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — docs/backlog.md (new Epic 5: S-014, S-015) — triaged a batch
+  of Tier 0 play-testing findings against `MVP-SCOPE.md`'s Tier 0/Tier 1
+  split. Two findings were genuine Tier 0 gaps and added as new backlog
+  stories: S-014 (raise `MIN_VALID_ANSWERS` default 3→5, REQ-101) and S-015
+  (build the already-designed but never-implemented "badge dock" guess
+  animation, `design-document.md` §2/SCREEN-01a). No Tier 1 trigger was
+  confirmed fired by this round of findings. The remaining findings (live
+  points display, reducing per-cell live text, an incorrect-guess
+  animation, a post-login game-selection landing page, selectable color
+  themes, display-name uniqueness/format, a signup repeat-password field)
+  were flagged as open product decisions, not scoped into any story —
+  requirements-document.md/design-document.md left otherwise unchanged
+  pending those decisions.
+
 - 2026-07-11 — doc-sync verification of the S-013 entry below:
   docs/design-document.md (wording only, no version change), docs/CHANGELOG.md
   (this entry's own section references), docs/backlog.md — three section/
