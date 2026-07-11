@@ -117,3 +117,171 @@ describe('CellState', () => {
     expect(screen.getByText('Guess submitted')).toBeInTheDocument();
   });
 });
+
+// S-015 (SCREEN-01a / design-document.md §2's "signature element: badge
+// dock"): the reveal animation is only ever triggered by a *transition*
+// observed while the component stays mounted (guess-submit, or round-close
+// while already correct) — never by directly mounting already in a correct
+// state (e.g. a page reload), and never for anything other than the two
+// "correct" states. useRevealToken is exercised here indirectly through
+// CellState's own rendered className/markup, the same black-box approach
+// the rest of this file already uses, rather than reaching into the hook.
+describe('CellState badge-dock reveal (S-015)', () => {
+  it('S-015: a guess-submit transition (incorrect+active -> correct+active) renders the docked badges and applies cell-state--reveal', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.queryByTestId('badge-dock-row')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
+
+    rerender(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).toBeInTheDocument();
+  });
+
+  it('S-015: mounting directly already correct+active (no prior incorrect render, e.g. a page reload) shows the badges already docked with no reveal class', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
+  });
+
+  it('S-015: a round-close transition while already correct (active -> closed) also applies cell-state--reveal', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
+
+    rerender(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="closed"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).toBeInTheDocument();
+  });
+
+  it('S-015: mounting directly already correct+closed (no prior active render, e.g. a page reload after the round closed) shows the badges already docked with no reveal class', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="closed"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
+  });
+
+  it('S-015: omitting the row/col category props entirely renders no badge-dock spans at all, even on a correct-guess transition (backward-compat)', () => {
+    const { rerender } = render(
+      <CellState playerName="Henry" isCorrect={false} attemptCount={1} locked={false} roundStatus="active" />,
+    );
+
+    rerender(<CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" />);
+
+    expect(screen.queryByTestId('badge-dock-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-col')).not.toBeInTheDocument();
+  });
+
+  it('S-015: an incorrect-state re-render (e.g. attempt count increasing, still incorrect) never applies cell-state--reveal or renders badge-dock spans', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    rerender(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    expect(screen.queryByTestId('badge-dock-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-col')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
+  });
+});

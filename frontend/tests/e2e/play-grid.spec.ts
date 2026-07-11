@@ -211,6 +211,16 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText(seed.correctPlayerName)).toBeVisible()
     await expect(cell.getByText('live')).toBeVisible()
     await expect(cell).toBeDisabled()
+
+    // S-015 (design-document.md §2's "signature element: badge dock"): once
+    // the correct guess is live, the row/column category badges are docked
+    // beside the revealed name. Only presence/visibility is asserted here —
+    // the slide-in animation itself (and its prefers-reduced-motion flash
+    // fallback) is covered by CellState.test.tsx's constructed-props unit
+    // tests, since asserting on an in-flight CSS animation here would be
+    // brittle/flaky.
+    await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
+    await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
   })
 
   // REQ-210's other lock path: locking after both attempts are used without
