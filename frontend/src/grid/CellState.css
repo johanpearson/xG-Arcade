@@ -29,7 +29,7 @@
 }
 
 .cell-state__icon--correct {
-  color: var(--color-accent-gold);
+  color: var(--color-accent-gold-text);
 }
 
 .cell-state__icon--incorrect {
@@ -47,7 +47,7 @@
 }
 
 .cell-state--correct .cell-state__meta {
-  color: var(--color-accent-gold);
+  color: var(--color-accent-gold-text);
 }
 
 .cell-state--incorrect .cell-state__meta {

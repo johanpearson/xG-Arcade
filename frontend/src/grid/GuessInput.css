@@ -100,7 +100,7 @@
   padding: var(--space-3) var(--space-4);
   border: none;
   border-radius: 8px;
-  background: var(--color-accent-green);
+  background: var(--color-accent-green-text);
   color: var(--color-surface-card);
   font-family: var(--font-body);
   font-weight: 600;

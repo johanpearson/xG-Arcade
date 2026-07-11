@@ -424,6 +424,72 @@ confirmed by writing a unit test that failed with 0 keys until
 Easy to get this wrong again if this code is ever rewritten from memory
 instead of copied.
 
+### 2026-07-11 — `play-grid.spec.ts` had never actually run against a real `WikidataClient` until S-013 (E2E timeouts sized for the wrong latency budget)
+
+Running the full local-stack E2E suite for real during S-013 (this sandbox
+has no Docker daemon, so Postgres 16 was started directly via
+`pg_ctlcluster 16 main start` instead of `ci.yml`'s service container — same
+schema/seed either way, `dotnet run ... migrate-and-seed` doesn't care) hit
+a real, previously-unverified failure: the "two wrong guesses" test's
+dialog-close assertion timed out at the default 5s. Backend unit tests
+mock `IWikidataLookupService`, so this was the first time this spec ever
+exercised a *real* `WikidataClient` making a *real* HTTP call — and
+ADR-0018 (REQ-211, merged after this spec was last touched) means every
+guess that misses cache now re-runs the cell's Wikidata query before the
+guess response returns. Confirmed directly with timed `curl` calls against
+the running API: a wrong guess took anywhere from 0.4s to 6s in this
+sandbox (`query.wikidata.org` is proxy-blocked here — sometimes a fast
+403, sometimes a slower "connection reset by peer" — so the actual cost
+observed is proxy-failure latency, not real Wikidata query time), not a
+hang or a deadlock. ADR-0011 already documents that a *real* reachable
+WDQS query can itself take 9-27s under load, and `WikidataClient`'s own
+timeout is 15s — so even against a real, working Wikidata endpoint, this
+test's 5s assumption was already wrong before this sandbox's specific
+network policy ever entered the picture. Fixed by widening only the
+assertions that follow a cache-missing guess to a 20s timeout and giving
+the whole spec file a 60s per-test timeout, rather than either loosening
+the global Playwright config (would mask genuinely-slow *other*
+assertions) or changing `GridGameModule`'s already-accepted ADR-0018
+behavior (revisiting a settled, reviewed decision is out of scope for a
+QA pass). **If a future story adds another E2E test that submits a guess
+that might miss cache, budget for ADR-0018's live-lookup cost explicitly**
+— don't assume the old cache-only latency still applies just because
+earlier specs got away with the default timeout (they did, but only by
+variously getting lucky or exercising cache hits, not because the
+assumption is actually safe). Separately, this also means every
+genuinely-wrong guess in *production* now costs one live Wikidata call
+before the player sees "incorrect" — ADR-0018's own "Consequences" section
+already accepted this trade-off, but didn't call out the concrete
+worst-case player-facing latency (up to ~27s per ADR-0011's own evidence);
+worth watching once real usage exists, and exactly the kind of thing
+ADR-0018's own "Follow-up" note (add `PlayerNameIndex` as a pre-filter
+purely for latency, if it's ever built) was anticipating.
+
+### 2026-07-11 — `accent-gold`/`accent-green` both fail WCAG contrast as text/icon color; darkened variants added (S-013)
+
+`design-document.md` §6 had flagged this as unverified since the doc's
+v0.2 rewrite ("gold in particular can run light-on-light if not
+deliberately darkened for text use") — S-013 finally computed it. WCAG
+relative-luminance contrast against `surface-card`/`#FFFFFF`:
+`accent-gold` (`#C99A2E`) ≈ 2.6:1 (fails even the 3:1 large-text/icon
+floor — this was painting `CellState`'s correct-cell checkmark and meta
+text directly), `accent-green` (`#1E9E63`) ≈ 3.4:1 (fails the 4.5:1
+normal-text floor — this was the white-on-green submit-button label color
+pair in both `GuessInput.css` and `AuthScreen.css`, and the leaderboard
+"you" tag's text color). `accent-red` (`#C4463C`) was already fine
+(≈4.9:1), no change needed. Added two darkened, same-hue tokens rather
+than editing the originals in place — `accent-green`/`accent-gold` still
+have real non-text uses (live-dot, focus ring, tab underline) that
+already clear the non-text 3:1 floor at their original, more saturated
+values, and darkening those in place would have been an unrequested
+visual change to things that were never broken. `accent-gold-text`
+(`#8D6C20`) ≈ 4.9:1, `accent-green-text` (`#187E4F`) ≈ 5.1:1 — both
+computed by scaling the original RGB toward black (preserves hue) until
+crossing 4.5:1 with a small margin, not picked by eye. **If a future
+screen needs gold or green as a text/icon/button-label color, use the
+`-text` variant, not the base token** — this project's contrast floor
+(design-document.md §6) treats this as load-bearing, not a nice-to-have.
+
 The exact JWKS path (`/auth/v1/.well-known/jwks.json`) was never verified
 against a live Supabase project from a dev sandbox — this sandbox's network
 policy blocks Supabase's API the same way it blocks `wikidata.org` (see the
