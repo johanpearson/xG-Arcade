@@ -29,7 +29,7 @@ footballers, used only for autocomplete/name matching.
 This creates a real gap: a player can submit a genuinely correct guess —
 someone who really does satisfy both of the cell's categories — who simply
 isn't in `PlayerAttribute` yet, because grid generation's minimum-match
-threshold (REQ-101, default 3) only needed to find *some* valid answers,
+threshold (REQ-101, default 5) only needed to find *some* valid answers,
 not catalog every one. Without a fix, REQ-203 would wrongly mark a correct
 guess as incorrect, which is a real trust problem, not an edge case to
 shrug off.

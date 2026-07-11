@@ -111,7 +111,7 @@ in Given/When/Then format, and the test level that primarily verifies it
 
 - Given an NxN grid is being generated with randomized categories per row/column
 - When the combination of a row and column category for a cell has fewer than
-  `MIN_VALID_ANSWERS` (configurable, default 3) matching players in the local cache
+  `MIN_VALID_ANSWERS` (configurable, default 5) matching players in the local cache
 - Then that combination is discarded and a new combination is randomized for that cell
 - And this repeats until all N×N cells are valid, or a maximum number of
   attempts (e.g. 500) is reached, at which point generation aborts and logs an error

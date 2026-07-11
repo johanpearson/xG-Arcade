@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — doc-sync for S-014 (commit 689bab5): docs/implementation-document.md
+  (version 0.33 → 0.34), docs/decisions/0010-guess-time-live-verification.md
+  (no frontmatter to bump) — fixed two remaining `MinValidAnswers`
+  default-value mentions (3 → 5, REQ-101) that the S-014 commit itself
+  missed (it had already updated `GridGenerationOptions.cs` and
+  requirements-document.md). Checked docs/architecture-document.md,
+  docs/backlog.md, and this file for other stale mentions: none found —
+  the remaining "default 3" references in docs/backlog.md and this file
+  are historical narrative describing the pre-change value, not stale
+  claims about current behavior, so left as-is. No component boundary or
+  data flow changed, so no ADR.
+
 - 2026-07-11 — docs/backlog.md (Epic 5 extended: S-021) — reconsidered the
   post-login game-selection landing page after re-checking it specifically
   for contradictions rather than just "is it in scope." No REQ/ADR

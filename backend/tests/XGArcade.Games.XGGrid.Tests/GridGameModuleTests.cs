@@ -217,6 +217,15 @@ public class GridGameModuleTests
     }
 
     [Test]
+    public void REQ101_GridGenerationOptions_DefaultsMinValidAnswersToFive()
+    {
+        var options = new GridGenerationOptions();
+
+        Assert.That(options.MinValidAnswers, Is.EqualTo(5));
+        Assert.That(options.MaxAttempts, Is.EqualTo(500), "S-014 only raised MinValidAnswers; MaxAttempts is unchanged");
+    }
+
+    [Test]
     public async Task GenerateInstanceAsync_UnknownTemplateId_ThrowsGridGenerationException()
     {
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
