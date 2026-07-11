@@ -191,11 +191,14 @@ query `PlayerData`/`PlayerOverride` directly — this keeps the
 override-precedence rule (REQ-501) enforced in exactly one place (see
 ADR-0015 for the exact precedence semantics that single place enforces).
 If a new game module needs a different kind of data store, that's a signal
-for an ADR, not a workaround. `GridGameModule.ScoreSubmissionAsync` (S-009)
-respects this rule: it reaches player data only through
-`IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
+for an ADR, not a workaround. `GridGameModule.ScoreSubmissionAsync` (S-009,
+extended S-011/ADR-0018) respects this rule: it reaches player data only
+through `IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
 `HasEffectiveAttributeAsync`, never a direct `PlayerAttribute`/
-`PlayerOverride` query.
+`PlayerOverride` query — and its REQ-211 live-lookup fallback reaches
+`IPlayerStoreRepository` only indirectly, through COMP-07's
+`IWikidataLookupService.LookupAndPersistAsync` (the same call
+`GenerateInstanceAsync` already makes), never bypassing it.
 
 **Boundary rule 2 (Round genericity):** `Core.Rounds` (COMP-03) must never
 hold a foreign key to a game-specific entity such as `GridInstance`. A
@@ -636,7 +639,7 @@ GitHub Actions → Production database: pg_dump (full export)
 | Cost | REQ-602 | Modular monolith avoids per-service hosting cost; cache-first data strategy avoids storage/API-call cost growth |
 | Extensibility | xG Arcade vision (multiple games) | `IGameModule` boundary isolates game-specific logic from Core |
 | Data integrity | REQ-501 | Single write path to PlayerData/PlayerOverride via COMP-06; override precedence enforced in one place |
-| Consistency of correctness | REQ-203 | Answer-checking always uses locally cached effective data, not a live external call, so mid-round changes to external sources can't shift correctness |
+| Consistency of correctness | REQ-203 | **Revised 2026-07-10 (ADR-0018):** answer-checking still tries locally cached effective data first, but a guess that doesn't resolve from cache now falls through to a live Wikidata call (REQ-211) before being scored incorrect. This trades away the original "no live external call, so mid-round changes to external sources can't shift correctness" guarantee — two guesses on the same cell within one round could theoretically see different live Wikidata state — in exchange for not wrongly rejecting genuinely correct guesses (the reported bug this ADR fixes). Judged acceptable: a live-fetched result is upserted immediately, so once fetched it becomes the new stable cached state for the rest of the round |
 
 ## 9. Deployment view
 
@@ -691,6 +694,7 @@ new ADR that references the old one.
 | ADR-0015 | A `PlayerOverride` replaces an entire attribute type, not one value within it | Accepted |
 | ADR-0016 | Read-only display queries against an already-generated instance may bypass `IGameModule` | Accepted |
 | ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
+| ADR-0018 | REQ-211 (guess-time live verification) implemented in Tier 0, without its `PlayerNameIndex` gate | Accepted (further revises ADR-0010's trigger condition) |
 
 ## 11. Glossary
 

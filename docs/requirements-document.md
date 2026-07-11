@@ -317,14 +317,16 @@ without erroring), API
   for the exact precedence semantics (an override replaces its entire
   attribute type, not one value within it). Correctness is determined and
   shown immediately, and a correct guess locks the cell immediately
-  (REQ-210), both as described below. What's not yet exercised: this check
-  only ever runs against candidates found by REQ-208's Tier 0-scoped name
-  matching (no alias table, no fuzzy tolerance — see REQ-208's own status
-  note) and never triggers REQ-211's live lookup (Tier 1, not built) — a
-  genuinely correct guess for a real player with no cached `PlayerAttribute`
-  data at all is currently scored incorrect, not looked up live. "0 points
-  regardless of uniqueness" isn't independently verifiable yet since point
-  computation itself doesn't exist until S-011.
+  (REQ-210), both as described below. This check only ever runs against
+  candidates found by REQ-208's Tier 0-scoped name matching (no alias
+  table, no fuzzy tolerance — see REQ-208's own status note). **As of the
+  2026-07-10 REQ-211 follow-up (ADR-0018), a guess that doesn't resolve
+  from cached data is no longer scored incorrect outright** — it now
+  triggers a Tier-0-simplified version of REQ-211's live lookup first (see
+  REQ-211's own status note for exactly what differs from the full spec);
+  only a guess that still doesn't resolve after that fallback is scored
+  incorrect. "0 points regardless of uniqueness" isn't independently
+  verifiable yet since point computation itself doesn't exist until S-011.
 - Given a guess for cell X
 - When the answer is checked against the effective data (an override always
   takes precedence over synced/unverified data)

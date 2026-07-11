@@ -490,6 +490,113 @@ public class GridGameModuleTests
     }
 
     [Test]
+    public async Task REQ211_ScoreSubmissionAsync_GenuinelyIncorrectGuess_LiveLookupFindsNoMatch_OnlyCallsLiveLookupOnce()
+    {
+        // ADR-0018: the fallback is a single re-run, never a loop/recursion —
+        // bounded by REQ-210's 2-attempts-per-cell cap, same as every other
+        // guess-time cost. Even when the re-run still can't answer the
+        // guess, LookupAndPersistAsync must be invoked exactly once for this
+        // cell's country/club pair, not retried further within the same call.
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_PlayerAlreadyCachedFromUnrelatedCell_LiveLookupFillsOnlyMissingCategory()
+    {
+        // The bug report's exact repro shape (ADR-0018): the guessed player
+        // is not new to the store — they already have this cell's ROW
+        // category (nationality) cached from an entirely unrelated
+        // country/club pairing (e.g. a different club cell for the same
+        // country) — but nothing yet confirms this cell's COLUMN category
+        // (club). This must be distinguished from "player doesn't exist at
+        // all yet": the live lookup's upsert (by WikidataQid) must find the
+        // existing player row and add only the missing club attribute,
+        // never create a duplicate Player.
+        SeedCountry("Argentina");
+        SeedClub("Barcelona");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Argentina", "Barcelona");
+        var messi = new Player { Id = Guid.NewGuid(), FullName = "Lionel Messi", WikidataQid = "Qmessi" };
+        _dbContext.Players.Add(messi);
+        // Cached from some other cell (e.g. Argentina x PSG) — confirms the
+        // row category alone, nothing about this cell's club.
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = messi.Id, AttributeType = "nationality", AttributeValue = "Argentina" });
+        await _dbContext.SaveChangesAsync();
+        _wikidataLookupService.SetMatches("Argentina", "Barcelona", [messi]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Lionel Messi"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live lookup must resolve a player who already exists with one category cached from an unrelated cell, " +
+            "not just a player who is entirely new to the store");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(messi.Id));
+        Assert.That(await _dbContext.Players.CountAsync(p => p.WikidataQid == "Qmessi"), Is.EqualTo(1),
+            "the live lookup upserts by WikidataQid — it must never create a duplicate Player row for a player already known");
+        Assert.That(await _playerStoreRepository.HasEffectiveAttributeAsync(messi.Id, "club", "Barcelona"), Is.True);
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_CellCategoryTypesNotCountryAndClub_SkipsLiveLookup_DoesNotThrow()
+    {
+        // RefreshCellFromLiveLookupAsync's guard: Tier 0's live fallback only
+        // knows how to re-run a Country x Club intersection query — any
+        // other pairing must gracefully skip the fallback (stay incorrect),
+        // never throw.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "SomeRow", "SomeCol", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Club);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () =>
+            result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Anyone")));
+
+        Assert.That(result!.IsCorrect, Is.False);
+        Assert.That(_wikidataLookupService.GetCallCount("SomeRow", "SomeCol"), Is.EqualTo(0),
+            "the live lookup must never be called for a pairing the fallback doesn't know how to refresh");
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_RowCategoryValueNotInReferenceTable_SkipsLiveLookup_DoesNotThrow()
+    {
+        // RefreshCellFromLiveLookupAsync's guard: a RowCategoryValue with no
+        // matching seeded CountryDefinition (shouldn't happen in practice,
+        // since grid generation only ever picks from that table — REQ-109)
+        // must still fail closed rather than throw.
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Wakanda", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () =>
+            result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Anyone")));
+
+        Assert.That(result!.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_ColCategoryValueNotInReferenceTable_SkipsLiveLookup_DoesNotThrow()
+    {
+        // Same guard as above, for the column/club side.
+        SeedCountry("France");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "PhantomClub");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () =>
+            result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Anyone")));
+
+        Assert.That(result!.IsCorrect, Is.False);
+    }
+
+    [Test]
     public void ScoreSubmissionAsync_UnknownInstanceId_ThrowsGuessScoringException()
     {
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);

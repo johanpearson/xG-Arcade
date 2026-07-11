@@ -73,6 +73,18 @@ Implement REQ-211's guess-time live lookup now, in Tier 0, **without** the
   attempt, rather than being filtered out before the network call. Judged
   acceptable given Wikidata's generous throttling model and REQ-210's
   2-attempt cap already bounding the worst case.
+- Negative / trade-offs accepted: this also revises a quality-attribute
+  guarantee `architecture-document.md` §8 previously stated for REQ-203 —
+  "answer-checking always uses locally cached effective data, not a live
+  external call, so mid-round changes to external sources can't shift
+  correctness." That's no longer strictly true: a guess that misses cache
+  can now trigger a live Wikidata call mid-round. Judged acceptable because
+  a live-fetched result is upserted immediately (same request), so once a
+  cell's answer key is refreshed it's stable cached data again for the
+  rest of the round — the risk window is one guess, not the whole round —
+  and the alternative (wrongly rejecting a genuinely correct guess) is the
+  actual bug this ADR exists to fix. §8's table row was updated in the same
+  iteration to state this explicitly rather than silently contradict it.
 - Follow-up: if `PlayerNameIndex` (REQ-207) is ever built for autocomplete,
   revisit whether to add it as a pre-filter here too, purely as a latency
   optimization — not required for correctness, since this fix's fallback

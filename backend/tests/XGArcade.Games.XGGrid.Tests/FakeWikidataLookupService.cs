@@ -32,13 +32,23 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     private const string ClubAttributeType = "club";
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
+    private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
 
+    // REQ-211's fallback must call this at most once per guess (bounded by
+    // REQ-210's attempt cap, ADR-0018) — exposed so a test can assert the
+    // fallback doesn't loop/recurse even when the re-run still finds nothing
+    // that answers the guess.
+    public int GetCallCount(string countryName, string clubName) =>
+        _callCounts.TryGetValue((countryName, clubName), out var count) ? count : 0;
+
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, CancellationToken cancellationToken = default)
     {
+        _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
+
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
 

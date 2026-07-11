@@ -3,8 +3,10 @@ using XGArcade.Data.Entities;
 namespace XGArcade.DataSync.Wikidata;
 
 // Orchestrates the "DataSync.Clients: live lookup -> Data.PlayerStore:
-// persist as unverified" arrow in architecture-document.md §6.1 — the part
-// of REQ-103 grid generation (S-007) will call on a cache miss.
+// persist as unverified" arrow in architecture-document.md §6.1/6.2 — called
+// by REQ-103 grid generation (S-007) on a cache miss, and by REQ-211's
+// guess-time fallback (S-011 follow-up, ADR-0018) when cached data doesn't
+// already answer a submitted guess.
 public interface IWikidataLookupService
 {
     // Returns the players persisted (new or already-known) for this
