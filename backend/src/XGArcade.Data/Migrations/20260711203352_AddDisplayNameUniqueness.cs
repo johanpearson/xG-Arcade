@@ -31,7 +31,10 @@ namespace XGArcade.Data.Migrations
             // then Id) with a short fragment of its own Id, which is
             // guaranteed unique. This is a one-time, irreversible rename of
             // whichever pre-existing rows collide, not a player-facing
-            // feature — Down() does not attempt to reverse it.
+            // feature — Down() does not attempt to reverse it. See ADR-0019
+            // for why an automatic silent rename was chosen over blocking
+            // the deploy for manual resolution, and its explicit revisit
+            // trigger once real users exist.
             migrationBuilder.Sql(
                 "UPDATE \"Users\" SET \"DisplayName\" = split_part(\"Email\", '@', 1) WHERE \"DisplayName\" = '';");
 
