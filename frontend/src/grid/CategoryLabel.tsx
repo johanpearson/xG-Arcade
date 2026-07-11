@@ -31,6 +31,9 @@ export function CategoryLabel({ categoryType, value, size = 'medium' }: Category
 // outside the cell (§6's "never the sole identifier" is satisfied there).
 export function CategoryGlyph({ categoryType, value, size = 'medium' }: CategoryGlyphProps) {
   return categoryType === 'country' ? (
+    // Flags don't take `size`: the emoji scales via ambient `1.1em` off
+    // whatever font-size its container sets (see CategoryLabel.css), unlike
+    // the club badge's fixed pixel circle, which needs a discrete variant.
     <FlagGlyph countryName={value} />
   ) : (
     <ClubBadge clubName={value} size={size} />

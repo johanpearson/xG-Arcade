@@ -107,6 +107,11 @@ export function CellState({
   // dot at all, regardless of correctness.
   if (roundStatus === 'closed') {
     return (
+      // key={revealToken}: this same div also renders for a cell that was
+      // already correct+live (state 1) before closing — reusing that DOM
+      // node would carry over its already-played cell-state--reveal
+      // animation instead of restarting it for *this* transition, so a
+      // fresh reveal forces a real remount rather than a class toggle.
       <div
         key={revealToken}
         className={`cell-state cell-state--final cell-state--${isCorrect ? 'correct' : 'incorrect'} ${
@@ -128,6 +133,9 @@ export function CellState({
   // but still "live" until round close (REQ-203/204).
   if (isCorrect) {
     return (
+      // key={revealToken}: forces a remount (not just a class toggle) so the
+      // slide-in/flash restarts on this specific guess-submit reveal, same
+      // reasoning as the closed-state branch below.
       <div
         key={revealToken}
         className={`cell-state cell-state--live cell-state--correct ${
