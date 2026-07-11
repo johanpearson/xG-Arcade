@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — docs/backlog.md (Epic 5 extended: S-021) — reconsidered the
+  post-login game-selection landing page after re-checking it specifically
+  for contradictions rather than just "is it in scope." No REQ/ADR
+  outright forbids it, but it sits in tension with REQ-303's own user
+  story ("open the app and see the current round's grid") and would break
+  the existing S-010 E2E flow (`play-grid.spec.ts`) that goes straight
+  from signup to the grid — both called out as required updates within
+  S-021's scope, not silently left inconsistent. No backend "list games"
+  endpoint needed (confirmed no `COMP-xx` for a game catalog exists) since
+  Tier 0 only ever has one game — S-021 is a static single-tile landing
+  screen, not new backend surface.
+
 - 2026-07-11 — docs/backlog.md (Epic 5 extended: S-016 through S-020) —
   follow-up to the same day's Tier 0 findings triage. Worked through the
   items previously flagged as open product decisions with the user; five

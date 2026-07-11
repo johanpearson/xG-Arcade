@@ -354,14 +354,30 @@ against undocumented animations).
 the animation (or its reduced-motion fallback). *Deps:* S-015 (build
 alongside the correct-guess animation work).
 
-**Left open, not scoped as stories this round:** a post-login
-game-selection landing page (nothing to select with only one game — revisit
-once a second game exists), a scheduled/proactive cache pre-warming job
-(no evidence on-demand fetching is a real problem yet — revisit if S-014's
-threshold bump makes grid generation struggle in practice), and selectable
-color themes/dark mode (design-document.md already tracks this as a
-deliberately unresolved open question — a reversal of the light-only v1
-direction deserves its own design session, not a quick story).
+**S-021 · Post-login game-selection landing page (REQ-303 UX addition)**
+Add a landing screen shown immediately after login/signup, before the
+grid: a single tile for xG Grid (the only game in Tier 0 — no backend
+"list games" endpoint needed, since Tier 0 only ever has one game; the
+tile is client-side static, keyed off the existing `GameKey="xg-grid"`
+constant already used elsewhere per COMP-05) that the player selects to
+enter SCREEN-01. Update REQ-303's user story/acceptance criteria to
+describe "open the app, select a game, see that game's current round"
+rather than the grid appearing immediately, and update the existing
+`play-grid.spec.ts` E2E flow (REQ-701/303/201/203/210) to add the
+selection step it currently skips.
+*Accept:* REQ303-named test: after login, the player lands on the
+game-selection screen, not the grid; selecting xG Grid navigates to
+SCREEN-01/`GET /rounds/current`. Existing S-010-era E2E flows updated to
+select xG Grid before interacting with the grid, still passing. *Deps:*
+S-010.
+
+**Left open, not scoped as stories this round:** a scheduled/proactive
+cache pre-warming job (no evidence on-demand fetching is a real problem
+yet — revisit if S-014's threshold bump makes grid generation struggle in
+practice), and selectable color themes/dark mode (design-document.md
+already tracks this as a deliberately unresolved open question — a
+reversal of the light-only v1 direction deserves its own design session,
+not a quick story).
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
