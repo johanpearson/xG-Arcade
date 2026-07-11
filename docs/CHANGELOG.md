@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — docs/backlog.md (Epic 5 extended: S-016 through S-020) —
+  follow-up to the same day's Tier 0 findings triage. Worked through the
+  items previously flagged as open product decisions with the user; five
+  more were confirmed in-scope and added as backlog stories: S-016 (signup
+  repeat/confirm password), S-017 (display-name uniqueness, spaces still
+  allowed — REQ-401/701), S-018 (live indicative points per cell, clearly
+  marked provisional — REQ-204/206), S-019 (tap/long-press reveal of
+  per-cell live text instead of always-on, to reduce clutter across a
+  grid's live cells — REQ-204/SCREEN-01a redesign), S-020 (incorrect-guess
+  shake + red-flash animation, reduced-motion fallback — SCREEN-01a
+  extension). Three items stay explicitly open/deferred, not scoped: a
+  post-login game-selection landing page (no second game exists yet), a
+  scheduled cache pre-warming job (no evidence on-demand fetching is
+  actually a problem), and selectable color themes/dark mode
+  (design-document.md already tracks this as a deliberately unresolved
+  question — left that way rather than resolved here).
+
 - 2026-07-11 — docs/backlog.md (new Epic 5: S-014, S-015) — triaged a batch
   of Tier 0 play-testing findings against `MVP-SCOPE.md`'s Tier 0/Tier 1
   split. Two findings were genuine Tier 0 gaps and added as new backlog

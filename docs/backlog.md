@@ -295,6 +295,74 @@ never built — closing that gap, not designing something new.
 animation (or its reduced-motion fallback); verified visually against
 `design-document.md`'s mock. *Deps:* S-010.
 
+**S-016 · Repeat/confirm password field at signup (REQ-701)**
+Add a "confirm password" field to the signup form and API; reject the
+request if it doesn't match the primary password, before Supabase Auth is
+ever called (same pattern as the existing age-checkbox/DisplayName
+pre-checks in `AuthController.Signup`). Update REQ-701's acceptance
+criteria to include this clause.
+*Accept:* REQ701-named test: signup is rejected with mismatched
+confirm-password, without calling Supabase Auth. *Deps:* S-004.
+
+**S-017 · Enforce display-name uniqueness (REQ-401/701)**
+Add a case-insensitive uniqueness constraint on `User.DisplayName` (DB
+unique index + a clear signup-time error, not a generic failure) — spaces
+remain allowed, this only closes the uniqueness gap, not a username-style
+format change. Update REQ-701's acceptance criteria to state the
+uniqueness requirement explicitly.
+*Accept:* REQ701-named test: signup with an already-used display name (any
+casing) is rejected with a clear error; existing display names unaffected.
+*Deps:* S-011 (DisplayName exists).
+
+**S-018 · Live indicative points per cell (REQ-204/206 extension)**
+Show a live, clearly-marked-as-provisional point value alongside the
+existing live uniqueness % for each correctly-guessed cell while the round
+is active, computed with the same formula `ScoreLockingService`/
+`UniquenessCalculator` already use for the locked score. Update REQ-204's
+acceptance criteria and SCREEN-01a's state-1 mock to include it, with
+wording that makes clear it's an estimate that can still change, not a
+preview of the locked score (avoid it reading as a promise).
+*Accept:* REQ204-named test: the live point value returned by `GET
+/rounds/current` for a correct cell equals `round(uniqueScore *
+MaxPointsPerCell)` at read time; UI test confirms it's visually distinct
+from a locked score. *Deps:* S-011.
+
+**S-019 · Tap/long-press reveal of live per-cell info (REQ-204/SCREEN-01a
+redesign)**
+Replace the always-visible "X% unique · updates until round closes" text
+in cell state 1 with the same text shown only on tap/long-press (or
+equivalent focus/hover on desktop), keeping the existing quiet green dot
+as the permanent at-rest "still live" indicator — addresses the clutter of
+every unresolved cell showing full live text at once. Must keep REQ-204's
+text-not-icon-only accessibility rule intact (the text still exists, it's
+just not always rendered), and the interaction itself must be
+keyboard/screen-reader accessible, not mouse/touch-only. Update
+design-document.md SCREEN-01a's state-1 mock and REQ-204's UI acceptance
+criteria to describe the new interaction.
+*Accept:* REQ204-named UI test: live text is not present/visible until the
+interaction fires, and is exposed accessibly (e.g. `aria-expanded`/
+`aria-live` as appropriate) once revealed. *Deps:* S-010.
+
+**S-020 · Incorrect-guess animation (SCREEN-01a extension)**
+Add a subtle shake + red flash to a cell when a submitted guess is
+rejected — a literal, immediate "no match" cue, distinct from (not reusing)
+the correct-guess badge-dock motion. Respects `prefers-reduced-motion`:
+flash only, no shake. Update design-document.md §2/SCREEN-01a to record
+this as a designed element before building it (per CLAUDE.md's rule
+against undocumented animations).
+*Accept:* Playwright/Vitest coverage confirms an incorrect guess triggers
+the animation (or its reduced-motion fallback). *Deps:* S-015 (build
+alongside the correct-guess animation work).
+
+**Left open, not scoped as stories this round:** a post-login
+game-selection landing page (nothing to select with only one game — revisit
+once a second game exists), a scheduled/proactive cache pre-warming job
+(no evidence on-demand fetching is a real problem yet — revisit if S-014's
+threshold bump makes grid generation struggle in practice), and selectable
+color themes/dark mode (design-document.md already tracks this as a
+deliberately unresolved open question — a reversal of the light-only v1
+direction deserves its own design session, not a quick story).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
