@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.33"
+version: "0.34"
 status: draft
 last_updated: 2026-07-11
 owner: Johan
@@ -719,7 +719,7 @@ candidate is discarded and never revisited, and `attempts` counts
 column-candidates tried, not individual cell retries. Both shapes satisfy
 REQ-101/102's actual acceptance criteria (all N×N cells valid, N unique
 row/column headers, abort after `MaxAttempts` with a logged error) with
-the same `MinValidAnswers`/`MaxAttempts` defaults (3 / 500,
+the same `MinValidAnswers`/`MaxAttempts` defaults (5 / 500,
 `GridGenerationOptions`); "alert admin" is not implemented — abort
 currently only logs (`ILogger.LogError`) and returns a 500, from either
 `POST /internal/grid/generate` or (as of S-008) `POST /internal/generate-round`
