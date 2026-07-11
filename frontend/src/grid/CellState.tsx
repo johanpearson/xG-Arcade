@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
+import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
 
 export type RoundStatus = 'active' | 'closed';
@@ -32,6 +34,45 @@ export interface CellStateProps {
   // as SCREEN-01a's state 4 generally), so this is exercised via
   // constructed props only, same as roundStatus="closed" itself.
   finalPoints?: number | null;
+  // design-document.md §2's "signature element: badge dock" — the two
+  // categories this cell combines, needed to render their flag/badge
+  // glyphs docked beside the revealed name on a correct guess. Optional:
+  // callers that don't pass these simply get no badge dock (e.g. existing
+  // tests constructed before S-015).
+  rowCategoryType?: string;
+  rowCategoryValue?: string;
+  colCategoryType?: string;
+  colCategoryValue?: string;
+}
+
+interface CategoryRef {
+  categoryType: string;
+  value: string;
+}
+
+// design-document.md §2: "Used only at guess-submit and round-close reveal,
+// nowhere else." Both are *transitions* observed while this component stays
+// mounted (the cell isn't remounted across a guess submission or a round
+// closing) — never on first mount already in that state, e.g. a page
+// reload showing a cell that was already correct/closed. Returns a token
+// that increments once per qualifying transition; 0 means "never
+// revealed," i.e. render the badges already docked, no animation.
+function useRevealToken(isCorrect: boolean, roundStatus: RoundStatus): number {
+  const prevRef = useRef({ isCorrect, roundStatus });
+  const [token, setToken] = useState(0);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    const justAnsweredCorrectly = isCorrect && !prev.isCorrect && roundStatus === 'active';
+    const justClosedWhileCorrect =
+      isCorrect && prev.roundStatus === 'active' && roundStatus === 'closed';
+    if (justAnsweredCorrectly || justClosedWhileCorrect) {
+      setToken((current) => current + 1);
+    }
+    prevRef.current = { isCorrect, roundStatus };
+  }, [isCorrect, roundStatus]);
+
+  return token;
 }
 
 // SCREEN-01a: the four "attempted" cell states from REQ-210. An unattempted
@@ -47,17 +88,32 @@ export function CellState({
   uniquePercent,
   roundEndTime,
   finalPoints,
+  rowCategoryType,
+  rowCategoryValue,
+  colCategoryType,
+  colCategoryValue,
 }: CellStateProps) {
   const name = playerName ?? 'Guess submitted';
+  const revealToken = useRevealToken(isCorrect, roundStatus);
+  const badges =
+    rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
+      ? {
+          row: { categoryType: rowCategoryType, value: rowCategoryValue },
+          col: { categoryType: colCategoryType, value: colCategoryValue },
+        }
+      : undefined;
 
   // State 4: round closed — either prior outcome, now permanent. No "live"
   // dot at all, regardless of correctness.
   if (roundStatus === 'closed') {
     return (
       <div
-        className={`cell-state cell-state--final cell-state--${isCorrect ? 'correct' : 'incorrect'}`}
+        key={revealToken}
+        className={`cell-state cell-state--final cell-state--${isCorrect ? 'correct' : 'incorrect'} ${
+          isCorrect && revealToken > 0 ? 'cell-state--reveal' : ''
+        }`}
       >
-        <Row name={name} correct={isCorrect} />
+        <Row name={name} correct={isCorrect} badges={isCorrect ? badges : undefined} />
         {isCorrect && uniquePercent != null && finalPoints != null && (
           <p className="cell-state__meta">
             {formatPercent(uniquePercent)}% unique · {finalPoints} pts
@@ -72,8 +128,13 @@ export function CellState({
   // but still "live" until round close (REQ-203/204).
   if (isCorrect) {
     return (
-      <div className="cell-state cell-state--live cell-state--correct">
-        <Row name={name} correct />
+      <div
+        key={revealToken}
+        className={`cell-state cell-state--live cell-state--correct ${
+          revealToken > 0 ? 'cell-state--reveal' : ''
+        }`}
+      >
+        <Row name={name} correct badges={badges} />
         <p className="cell-state__meta">
           <span className="cell-state__live-dot" aria-hidden="true" />
           live
@@ -129,10 +190,36 @@ function formatDateTime(isoDateTime: string): string {
   });
 }
 
-function Row({ name, correct }: { name: string; correct: boolean }) {
+function Row({
+  name,
+  correct,
+  badges,
+}: {
+  name: string;
+  correct: boolean;
+  badges?: { row: CategoryRef; col: CategoryRef };
+}) {
   return (
     <div className="cell-state__row">
+      {badges && (
+        <span
+          className="cell-state__badge-dock cell-state__badge-dock--row"
+          data-testid="badge-dock-row"
+          aria-hidden="true"
+        >
+          <CategoryGlyph categoryType={badges.row.categoryType} value={badges.row.value} size="small" />
+        </span>
+      )}
       <span className="cell-state__name">{name}</span>
+      {badges && (
+        <span
+          className="cell-state__badge-dock cell-state__badge-dock--col"
+          data-testid="badge-dock-col"
+          aria-hidden="true"
+        >
+          <CategoryGlyph categoryType={badges.col.categoryType} value={badges.col.value} size="small" />
+        </span>
+      )}
       <span
         className={`cell-state__icon cell-state__icon--${correct ? 'correct' : 'incorrect'}`}
         aria-hidden="true"
