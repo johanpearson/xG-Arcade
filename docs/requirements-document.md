@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.29 · 2026-07-10
+Version 0.30 · 2026-07-10
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -781,18 +781,39 @@ match with no attribute data and budget exhausted → fails closed), API
 > As an admin, I want to manually correct incorrect player data and be
 > confident the correction is not overwritten on the next sync.
 
+- **Status: Implemented (Tier 0, S-012), API only.** The override-precedence
+  merge logic (`HasEffectiveAttributeAsync`, COMP-06/ADR-0015) predates this
+  story (built alongside guess submission, S-009) — this story's addition is
+  the admin-facing way to actually create/update/delete a `PlayerOverride`
+  over HTTP: `POST/GET/PUT/DELETE /admin/player-overrides[/{id}]`
+  (`XGArcade.Api.Admin.AdminEndpoints`), all behind the "Admin" authorization
+  policy (`Admin__UserIds`, see `architecture-document.md` §7 and
+  `implementation-document.md` §4). One override per `(PlayerId, Field)` —
+  `POST` 409s if one already exists, matching ADR-0015's "replaces the
+  entire attribute type" semantics; use `PUT` to change an existing
+  override's value/reason instead. Covered end-to-end by
+  `REQ501_CreatePlayerOverride_FlipsCellCorrectness_ForSubsequentGuess`,
+  which submits a real guess, creates an override via the API, then
+  resubmits and asserts the same cell flips from incorrect to correct. No
+  admin UI/page exists (SCREEN-04 not built) — API only.
 - Given a `PlayerOverride` record exists for a player field
 - When a sync runs and updates `PlayerData` for the same field
 - Then the effective data (used by the game) continues to use the override
   value, not the newly synced value
 - And the sync must not delete or modify the `PlayerOverride` table
 
-**Test level:** Unit (merge logic), Integration (full sync cycle with an existing override)
+**Test level:** Unit (merge logic), Integration (full sync cycle with an existing override), API (S-012: override CRUD and the correctness-flip end-to-end path)
 
 **REQ-502 – Data source traceability**
 > As an admin, I want to see where each data point came from, so I can judge
 > its reliability.
 
+- **Status: Partially implemented (Tier 0, S-012).** `source` and
+  `confidence` are visible via `GET /admin/player-data/unverified`, but only
+  for rows with `Confidence == "unverified"` — there is no admin endpoint or
+  view over verified `PlayerData`, so "any player data point" (below) is not
+  yet true; only the unverified subset is browsable. No admin UI exists
+  (API only) — the "UI (admin)" test level below is not yet met.
 - Given any player data point
 - Then `source` (e.g. `wikidata`, `api_football`, `live_lookup`, `manual_override`)
   and `confidence` (`verified` / `unverified`) are always visible in the admin view
@@ -803,6 +824,20 @@ match with no attribute data and budget exhausted → fails closed), API
 > As an admin, I want to quickly review and approve/correct auto-fetched
 > data, so the cache is quality-assured over time.
 
+- **Status: Partially implemented (Tier 0, S-012).** Only the "review list"
+  half is built: `GET /admin/player-data/unverified`
+  (`XGArcade.Api.Admin.AdminEndpoints`) returns every unverified
+  `PlayerData` row with `Source`/`Confidence`/`PlayerFullName`. The
+  "correct" action exists only indirectly, as a separate call to
+  `POST /admin/player-overrides` (by `PlayerId`/`Field`, not by the
+  `PlayerData` row's own id) — there is no "approve → verified" action and
+  no "remove the data point" action; a `PlayerData` row's `Confidence`
+  cannot currently be flipped to `verified`, nor can a row be deleted, via
+  any endpoint. "The action is logged with `admin_id` and a timestamp" is
+  satisfied for the override-creation path by `PlayerOverride
+  .LockedByAdminId`/`LockedAt` on the override row itself (no separate
+  audit-log table) — there is no equivalent log for approve/remove since
+  those actions don't exist yet. No admin UI exists (API only).
 - Given data with `confidence = "unverified"`
 - When an admin opens the review view
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),

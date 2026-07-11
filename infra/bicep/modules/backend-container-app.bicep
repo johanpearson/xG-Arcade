@@ -45,6 +45,9 @@ param internalJobToken string
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
 
+@description('Comma-separated Supabase auth user ids (the JWT "sub" claim) authorized as admins (S-012, docs/backlog.md) — see AdminAuthorizationHandler and implementation-document.md §4. Config-based, not a database role, per architecture-document.md. Empty by default, which means no admin endpoint succeeds for anyone yet — safe default, matching corsAllowedOrigin\'s pattern above, until an admin\'s id is actually filled in. Not marked @secure(): these are the same auth user ids already visible to that admin themselves, comparable to an email address, not a true secret — kept out of source control anyway since they identify a real person.')
+param adminUserIds string = ''
+
 @description('Minimum replica count. Keep at 0 for max cost savings; raise to 1 if scheduled-job cold starts (see implementation-document.md open questions) become an issue')
 param minReplicas int = 0
 
@@ -116,6 +119,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Internal__JobToken'
               secretRef: 'internal-job-token'
+            }
+            {
+              name: 'Admin__UserIds'
+              value: adminUserIds
             }
             {
               // Neither this module nor deploy.yml ever set this before
