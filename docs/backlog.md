@@ -209,6 +209,62 @@ accessibility pass on the four cell states (contrast — resolves the design
 doc's open gold-on-white question); fix what falls out.
 *Accept:* you can play a full round end-to-end on your phone and the
 result feels correct and fair. *Deps:* S-011, S-012.
+**Built as:** ran the full local-stack E2E suite for real (this repo's
+sandbox has no Docker daemon, so Postgres 16 was run directly via
+`pg_ctlcluster` instead of `ci.yml`'s service container — same schema/
+seed/migrate path either way) and it caught a real, previously-unverified
+bug: `tests/e2e/play-grid.spec.ts` had never actually run against a real
+`WikidataClient` before — REQ-211/ADR-0018's live-lookup fallback (a
+guess that misses cache re-runs the cell's Wikidata query, added after
+this spec was last touched) means every wrong guess now costs one live
+HTTP round trip before the guess response returns, and the spec's
+dialog-close assertions were still sized for the pre-ADR-0018 cache-only
+path (5s default) instead of the latency budget ADR-0011 already
+documents for that call (its own 15s timeout; 9-27s observed for real
+WDQS queries). Confirmed directly against the running API (`curl`-timed
+guess submissions) before touching the test: a wrong guess consistently
+took 0.4-6s in this sandbox (Wikidata itself is unreachable here, so the
+cost is however long the network layer takes to fail, not real query
+time) — not a hang, not a deadlock, just a real network round trip the
+test never budgeted for. Fixed by widening only the assertions that
+follow a cache-missing guess to `WRONG_GUESS_TIMEOUT_MS` (20s) and giving
+the whole spec file a 60s per-test timeout (`test.describe.configure`),
+rather than loosening the global Playwright config or touching
+`GridGameModule`'s already-accepted ADR-0018 behavior — this is a test
+correctness fix (the test's own timing assumption was stale), not a
+product behavior change. Backend suite (218 tests across 5 projects) and
+frontend unit suite (30 tests) both passed unmodified. **Accessibility
+pass, gold-on-white (and green-on-white) resolved:** computed WCAG
+relative-luminance contrast for both original accent tokens against
+`surface-card`/`#FFFFFF` — `accent-gold` measured ~2.6:1 (fails even the
+3:1 large-text/icon floor) and `accent-green` ~3.4:1 (fails the 4.5:1
+normal-text/button-label floor, though it does clear 3:1 for its existing
+non-text uses). Added two darkened, same-hue tokens
+(`accent-gold-text` `#8D6C20` ~4.9:1, `accent-green-text` `#187E4F`
+~5.1:1) to `design-document.md` §2 rather than editing the originals in
+place, since the lighter/more saturated originals remain correct for
+non-text/decorative use (live-dot, focus ring, tab underline — all
+already clear the applicable 3:1 non-text floor). Applied the new tokens
+everywhere gold/green painted text, an icon, or a button label carrying
+white text: `CellState.css` (correct icon + correct-state meta text —
+the actual "four cell states" this story's acceptance criteria names),
+plus `GuessInput.css`/`AuthScreen.css`'s submit buttons and
+`LeaderboardScreen.css`'s "you" tag (found during the same pass, same
+class of bug, fixed for the same reason — accent-red's existing ~4.9:1
+needed no change). Verified visually via a local screenshot of a
+locked/correct cell (dev server + seeded round) before and after.
+**Not performed, flagged rather than faked:** the manual smoke test
+against the deployed dev URL and a live spot-check of rejected guesses
+both require network access this sandbox doesn't have (same
+`wikidata.org`/proxy-blocked limitation NOTES.md already records for
+S-006/ADR-0017) — no deployed-environment credentials or reachable
+`DEV_BACKEND_HOSTNAME`/`DEV_FRONTEND_HOSTNAME` either. Neither is a Tier 1
+trigger (both are one-time manual QA steps, not deferred features) — left
+as an explicit follow-up for whoever next has real access, same pattern
+as the existing Wikidata-QID-verification note. No new Tier 1 trigger
+observed this session: the only real bugs found (E2E timeout assumption,
+contrast) were both fixable within Tier 0 without pulling anything
+forward.
 
 **Tier 0 complete when S-013 passes.** Play it for a while before touching Tier 1.
 

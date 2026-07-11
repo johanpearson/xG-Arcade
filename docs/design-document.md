@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.7"
+version: "0.8"
 status: draft
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -77,9 +77,11 @@ entirely.
 | `text-primary` | `#1A1F1C` | Primary text — near-black with a faint green undertone, not pure black |
 | `text-muted` | `#6B7570` | Secondary text, labels, captions |
 | `border-hairline` | `#E4E6E3` | All dividers and card borders — thin, quiet, never a heavy box |
-| `accent-green` | `#1E9E63` | Live/active states, primary actions — a clean pitch green, crisp rather than dark/muted |
-| `accent-gold` | `#C99A2E` | Correct/locked-final states — a medal-gold, distinct from the green so live-vs-final stays unambiguous at a glance |
-| `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red |
+| `accent-green` | `#1E9E63` | Live/active states, primary actions — a clean pitch green, crisp rather than dark/muted. Non-text/decorative use only (live-dot, focus ring, tab underline) — see `accent-green-text` below for text/icon/button-label use |
+| `accent-gold` | `#C99A2E` | Reserved for future non-text/decorative correct/locked-final use (e.g. a Phase 2 badge fill) — see `accent-gold-text` below for text/icon use, which is everywhere Tier 0 actually paints "correct" today |
+| `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red. Passes text contrast as-is (~4.9:1 on white) — no separate text variant needed |
+| `accent-green-text` | `#187E4F` | **(S-013)** Green text/icon labels, and white-on-green button-label backgrounds (`.guess-input__submit`, `.auth-screen__submit`) — `accent-green` itself measures ~3.4:1 against `surface-card`/white, below WCAG AA's 4.5:1 for normal text; this darkened variant measures ~5.1:1 |
+| `accent-gold-text` | `#8D6C20` | **(S-013)** Correct/locked-final text and icons (`CellState`'s correct icon + meta line) — `accent-gold` itself measures ~2.6:1 against `surface-card`/white, failing even the 3:1 floor for large text/icons; this darkened variant measures ~4.9:1 |
 
 Green means "live/active," gold means "settled/correct" — same semantic
 split as before, just recolored for a light surface. This distinction is
@@ -87,6 +89,21 @@ load-bearing (REQ-205) so it must stay consistent everywhere. Flags and
 badges bring in their own natural colors on top of this neutral shell —
 the UI is deliberately quiet so those images read clearly, not muddied by
 a busy background.
+
+**Text vs. decorative contrast (S-013, resolves §7's former open
+question):** §6's contrast floor requires verifying gold-on-white and
+green-on-white use once real components existed — S-013 measured both
+(WCAG relative-luminance formula against `surface-card`/`#FFFFFF`) and
+found `accent-gold` and `accent-green` both fail the required ratio when
+used as text/icon color or as a solid button fill behind white
+label text (2.6:1 and 3.4:1 respectively, against a 4.5:1 normal-text /
+3:1 large-text-and-graphical-object floor). `accent-gold-text`/
+`accent-green-text` above are darkened, same-hue variants that pass; the
+original tokens remain defined for non-text/decorative use, where the
+lighter, more saturated hue was the deliberate intent and the applicable
+floor (3:1, non-text UI components) is already met (e.g. `accent-green`'s
+live-dot against a card background measures the same ~3.4:1, which
+clears 3:1 fine for a decorative indicator).
 
 **Type:**
 
@@ -327,8 +344,11 @@ Unchanged from v0.1:
   with an instant state change plus a brief color flash.
 - Minimum 44×44px touch targets on all interactive elements.
 - Sufficient contrast for gold-on-white and green-on-white text/icon use —
-  verify actual contrast ratios once real components exist, since gold in
-  particular can run light-on-light if not deliberately darkened for text use.
+  **verified (S-013): both failed as originally specified (`accent-gold`
+  2.6:1, `accent-green` 3.4:1 against `surface-card`); resolved via the new
+  `accent-gold-text`/`accent-green-text` tokens in §2**, not by darkening
+  the original tokens in place, since those remain correct for non-text/
+  decorative use.
 
 ## 7. Open questions
 

@@ -14,6 +14,11 @@
   --color-accent-green: #1e9e63;
   --color-accent-gold: #c99a2e;
   --color-accent-red: #c4463c;
+  /* Darkened, same-hue variants for text/icon/button-label use — accent-green
+     and accent-gold both fail WCAG AA contrast against surface-card/white
+     at that weight (design-document.md §2, S-013 accessibility pass). */
+  --color-accent-green-text: #187e4f;
+  --color-accent-gold-text: #8d6c20;
 
   /* Type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;

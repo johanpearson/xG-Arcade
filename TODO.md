@@ -33,6 +33,18 @@ as items complete or new ones surface; don't let it silently go stale.
 - [ ] Confirm `ci.yml` passes on the empty/trivial scaffold
 - [ ] Confirm `deploy.yml` successfully deploys the trivial slice
 
+## S-013 follow-ups (need real network access, not doable from this sandbox)
+
+- [ ] Manual smoke test of login → guess → score against the deployed dev
+  URL (`DEV_BACKEND_HOSTNAME`/`DEV_FRONTEND_HOSTNAME`) — S-013's own
+  acceptance criterion; this sandbox has no route to the deployed
+  environment
+- [ ] Spot-check a sample of real rejected guesses on the deployed dev
+  environment once it has real play history — seeds `MVP-SCOPE.md`'s
+  Tier 1 triggers (disambiguation UI, autocomplete). This sandbox's
+  network policy blocks `wikidata.org` (same limitation NOTES.md already
+  records for S-006/ADR-0017), so it also has no real guesses to sample.
+
 ## Tier 1 — revisit only after real testing shows a specific need
 
 See `MVP-SCOPE.md`'s Tier 1 section for the full list and the reasoning

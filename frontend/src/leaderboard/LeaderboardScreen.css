@@ -86,5 +86,5 @@
 .leaderboard-screen__you-tag {
   font-family: var(--font-body);
   font-size: 11px;
-  color: var(--color-accent-green);
+  color: var(--color-accent-green-text);
 }

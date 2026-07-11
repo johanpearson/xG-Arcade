@@ -13,6 +13,18 @@ interface SeedGuessableRoundResponse {
   alternateCorrectPlayerName: string
 }
 
+// ADR-0018: any guess that misses cache now triggers one live Wikidata
+// call (WikidataClient's own timeout is 15s, and ADR-0011 documents real
+// WDQS queries observed taking 9-27s) before the guess response returns —
+// this suite's own first real run against a live (or live-but-blocked)
+// WikidataClient surfaced that the default 5s expect timeout and 30s test
+// timeout were both sized for the pre-ADR-0018 cache-only path and never
+// actually validated against a real HTTP round trip. Every "wrong guess"
+// assertion below waits up to WRONG_GUESS_TIMEOUT_MS instead of the
+// default, and the whole describe block gets a longer test timeout so two
+// such guesses in one test can't blow the per-test budget either.
+const WRONG_GUESS_TIMEOUT_MS = 20_000;
+
 // REQ-303's GET /rounds/current resolves "the" currently Active round for
 // the whole xG Grid game key — it has no per-caller/per-test scoping, and
 // REQ-807's seed endpoint creates a brand-new Active round on every call.
@@ -35,7 +47,9 @@ interface SeedGuessableRoundResponse {
 // test seeded before the next test seeds its own. Each test still seeds its
 // own fresh round/cell — this is purely about never having two Active
 // rounds coexist, not about tests depending on each other's data.
-test.describe.configure({ mode: 'serial' })
+// timeout: covers up to two ADR-0018 live-lookup round trips per test
+// (worst case ~2 x 20s) plus normal UI overhead — see WRONG_GUESS_TIMEOUT_MS.
+test.describe.configure({ mode: 'serial', timeout: 60_000 })
 
 test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   let previousRoundId: string | null = null
@@ -178,7 +192,8 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
 
     // REQ-201/203: correctness shown immediately, no reload — the dialog
     // closes itself on a successfully-accepted (even if wrong) submission.
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
     await expect(cell.getByText('Definitely Not A Real Player')).toBeVisible()
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
@@ -216,7 +231,8 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await cell.click()
     await page.getByLabel('Player name').fill('Wrong Guess Number One')
     await page.getByRole('button', { name: 'Submit guess' }).click()
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
 
@@ -226,8 +242,9 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByRole('button', { name: 'Submit guess' }).click()
 
     // REQ-210: both attempts used without a correct answer locks the cell
-    // as incorrect — shown as visible text, never color/icon-only.
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    // as incorrect — shown as visible text, never color/icon-only. Same
+    // ADR-0018 live-lookup cost applies to this second miss too.
+    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
     await expect(cell.getByText('Wrong Guess Number Two')).toBeVisible()
     await expect(cell.getByText('no attempts left')).toBeVisible()
     await expect(cell).toBeDisabled()

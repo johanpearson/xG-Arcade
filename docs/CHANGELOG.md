@@ -13,6 +13,47 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — docs/design-document.md (version 0.7 → 0.8, §2/§6/§7),
+  docs/backlog.md (S-013 entry), TODO.md, NOTES.md — S-013 (First-release
+  QA pass). Ran the full local-stack test suite for real for the first
+  time this session (backend: 218 NUnit tests across 5 projects; frontend
+  unit: 30 Vitest tests; E2E: `tests/e2e/play-grid.spec.ts` +
+  `app-loads.spec.ts` against a locally-run Postgres 16 + the real API +
+  Vite dev server, this sandbox's substitute for `ci.yml`'s Docker-based
+  service container, since no Docker daemon is available here). Found and
+  fixed one real bug the suite had never actually caught before: the E2E
+  spec's dialog-close assertions were sized for a pre-ADR-0018 cache-only
+  guess-submission latency (5s), but REQ-211/ADR-0018's live-lookup
+  fallback (built after this spec was last touched) means any guess that
+  misses cache now costs one live Wikidata HTTP round trip — bounded by
+  ADR-0011's own 15s timeout, with 9-27s observed for real WDQS queries —
+  before the response returns. Widened only the assertions that follow a
+  cache-missing guess (20s) and the spec's overall per-test timeout (60s);
+  no product code changed, no ADR revisited — see backlog.md's S-013 entry
+  and NOTES.md for the full diagnosis. Resolved design-document.md §6/§7's
+  long-open "verify gold-on-white/green-on-white contrast" item: computed
+  WCAG contrast found both `accent-gold` (~2.6:1) and `accent-green`
+  (~3.4:1) fail their applicable floors when used as text/icon/button-label
+  color against `surface-card`; added `accent-gold-text`/
+  `accent-green-text` (darkened, same-hue, ~4.9:1/~5.1:1) to §2 for that
+  use, leaving the original tokens for their existing non-text/decorative
+  uses (which already clear the 3:1 non-text floor as-is). Applied across
+  `CellState.css` (the four cell states this story's acceptance criteria
+  names), `GuessInput.css`/`AuthScreen.css`'s submit buttons, and
+  `LeaderboardScreen.css`'s "you" tag (same bug class, found during the
+  same pass). Not performed, flagged instead: the manual smoke test
+  against the deployed dev URL and a live rejected-guess spot-check both
+  need network access this sandbox doesn't have (same `wikidata.org`-proxy
+  limitation NOTES.md already records from S-006) — recorded as explicit
+  TODO.md follow-ups rather than skipped silently. No new Tier 1 trigger:
+  both real issues found were fixable inside Tier 0. No requirements-
+  document.md/architecture-document.md change — nothing here changed a
+  REQ's acceptance criteria or a component boundary. No new ADR — the
+  contrast-token addition is refining an already-documented, unresolved
+  gap in an existing doc (design-document.md §6/§7 already named the
+  question), not a new structural decision with real alternatives; the
+  E2E timeout fix is a test-correctness fix, not a design choice.
+
 - 2026-07-10/11 — docs/requirements-document.md (version 0.29 → 0.30),
   docs/architecture-document.md (version 0.22 → 0.23),
   docs/implementation-document.md (version 0.31 → 0.33, merged with S-012's
