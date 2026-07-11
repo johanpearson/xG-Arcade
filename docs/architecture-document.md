@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.23"
+version: "0.24"
 status: draft
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -184,6 +184,19 @@ REQ-404's Tier 0 slice (`GET /leagues/global/leaderboard` →
 REQ-402/403, are deferred per `MVP-SCOPE.md`). Same thin-endpoint/
 owning-Core-service shape `GuessEndpoints` → `GuessSubmissionService`
 already establishes.
+
+**COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
+uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index
+(`XGArcadeDbContext`) backing `IUserRepository.DisplayNameExistsAsync`'s
+pre-check in `AuthController.Signup`, with `UserRepository.AddAsync`
+catching the DB's own constraint violation
+(`DisplayNameAlreadyInUseException`) as the race-safety net behind that
+pre-check — the same "pre-check plus DB-level backstop" shape as the
+existing `AuthProviderUserId` unique index, now applied to a field users
+choose themselves. The migration adding the index also had to resolve any
+pre-existing collision in already-seeded data before creating it; see
+ADR-0019 for that one-time silent-rename strategy and its explicit revisit
+trigger once real users exist.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -709,6 +722,7 @@ new ADR that references the old one.
 | ADR-0016 | Read-only display queries against an already-generated instance may bypass `IGameModule` | Accepted |
 | ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
 | ADR-0018 | REQ-211 (guess-time live verification) implemented in Tier 0, without its `PlayerNameIndex` gate | Accepted (further revises ADR-0010's trigger condition) |
+| ADR-0019 | Silent auto-rename to resolve pre-existing DisplayName collisions during the S-017 uniqueness migration | Accepted |
 
 ## 11. Glossary
 
