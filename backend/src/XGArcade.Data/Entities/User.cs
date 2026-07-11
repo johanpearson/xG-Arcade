@@ -13,10 +13,27 @@ public class User
 
     public required string Email { get; set; }
 
+    private string _displayName = string.Empty;
+
     // REQ-401/REQ-404: leaderboards show this, never the raw Email, to every
     // other player — collected at signup (REQ-701) precisely so a public
     // leaderboard never has to expose an email address to do its job.
-    public required string DisplayName { get; set; }
+    public required string DisplayName
+    {
+        get => _displayName;
+        set
+        {
+            _displayName = value;
+            // REQ-701: display names are unique case-insensitively only —
+            // spaces/punctuation/format are left exactly as entered, a
+            // deliberate decision against reshaping this into a
+            // username-style field. Kept in lockstep the same way
+            // Player.NormalizedFullName tracks Player.FullName.
+            NormalizedDisplayName = value.ToLowerInvariant();
+        }
+    }
+
+    public string NormalizedDisplayName { get; private set; } = string.Empty;
 
     // Mirrors Supabase Auth's confirmed state; see REQ-702 (deferred — Tier
     // 0 has confirm-email off, so this is always true at creation for now).

@@ -96,6 +96,15 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasIndex(u => u.AuthProviderUserId)
             .IsUnique();
 
+        // REQ-701: display names are unique case-insensitively — enforced
+        // here (not just AuthController's pre-check) so a race between two
+        // concurrent signups can't create two accounts with the same
+        // displayed name. UserRepository.AddAsync's DbUpdateException catch
+        // relies on this index's EF-generated name, "IX_Users_NormalizedDisplayName".
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.NormalizedDisplayName)
+            .IsUnique();
+
         // GridInstance/GridCell are Games.XGGrid's (COMP-05) own entities —
         // Core never holds a foreign key to either (ADR-0003). Their own
         // internal relationship is a normal owned-collection FK, no

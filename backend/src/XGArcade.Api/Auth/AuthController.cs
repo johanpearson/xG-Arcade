@@ -44,6 +44,20 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // REQ-701: uniqueness is case-insensitive only — spaces and
+        // formatting stay exactly as entered, no username-style reshaping.
+        // Checked before Supabase Auth is ever called, same discipline as
+        // the checks above; the DB's own unique index (UserRepository
+        // .AddAsync) is the race-safety net behind this check, not the
+        // primary mechanism.
+        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken))
+        {
+            return Problem(
+                title: "Display name already in use",
+                detail: "That display name is already taken. Please choose another.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
         // REQ-701: signup cannot proceed without the checkbox — checked
         // before any call to Supabase, so an unchecked box never creates an
         // identity anywhere.
@@ -64,17 +78,31 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var user = await userRepository.AddAsync(new User
+        User user;
+        try
         {
-            Id = Guid.NewGuid(),
-            // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
-            // Success = true without AuthProviderUserId set.
-            AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
-            Email = request.Email,
-            DisplayName = displayName,
-            EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
-            CreatedAt = DateTime.UtcNow,
-        }, cancellationToken);
+            user = await userRepository.AddAsync(new User
+            {
+                Id = Guid.NewGuid(),
+                // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
+                // Success = true without AuthProviderUserId set.
+                AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
+                Email = request.Email,
+                DisplayName = displayName,
+                EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
+                CreatedAt = DateTime.UtcNow,
+            }, cancellationToken);
+        }
+        catch (DisplayNameAlreadyInUseException)
+        {
+            // The check above raced with another signup for the same
+            // display name and lost — same clear error either way, never a
+            // raw 500 from the DB's constraint violation.
+            return Problem(
+                title: "Display name already in use",
+                detail: "That display name is already taken. Please choose another.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
 
         // REQ-401: "requires no action from the user" — done automatically
         // here, right after the local User row exists, never left to a
