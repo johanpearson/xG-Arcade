@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — docs/backlog.md (Epic 5 extended: S-021) — reconsidered the
+  post-login game-selection landing page after re-checking it specifically
+  for contradictions rather than just "is it in scope." No REQ/ADR
+  outright forbids it, but it sits in tension with REQ-303's own user
+  story ("open the app and see the current round's grid") and would break
+  the existing S-010 E2E flow (`play-grid.spec.ts`) that goes straight
+  from signup to the grid — both called out as required updates within
+  S-021's scope, not silently left inconsistent. No backend "list games"
+  endpoint needed (confirmed no `COMP-xx` for a game catalog exists) since
+  Tier 0 only ever has one game — S-021 is a static single-tile landing
+  screen, not new backend surface.
+
+- 2026-07-11 — docs/backlog.md (Epic 5 extended: S-016 through S-020) —
+  follow-up to the same day's Tier 0 findings triage. Worked through the
+  items previously flagged as open product decisions with the user; five
+  more were confirmed in-scope and added as backlog stories: S-016 (signup
+  repeat/confirm password), S-017 (display-name uniqueness, spaces still
+  allowed — REQ-401/701), S-018 (live indicative points per cell, clearly
+  marked provisional — REQ-204/206), S-019 (tap/long-press reveal of
+  per-cell live text instead of always-on, to reduce clutter across a
+  grid's live cells — REQ-204/SCREEN-01a redesign), S-020 (incorrect-guess
+  shake + red-flash animation, reduced-motion fallback — SCREEN-01a
+  extension). Three items stay explicitly open/deferred, not scoped: a
+  post-login game-selection landing page (no second game exists yet), a
+  scheduled cache pre-warming job (no evidence on-demand fetching is
+  actually a problem), and selectable color themes/dark mode
+  (design-document.md already tracks this as a deliberately unresolved
+  question — left that way rather than resolved here).
+
+- 2026-07-11 — docs/backlog.md (new Epic 5: S-014, S-015) — triaged a batch
+  of Tier 0 play-testing findings against `MVP-SCOPE.md`'s Tier 0/Tier 1
+  split. Two findings were genuine Tier 0 gaps and added as new backlog
+  stories: S-014 (raise `MIN_VALID_ANSWERS` default 3→5, REQ-101) and S-015
+  (build the already-designed but never-implemented "badge dock" guess
+  animation, `design-document.md` §2/SCREEN-01a). No Tier 1 trigger was
+  confirmed fired by this round of findings. The remaining findings (live
+  points display, reducing per-cell live text, an incorrect-guess
+  animation, a post-login game-selection landing page, selectable color
+  themes, display-name uniqueness/format, a signup repeat-password field)
+  were flagged as open product decisions, not scoped into any story —
+  requirements-document.md/design-document.md left otherwise unchanged
+  pending those decisions.
+
 - 2026-07-11 — doc-sync verification of the S-013 entry below:
   docs/design-document.md (wording only, no version change), docs/CHANGELOG.md
   (this entry's own section references), docs/backlog.md — three section/
