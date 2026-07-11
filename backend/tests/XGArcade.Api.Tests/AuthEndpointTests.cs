@@ -101,7 +101,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_BlockedWithoutAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: false);
+        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -112,10 +112,24 @@ public class AuthEndpointTests
     }
 
     [Test]
+    public async Task REQ701_Signup_BlockedWithMismatchedConfirmPassword()
+    {
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("mismatched-password@example.com", "a-reasonable-password", "a-different-password", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        // The important assertion: the mismatch is enforced before any
+        // identity is created anywhere, not just before a User row is saved.
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    [Test]
     public async Task REQ701_Signup_SucceedsWithAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -137,7 +151,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
         var client = _factory.CreateClient();
-        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 

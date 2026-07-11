@@ -43,6 +43,17 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // REQ-701: confirm-password must match before Supabase Auth is ever
+        // called — same "checked before any call to Supabase" discipline as
+        // the age checkbox and DisplayName checks above.
+        if (request.Password != request.ConfirmPassword)
+        {
+            return Problem(
+                title: "Passwords do not match",
+                detail: "Password and confirm password must match.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, cancellationToken);
         if (!signUpResult.Success)
         {

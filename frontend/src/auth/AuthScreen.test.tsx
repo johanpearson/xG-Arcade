@@ -26,12 +26,33 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password123');
     await user.type(screen.getByLabelText('Display name'), 'Player One');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     expect(
       await screen.findByText('Confirm you are at least 16 years old to create an account.'),
     ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it('REQ-701: blocks signup client-side when confirm password does not match, without calling the API', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password456');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
+    await user.click(screen.getByLabelText(/at least 16/));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByText('Passwords do not match.')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
@@ -46,6 +67,7 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password123');
     await user.click(screen.getByLabelText(/at least 16/));
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
@@ -72,6 +94,7 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password123');
     await user.type(screen.getByLabelText('Display name'), 'Player One');
     await user.click(screen.getByLabelText(/at least 16/));
     await user.click(screen.getByRole('button', { name: 'Create account' }));
