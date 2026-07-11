@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-10/11 — docs/requirements-document.md (version 0.29 → 0.30),
+  docs/architecture-document.md (version 0.22 → 0.23),
+  docs/implementation-document.md (version 0.31 → 0.33, merged with S-012's
+  independent 0.31 → 0.32 bump below), MVP-SCOPE.md,
+  docs/decisions/0010-guess-time-live-verification.md (status line
+  annotated), docs/decisions/0018-req-211-tier-0-without-playername-index.md
+  (new, then extended) —
+  Fixed a reported major bug: genuinely correct guesses (e.g. Messi for
+  Argentina×Barcelona) were wrongly marked incorrect because grid
+  generation's cache-based validity check (REQ-101/MinValidAnswers) only
+  ever needed to prove a cell had *some* cached answers, never every one
+  (ADR-0010's documented gap). `GridGameModule.ScoreSubmissionAsync` now
+  falls back to a live Wikidata lookup (re-running the cell's own
+  country×club query) when cached data doesn't already answer a guess,
+  pulling REQ-211 forward from Tier 1 once MVP-SCOPE.md's own trigger for
+  it fired — but without its `PlayerNameIndex` prerequisite (still Tier 1,
+  see ADR-0018 for why that's safe for Tier 0). Follow-up pass
+  (test-writer + architecture-reviewer) expanded coverage to 8
+  `REQ211_ScoreSubmissionAsync_*` tests in `GridGameModuleTests.cs`
+  (including the exact reported repro shape — a player already cached with
+  one category from an unrelated cell — plus the non-Country/Club and
+  unresolvable-reference-table guard clauses and a single-call assertion
+  for the fallback), and extended `FakeWikidataLookupService` with
+  `GetCallCount` to support it. Same pass closed doc-completeness gaps this
+  surfaced: REQ-203's status note corrected to match REQ-211's new
+  behavior, ADR-0018 added to architecture-document.md §10's ADR table,
+  ADR-0010 annotated to point at ADR-0018's further revision of its trigger
+  condition, architecture-document.md's boundary-rule-1 worked example and
+  §8 "Consistency of correctness" row updated to state the new live-call
+  trade-off explicitly rather than silently contradict it, and
+  implementation-document.md §6's guess-scoring pseudocode's Tier 0 status
+  notes corrected (previously said the REQ-211 live-lookup block "does not
+  exist," which is no longer true) — REQ-101/REQ-103/REQ-203/REQ-211,
+  ADR-0010/ADR-0018.
 - 2026-07-10 — docs/requirements-document.md (version 0.29 → 0.30),
   docs/architecture-document.md (version 0.22 → 0.23),
   docs/implementation-document.md (version 0.31 → 0.32), docs/backlog.md

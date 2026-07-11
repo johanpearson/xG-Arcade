@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.32"
+version: "0.33"
 status: draft
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.32 · 2026-07-10
+Version 0.33 · 2026-07-11
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -634,10 +634,10 @@ REQ-101/203 (`PlayerAttribute` merged with `PlayerOverride`) — disambiguation
 doesn't introduce a second correctness rule, it just applies the existing
 one to more than one candidate at once.
 
-**Tier 0 status (S-009):** the pseudocode above is the full/long-term
-shape. What `GuessSubmissionService` (`XGArcade.Core.Scoring`) +
-`GridGameModule.ScoreSubmissionAsync` (`XGArcade.Games.XGGrid`) actually
-implement, real and tested:
+**Tier 0 status (S-009, extended S-011/ADR-0018):** the pseudocode above is
+the full/long-term shape. What `GuessSubmissionService`
+(`XGArcade.Core.Scoring`) + `GridGameModule.ScoreSubmissionAsync`
+(`XGArcade.Games.XGGrid`) actually implement, real and tested:
 
 - The two REQ-210 lock/attempt-cap checks at the top, exactly as written —
   performed in `Core.Scoring`, before `IGameModule` is ever called.
@@ -657,10 +657,23 @@ Deliberately narrower than the pseudocode above, per `MVP-SCOPE.md`'s Tier
   that doesn't exactly-normalize-match `Player.FullName` is incorrect,
   full stop — there is no "candidates is empty → fuzzy search" step.
 - The `matchingCandidates.count == 0 AND candidates.count == 1` REQ-211
-  live-lookup block does not exist. A single name-matching candidate with
-  no cached `PlayerAttribute`/`PlayerOverride` data for the cell's
-  categories is simply excluded from `matchingCandidates` — never
-  triggers `live_lookup`.
+  live-lookup block as written above (gated on a `PlayerNameIndex` match)
+  does not exist — `PlayerNameIndex` isn't built. **As of ADR-0018 (S-011
+  follow-up), a differently-triggered, Tier-0-simplified version of the
+  same idea does exist:** whenever `matchingCandidates` is empty after the
+  normal check, `GridGameModule.ScoreSubmissionAsync` re-runs this cell's
+  own Country×Club Wikidata intersection query directly (calling
+  `IWikidataLookupService.LookupAndPersistAsync` — the same call
+  `GenerateInstanceAsync` already makes, not a new source), then re-checks
+  `matchingCandidates` once. This is unconditional on candidate count and
+  has no `ExternalApiUsage`/API-Football fallback leg — Wikidata alone
+  isn't a scarce resource (ADR-0011), so there is no budget to gate on. The
+  refresh only knows how to resolve a Country×Club cell (the only pairing
+  `GenerateInstanceAsync` currently produces); any other pairing, or a
+  category value no longer present in `CountryDefinition`/`ClubDefinition`,
+  skips the refresh and falls through to incorrect rather than throwing.
+  See ADR-0018 for why this is judged safe without the `PlayerNameIndex`
+  prerequisite in Tier 0.
 - `if matchingCandidates.count > 1: → return disambiguation prompt` is
   replaced entirely: Tier 0 auto-accepts the lowest-`Id` candidate (the
   same deterministic pick REQ-204's future uniqueness grouping depends on)

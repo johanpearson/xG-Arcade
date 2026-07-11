@@ -317,14 +317,16 @@ without erroring), API
   for the exact precedence semantics (an override replaces its entire
   attribute type, not one value within it). Correctness is determined and
   shown immediately, and a correct guess locks the cell immediately
-  (REQ-210), both as described below. What's not yet exercised: this check
-  only ever runs against candidates found by REQ-208's Tier 0-scoped name
-  matching (no alias table, no fuzzy tolerance — see REQ-208's own status
-  note) and never triggers REQ-211's live lookup (Tier 1, not built) — a
-  genuinely correct guess for a real player with no cached `PlayerAttribute`
-  data at all is currently scored incorrect, not looked up live. "0 points
-  regardless of uniqueness" isn't independently verifiable yet since point
-  computation itself doesn't exist until S-011.
+  (REQ-210), both as described below. This check only ever runs against
+  candidates found by REQ-208's Tier 0-scoped name matching (no alias
+  table, no fuzzy tolerance — see REQ-208's own status note). **As of the
+  2026-07-10 REQ-211 follow-up (ADR-0018), a guess that doesn't resolve
+  from cached data is no longer scored incorrect outright** — it now
+  triggers a Tier-0-simplified version of REQ-211's live lookup first (see
+  REQ-211's own status note for exactly what differs from the full spec);
+  only a guess that still doesn't resolve after that fallback is scored
+  incorrect. "0 points regardless of uniqueness" isn't independently
+  verifiable yet since point computation itself doesn't exist until S-011.
 - Given a guess for cell X
 - When the answer is checked against the effective data (an override always
   takes precedence over synced/unverified data)
@@ -559,6 +561,23 @@ an extra attempt), API
 > correct even if that specific player wasn't part of the original grid's
 > sample data, so I'm never wrongly told I'm wrong.
 
+- **Status: Partially implemented (Tier 0 simplified, S-011 follow-up,
+  ADR-0018).** `GridGameModule.ScoreSubmissionAsync`
+  (`XGArcade.Games.XGGrid`) now falls back to a live Wikidata lookup
+  (re-running the cell's own country×club intersection query) whenever
+  cached data doesn't already resolve a guess, then re-checks. This closes
+  the real gap ADR-0010 predicted and MVP-SCOPE.md's trigger condition
+  confirmed in practice. What differs from the full criteria below: the
+  trigger is "cached data didn't already answer this guess," not "guess
+  matched a `PlayerNameIndex` candidate" — `PlayerNameIndex` (REQ-207) is
+  still Tier 1 and not built, so there is no name-index pre-filter yet
+  (ADR-0018 explains why Tier 0 doesn't need one for correctness). There is
+  also still only one live source (Wikidata) — no API-Football fallback or
+  `ExternalApiUsage` budget-gating exists yet, same as REQ-103's status.
+  The rest of this requirement's acceptance criteria (the full
+  `PlayerNameIndex` gate, the Wikidata/API-Football waterfall, budget
+  fail-closed behavior) are recorded below as the full/long-term
+  definition, not a claim of current behavior.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither

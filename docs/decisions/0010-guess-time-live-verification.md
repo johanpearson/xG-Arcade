@@ -6,7 +6,14 @@
   as if it were the only live-lookup source, when ADR-0001 had already
   established Wikidata as a second source. ADR-0011 corrects this to a
   Wikidata-first waterfall. The narrow trigger condition, immediate
-  persistence, and fail-closed philosophy described below are unchanged.
+  persistence, and fail-closed philosophy described below are unchanged —
+  **except the trigger condition itself is further revised by ADR-0018**:
+  Tier 0's first real implementation of this ADR (2026-07-10) omits the
+  `PlayerNameIndex` pre-check described below as "what keeps this bounded,"
+  because `PlayerNameIndex` (ADR-0007) isn't built yet and Wikidata isn't
+  the scarce resource this gate was protecting (ADR-0011). Read ADR-0018
+  before relying on the `PlayerNameIndex`-gated trigger described in this
+  ADR's Decision/Alternatives sections as current behavior.
 - **Date:** 2026-07-07
 - **Related requirements:** REQ-211 (new), REQ-101, REQ-103, REQ-203
 - **Related components:** COMP-05 (Games.XGGrid), COMP-06 (Data.PlayerStore), COMP-07 (DataSync.Clients), COMP-10 (Data.PlayerNameIndex)

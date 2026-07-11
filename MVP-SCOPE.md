@@ -247,9 +247,14 @@ is written as something you can actually observe, not a vague feeling:
   fall back on. `ExternalApiUsage`'s shared daily budget tracking only
   matters once this is added — Tier 0 doesn't need it since Wikidata
   alone has no small daily cap to manage
-- **Guess-time live verification** (REQ-211, ADR-0010) — trigger: while
+- ~~**Guess-time live verification** (REQ-211, ADR-0010) — trigger: while
   reviewing rejected guesses (spot-check a sample occasionally during
-  testing), you find one that was actually correct, more than a rare fluke
+  testing), you find one that was actually correct, more than a rare
+  fluke~~ — **Trigger hit and pulled forward, 2026-07-10** (three genuinely
+  correct guesses wrongly rejected on one live grid). Implemented in Tier 0
+  without its `PlayerNameIndex` prerequisite — see ADR-0018 for why that's
+  safe here and REQ-211's status note for what's still deferred (the
+  API-Football fallback leg and budget-gating)
 - **Autocomplete + `PlayerNameIndex`** (REQ-207, ADR-0007) — trigger: you
   or a tester finds typing exact names tedious enough to mention it
   unprompted, not just "would be nice"

@@ -191,11 +191,14 @@ query `PlayerData`/`PlayerOverride` directly — this keeps the
 override-precedence rule (REQ-501) enforced in exactly one place (see
 ADR-0015 for the exact precedence semantics that single place enforces).
 If a new game module needs a different kind of data store, that's a signal
-for an ADR, not a workaround. `GridGameModule.ScoreSubmissionAsync` (S-009)
-respects this rule: it reaches player data only through
-`IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
+for an ADR, not a workaround. `GridGameModule.ScoreSubmissionAsync` (S-009,
+extended S-011/ADR-0018) respects this rule: it reaches player data only
+through `IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
 `HasEffectiveAttributeAsync`, never a direct `PlayerAttribute`/
-`PlayerOverride` query.
+`PlayerOverride` query — and its REQ-211 live-lookup fallback reaches
+`IPlayerStoreRepository` only indirectly, through COMP-07's
+`IWikidataLookupService.LookupAndPersistAsync` (the same call
+`GenerateInstanceAsync` already makes), never bypassing it.
 
 **Boundary rule 2 (Round genericity):** `Core.Rounds` (COMP-03) must never
 hold a foreign key to a game-specific entity such as `GridInstance`. A
@@ -299,13 +302,18 @@ structurally by always picking rows from countries and columns from
 clubs, not by a per-candidate check), never Trophy (REQ-108, deferred).
 
 **Explicit rule, not just implied by the diagram below:** every live
-lookup this round's cells will ever need happens *during generation*,
-before `Round` (the thing players can actually see/play) is created at
-all. There is no "player guesses, we fetch on demand" path at grid-gen
-time — a `Round` only exists once every cell already has a validated,
-cached answer. This is what makes the "local DB only, no guess-time
-Wikidata fallback" answer-checking strategy (REQ-211 deferred to Tier 1)
-defensible: by the time anyone can play, the data is already there.
+lookup this round's cells will ever need to reach `MinValidAnswers` happens
+*during generation*, before `Round` (the thing players can actually
+see/play) is created at all — a `Round` only exists once every cell has
+enough cached matches to clear REQ-101's threshold. This was originally
+read as making a "local DB only, no guess-time Wikidata fallback"
+answer-checking strategy defensible, on the theory that "enough cached
+matches" meant "every true match already cached." **That theory was wrong
+in practice (ADR-0010's predicted gap, confirmed 2026-07-10, ADR-0018):**
+clearing the threshold only proves *some* valid answers exist, not that
+every one does, so a real player can still be missing from the cache for a
+cell that's otherwise valid. REQ-211's guess-time fallback (below, S-011
+follow-up) exists precisely to cover that remaining gap — see 6.2.
 
 ```
 Round Scheduler Job (COMP-03)
@@ -385,12 +393,20 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   prompt") is not built — Tier 0 auto-accepts the lowest-`Id` fitting
   candidate and logs a warning instead (REQ-209's status note); there is
   no disambiguation prompt or extra round-trip.
-- REQ-211's live-lookup branch (the entire "if Data.PlayerStore has NO
-  record at all ... DataSync.Clients performs a live lookup" block) is not
-  built at all — a candidate with no cached `PlayerAttribute`/
-  `PlayerOverride` data is simply excluded from the matching set, not
-  looked up live. This is Tier 1, deferred per `MVP-SCOPE.md`, same as the
-  autocomplete leg above.
+- **REQ-211's live-lookup branch is now partially built (S-011 follow-up,
+  ADR-0018), pulled forward from Tier 1 once its documented MVP-SCOPE.md
+  trigger fired.** `GridGameModule.ScoreSubmissionAsync` falls back to
+  re-running the cell's own Wikidata country×club intersection query
+  (`DataSync.Wikidata.WikidataLookupService`, the same call
+  `GenerateInstanceAsync` uses) whenever cached data doesn't already answer
+  the guess, then re-checks. This differs from the diagram's full shape in
+  one deliberate way: the trigger is "cached data didn't resolve this
+  guess," not "guess matched a `Data.PlayerNameIndex` candidate" —
+  `PlayerNameIndex`/COMP-10 (REQ-207) is still not built, and ADR-0018
+  explains why Tier 0 doesn't need it as a prerequisite here (Wikidata has
+  no scarce daily budget to protect, unlike API-Football). There is still
+  no API-Football fallback leg or `ExternalApiUsage` budget-gating for this
+  call site, same as REQ-103's status.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011)** — `GET /rounds/current` computes `UniquePercent` on every
   request via `UniquenessCalculator.Calculate`, for any cell the requesting
@@ -637,7 +653,7 @@ GitHub Actions → Production database: pg_dump (full export)
 | Cost | REQ-602 | Modular monolith avoids per-service hosting cost; cache-first data strategy avoids storage/API-call cost growth |
 | Extensibility | xG Arcade vision (multiple games) | `IGameModule` boundary isolates game-specific logic from Core |
 | Data integrity | REQ-501 | Single write path to PlayerData/PlayerOverride via COMP-06; override precedence enforced in one place |
-| Consistency of correctness | REQ-203 | Answer-checking always uses locally cached effective data, not a live external call, so mid-round changes to external sources can't shift correctness |
+| Consistency of correctness | REQ-203 | **Revised 2026-07-10 (ADR-0018):** answer-checking still tries locally cached effective data first, but a guess that doesn't resolve from cache now falls through to a live Wikidata call (REQ-211) before being scored incorrect. This trades away the original "no live external call, so mid-round changes to external sources can't shift correctness" guarantee — two guesses on the same cell within one round could theoretically see different live Wikidata state — in exchange for not wrongly rejecting genuinely correct guesses (the reported bug this ADR fixes). Judged acceptable: a live-fetched result is upserted immediately, so once fetched it becomes the new stable cached state for the rest of the round |
 
 ## 9. Deployment view
 
@@ -692,6 +708,7 @@ new ADR that references the old one.
 | ADR-0015 | A `PlayerOverride` replaces an entire attribute type, not one value within it | Accepted |
 | ADR-0016 | Read-only display queries against an already-generated instance may bypass `IGameModule` | Accepted |
 | ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
+| ADR-0018 | REQ-211 (guess-time live verification) implemented in Tier 0, without its `PlayerNameIndex` gate | Accepted (further revises ADR-0010's trigger condition) |
 
 ## 11. Glossary
 
