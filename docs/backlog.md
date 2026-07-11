@@ -203,7 +203,7 @@ architecturally significant choice).
 
 **S-013 · First-release QA pass**
 Full E2E suite green in CI (local stack); a manual smoke test of the same
-flows against the deployed prod URL (login → guess → score); spot-check a
+flows against the deployed dev URL (login → guess → score); spot-check a
 sample of rejected guesses (seeds the Tier 1 triggers in `MVP-SCOPE.md`);
 accessibility pass on the four cell states (contrast — resolves the design
 doc's open gold-on-white question); fix what falls out.

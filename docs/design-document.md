@@ -90,8 +90,8 @@ badges bring in their own natural colors on top of this neutral shell —
 the UI is deliberately quiet so those images read clearly, not muddied by
 a busy background.
 
-**Text vs. decorative contrast (S-013, resolves §7's former open
-question):** §6's contrast floor requires verifying gold-on-white and
+**Text vs. decorative contrast (S-013, resolves §6's former open
+item):** §6's contrast floor requires verifying gold-on-white and
 green-on-white use once real components existed — S-013 measured both
 (WCAG relative-luminance formula against `surface-card`/`#FFFFFF`) and
 found `accent-gold` and `accent-green` both fail the required ratio when
