@@ -211,6 +211,18 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText(seed.correctPlayerName)).toBeVisible()
     await expect(cell.getByText('live')).toBeVisible()
     await expect(cell).toBeDisabled()
+
+    // S-015 (design-document.md §2's "signature element: badge dock"): once
+    // the correct guess is live, the row/column category badges are docked
+    // beside the revealed name. Only presence/visibility is asserted here —
+    // CellState.test.tsx's constructed-props tests cover the reveal-trigger
+    // *logic* (when cell-state--reveal is/isn't applied); the CSS keyframes
+    // themselves (slide-in vs. the prefers-reduced-motion flash) are
+    // keyframe-only concerns neither suite asserts on, since driving an
+    // in-flight CSS animation here would be brittle/flaky and jsdom doesn't
+    // run real animations — verified visually against the design mock instead.
+    await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
+    await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
   })
 
   // REQ-210's other lock path: locking after both attempts are used without

@@ -91,3 +91,72 @@
     opacity: 0.4;
   }
 }
+
+/* design-document.md §2 "Signature element: badge dock" — the row/column
+   badge slides inward from either side and settles beside the revealed
+   name, on a correct guess or round-close reveal only (never elsewhere).
+   `.cell-state--reveal` is only applied for the render that corresponds to
+   one of those two trigger moments (see CellState.tsx's useRevealToken) —
+   absent otherwise, so the badges just sit already-docked with no motion. */
+.cell-state__badge-dock {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.cell-state--reveal .cell-state__badge-dock--row {
+  animation: cell-state-badge-dock-in-row 0.4s ease-out;
+}
+
+.cell-state--reveal .cell-state__badge-dock--col {
+  animation: cell-state-badge-dock-in-col 0.4s ease-out;
+}
+
+@keyframes cell-state-badge-dock-in-row {
+  from {
+    transform: translateX(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes cell-state-badge-dock-in-col {
+  from {
+    transform: translateX(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* prefers-reduced-motion fallback (design-document.md §2): badges appear
+   already docked (no slide) — the reveal instead reads as a brief
+   background color flash, green (live) settling to gold (correct). */
+@media (prefers-reduced-motion: reduce) {
+  .cell-state--reveal .cell-state__badge-dock--row,
+  .cell-state--reveal .cell-state__badge-dock--col {
+    animation: none;
+  }
+
+  .cell-state--reveal {
+    animation: cell-state-badge-dock-flash 0.6s ease-out;
+  }
+}
+
+@keyframes cell-state-badge-dock-flash {
+  0% {
+    background-color: var(--color-accent-green);
+  }
+  60% {
+    background-color: var(--color-accent-gold);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

@@ -54,6 +54,10 @@ export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onO
           roundStatus={roundStatus}
           uniquePercent={guess.uniquePercent}
           roundEndTime={roundEndTime}
+          rowCategoryType={cell.rowCategoryType}
+          rowCategoryValue={cell.rowCategoryValue}
+          colCategoryType={cell.colCategoryType}
+          colCategoryValue={cell.colCategoryValue}
         />
       )}
     </button>

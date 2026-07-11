@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — doc-sync for S-015 (branch claude/s-015-badge-dock-hs9b42,
+  commits 23b889b/0e069ae): no docs edited this pass — checked
+  requirements-document.md (REQ-204/205), architecture-document.md, and
+  implementation-document.md against the diff and found each already
+  accurate. REQ-204/205's acceptance criteria describe the live/final
+  *data* distinction, not the reveal animation itself, and neither cites
+  design-document.md's badge-dock spec — consistent with the existing
+  pattern of the animation living entirely in design-document.md §2/
+  backlog.md's S-015 entry with no REQ ID (S-020's incorrect-guess
+  animation entry is the same pattern). Confirmed design-document.md §2
+  already fully specified the badge dock before S-015 built it, so no
+  design-doc edit was needed either. architecture-document.md has no
+  component-level entries below `CONT-01` (Web Frontend) for individual
+  React components, so the `CategoryGlyph` extraction and `CellState`
+  reveal-token logic are below this doc's granularity — no boundary or
+  data-flow change. implementation-document.md §4's project-structure
+  listing already names `CategoryLabel`/`CellState` at the file level
+  (not per-export), same depth as before S-015 — `CategoryGlyph` is a new
+  export within the existing `CategoryLabel.tsx` file, not a new
+  component, so no line changes there either. Already went through
+  architecture-reviewer and code-reviewer per S-015's own workflow. No new
+  ADR — no decision here was architecturally significant enough to
+  reasonably have gone another way.
+
 - 2026-07-11 — doc-sync for S-014 (commit 689bab5): docs/implementation-document.md
   (version 0.33 → 0.34), docs/decisions/0010-guess-time-live-verification.md
   (no frontmatter to bump) — fixed two remaining `MinValidAnswers`
