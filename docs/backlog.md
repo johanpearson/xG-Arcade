@@ -865,7 +865,16 @@ directly). Frontend suite run for real this time (73/73 green,
 `GridScreen.test.tsx`'s two guess-submission tests needed updating to match
 the new wording/name-display behavior (an incorrect guess's mocked POST
 response has no name to assert on anymore, so those tests now wait on the
-attempt-count text landing instead).
+attempt-count text landing instead). **Review pass (second commit):**
+independent architecture-reviewer, code-reviewer, test-writer,
+ui-implementer, and requirements-writer passes found the diff structurally
+clean (no boundary violations, no ad-hoc design tokens) but fixed a real
+REQ-206 contradiction in `requirements-document.md`, moved an inline
+S-029 tag into a proper REQ-303 acceptance-criterion bullet, and closed two
+coverage gaps — a missing test for `GridScreen`'s new live total, and a
+missing idempotency test for `RoundGenerationService`'s predecessor-closing
+call on a repeated (retried) invocation. Final frontend suite: **75/75
+green**, `tsc -b`/`npm run lint` still clean.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 

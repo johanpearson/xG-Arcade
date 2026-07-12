@@ -89,6 +89,68 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   wording/name-display behavior. No new Tier 1 trigger fired — all five
   fixes stayed inside Tier 0's existing scope. REQ-204, REQ-205, REQ-206,
   REQ-303, ADR-0022.
+- 2026-07-12 — S-029 review pass (same branch, second commit): independent
+  architecture-reviewer, code-reviewer, test-writer, ui-implementer, and
+  requirements-writer passes over the S-029 diff above.
+  **architecture-reviewer** and **ui-implementer** found the diff clean — no
+  boundary violations (the new `ResolvedPlayerName` lookups stay plain
+  by-ID reads, never touching `PlayerNameIndex`/ADR-0007's separation), no
+  ad-hoc design tokens. **requirements-writer** fixed a real contradiction
+  in REQ-206's status note — it said the per-round locked total "still only
+  exists ... via the leaderboard," which wrongly implied a player can see it
+  distinctly there, then immediately said the opposite (no per-round total
+  is ever surfaced anywhere); reworded to state plainly that it's folded,
+  uncredited, into the all-time sum. Also moved an inline `**(S-029)**` tag
+  in REQ-303 into a proper Given/When/Then acceptance-criterion bullet,
+  matching this doc's own convention elsewhere. **test-writer** found and
+  closed two real coverage gaps: the new live "~N pts estimated"
+  `GridScreen` total had no test at all (new cases added to
+  `GridScreen.test.tsx`), and `RoundGenerationService`'s predecessor-closing
+  logic had no test for a repeated call against the same clock/state (a
+  retried cron tick) — new
+  `REQ205_GenerateNextRoundIfNeeded_CalledAgainAfterSuccessorAlreadyGenerated_DoesNotCloseOrGenerateAgain`
+  confirms a second run is a total no-op. Backend test names in
+  `CurrentRoundEndpointTests.cs`/`GuessEndpointTests.cs`/
+  `GuessSubmissionServiceTests.cs` and the two `App.test.tsx` REQ-303 cases
+  above also picked up this repo's `REQ###_`/`REQ-###:` prefix convention
+  where missing. `requirements-document.md` updated again (REQ-206/REQ-303
+  wording only, no version bump beyond the 0.39 already recorded above,
+  since both commits landed as one unreleased iteration). Frontend suite
+  now **75/75 green** (`npm run test`, superseding the 73/73 figure recorded
+  above — 2 tests were added by this pass), `tsc -b`/`npm run lint` both
+  still clean. No architectural or requirements change beyond wording
+  fixes and test coverage — no new ADR. REQ-206, REQ-303.
+- 2026-07-12 — doc-sync pass over the full S-029 branch diff (both commits
+  above, `docs/backlog.md`'s S-029 entry, and this CHANGELOG's own two
+  S-029 entries above). Confirmed accurate and needing no change:
+  `requirements-document.md`, `architecture-document.md`,
+  `design-document.md` (all already correctly updated by the session
+  itself, cross-checked line-by-line against the final code — including
+  the review-pass commit's own fixes), and `docs/legal/*.md` (nothing in
+  this diff touches data collection, retention, or third-party sharing —
+  confirmed, not assumed). Found and fixed two real gaps: (1)
+  `implementation-document.md` was untouched by this session, but its §6
+  Tier 0 status note for round scheduling/scoring still flatly asserted
+  "there is still no automated scheduled job that calls round-close ... in
+  any environment" — false as of ADR-0022; corrected to describe
+  `RoundGenerationService`'s new predecessor-closing call, matching
+  architecture-document.md's own already-updated §6.2. (Checked, not
+  added: this doc never itemizes every repository method for other REQs
+  either — `GetPreviousByGameKeyAsync`/`GetPlayersByIdsAsync`/
+  `ResolvedPlayerName` don't need their own entries in §5's data model,
+  since none of them are persisted schema and this doc's granularity for
+  DTOs/repository methods has never gone that deep.) Version 0.39 -> 0.40
+  (frontmatter and the stale in-body "Version 0.33 · 2026-07-11" header,
+  itself already out of sync with frontmatter before this branch,
+  corrected to match). (2) The S-029 backlog entry's and this CHANGELOG's
+  first S-029 entry's "73/73 green" frontend test count was accurate for
+  the first commit but stale after the review-pass commit added 2 more
+  tests (actual final count, re-run: 75/75) — `docs/backlog.md`'s
+  "Built as" note updated in place to record the review pass and the
+  corrected count (CHANGELOG's own historical entries left as written,
+  each accurate as of the commit it describes; the second S-029 CHANGELOG
+  entry above already states the corrected 75/75 total). No ADR needed —
+  both fixes are doc-accuracy corrections, not new decisions.
 - 2026-07-12 — independent test-writer and requirements-writer passes over
   the same S-022/023/024/028 branch (claude/points-ui-concerns-z9tvc2),
   run alongside the doc-sync pass below. **requirements-writer** fixed
