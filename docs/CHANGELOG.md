@@ -13,6 +13,61 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — `docs/requirements-document.md` (version 0.40 → 0.41),
+  `docs/backlog.md` — two more acknowledged gaps, previously flagged but
+  never turned into stories, scoped into the backlog: **S-033** (`CellState`
+  never renders a point value on the "incorrect, no attempts left" cell
+  state, even though `design-document.md`'s mock has shown it since S-028
+  — frontend-only rendering fix, REQ-204 status note added) and **S-034**
+  (the global leaderboard endpoint is still unbounded, REQ-607's own
+  acknowledged gap since S-011 — pagination shape was already fully
+  specified in `implementation-document.md` §6, just never built; REQ-607
+  status note updated to record it as queued rather than waiting on the
+  original "membership grows large" trigger). No architecture/
+  implementation doc changes needed — both stories build to an
+  already-decided design, no new structural decision. REQ-204, REQ-607.
+- 2026-07-12 — `infra/scripts/lib/game-data-tables.sh` (ADR-0009) — fixed
+  the singular/plural table-name bug NOTES.md flagged on 2026-07-09
+  (S-006): six of the allowlist's nine entries used the entity's singular
+  name instead of its real EF Core table name — verified directly against
+  `XGArcadeDbContext.cs`'s `DbSet<T>` properties (`Player`→`Players`,
+  `PlayerOverride`→`PlayerOverrides`, `PlayerAttribute`→`PlayerAttributes`,
+  `PlayerAlias`→`PlayerAliases`, `TrophyDefinition`→`TrophyDefinitions`,
+  `GridTemplate`→`GridTemplates`; `PlayerData` was already correct).
+  `PlayerNameIndex`/`ClubCrest` left as-is and commented — both are
+  placeholders for tables that don't exist yet (S-032, Tier 2), so their
+  real names can't be confirmed until built. Harmless in practice today —
+  `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh` are still unused until
+  Tier 1's dev/prod split (T-106) — but would have broken the first real
+  sync. Corresponding NOTES.md entry removed (resolved, not just noted).
+  No REQ/ADR change — this corrects a data value in an existing script
+  against an already-decided design (ADR-0009), not a new decision.
+- 2026-07-12 — Post-Tier-0 planning session: `MVP-SCOPE.md`,
+  `docs/backlog.md`, `docs/requirements-document.md` (version 0.39 → 0.40),
+  `TODO.md` — no code changed, this is scope/story planning only. Reviewed
+  what's left in Tier 1 against real Tier 0 play-testing and pulled three
+  items forward by explicit product decision (not all strictly trigger-fired
+  per `MVP-SCOPE.md`'s own discipline — recorded as such, not silently
+  reclassified): **Club × Club grid pairing** (not actually a Tier 1 item —
+  REQ-107 already allowed it, Tier 0 generation just never used it; queued
+  as new story S-030), **Trophy category** (`MVP-SCOPE.md`'s "feels
+  repetitive after a couple weeks" trigger judged hit; queued as S-031,
+  deliberately scoped to individual awards only — Ballon d'Or, via
+  Wikidata's `P166` — deferring team-competition trophies which need a
+  structurally different query), and **Autocomplete + `PlayerNameIndex`**
+  (trigger not strictly observed; pulled forward anyway by deliberate
+  choice; queued as S-032, building exactly what ADR-0007 already
+  specifies, no new ADR needed). Also resolved REQ-405's three previously-
+  open design questions for leaderboard time-window resolutions (S-027,
+  now unblocked): calendar-aligned windows, UTC, locked-rounds-only —
+  closing `requirements-document.md` §7's last open question. `TODO.md`'s
+  Tier 1 checklist updated to match (guess-time live verification checked
+  off as already built; autocomplete/Trophy annotated as queued, not
+  built). No architecture/implementation doc changes — none of this
+  changed a component boundary or added a structural decision beyond what
+  ADR-0007/ADR-0012 already cover; doc updates for architecture/
+  implementation will follow the usual per-story `/update-docs` pass once
+  each is actually implemented. REQ-107, REQ-108, REQ-207, REQ-405.
 - 2026-07-12 — CI-caught E2E fix for S-029 (same branch, third commit,
   PR #40): `ci.yml`'s real Playwright run against a live backend (this
   sandbox has no `dotnet` SDK, so it can't run this suite locally — same

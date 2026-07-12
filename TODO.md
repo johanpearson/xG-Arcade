@@ -63,11 +63,14 @@ should be triggered by an actual observed problem, not by this list existing:
 - [ ] API-Football as a fallback source + expanding beyond ~15 clubs
   (only once you want more clubs than manual QID lookup is worth, or hit
   poor Wikidata coverage for a specific club/player)
-- [ ] Guess-time live verification (only if a correct guess actually gets
-  wrongly rejected in practice)
-- [ ] Autocomplete + `PlayerNameIndex` (only if blind typing is actually annoying)
+- [x] Guess-time live verification — built 2026-07-10, ADR-0018
+- [ ] Autocomplete + `PlayerNameIndex` — pulled forward 2026-07-12, queued as
+  `docs/backlog.md` S-032, not yet built
 - [ ] Disambiguation UI (only if a real name collision actually happens)
-- [ ] Trophy category + full `CountryDefinition`/`ClubDefinition` external-ID resolution
+- [ ] Trophy category + full `CountryDefinition`/`ClubDefinition` external-ID
+  resolution — individual-awards-only v1 (Ballon d'Or) pulled forward
+  2026-07-12, queued as `docs/backlog.md` S-031, not yet built; the full
+  external-ID-resolution/team-competition scope remains genuinely deferred
 - [ ] Create a real "prod" environment (dev already exists from Tier 0) —
   bidirectional sync, test-data API
 - [ ] Backups + failure alerting

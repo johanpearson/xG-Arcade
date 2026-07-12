@@ -154,8 +154,12 @@ needs REQ-806's much smaller local test-only endpoint (see Epic 3 in
 `docs/backlog.md`), scoped to the ephemeral stack `ci.yml` already runs
 E2E against.
 
-**Grid content**: Country × Club only (REQ-108's Trophy category —
-defer). **Revised, per an explicit decision to prioritize full historical
+**Grid content**: Country × Club, plus Club × Club as of `docs/backlog.md`
+S-030 (2026-07-12) — REQ-107 already permitted this pairing, Tier 0 grid
+generation just never used it; no new reference data needed. REQ-108's
+Trophy category is a separate pull-forward, S-031 — see the Tier 1 section
+below for why it's scoped narrower than REQ-108's full definition.
+**Revised, per an explicit decision to prioritize full historical
 correctness over club-count breadth**: a small, **hand-curated** list of
 roughly **15 clubs** and **15-20 countries** in `CountryDefinition`/
 `ClubDefinition` — fewer clubs than originally planned, chosen
@@ -255,16 +259,34 @@ is written as something you can actually observe, not a vague feeling:
   without its `PlayerNameIndex` prerequisite — see ADR-0018 for why that's
   safe here and REQ-211's status note for what's still deferred (the
   API-Football fallback leg and budget-gating)
-- **Autocomplete + `PlayerNameIndex`** (REQ-207, ADR-0007) — trigger: you
+- ~~**Autocomplete + `PlayerNameIndex`** (REQ-207, ADR-0007) — trigger: you
   or a tester finds typing exact names tedious enough to mention it
-  unprompted, not just "would be nice"
+  unprompted, not just "would be nice"~~ — **Pulled forward by deliberate
+  choice, 2026-07-12** (the trigger itself hasn't strictly fired — no
+  unprompted complaint observed yet — but building it now was chosen
+  anyway). Queued as `docs/backlog.md` S-032: `PlayerNameIndex` populated
+  via a one-time bulk Wikidata import (`P106` = association football
+  player), exactly the mechanism ADR-0007 already specified — no new ADR
+  needed, this is that ADR's own design being built. REQ-208's alias/
+  fuzzy-typo-tolerance clause remains deferred; autocomplete alone (a
+  correct-spelling suggestion list) is what's being built, not typo
+  tolerance for free-typed guesses
 - **Disambiguation UI** (REQ-209) — trigger: you actually observe two real
   players with the same normalized name both satisfying one cell (log this
   case even in the simplified Tier 0 handling, so you'd notice if it happened)
-- **Trophy category** (REQ-108, plus `CountryDefinition`/`ClubDefinition`'s
+- ~~**Trophy category** (REQ-108, plus `CountryDefinition`/`ClubDefinition`'s
   full external-ID resolution, ADR-0012) — trigger: Country×Club has been
   played enough rounds that it feels repetitive, a subjective call but one
-  you'll notice by just playing it yourself for a couple of weeks
+  you'll notice by just playing it yourself for a couple of weeks~~ —
+  **Trigger judged hit, 2026-07-12**, after two weeks/29 stories' worth of
+  real play. Queued as `docs/backlog.md` S-031, deliberately scoped
+  narrower than REQ-108's full definition: **individual awards only for
+  v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received") —
+  the same simple query shape as the existing Country×Club intersection
+  query. Team-competition trophies (World Cup, Champions League) need a
+  genuinely different query pattern (squad membership + tournament result
+  — no single property links a player directly to "won this tournament")
+  and stay explicitly deferred to a follow-up story, not folded into S-031
 - **National teams as distinct footballing entities** (England, Scotland,
   Wales, Northern Ireland) — trigger: "United Kingdom" as a category
   starts feeling wrong/generic for football trivia, or you specifically
