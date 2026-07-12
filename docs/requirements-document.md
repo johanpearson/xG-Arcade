@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.41"
+version: "0.42"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.41 · 2026-07-12
+Version 0.42 · 2026-07-12
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -189,11 +189,18 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want every grid to be answerable with a real footballer, so
 > the puzzle stays fair and interesting rather than impossible or trivial.
 
-- **Status note (2026-07-12):** Club × Club is queued as `docs/backlog.md`
-  S-030 — Tier 0 grid generation has so far only ever produced
-  Country × Club, a scope restriction in `MVP-SCOPE.md`, not a limit this
-  REQ ever imposed. Trophy pairings are queued as S-031, scoped to
-  Trophy × Country/Trophy × Club only for v1 (a single-trophy pool can't
+- **Status note (2026-07-12):** Club × Club is implemented, `docs/backlog.md`
+  S-030 — `GridGameModule.GenerateInstanceAsync` now picks between
+  Country × Club and Club × Club per instance (`SelectPairing`): randomly,
+  whenever the seeded reference data can support either (enough countries
+  and clubs for Country × Club, and at least `2 × Size` distinct clubs for
+  Club × Club, since REQ-102 forbids a value appearing on both axes),
+  falling back deterministically to whichever single pairing is feasible
+  when only one is. This was a scope restriction in `MVP-SCOPE.md`, not a
+  limit this REQ ever imposed — `CategoryPairingRules.IsAllowedPairing`
+  already permitted Club × Club before S-030. Trophy pairings are queued as
+  S-031, scoped to Trophy × Country/Trophy × Club only for v1 (a
+  single-trophy pool can't
   satisfy REQ-102's N-unique-headers rule for Trophy × Trophy, so that
   pairing is structurally unreachable until more trophies exist, not
   separately banned).
@@ -730,10 +737,13 @@ an extra attempt), API
 > sample data, so I'm never wrongly told I'm wrong.
 
 - **Status: Partially implemented (Tier 0 simplified, S-011 follow-up,
-  ADR-0018).** `GridGameModule.ScoreSubmissionAsync`
-  (`XGArcade.Games.XGGrid`) now falls back to a live Wikidata lookup
-  (re-running the cell's own country×club intersection query) whenever
-  cached data doesn't already resolve a guess, then re-checks. This closes
+  ADR-0018; extended to Club × Club by S-030).** `GridGameModule
+  .ScoreSubmissionAsync` (`XGArcade.Games.XGGrid`) now falls back to a live
+  Wikidata lookup (re-running the cell's own intersection query — country×
+  club or, as of S-030, club×club, whichever pairing the cell actually is)
+  whenever cached data doesn't already resolve a guess, then re-checks. Any
+  other pairing (e.g. a future Trophy cell) is not covered by this fallback
+  and falls through to fail-closed, same as before S-030. This closes
   the real gap ADR-0010 predicted and MVP-SCOPE.md's trigger condition
   confirmed in practice. What differs from the full criteria below: the
   trigger is "cached data didn't already answer this guess," not "guess
