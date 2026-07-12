@@ -1,6 +1,21 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { CellState } from './CellState';
+
+// Note on why most reveal-toggle assertions below use `fireEvent.click`/
+// `fireEvent.focus`/etc. rather than `@testing-library/user-event`: those
+// isolate one trigger at a time (a bare click with no accompanying focus
+// event, a bare focus with no click, etc.), which is what each test is
+// actually asserting about. A realistic click fires a native `focus` event
+// immediately before its `click` event — `LiveMetaDisclosure` deliberately
+// tracks click/hover/focus as three independent flags (OR'd together)
+// specifically so that combination can never fight over one shared boolean
+// (an earlier single-toggle version of this component had exactly that bug:
+// a real click would open the panel via focus, then immediately re-close it
+// via the click's own toggle, in the same gesture). The dedicated
+// `userEvent.click` test below is what exercises that realistic combined
+// sequence end-to-end, rather than one isolated event at a time.
 
 // SCREEN-01a / REQ-210: four distinct "attempted" cell states. Constructed
 // via props directly — state 4 (round closed) is not reachable through the
@@ -37,6 +52,10 @@ describe('CellState', () => {
       />,
     );
 
+    // S-019: the live meta text is disclosed on demand, not always shown —
+    // reveal it first via the "live" toggle before asserting its contents.
+    fireEvent.click(screen.getByRole('button', { name: /live/i }));
+
     expect(screen.getByText('live')).toBeInTheDocument();
     expect(screen.getByText('12% unique')).toBeInTheDocument();
     expect(screen.getByText(/updates until round closes on/)).toBeInTheDocument();
@@ -56,6 +75,9 @@ describe('CellState', () => {
       />,
     );
 
+    // S-019: reveal the disclosure before asserting its text is present.
+    fireEvent.click(screen.getByRole('button', { name: /live/i }));
+
     expect(screen.getByText('live')).toBeInTheDocument();
     expect(screen.getByText('12% unique · ~12 pts estimated')).toBeInTheDocument();
   });
@@ -72,6 +94,10 @@ describe('CellState', () => {
         livePoints={12}
       />,
     );
+    // S-019: the live half of this comparison is behind the reveal toggle;
+    // the closed/final half below never uses the toggle at all (state 4 has
+    // no disclosure — see REQ-205/206).
+    fireEvent.click(screen.getByRole('button', { name: /live/i }));
     const liveText = screen.getByText('12% unique · ~12 pts estimated');
     expect(liveContainer.querySelector('.cell-state--live')).toBeInTheDocument();
     expect(liveContainer.querySelector('.cell-state--final')).not.toBeInTheDocument();
@@ -170,6 +196,219 @@ describe('CellState', () => {
     );
 
     expect(screen.getByText('Guess submitted')).toBeInTheDocument();
+  });
+});
+
+// S-019 (REQ-204/SCREEN-01a redesign): state 1's live uniqueness %/points/
+// round-end text moved behind an on-demand disclosure (tap/long-press, or
+// hover/focus on desktop) instead of always rendering — the permanent
+// at-rest indicator (green dot + "live" text) is unchanged. These tests
+// cover the acceptance criteria that text is genuinely absent from the DOM
+// until revealed, and that the reveal/hide state is exposed accessibly
+// (aria-expanded on the toggle, aria-live on the revealed panel) rather
+// than only working for a mouse.
+describe('CellState live meta disclosure (S-019)', () => {
+  it('REQ-204: on initial render the live uniqueness/points/round-end text is not in the document, but the permanent "live" label and dot are', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        livePoints={12}
+        roundEndTime="2026-07-11T18:00:00Z"
+      />,
+    );
+
+    // At-rest indicator: always present, unaffected by S-019.
+    expect(screen.getByText('live')).toBeInTheDocument();
+    expect(document.querySelector('.cell-state__live-dot')).toBeInTheDocument();
+
+    // Disclosed detail: not yet revealed, so genuinely absent from the DOM
+    // (not just visually hidden) until the player interacts.
+    expect(screen.queryByText(/12% unique/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/updates until round closes on/)).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: the reveal toggle has aria-expanded="false" initially, "true" after a click, and toggles back to "false" on a second click', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: focusing the toggle reveals the text (keyboard equivalent) and blurring hides it again', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+
+    // Focus/blur are the keyboard-accessible equivalent of hover — this is
+    // the "not mouse/touch-only" half of S-019's acceptance criteria.
+    fireEvent.focus(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
+
+    fireEvent.blur(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: hovering reveals the text (desktop equivalent) and moving the mouse away hides it again', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+
+    fireEvent.mouseEnter(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
+
+    fireEvent.mouseLeave(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: once revealed, the live meta text lives inside an aria-live="polite" region, so screen readers are told about the change', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        roundEndTime="2026-07-11T18:00:00Z"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /live/i }));
+
+    const livePanel = container.querySelector('[aria-live="polite"]');
+    expect(livePanel).toBeInTheDocument();
+    expect(livePanel).toHaveTextContent('12% unique');
+    expect(livePanel).toHaveTextContent(/updates until round closes on/);
+  });
+
+  it('REQ-204: with uniquePercent null (guess just submitted, live values not back yet) there is no disclosure/toggle at all, just the plain "live" text — guards against the S-019 wrapper appearing with nothing to disclose', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+      />,
+    );
+
+    expect(screen.getByText('live')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /live/i })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-expanded]')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: a single realistic click (which fires focus immediately before click, like a real mouse click on a focusable button) reveals the text and leaves it open, not a flash-open-then-instant-close', async () => {
+    const user = userEvent.setup();
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
+  });
+
+  it('REQ-204: a second realistic click un-toggles the panel once the pointer also leaves (a real click leaves the button both focused and hovered, and neither of those leftovers may block the toggle from closing)', async () => {
+    const user = userEvent.setup();
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    // The pointer is still over the toggle after a real click, same as
+    // hovering any button — it staying revealed while the mouse is still on
+    // it is correct, not the bug this guards against. The bug was that its
+    // *own* toggle state could get stuck open even after the pointer (and
+    // any keyboard focus) genuinely leaves; unhovering is what isolates that.
+    await user.click(toggle);
+    await user.unhover(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: tabbing to the toggle with the keyboard (no mouse involved at all) reveals the text the same as hovering does', async () => {
+    const user = userEvent.setup();
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    await user.tab();
+
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('12% unique')).toBeInTheDocument();
   });
 });
 

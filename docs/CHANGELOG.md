@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — doc-sync for S-019 (branch claude/story-s-019-bs4t7x):
+  design-document.md's SCREEN-01a state-1 mock (already reworded by the
+  author, ahead of this pass, to show an "at rest"/"revealed" split plus a
+  new explanatory paragraph) and requirements-document.md's REQ-204 status
+  note/acceptance criteria (already updated the same way) both verified
+  accurate against the final code — including the click/hover/focus
+  interaction semantics (click toggles a persistent open/closed state;
+  hover and keyboard-focus each independently reveal transiently and close
+  on mouseleave/blur; the three combine via OR, so e.g. hovering keeps the
+  panel open across an intervening click) and the Playwright
+  `kAriaDisabledRoles` claim behind `GridCell.tsx`'s new
+  `role="group"` div (confirmed directly against
+  `playwright-core`'s bundled source: `"group"` is in that list, a bare
+  `<div>`'s implicit role is not) — no further edit needed to either doc
+  beyond what the author already made; versions 0.9 → 0.10 (design) and
+  0.32 → 0.33 (requirements) confirmed correct as-is. architecture-document.md
+  and implementation-document.md — checked, no change needed: this story
+  touches zero backend `COMP-xx` components, no new API surface, and no new
+  data flow (the existing `GET /rounds/current` → `UniquePercent`/
+  `LivePoints` data flow in architecture-document.md §6 already stops at
+  the API boundary and says nothing about frontend disclosure UI; the
+  implementation-document.md frontend folder listing (§4) is unchanged —
+  `LiveMetaDisclosure` is a sub-component inside the existing
+  `CellState.tsx`, not a new file). backlog.md — added a "Built as:" note
+  to S-019 covering the `LiveMetaDisclosure` three-flag
+  (click/hover/keyboard-focus) design and the click-before-focus race bug
+  it fixes (found via a code-reviewer pass mid-implementation), the
+  `GridCell.tsx` button→`div role="group"` restructure and why, the new
+  `GridCell.test.tsx` file, and the final 54/54 frontend test count
+  (`npm run test`/`tsc -b`/`npm run lint` all clean; no backend files
+  changed, so no `dotnet test` run for this story). REQ-204.
 - 2026-07-12 — doc-sync for S-018 (branch claude/story-s-018-of5t7c):
   requirements-document.md's REQ-204 entry — reworded the S-018 addition and
   its two new acceptance-criteria bullets to name the actual extracted

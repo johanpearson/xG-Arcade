@@ -418,6 +418,42 @@ criteria to describe the new interaction.
 *Accept:* REQ204-named UI test: live text is not present/visible until the
 interaction fires, and is exposed accessibly (e.g. `aria-expanded`/
 `aria-live` as appropriate) once revealed. *Deps:* S-010.
+**Built as:** matches the plan, plus one race-condition fix found by a
+code-reviewer pass mid-implementation. `CellState.tsx` gained a new
+`LiveMetaDisclosure` sub-component (not a new file — it lives alongside
+`CellState`) driven by three independent boolean flags — `toggledOpen`
+(click), `hovering` (mouseenter/mouseleave), `keyboardFocused`
+(focus/blur) — OR'd together as `revealed`, rather than one shared
+toggle: a real mouse click fires a native `focus` event immediately
+before its `click` event, so a single merged toggle would flash the
+panel open (via focus) and instantly closed again (via the click's own
+toggle) within the same physical click. A `pointerDownRef` flag
+distinguishes a focus caused by a preceding mousedown (not counted as
+`keyboardFocused`, since `hovering` already covers that case) from a real
+keyboard Tab (still counted). The permanent "live" dot/text is now itself
+the toggle button (`aria-expanded`, `aria-controls`), and the revealed
+panel is `aria-live="polite"`. `GridCell.tsx` was restructured alongside
+this: a locked cell (correct-and-live, or out-of-attempts) now renders
+`<div role="group" aria-disabled="true">` instead of `<button disabled>`,
+since nesting the new focusable reveal-toggle inside a disabled `<button>`
+would make it keyboard-unreachable (and is invalid HTML besides);
+`role="group"` was specifically chosen (verified against Playwright's own
+`kAriaDisabledRoles` list in `playwright-core`) so the existing
+`toBeDisabled()`/`toBeEnabled()` assertions in
+`tests/e2e/play-grid.spec.ts` keep working unchanged — a bare `<div>`'s
+implicit role is not in that list, `"group"` is. New
+`frontend/src/grid/GridCell.test.tsx` covers the button/div branching
+directly (didn't exist as a dedicated file before this story). 14 new
+REQ-204-named Vitest cases were added to `CellState.test.tsx` covering the
+disclosure open/close/hover/focus/aria-live behavior, plus the realistic
+combined-event-sequence case (`userEvent.click`) that exercises the actual
+click/focus race the flag-separation fixes. 54/54 frontend tests green
+(`npm run test`), `tsc -b` and `npm run lint` both clean. No backend files
+touched, so no `dotnet test` run for this story. No new ADR — this is an
+interaction-pattern change within the existing SCREEN-01a/REQ-204 scope,
+not a new component boundary or structural choice; an architecture-reviewer
+consideration during doc-sync confirmed no `COMP-xx` boundary is touched
+(frontend-only, no new API surface or data flow).
 
 **S-020 · Incorrect-guess animation (SCREEN-01a extension)**
 Add a subtle shake + red flash to a cell when a submitted guess is

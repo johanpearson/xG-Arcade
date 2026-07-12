@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.32"
+version: "0.33"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -344,7 +344,7 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
-- **Status: Implemented (Tier 0, S-011; extended S-018).** `UniquenessCalculator.Calculate`
+- **Status: Implemented (Tier 0, S-011; extended S-018, S-019).** `UniquenessCalculator.Calculate`
   (`XGArcade.Core.Scoring`) is the one place this formula is written, shared
   by both the live read path below and REQ-205's round-close lock so they
   can never disagree. `GET /rounds/current`
@@ -353,6 +353,19 @@ without erroring), API
   never persisted until the round closes. Frontend: `CellState.tsx` shows
   "X% unique" plus "updates until round closes on [date/time]" for state 1
   (correct + round active), per `design-document.md` SCREEN-01a.
+- **S-019 addition:** the text above is no longer always rendered — every
+  unresolved cell showing its full live text at once was cluttered at real
+  grid sizes. `CellState.tsx`'s new `LiveMetaDisclosure` sub-component now
+  gates it behind a tap/long-press (a tap toggles it open/closed) or, on
+  desktop, hover/focus (transient — closes again on mouseleave/blur)
+  interaction. The green live-dot plus the word "live" remain permanently
+  visible regardless of reveal state — only the uniqueness %/points/
+  round-end text is gated, and its wording is unchanged from before, so
+  this changes *when* it renders, never whether it exists as text. The
+  toggle is a real `<button>` (`aria-expanded` reflects open/closed,
+  `aria-live="polite"` on the revealed panel) so keyboard/screen-reader
+  users have the same access as mouse/touch, per `design-document.md`
+  SCREEN-01a and §6.
 - **S-018 addition:** the same endpoint also computes `LivePoints` alongside
   `UniquePercent`, via the new `ScoringRules.PointsFromUniqueScore(double
   uniqueScore)` (`XGArcade.Core.Scoring`) — extracted in this story as the
@@ -382,11 +395,21 @@ without erroring), API
   multiple fitting players (see `MVP-SCOPE.md`), the stored `PlayerId` is
   chosen deterministically (lowest Id among fits) so identical guesses by
   different players always group as the same answer for uniqueness
-- And the value is clearly and visually marked as "live" (e.g. an icon/pulsing
-  indicator plus text "updates until the round closes on [date/time]")
+- And the cell is permanently, visually marked as "live" at rest — a small
+  pulsing green dot plus the text "live," both always present regardless of
+  whether the detail below is currently disclosed (REQ-204's "always as
+  text, never icon-only" rule applies to this at-rest indicator too)
+- And (S-019) the uniqueness percentage plus "updates until the round
+  closes on [date/time]" text is disclosed only on tap/long-press (toggles
+  open/closed) or, on desktop, hover/focus (transient) — never shown for
+  every unresolved cell at once by default — but is still always real text
+  once revealed, never an icon standing in for it, and the toggle itself is
+  a focusable control exposing `aria-expanded`/`aria-live` so a keyboard or
+  screen-reader user has the same access as a mouse/touch user
 - And the value MAY change between page loads before the round closes
 - And (S-018) a live, provisional point estimate is shown alongside the
-  uniqueness percentage, computed via `ScoringRules.PointsFromUniqueScore`
+  uniqueness percentage (subject to the same S-019 disclosure interaction),
+  computed via `ScoringRules.PointsFromUniqueScore`
   — the same shared method REQ-205 calls to lock `FinalPoints` at round
   close, never a second, independently-written formula
 - And that estimate is worded so it is unmistakably provisional (e.g. "~N
