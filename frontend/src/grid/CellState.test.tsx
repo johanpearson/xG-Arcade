@@ -362,7 +362,13 @@ describe('CellState live meta disclosure (S-019)', () => {
     expect(screen.getByText('12% unique')).toBeInTheDocument();
   });
 
-  it('REQ-204: a second realistic click un-toggles the panel once the pointer also leaves (a real click leaves the button both focused and hovered, and neither of those leftovers may block the toggle from closing)', async () => {
+  it('REQ-204: a second realistic click un-toggles the panel immediately, even though a real click leaves the button both hovered and focused', async () => {
+    // Regression test: a real click leaves the pointer resting on the
+    // button (it never moved) and the button focused. An earlier version of
+    // this component let `hovering` alone keep the panel open regardless of
+    // `toggledOpen`, so a mouse user's second click had no visible effect —
+    // the panel only closed once the mouse physically moved away. Neither
+    // leftover (hover or focus) may block a click from closing the panel.
     const user = userEvent.setup();
     render(
       <CellState
@@ -379,15 +385,16 @@ describe('CellState live meta disclosure (S-019)', () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
 
-    // The pointer is still over the toggle after a real click, same as
-    // hovering any button — it staying revealed while the mouse is still on
-    // it is correct, not the bug this guards against. The bug was that its
-    // *own* toggle state could get stuck open even after the pointer (and
-    // any keyboard focus) genuinely leaves; unhovering is what isolates that.
     await user.click(toggle);
-    await user.unhover(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+
+    // Hover's own peek behavior must still work afterward: leaving and
+    // re-entering reveals it again, so the fix doesn't just permanently
+    // disable hover.
+    await user.unhover(toggle);
+    await user.hover(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('REQ-204: tabbing to the toggle with the keyboard (no mouse involved at all) reveals the text the same as hovering does', async () => {
@@ -407,6 +414,63 @@ describe('CellState live meta disclosure (S-019)', () => {
     await user.tab();
 
     expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('REQ-204: pressing Enter while keyboard-focused closes the panel immediately, the same as a mouse click while hovering', async () => {
+    // Regression test for the keyboard analog of the hover-suppression bug:
+    // pressing Enter/Space activates the toggle's onClick without blurring
+    // it, so `keyboardFocused` stayed true through a keyboard-driven close
+    // just like `hovering` did for the mouse case.
+    const user = userEvent.setup();
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    await user.tab();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+  });
+
+  it("REQ-204: an odd number of Enter presses leaves the panel open via the click toggle even after tabbing away, the same as a mouse click's persistent state survives the pointer leaving", async () => {
+    // `toggledOpen` is deliberately persistent, independent of hover/focus
+    // (S-019: "a tap toggles it open/closed" as a standing state, distinct
+    // from hover/focus's transient peek) — a mouse click that opens the
+    // panel keeps it open after the pointer moves away, and the keyboard
+    // equivalent (Enter) must behave the same way after blur, not close
+    // just because focus/hover-driven suppression no longer applies.
+    const user = userEvent.setup();
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    await user.tab();
+    await user.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.tab();
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('12% unique')).toBeInTheDocument();
   });

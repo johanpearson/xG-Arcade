@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.34"
+version: "0.38"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.30 · 2026-07-10
+Version 0.38 · 2026-07-12
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -80,7 +80,8 @@ second game (the architecture must not block this later, but it is not built now
 | Cell | The intersection of one row category and one column category |
 | Round | A time-bound instance of a grid, with a start and end time |
 | Guess | A player's answer for a cell |
-| Uniqueness score | Share of players who did NOT give the same answer for a cell |
+| Uniqueness score | Share of *other* correct guessers who did NOT give the same answer for a cell — the guesser's own guess is excluded from the comparison, so a lone correct guesser is 100% (not 0%) unique (ADR-0020). **Note the points derived from it are inverted (ADR-0021): a HIGHER uniqueness score yields FEWER points — see "Points"/"Score" below.** |
+| Points / Score | xG Arcade is scored like golf: LOWER is better, and a player's (or the leaderboard's) goal is to MINIMIZE their total, never maximize it (ADR-0021). A cell's most-unique possible correct answer scores 0 (best); an incorrect guess, an unanswered cell (for a round the player participated in), or the most commonly-shared correct answer all score `ScoringRules.MaxPointsPerCell` (worst, 100 by default) |
 | Override | A manually corrected data point that always wins over synced data |
 | Unverified data | Data fetched live during grid generation, not yet reviewed by an admin |
 
@@ -325,14 +326,19 @@ without erroring), API
   triggers a Tier-0-simplified version of REQ-211's live lookup first (see
   REQ-211's own status note for exactly what differs from the full spec);
   only a guess that still doesn't resolve after that fallback is scored
-  incorrect. "0 points regardless of uniqueness" isn't independently
-  verifiable yet since point computation itself doesn't exist until S-011.
+  incorrect. The "incorrect guess scores worst" acceptance criterion below
+  isn't independently verifiable yet since point computation itself doesn't
+  exist until S-011.
 - Given a guess for cell X
 - When the answer is checked against the effective data (an override always
   takes precedence over synced/unverified data)
 - Then the guess is marked `correct = true/false` and this result is
   displayed to the player immediately — not deferred to round close
-- And an incorrect guess yields 0 points regardless of uniqueness
+- And an incorrect guess yields the WORST possible score
+  (`ScoringRules.MaxPointsPerCell`) regardless of uniqueness — **ADR-0021:
+  xG Arcade is scored like golf (lower is better, lowest total wins)**, so
+  0 is the *best* possible score and an incorrect guess must never be able
+  to tie it
 - And a correct guess immediately locks the cell against further guesses
   (REQ-210), even though its final score isn't computed until the round
   closes (REQ-205) — "locked from further guessing" and "final score" are
@@ -344,10 +350,19 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
-- **Status: Implemented (Tier 0, S-011; extended S-018, S-019).** `UniquenessCalculator.Calculate`
+- **Status: Implemented (Tier 0, S-011; extended S-018, S-019, S-022 formula fix).**
+  `UniquenessCalculator.Calculate`
   (`XGArcade.Core.Scoring`) is the one place this formula is written, shared
   by both the live read path below and REQ-205's round-close lock so they
-  can never disagree. `GET /rounds/current`
+  can never disagree. **S-022 correction (ADR-0020):** the formula now
+  excludes the guesser's own guess from both sides of the ratio — an earlier
+  version compared each guesser against the *whole* correct-guess
+  population including themselves, which meant a lone (or first) correct
+  guesser was trivially "100% of the population sharing their own answer"
+  and scored 0% unique / 0 points, backwards from the intent that being the
+  only correct answer for a cell should score maximally, not minimally. See
+  ADR-0020 for the full rationale and the previously-recorded "not a bug"
+  decision it reverses. `GET /rounds/current`
   (`XGArcade.Api.Rounds.RoundEndpoints`) computes `UniquePercent` live, on
   every request, for any cell the requesting player has correctly guessed —
   never persisted until the round closes. Frontend: `CellState.tsx` shows
@@ -369,7 +384,7 @@ without erroring), API
 - **S-018 addition:** the same endpoint also computes `LivePoints` alongside
   `UniquePercent`, via the new `ScoringRules.PointsFromUniqueScore(double
   uniqueScore)` (`XGArcade.Core.Scoring`) — extracted in this story as the
-  one place `round(uniqueScore * MaxPointsPerCell)` is written, called by
+  one place the `uniqueScore → points` formula is written, called by
   both this live path and REQ-205's `ScoreLockingService.LockRoundScoresAsync`
   when it locks `FinalPoints`, so the two literally share code rather than
   independently matching formulas. `LivePoints` is null whenever
@@ -381,6 +396,17 @@ without erroring), API
   "X% unique · Y pts", so it can never read as a preview or promise of
   REQ-205's locked score, only as a provisional value that can still
   change before the round closes.
+- **ADR-0021 correction (lowest-wins scoring):** `PointsFromUniqueScore` was
+  `round(uniqueScore * MaxPointsPerCell)` (higher uniqueness -> higher
+  points -> "more points is better"); it is now `round((1 - uniqueScore) *
+  MaxPointsPerCell)` — xG Arcade is scored like golf, so a rarer/more-unique
+  answer scores FEWER points (0 for the rarest possible), not more, and the
+  player's/leaderboard's goal is to MINIMIZE total points. `UniquePercent`
+  itself is unaffected (still ADR-0020's corrected uniqueness fraction) —
+  only its mapping to `LivePoints`/`FinalPoints` is inverted. The frontend's
+  "~N pts estimated"/"X% unique · Y pts" wording is unchanged text, but
+  SCREEN-01a/SCREEN-03 now also state the lowest-wins framing explicitly
+  (design-document.md) so a player doesn't assume the opposite from habit.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -423,7 +449,8 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018).**
+- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018;
+  lowest-wins correction S-028/ADR-0021).**
   `RoundCloseService`
   (`XGArcade.Core.Rounds`) pulls `EndTime` forward (idempotently — never
   later than what's already scheduled) to force immediate closure, then
@@ -432,15 +459,23 @@ present, updates on refresh)
   for every `Guess` in the round, a correct guess gets
   `FinalUniquenessScore` (via the same `UniquenessCalculator` REQ-204 uses)
   and `FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore)`
-  (`= round(uniqueScore * MaxPointsPerCell)`, `MaxPointsPerCell = 100`, a
-  Tier 0 default — no document specified an exact value); `PointsFromUniqueScore`
-  was extracted in S-018 so this same call also backs REQ-204's live
-  `LivePoints` estimate. An incorrect guess gets `FinalUniquenessScore = null` and
-  `FinalPoints = 0`. This is idempotent and safe to call again on an
-  already-closed round. What's still missing: there is no automated
-  scheduled job yet that calls round-close at a round's real `end_time` in
-  production — today it is only ever invoked via REQ-806's
-  non-Production-only `POST /internal/test-data/force-close-round/{roundId}`.
+  (`= round((1 - uniqueScore) * MaxPointsPerCell)` as of ADR-0021,
+  `MaxPointsPerCell = 100`, a Tier 0 default — no document specified an
+  exact value); `PointsFromUniqueScore` was extracted in S-018 so this same
+  call also backs REQ-204's live `LivePoints` estimate. **S-022 correction
+  (ADR-0020):** `uniqueScore` itself excludes the guesser's own guess from
+  the comparison (see REQ-204's status note) — a lone correct guesser has
+  `FinalUniquenessScore = 1.0`. **S-028 correction (ADR-0021 — xG Arcade is
+  scored like golf, lowest total wins):** that now locks `FinalPoints = 0`
+  (the *best* score), not `MaxPointsPerCell`. An incorrect guess gets
+  `FinalUniquenessScore = null` and `FinalPoints = MaxPointsPerCell` (the
+  *worst* score — previously 0, which would otherwise tie a wrong answer
+  with the best possible correct one under the lowest-wins model). This is
+  idempotent and safe to call again on an already-closed round. What's
+  still missing: there is no automated scheduled job yet that calls
+  round-close at a round's real `end_time` in production — today it is
+  only ever invoked via REQ-806's non-Production-only
+  `POST /internal/test-data/force-close-round/{roundId}`.
   The UI's "clearly different styling/icon" clause is built for `CellState`'s
   closed state (`cell-state--final`, "final" label, "X% unique · Y pts"),
   but that state is only reachable via constructed props in
@@ -462,7 +497,8 @@ present, updates on refresh)
 > As a player, I want to see my total score for the whole grid, so I can
 > compare myself to others.
 
-- **Status note (Tier 0, S-011):** `ScoreCalculator.CalculateTotalPoints`
+- **Status note (Tier 0, S-011; unanswered-cell correction S-028/ADR-0021).**
+  `ScoreCalculator.CalculateTotalPoints`
   (`XGArcade.Core.Scoring`) implements this exact formula (`SUM(FinalPoints
   ?? 0)`) and is unit-tested against it directly. Its contribution is
   reflected correctly in the global leaderboard's running total (REQ-401,
@@ -472,12 +508,25 @@ present, updates on refresh)
   "view a specific closed round" screen at all (`GET /rounds/current` only
   ever returns an Active round), so there is nowhere to show one round's
   total distinctly from the leaderboard's all-time running total. Not a
-  regression — revisit once/if a past-round-detail view exists.
+  regression — revisit once/if a past-round-detail view exists. **S-028
+  correction (ADR-0021):** "unanswered cells count as 0 points" was true
+  under the higher-is-better model (0 was the worst score, matching "no
+  credit"); under lowest-wins, 0 is the *best* score, so leaving unanswered
+  cells at 0 would make skipping a cell entirely optimal. `ScoreLockingService
+  .MaterializeUnansweredCellsAsync` now creates a real, `MaxPointsPerCell`-scored
+  `Guess` row for each cell a round *participant* (someone with at least one
+  guess in that round) never attempted, at round close — resolved via a new
+  `IGameModule.GetCellIdsAsync(instanceId)` method (never by Core reaching
+  into a game-specific table directly, per ADR-0003). A user who never
+  opened the round at all is not penalized for it — this only applies
+  within a round someone actually played.
 - Given all cells in a round have been locked (REQ-205)
 - When the total score is calculated
 - Then the sum of `final_points` across all N×N cells for the player is shown
   as the round's total score
-- And unanswered cells count as 0 points
+- And unanswered cells, for a player who participated in the round at all,
+  count as `MaxPointsPerCell` points (the worst score) — same as an
+  incorrect guess, per ADR-0021
 
 **Test level:** Unit, API
 
@@ -592,7 +641,8 @@ required, no valid candidate), UI (disambiguation prompt)
 - And if a guess is correct, the cell locks immediately — no further
   guesses are accepted for it, even if only 1 of the 2 attempts was used
 - And if both attempts are used without a correct answer, the cell locks
-  as incorrect — the player sees this clearly, with 0 points guaranteed
+  as incorrect — the player sees this clearly, with `ScoringRules.MaxPointsPerCell`
+  points guaranteed (the worst score, per ADR-0021's lowest-wins model)
   regardless of what round-close scoring later computes
 - And resolving a disambiguation prompt (REQ-209) is part of the same
   attempt that triggered it, not a separate attempt — a player isn't
@@ -811,14 +861,17 @@ case covers the game-selection step added in S-021)
 > As a player, I want to see the leaderboard for any league I'm a member of,
 > so I can track my ranking.
 
-- **Status: Partially implemented (Tier 0, S-011).** `GET
+- **Status: Partially implemented (Tier 0, S-011; sort direction corrected
+  S-028/ADR-0021).** `GET
   /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`)
   → `ILeaderboardService`/`LeaderboardService` (`XGArcade.Core.Leagues`)
   implements exactly this ranking (members' `SUM(FinalPoints ?? 0)`,
-  sorted descending, ties broken by display name) for the global league
-  only — custom leagues (REQ-402/403) don't exist yet, so there is exactly
-  one leaderboard to read today; SCREEN-03's frontend
-  (`LeaderboardScreen.tsx`) shows only the Global list, no tab switcher.
+  **sorted ascending** — ADR-0021: xG Arcade is scored like golf, lowest
+  total wins, so rank #1 is the lowest total, not the highest — ties broken
+  by display name) for the global league only — custom leagues (REQ-402/403)
+  don't exist yet, so there is exactly one leaderboard to read today;
+  SCREEN-03's frontend (`LeaderboardScreen.tsx`) shows only the Global list,
+  no tab switcher.
   **Known gap:** the response is unbounded (every member in one payload) —
   see REQ-607's own status note for why this is an acknowledged, deliberate
   Tier 0 gap rather than an oversight.
@@ -826,7 +879,47 @@ case covers the game-selection step added in S-021)
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
   score calculation per league), filtered by league membership
-- And the list is correctly sorted descending by total score
+- And the list is correctly sorted ascending by total score — lowest wins
+  (ADR-0021)
+
+**Test level:** Unit, API, UI
+
+**REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
+implemented — drafted 2026-07-12, see `docs/backlog.md` S-027; open design
+questions below are unresolved, not oversights)*
+> As a player, I want to see the leaderboard filtered to the current round,
+> week, month, or year — not only the all-time total — so I can compare
+> recent performance, not just who has played longest.
+
+- Given a player opens the leaderboard
+- When the player selects a resolution (round / week / month / year — all-time
+  remains the REQ-401/404 default)
+- Then the ranking sums `FinalPoints` (same locked-only rule as REQ-401/404 —
+  this REQ does not change what counts, only the time window) for guesses
+  whose `Round.EndTime` falls within the selected window, sorted ascending
+  (ADR-0021: lowest wins, same direction as REQ-401/404's all-time total)
+- And "round" specifically means the single most recently *closed* round for
+  the game (Tier 0 has no past-round browsing UI at all yet — REQ-206's
+  status note already flags this gap; this REQ does not resolve it, it only
+  needs the *most recent* closed round, not an arbitrary one)
+
+**Open design questions this REQ deliberately leaves unresolved (must be
+answered before implementation, not decided implicitly in code):**
+- Calendar-aligned windows (ISO week, calendar month starting the 1st) vs.
+  rolling windows (last 7/30/365 days) — these give different rankings and
+  the difference is a real product decision, not an implementation detail
+- Which timezone a "day/week/month" boundary is evaluated in — UTC (simplest,
+  matches every other timestamp in this system) vs. some other reference are
+  both non-obvious to a player mid-week
+- Whether a round whose `EndTime` is null (still active, unlocked) ever
+  contributes to any window — REQ-401/404's existing locked-only rule
+  suggests no, but this should be stated explicitly here once decided, not
+  left to be inferred from REQ-401/404's silence
+- Performance: REQ-607's existing pagination gap (leaderboard responses are
+  currently unbounded) gets worse with four more query shapes to index for;
+  this REQ's own acceptance criteria will need a REQ-607-aligned indexing
+  plan, not just "add a `WHERE` clause," before this is implemented at
+  Tier 0's already-thin performance budget
 
 **Test level:** Unit, API, UI
 
@@ -900,6 +993,80 @@ case covers the game-selection step added in S-021)
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),
   or remove the data point
 - And the action is logged with `admin_id` and a timestamp
+
+**Test level:** API, UI
+
+**REQ-504 – Admin UI page** *(Status: Proposed, not yet implemented — drafted
+2026-07-12, see `docs/backlog.md` S-026)*
+> As an admin, I want an actual page (not just API calls) to perform admin
+> actions, so I don't need to script HTTP requests to correct data, manage
+> rounds, or manage users.
+
+- Given the S-012 admin API (REQ-501/502/503) and REQ-505/506's new endpoints
+  (this REQ adds no endpoints of its own — it is the UI surface over all of
+  them) already require the existing "Admin" authorization policy
+  (`Admin__UserIds`)
+- When a user whose id is in `Admin__UserIds` logs in
+- Then they can reach a protected admin screen (not linked from the normal
+  player nav) exposing: the REQ-503 unverified-data review list and
+  override CRUD (REQ-501/502/503), the REQ-505 round controls, and the
+  REQ-506 user-management action
+- And a non-admin user gets no visible entry point to it and a 403 from
+  every underlying endpoint if they reach it directly
+- And in `ASPNETCORE_ENVIRONMENT == Production`, the REQ-505/506 sections are
+  not merely non-functional but not rendered at all (the page must not show
+  dead buttons for endpoints ADR-0006 says don't exist in prod) — the
+  REQ-501/502/503 override-review sections, which have no such
+  Production restriction, remain visible
+
+**Test level:** UI
+
+**REQ-505 – Admin round control (non-Production only)** *(Status: Proposed,
+not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
+> As an admin testing the game, I want to end the active round or adjust its
+> schedule on demand, so I don't have to wait for real time to pass to test
+> round-close behavior outside of the existing E2E harness.
+
+- **Relationship to REQ-806:** `POST
+  /internal/test-data/force-close-round/{roundId}` already exists for
+  automated E2E tests (REQ-806) but requires the round id and the
+  `INTERNAL_JOB_TOKEN` bearer, not admin login — this REQ is the
+  human-facing, admin-authenticated equivalent for manual testing, plus a
+  new capability REQ-806 doesn't cover: adjusting a round's schedule rather
+  than only closing it immediately.
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin ends the currently active round for a game
+- Then round-close (REQ-205) runs immediately for that round, exactly as it
+  would at its real `end_time`
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin sets a new `end_time` for the active round (must remain
+  after `start_time` and after the current time, i.e. this cannot be used to
+  retroactively close a round that already ended — REQ-205's lock behavior
+  handles that path)
+- Then the round's `end_time` is updated and reflected on the next `GET
+  /rounds/current` read
+- And in `ASPNETCORE_ENVIRONMENT == Production`, no endpoint backing either
+  action is registered at all — same fail-closed pattern REQ-806/ADR-0006
+  already established for `XGArcade.Testing`, checked in `Program.cs`
+  before routing, never guarded only by an attribute
+
+**Test level:** API, UI
+
+**REQ-506 – Admin user deletion (non-Production only)** *(Status: Proposed,
+not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
+> As an admin testing the game, I want to delete a test user's account, so I
+> can clean up seeded/test accounts without touching the database directly.
+
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin deletes a specified user
+- Then the same anonymization behavior REQ-710 defines for self-deletion
+  applies (the `User` row and credentials are removed, `Guess` rows are
+  anonymized rather than deleted, per-user leaderboard/uniqueness history
+  stays accurate) — this REQ does not define a second, different deletion
+  behavior, only a second, admin-initiated way to trigger REQ-710's existing
+  one
+- And in `ASPNETCORE_ENVIRONMENT == Production`, no endpoint backing this
+  action is registered at all, same fail-closed pattern as REQ-505
 
 **Test level:** API, UI
 
@@ -1407,7 +1574,16 @@ shows the default is wrong.
 
 ## 7. Open questions (remaining)
 
-None. Both items from the terms-of-service/privacy-policy drafting were
+- **Leaderboard time-window resolutions (REQ-405):** calendar-aligned vs.
+  rolling windows, which timezone a window boundary is evaluated in,
+  whether an unlocked (still-active) round's guesses ever contribute to a
+  window, and the indexing plan for the new query shapes — see REQ-405's
+  own "Open design questions" list for the full framing. These must be
+  answered by product decision before `docs/backlog.md` S-027 can be
+  scoped into concrete acceptance criteria; not decided here to avoid
+  duplicating (and risking drift from) REQ-405's own list.
+
+Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:
 
 - **Minimum age:** 16, enforced via a self-declared checkbox at signup

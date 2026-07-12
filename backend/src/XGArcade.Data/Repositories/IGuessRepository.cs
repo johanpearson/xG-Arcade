@@ -36,5 +36,12 @@ public interface IGuessRepository
 
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 
+    // REQ-206/ADR-0021: round-close materializes one synthetic Guess row per
+    // (participant, unattempted cell) pair so an unanswered cell scores the
+    // same penalty as an incorrect one, rather than silently contributing 0
+    // (which would now be the *best* possible score under the lowest-wins
+    // model). Batched since a round-close can synthesize many rows at once.
+    Task AddRangeAsync(IReadOnlyCollection<Guess> guesses, CancellationToken cancellationToken = default);
+
     Task UpdateAsync(Guess guess, CancellationToken cancellationToken = default);
 }

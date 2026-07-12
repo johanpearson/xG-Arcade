@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.25"
+version: "0.28"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.23 · 2026-07-10
+Version 0.28 · 2026-07-12
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -171,6 +171,25 @@ extension), so COMP-04 has exactly one place this formula is written, same
 principle as `UniquenessCalculator.Calculate` above. `LivePoints` is
 read-only and re-derived per request, never persisted, so it does not
 change COMP-04's data-flow boundary — only the API response shape (§6).
+**S-022 correction (ADR-0020):** `UniquenessCalculator.Calculate`'s formula
+now excludes the guesser's own guess from both sides of the ratio — no
+boundary or data-flow change, a pure formula-correctness fix within COMP-04
+(see REQ-204's status note and ADR-0020 for the rationale).
+**S-028 correction (ADR-0021 — lowest-wins scoring):** two changes, both
+within COMP-04's existing boundary. First, `ScoringRules.PointsFromUniqueScore`
+is now `round((1 - uniqueScore) * MaxPointsPerCell)` (was `round(uniqueScore
+* MaxPointsPerCell)`) and an incorrect guess now locks at `FinalPoints =
+MaxPointsPerCell` (was `0`) — both pure formula changes, no new data flow.
+Second, `ScoreLockingService` gained a new step,
+`MaterializeUnansweredCellsAsync`, run before locking: for each round
+participant (a user with ≥1 `Guess` row in that round), any cell they never
+attempted gets a synthesized `Guess` row scored the same as an incorrect
+guess. This *does* touch COMP-04's boundary with COMP-05/`IGameModule` —
+resolving "every cell id for this instance" requires a new
+`IGameModule.GetCellIdsAsync(instanceId)` method, reached the same way
+`GenerateInstanceAsync`/`ScoreSubmissionAsync` already are (via
+`IGameModuleResolver`, keyed by the `Round`'s `GameKey`), never by COMP-04
+reaching into `GridInstance`/`GridCell` directly (ADR-0003 unaffected).
 `ScoreCalculator.CalculateTotalPoints`
 (REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
 all-time total (COMP-02, below) recomputes the same formula database-side
@@ -451,7 +470,19 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   round-close at a round's real `end_time` in production yet; today this
   is only ever invoked via REQ-806's non-Production-only
   `POST /internal/test-data/force-close-round/{roundId}` (REQ-205's status
-  note).
+  note). **S-028 addition (ADR-0021):** this block now has a step before
+  locking, not shown in the pre-S-028 diagram below — `ScoreLockingService`
+  first calls `MaterializeUnansweredCellsAsync`, which reads the `Round`
+  via the newly-added `IRoundRepository` dependency to resolve its
+  `GameKey`/`GameInstanceId`, resolves the owning game module via the also
+  newly-added `IGameModuleResolver` dependency, and calls
+  `IGameModule.GetCellIdsAsync(instanceId)` (COMP-05) to find, for each
+  round participant, any cell they never attempted — inserting a
+  synthetic, worst-case-scored `Guess` row for each one before the existing
+  lock-every-`Guess`-in-the-round step runs. This is `Core.Scoring`'s first
+  dependency on `Core.Rounds`/COMP-05 data at round-close time (previously
+  this leg only wrote to `Database`); see COMP-04's status note in §5 for
+  the full rationale.
 
 ```
 Player → Web Frontend: types a guess
@@ -488,6 +519,11 @@ Player → Web Frontend → Backend API: POST guess (selected/typed name)
 
 [scheduled, at Round.EndTime]
 Round Scheduler Job → Core.Scoring: lock final scores for all guesses in round
+  → Core.Rounds (via IRoundRepository): resolve the round's GameKey/GameInstanceId
+  → Games.XGGrid (COMP-05, via IGameModule.GetCellIdsAsync, ADR-0003): resolve
+    every cell id for the instance
+  → for each round participant, synthesize a worst-case-scored Guess row
+    (ADR-0021) for any cell they never attempted
   → Database: persist FinalUniquenessScore / FinalPoints
 ```
 
@@ -512,8 +548,8 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
       per-round ScoreCalculator in memory (see ScoreCalculator's own doc
       comment on why these two call sites intentionally reimplement the
       same formula at different scopes)
-  → sorted descending by total, response never paginated yet (REQ-607's
-    acknowledged Tier 0 gap)
+  → sorted ascending by total (ADR-0021: lowest wins), response never
+    paginated yet (REQ-607's acknowledged Tier 0 gap)
 ```
 
 Custom leagues (REQ-402/403 — create/join via invite code) are not built;
@@ -736,6 +772,8 @@ new ADR that references the old one.
 | ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
 | ADR-0018 | REQ-211 (guess-time live verification) implemented in Tier 0, without its `PlayerNameIndex` gate | Accepted (further revises ADR-0010's trigger condition) |
 | ADR-0019 | Silent auto-rename to resolve pre-existing DisplayName collisions during the S-017 uniqueness migration | Accepted |
+| ADR-0020 | Uniqueness formula excludes the guesser's own guess from the comparison | Accepted |
+| ADR-0021 | xG Arcade is scored like golf — lower points is better, lowest total wins | Accepted (builds on ADR-0020, does not supersede it) |
 
 ## 11. Glossary
 

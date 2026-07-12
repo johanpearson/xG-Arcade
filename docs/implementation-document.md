@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.37"
+version: "0.39"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -124,6 +124,11 @@ public interface IGameModule
     string GameKey { get; }
     Task<GameInstance> GenerateInstanceAsync(RoundConfig config);
     Task<ScoreResult> ScoreSubmissionAsync(Guid instanceId, Guid userId, object submission);
+    // ADR-0021 (S-028): every cell id for a generated instance, regardless
+    // of whether anyone ever guessed it — round-close uses this to find
+    // (and penalize) a round participant's unattempted cells, without
+    // Core reaching into a game-specific instance table directly.
+    Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId);
 }
 ```
 
@@ -767,28 +772,59 @@ live (on every page load, not persisted permanently until the Round closes):
     // much *failing* happened on a cell distort everyone's score, which
     // has nothing to do with answer rarity. See REQ-204's own acceptance
     // criteria and UniquenessCalculator's doc comment for the same rule.
-    totalGuesses = COUNT(Guess WHERE CellId = X AND IsCorrect = true)
-    sameAnswer   = COUNT(Guess WHERE CellId = X AND IsCorrect = true AND PlayerAnswerId = myAnswer)
-    uniqueScore  = 1 - (sameAnswer / totalGuesses)
+    //
+    // ADR-0020 (S-022): the comparison excludes the guesser's own guess
+    // from both sides — comparing a guess against itself is degenerate,
+    // and a naive self-inclusive version made a lone correct guesser score
+    // 0% unique (100% of a population of themselves "sharing" their own
+    // answer), the opposite of the intended "first/only correct answer is
+    // maximally unique" behavior.
+    totalGuesses = COUNT(Guess WHERE CellId = X AND IsCorrect = true)   // includes my own guess
+    otherGuesses = totalGuesses - 1
+    IF otherGuesses == 0:
+        uniqueScore = 1.0   // no other correct guesser yet to compare against
+    ELSE:
+        sameAnswer       = COUNT(Guess WHERE CellId = X AND IsCorrect = true AND PlayerAnswerId = myAnswer)   // includes my own guess
+        othersSameAnswer = sameAnswer - 1
+        uniqueScore = 1 - (othersSameAnswer / otherGuesses)
+
+before locking (ADR-0021, S-028): for each user with >=1 Guess in this
+Round (a "participant"), find every cell of the Round's grid instance
+(via IGameModule.GetCellIdsAsync, never a direct game-table read) that
+user has no Guess row for, and INSERT a synthetic one:
+    Guess.IsCorrect = false, Guess.PlayerAnswerId = null
+    Guess.AttemptCount = 0, Guess.SubmittedName = ""   // distinguishes
+                                                        // "never attempted"
+                                                        // from a real wrong
+                                                        // guess (AttemptCount >= 1)
+    // A user with zero Guess rows in this Round at all (never opened it)
+    // is not a participant and gets nothing synthesized.
 
 at Round.EndTime (scheduled job):
-    for each Guess in Round:
+    for each Guess in Round (including any just synthesized above):
         if IsCorrect: compute uniqueScore as above (now against final data)
         Guess.FinalUniquenessScore = uniqueScore if IsCorrect else null
-        Guess.FinalPoints = round(uniqueScore * MAX_POINTS_PER_CELL) if IsCorrect else 0
+        // ADR-0021: xG Arcade is scored like golf — LOWER is better, and
+        // the goal is to MINIMIZE total points, not maximize them. A
+        // correct guess's points are therefore the *inverse* of
+        // uniqueScore (rarer answer -> fewer points -> better), and an
+        // incorrect/unattempted guess scores the WORST case, not 0 (0 is
+        // now the *best* possible score, so it must never be free).
+        Guess.FinalPoints = round((1 - uniqueScore) * MAX_POINTS_PER_CELL) if IsCorrect else MAX_POINTS_PER_CELL
     persist
 ```
 
 `MAX_POINTS_PER_CELL` resolves to `100` (`ScoringRules.MaxPointsPerCell`,
 `XGArcade.Core.Scoring`) — no document specified an exact value for "how
-many points is a 100%-unique correct guess worth"; this is the Tier 0
-default, chosen and recorded here (S-011), same non-appsettings-bound,
-plain-constant pattern as `GuessRules.MaxAttemptsPerCell`. The
-`round(uniqueScore * MAX_POINTS_PER_CELL)` computation itself is written in
-exactly one place, `ScoringRules.PointsFromUniqueScore(double uniqueScore)`
-(extracted S-018) — both the "at Round.EndTime" `FinalPoints` locking above
-and a live, provisional `LivePoints` estimate returned by `GET
-/rounds/current` for any correctly-guessed, still-open cell (REQ-204
+many points is the worst-case (fully common, incorrect, or unanswered)
+outcome worth"; this is the Tier 0 default, chosen and recorded here
+(S-011), same non-appsettings-bound, plain-constant pattern as
+`GuessRules.MaxAttemptsPerCell`. The `round((1 - uniqueScore) *
+MAX_POINTS_PER_CELL)` computation itself is written in exactly one place,
+`ScoringRules.PointsFromUniqueScore(double uniqueScore)` (extracted S-018,
+inverted S-028/ADR-0021) — both the "at Round.EndTime" `FinalPoints`
+locking above and a live, provisional `LivePoints` estimate returned by
+`GET /rounds/current` for any correctly-guessed, still-open cell (REQ-204
 extension) call this same method, never two independently-written copies
 of the formula.
 
@@ -797,19 +833,30 @@ Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
 
-**Tier 0 status (S-008/S-009/S-011, extended S-018):** as of S-011, both
-halves of this pseudocode are implemented, in `XGArcade.Core.Scoring`:
-`UniquenessCalculator.Calculate` is the "live" half, called both by `GET
-/rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, on every request,
-never persisted) and by `IScoreLockingService`/`ScoreLockingService`'s "at
-Round.EndTime" half, which `RoundCloseService` (`XGArcade.Core.Rounds`)
-now calls at round close — the same formula is shared, so the live value
-and the final locked value can never disagree by construction. As of
-S-018, the `uniqueScore → points` half of the formula was likewise
-consolidated into `ScoringRules.PointsFromUniqueScore`, so `GET
-/rounds/current`'s new live `LivePoints` field and `ScoreLockingService`'s
-`FinalPoints` locking share that code too, not just the uniqueness
-calculation upstream of it.
+**Tier 0 status (S-008/S-009/S-011, extended S-018, corrected S-022):** as of
+S-011, both halves of this pseudocode are implemented, in
+`XGArcade.Core.Scoring`: `UniquenessCalculator.Calculate` is the "live"
+half, called both by `GET /rounds/current`
+(`XGArcade.Api.Rounds.RoundEndpoints`, on every request, never persisted)
+and by `IScoreLockingService`/`ScoreLockingService`'s "at Round.EndTime"
+half, which `RoundCloseService` (`XGArcade.Core.Rounds`) now calls at round
+close — the same formula is shared, so the live value and the final locked
+value can never disagree by construction. As of S-018, the `uniqueScore →
+points` half of the formula was likewise consolidated into
+`ScoringRules.PointsFromUniqueScore`, so `GET /rounds/current`'s new live
+`LivePoints` field and `ScoreLockingService`'s `FinalPoints` locking share
+that code too, not just the uniqueness calculation upstream of it. As of
+S-022 (ADR-0020), `UniquenessCalculator.Calculate` excludes the guesser's
+own guess from both sides of the ratio (see the pseudocode above) — a lone
+correct guesser has `uniqueScore = 1.0`. As of S-028 (ADR-0021, xG Arcade
+scored like golf — lowest total wins), that now locks/live-estimates at
+`FinalPoints`/`LivePoints = 0` (the *best* score), not `MaxPointsPerCell`;
+an incorrect guess locks at `FinalPoints = MaxPointsPerCell` (the *worst*
+score, was `0`); and `ScoreLockingService.MaterializeUnansweredCellsAsync`
+(new in S-028) synthesizes a `MaxPointsPerCell`-scored `Guess` row, before
+locking, for each cell a round participant never attempted — resolved via
+the new `IGameModule.GetCellIdsAsync`, implemented in `GridGameModule` by
+reading the already-generated `GridInstance`'s `Cells`.
 `RoundCloseService` itself still only pulls a round's `EndTime` forward
 (idempotently — never later than what's already scheduled) before
 delegating; that trigger remains invoked today only via REQ-806's
@@ -823,7 +870,7 @@ round's real `end_time` in any environment.
 GET /leagues/{leagueId}/leaderboard?cursor={lastSeenRank}&pageSize=50
     → query LeagueMembership JOIN aggregated Guess.FinalPoints
       WHERE LeagueId = leagueId
-      ORDER BY totalPoints DESC
+      ORDER BY totalPoints ASC   // ADR-0021: lowest total wins
       OFFSET/cursor-based pagination, LIMIT pageSize
     → response includes the requesting user's own rank/row even if it falls
       outside the current page (SCREEN-03's sticky "your position" footer

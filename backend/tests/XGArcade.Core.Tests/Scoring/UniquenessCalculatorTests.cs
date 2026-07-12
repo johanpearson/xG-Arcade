@@ -4,8 +4,9 @@ using XGArcade.Data.Entities;
 namespace XGArcade.Core.Tests.Scoring;
 
 // REQ-204 (docs/requirements-document.md §4.4): the pure
-// unique_percent = 1 - (players_with_the_same_correct_player /
-// players_with_a_correct_guess_for_this_cell) formula, shared by the live
+// unique_percent = 1 - (other_correct_guessers_with_the_same_answer /
+// other_correct_guessers_for_this_cell) formula (ADR-0020 — the comparison
+// excludes the guesser's own guess from both sides), shared by the live
 // read path (RoundEndpoints) and REQ-205's round-close locking
 // (RoundCloseService). Every case here passes only correct guesses, exactly
 // as UniquenessCalculator.Calculate itself requires — the "incorrect
@@ -29,25 +30,27 @@ public class UniquenessCalculatorTests
     };
 
     [Test]
-    public void REQ204_Calculate_SingleCorrectGuessForCell_ReturnsZero()
+    public void REQ204_Calculate_SingleCorrectGuessForCell_ReturnsOne()
     {
-        // A lone correct guesser is 100% of the correct-guess population
-        // that picked their answer (1/1) — by the formula, that's 0%
-        // unique. This is the intended, literal behavior of the formula,
-        // not a bug: uniqueness only ever drops as more distinct correct
-        // answers appear among later solvers.
+        // A lone correct guesser has no *other* correct guesser to compare
+        // against yet — ADR-0020: that's vacuously 100% unique, not 0%.
+        // Being the first/only correct answer for a cell must score
+        // maximally, never minimally.
         var cellId = Guid.NewGuid();
         var playerAnswerId = Guid.NewGuid();
         var guesses = new[] { CorrectGuess(cellId, playerAnswerId) };
 
         var result = UniquenessCalculator.Calculate(guesses, playerAnswerId);
 
-        Assert.That(result, Is.EqualTo(0.0));
+        Assert.That(result, Is.EqualTo(1.0));
     }
 
     [Test]
-    public void REQ204_Calculate_TwoGuessersWithDifferentCorrectAnswers_EachScoresFiftyPercentUnique()
+    public void REQ204_Calculate_TwoGuessersWithDifferentCorrectAnswers_EachScoresFullyUnique()
     {
+        // Neither guesser's *other* correct guesser (there's exactly one
+        // each) shares their answer, so each is 100% unique relative to the
+        // other — ADR-0020.
         var cellId = Guid.NewGuid();
         var firstPlayerAnswerId = Guid.NewGuid();
         var secondPlayerAnswerId = Guid.NewGuid();
@@ -60,16 +63,19 @@ public class UniquenessCalculatorTests
         var firstResult = UniquenessCalculator.Calculate(guesses, firstPlayerAnswerId);
         var secondResult = UniquenessCalculator.Calculate(guesses, secondPlayerAnswerId);
 
-        Assert.That(firstResult, Is.EqualTo(0.5));
-        Assert.That(secondResult, Is.EqualTo(0.5));
+        Assert.That(firstResult, Is.EqualTo(1.0));
+        Assert.That(secondResult, Is.EqualTo(1.0));
     }
 
     [Test]
     public void REQ204_Calculate_MultipleGuessersSharingOneAnswer_ReturnsLowerPercentForThatAnswer()
     {
-        // Three correct guessers total; two of them picked the same
-        // answer. For the shared answer: 1 - 2/3 ≈ 0.333. For the lone
-        // distinct answer: 1 - 1/3 ≈ 0.667 — rarer answers score higher.
+        // Three correct guessers total; two of them (including "me") picked
+        // the same answer, one picked a distinct answer. For the shared
+        // answer: of my 2 *other* correct guessers, 1 shares my answer —
+        // 1 - 1/2 = 0.5. For the distinct answer: of its 2 other correct
+        // guessers, 0 share it — 1 - 0/2 = 1.0. Rarer answers still score
+        // higher.
         var cellId = Guid.NewGuid();
         var sharedPlayerAnswerId = Guid.NewGuid();
         var distinctPlayerAnswerId = Guid.NewGuid();
@@ -83,8 +89,8 @@ public class UniquenessCalculatorTests
         var sharedResult = UniquenessCalculator.Calculate(guesses, sharedPlayerAnswerId);
         var distinctResult = UniquenessCalculator.Calculate(guesses, distinctPlayerAnswerId);
 
-        Assert.That(sharedResult, Is.EqualTo(1.0 - 2.0 / 3.0).Within(1e-9));
-        Assert.That(distinctResult, Is.EqualTo(1.0 - 1.0 / 3.0).Within(1e-9));
+        Assert.That(sharedResult, Is.EqualTo(0.5).Within(1e-9));
+        Assert.That(distinctResult, Is.EqualTo(1.0).Within(1e-9));
         Assert.That(distinctResult, Is.GreaterThan(sharedResult), "a rarer correct answer must score more unique than a commonly-shared one");
     }
 

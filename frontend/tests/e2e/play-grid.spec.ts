@@ -302,11 +302,12 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   // one per player)/REQ-205 (score locking)/REQ-206 (total score)/REQ-401
   // (global league auto-membership). Two players each correctly guess a
   // *different* one of the cell's two valid answers (REQ-807's seed now
-  // provides two) — each is the sole correct guesser of their own answer,
-  // so REQ-204's uniqueness splits 50/50 and both lock in at 50 points
-  // (ScoringRules.MaxPointsPerCell = 100) once force-closed, never the 0 or
-  // 100 a version that (incorrectly) counted incorrect/burned guesses in
-  // the denominator would produce.
+  // provides two) — each is the sole correct guesser of their own answer.
+  // ADR-0020: neither's one *other* correct guesser shares their answer, so
+  // both are 100% unique. ADR-0021 (lowest wins): 100% unique is the BEST
+  // score, so both lock in at 0 points, not `ScoringRules.MaxPointsPerCell`
+  // and not the pre-ADR-0020/0021 self-inclusive formula's 50/50 split this
+  // test originally asserted.
   test('REQ-204/205/206/401: two players guess, force-close locks scores, the global leaderboard shows the locked totals', async ({
     page,
     request,
@@ -351,12 +352,12 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
 
     const rowA = page.getByRole('listitem').filter({ hasText: playerADisplayName })
     await expect(rowA).toBeVisible()
-    await expect(rowA.getByText('50 pts')).toBeVisible()
+    await expect(rowA.getByText('0 pts')).toBeVisible()
     await expect(rowA.getByText('you')).toBeVisible()
 
     const rowB = page.getByRole('listitem').filter({ hasText: playerBDisplayName })
     await expect(rowB).toBeVisible()
-    await expect(rowB.getByText('50 pts')).toBeVisible()
+    await expect(rowB.getByText('0 pts')).toBeVisible()
     await expect(rowB.getByText('you')).not.toBeVisible()
   })
 })

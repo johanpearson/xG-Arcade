@@ -334,11 +334,11 @@ public class CurrentRoundEndpointTests
     // ---- REQ-204: live unique_percent --------------------------------------
 
     [Test]
-    public async Task REQ204_CurrentRound_Get_CorrectGuessWithNoOtherCorrectGuessesOnCell_ReturnsUniquePercentZero()
+    public async Task REQ204_CurrentRound_Get_CorrectGuessWithNoOtherCorrectGuessesOnCell_ReturnsUniquePercentFull()
     {
-        // A lone correct guesser is the entire correct-guess population for
-        // that cell (1/1) — per the REQ-204 formula that's 0% unique, which
-        // is intended, not a bug (see UniquenessCalculator's own tests).
+        // A lone correct guesser has no *other* correct guesser to compare
+        // against — ADR-0020: that's vacuously 100% unique, not 0%. Being
+        // the first/only correct answer for a cell must score maximally.
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);
         var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
@@ -351,16 +351,21 @@ public class CurrentRoundEndpointTests
         var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
-        Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.0));
-        // S-018: LivePoints follows the same round(uniqueScore *
-        // MaxPointsPerCell) formula REQ-205 locks at round close — 0%
-        // unique must live-estimate to 0 points, not null.
-        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round(0.0 * ScoringRules.MaxPointsPerCell)));
+        Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(1.0));
+        // S-018/ADR-0021: LivePoints follows the same round((1 - uniqueScore)
+        // * MaxPointsPerCell) formula REQ-205 locks at round close — under
+        // the lowest-wins model, 100% unique (nobody else shares this
+        // answer) must live-estimate to the BEST score, 0, not the max.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(0));
     }
 
     [Test]
-    public async Task REQ204_CurrentRound_Get_SecondPlayerCorrectlyGuessedDifferentAnswerOnSameCell_ReturnsUniquePercentHalfForBoth()
+    public async Task REQ204_CurrentRound_Get_SecondPlayerCorrectlyGuessedDifferentAnswerOnSameCell_ReturnsUniquePercentFullForBoth()
     {
+        // With exactly one other correct guesser and a different answer,
+        // ADR-0020 scores both as fully unique (0 of 1 other guessers share
+        // each one's answer) — not 50%, since a self-inclusive comparison
+        // is never made.
         var authProviderUserId = Guid.NewGuid();
         var userId = await SeedUserAsync(authProviderUserId);
         var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
@@ -386,13 +391,49 @@ public class CurrentRoundEndpointTests
         var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
+        Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(1.0));
+        // ADR-0021: 100% unique live-estimates to the best score, 0.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ204_CurrentRound_Get_OneOfTwoOtherCorrectGuessersSharesMyAnswer_ReturnsUniquePercentHalf()
+    {
+        // Three correct guessers total on this cell: me, one who shares my
+        // exact answer, and one with a distinct answer. Of my 2 other
+        // correct guessers, 1 shares my answer — ADR-0020: 1 - 1/2 = 0.5.
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var myGuess = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == firstCellId && g.UserId == userId);
+            Assert.That(myGuess.PlayerAnswerId, Is.Not.Null);
+
+            await SeedCorrectGuessDirectlyAsync(roundId, firstCellId, Guid.NewGuid(), myGuess.PlayerAnswerId!.Value);
+            await SeedCorrectGuessDirectlyAsync(roundId, firstCellId, Guid.NewGuid(), Guid.NewGuid());
+        }
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.5));
-        // S-018: this scenario's LivePoints must equal exactly
-        // round(uniqueScore * ScoringRules.MaxPointsPerCell), referencing
-        // the real constant (not hardcoding 100) so the assertion can't
-        // silently drift from REQ-205's locked-score formula. 0.5 unique
-        // resolves to 50 (round(0.5 * 100)).
-        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round(guessedCell.Guess.UniquePercent!.Value * ScoringRules.MaxPointsPerCell)));
+        // S-018/ADR-0021: this scenario's LivePoints must equal exactly
+        // round((1 - uniqueScore) * ScoringRules.MaxPointsPerCell),
+        // referencing the real constant (not hardcoding 100) so the
+        // assertion can't silently drift from REQ-205's locked-score
+        // formula. 0.5 unique resolves to 50 either way (the midpoint is
+        // its own inverse), which is why this specific case can't
+        // distinguish the pre-ADR-0021 formula from the current one — see
+        // the two tests above for cases that do.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round((1.0 - guessedCell.Guess.UniquePercent!.Value) * ScoringRules.MaxPointsPerCell)));
         Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(50));
     }
 
