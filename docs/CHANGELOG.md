@@ -13,6 +13,50 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — points-ui-concerns (branch claude/points-ui-concerns-z9tvc2):
+  three real bugs found via direct product feedback, fixed, and documented
+  as S-022/023/024; three larger feature requests from the same feedback
+  (admin UI, self-account deletion, leaderboard time-window resolutions)
+  drafted as new requirements and queued as S-025/026/027 rather than
+  implemented in the same session, per this repo's one-story-per-session/PR
+  convention. requirements-document.md: REQ-204/205 status notes and the
+  glossary's "Uniqueness score" definition corrected for S-022's formula fix
+  (a lone/first correct guesser now scores 100% unique, not 0% — see
+  ADR-0020); new REQ-405 (leaderboard time-window resolutions, explicitly
+  left with open design questions, not implementation-ready as written) and
+  new REQ-504/505/506 (admin UI page, admin round control, admin user
+  deletion) added as "Status: Proposed, not yet implemented"; REQ-504
+  amended post-architecture-review to require the round-control/user-
+  deletion sections be hidden entirely (not just non-functional) outside
+  Production, per ADR-0006's fail-closed pattern; version 0.34 -> 0.36.
+  architecture-document.md: one-line COMP-04 status note for
+  S-022 (no boundary/data-flow change, pure formula fix); version 0.25 ->
+  0.26. implementation-document.md: §6a pseudocode rewritten for S-022's
+  self-exclusion formula, "Tier 0 status" note updated; version 0.37 ->
+  0.38. backlog.md: S-022 (uniqueness formula fix), S-023 (live-meta-
+  disclosure second-click-doesn't-close fix), and S-024 (leaderboard
+  auto-refresh polling) added as completed "Built as" stories; landing-page
+  routing concern verified already correct via S-021, recorded as such (no
+  new story); S-025/026/027 added as proposed-not-built stories for the
+  three larger feature requests. New `docs/decisions/0020-uniqueness-
+  formula-excludes-self-comparison.md` — reverses a previously-recorded
+  "not a bug" decision from S-011 (see the ADR for the full history and
+  why the self-inclusive formula was wrong, not just incomplete). Backend
+  test suite could not be executed in this environment (no dotnet SDK
+  available, same limitation S-018 recorded) — an architecture-reviewer and
+  code-reviewer pass both ran against the diff instead; the code-reviewer
+  hand-verified the scoring arithmetic (clean) and caught a real second bug
+  the S-023 fix had missed (the identical hover-suppression problem also
+  existed on the keyboard-focus path, worse: a panel could get stuck open
+  after an odd number of Enter presses then tabbing away), fixed the same
+  way with a mirrored `keyboardSuppressed` flag, plus two smaller gaps in
+  S-024's polling (swallowed background errors now logged; `setInterval`
+  swapped for a self-rescheduling `setTimeout` so at most one fetch is
+  ever in flight) — S-023/024's "Built as" notes above updated to record
+  both fixes. Frontend suite (71/71, including the new keyboard-focus
+  regression tests) run and green after all fixes. REQ-204, REQ-205,
+  REQ-206, REQ-401, REQ-404, REQ-405, REQ-504, REQ-505, REQ-506, REQ-710,
+  ADR-0020.
 - 2026-07-12 — doc-sync for S-021 (branch claude/story-s-021-h1qbxp):
   requirements-document.md's REQ-303 was already updated by the author
   (user story/acceptance criteria now describe "open the app, select a

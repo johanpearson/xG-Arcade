@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.25"
+version: "0.26"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -171,6 +171,10 @@ extension), so COMP-04 has exactly one place this formula is written, same
 principle as `UniquenessCalculator.Calculate` above. `LivePoints` is
 read-only and re-derived per request, never persisted, so it does not
 change COMP-04's data-flow boundary — only the API response shape (§6).
+**S-022 correction (ADR-0020):** `UniquenessCalculator.Calculate`'s formula
+now excludes the guesser's own guess from both sides of the ratio — no
+boundary or data-flow change, a pure formula-correctness fix within COMP-04
+(see REQ-204's status note and ADR-0020 for the rationale).
 `ScoreCalculator.CalculateTotalPoints`
 (REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
 all-time total (COMP-02, below) recomputes the same formula database-side

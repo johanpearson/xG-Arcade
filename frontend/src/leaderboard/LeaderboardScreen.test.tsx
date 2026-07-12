@@ -47,4 +47,49 @@ describe('LeaderboardScreen', () => {
       expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument(),
     );
   });
+
+  it('REQ-401/404: keeps the leaderboard current by polling while mounted, without re-showing the loading state', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }] }),
+      )
+      .mockImplementation(() =>
+        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 40, isRequestingUser: false }] }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('10 pts')).toBeInTheDocument());
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await waitFor(() => expect(screen.getByText('40 pts')).toBeInTheDocument());
+    // The poll tick must never flash "Loading…" over an already-rendered
+    // leaderboard.
+    expect(screen.queryByText('Loading the leaderboard…')).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("REQ-401/404: a failed background poll doesn't replace an already-loaded leaderboard with an error", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }] }),
+      )
+      .mockImplementation(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(screen.getByText('Alex')).toBeInTheDocument();
+    expect(screen.queryByText(/unreachable|error/i)).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
 });

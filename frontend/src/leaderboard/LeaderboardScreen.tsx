@@ -13,6 +13,12 @@ type LoadState =
   | { phase: 'error'; message: string }
   | { phase: 'ready'; rows: LeaderboardRow[] };
 
+// Rows shown here are already REQ-401/404's locked totals
+// (SUM(FinalPoints), never in-progress/live points — see REQ-205/S-018's
+// "provisional, never a promise" rule) — polling keeps that locked total
+// current as rounds close elsewhere, it does not add live points into it.
+const REFRESH_INTERVAL_MS = 15_000;
+
 // SCREEN-03 (REQ-401/404's Tier 0 slice): the global league is the only one
 // that exists yet — custom leagues' "[My League ▾] [+ New]" tabs (REQ-402-
 // 404) are deferred per MVP-SCOPE.md, so this shows only the Global list,
@@ -22,22 +28,50 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: number | undefined;
 
-    fetchLeaderboard(accessToken)
-      .then((response) => {
-        if (!cancelled) setState({ phase: 'ready', rows: response.rows });
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        if (error instanceof ApiError && error.status === 401) {
-          onAuthError();
-          return;
-        }
-        setState({ phase: 'error', message: describeError(error) });
-      });
+    // showLoadingState is only true for the initial mount fetch — a
+    // background poll tick must never flash the "Loading…" state over an
+    // already-rendered leaderboard, and a transient poll failure must never
+    // replace a good, already-displayed leaderboard with an error message.
+    //
+    // Self-rescheduling via setTimeout (rather than setInterval) rather than
+    // a single "sequencing" pass, since it guarantees only one fetch is ever
+    // in flight — the next poll is scheduled only after the previous one
+    // resolves, so a slow response can never overlap with, or be overtaken
+    // by, a later one.
+    function load(showLoadingState: boolean) {
+      if (showLoadingState) setState({ phase: 'loading' });
+
+      fetchLeaderboard(accessToken)
+        .then((response) => {
+          if (!cancelled) setState({ phase: 'ready', rows: response.rows });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (error instanceof ApiError && error.status === 401) {
+            onAuthError();
+            return;
+          }
+          if (showLoadingState) {
+            setState({ phase: 'error', message: describeError(error) });
+          } else {
+            // Never replace an already-displayed leaderboard with an error
+            // over a transient background hiccup, but a failure with no
+            // trace anywhere is hard to debug — at least log it.
+            console.error('Leaderboard background refresh failed:', error);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) timeoutId = window.setTimeout(() => load(false), REFRESH_INTERVAL_MS);
+        });
+    }
+
+    load(true);
 
     return () => {
       cancelled = true;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
     };
   }, [accessToken, onAuthError]);
 

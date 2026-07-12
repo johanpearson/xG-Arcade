@@ -287,6 +287,23 @@ function formatDateTime(isoDateTime: string): string {
 // since the pointer has to be over the button to click it) and is not
 // counted; a focus with no preceding mousedown is a real keyboard tab, which
 // still peeks like hover does.
+//
+// `hoverSuppressed` fixes an analogous second bug on the mouse path: the
+// pointer is still resting over the button immediately after a click (it
+// never moved), so `hovering` stays true through the whole click and a
+// second click that flips `toggledOpen` back to false had no visible effect
+// — `revealed` stayed true via `hovering` regardless, so a mouse user could
+// never close the panel by clicking again, only by moving the mouse away.
+// When a click closes the panel while still hovering, hover's peek is
+// suppressed until the pointer actually leaves and re-enters, so the click
+// close reliably sticks. `keyboardSuppressed` is the identical fix for the
+// keyboard path: pressing Enter/Space to activate the toggle's own `onClick`
+// does not blur the button, so `keyboardFocused` stays true through a
+// keyboard-driven close too — without this, a keyboard/screen-reader user
+// could never close the panel via the toggle at all (only by tabbing away),
+// and pressing Enter an odd number of times before tabbing away would leave
+// `toggledOpen` stuck true with no way to notice or undo it without
+// revisiting the cell.
 function LiveMetaDisclosure({
   uniquePercent,
   livePoints,
@@ -298,9 +315,12 @@ function LiveMetaDisclosure({
 }) {
   const [toggledOpen, setToggledOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
+  const [hoverSuppressed, setHoverSuppressed] = useState(false);
   const [keyboardFocused, setKeyboardFocused] = useState(false);
+  const [keyboardSuppressed, setKeyboardSuppressed] = useState(false);
   const pointerDownRef = useRef(false);
-  const revealed = toggledOpen || hovering || keyboardFocused;
+  const revealed =
+    toggledOpen || (hovering && !hoverSuppressed) || (keyboardFocused && !keyboardSuppressed);
   const panelId = useId();
 
   return (
@@ -310,7 +330,16 @@ function LiveMetaDisclosure({
         className="cell-state__meta cell-state__reveal-toggle"
         aria-expanded={revealed}
         aria-controls={panelId}
-        onClick={() => setToggledOpen((current) => !current)}
+        onClick={() =>
+          setToggledOpen((current) => {
+            const next = !current;
+            if (!next) {
+              if (hovering) setHoverSuppressed(true);
+              if (keyboardFocused) setKeyboardSuppressed(true);
+            }
+            return next;
+          })
+        }
         onMouseDown={() => {
           pointerDownRef.current = true;
         }}
@@ -320,10 +349,14 @@ function LiveMetaDisclosure({
         }}
         onBlur={() => {
           setKeyboardFocused(false);
+          setKeyboardSuppressed(false);
           pointerDownRef.current = false;
         }}
         onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
+        onMouseLeave={() => {
+          setHovering(false);
+          setHoverSuppressed(false);
+        }}
       >
         <span className="cell-state__live-dot" aria-hidden="true" />
         live

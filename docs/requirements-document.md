@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.34"
+version: "0.36"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -80,7 +80,7 @@ second game (the architecture must not block this later, but it is not built now
 | Cell | The intersection of one row category and one column category |
 | Round | A time-bound instance of a grid, with a start and end time |
 | Guess | A player's answer for a cell |
-| Uniqueness score | Share of players who did NOT give the same answer for a cell |
+| Uniqueness score | Share of *other* correct guessers who did NOT give the same answer for a cell — the guesser's own guess is excluded from the comparison, so a lone correct guesser is 100% (not 0%) unique (ADR-0020) |
 | Override | A manually corrected data point that always wins over synced data |
 | Unverified data | Data fetched live during grid generation, not yet reviewed by an admin |
 
@@ -344,10 +344,19 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
-- **Status: Implemented (Tier 0, S-011; extended S-018, S-019).** `UniquenessCalculator.Calculate`
+- **Status: Implemented (Tier 0, S-011; extended S-018, S-019, S-022 formula fix).**
+  `UniquenessCalculator.Calculate`
   (`XGArcade.Core.Scoring`) is the one place this formula is written, shared
   by both the live read path below and REQ-205's round-close lock so they
-  can never disagree. `GET /rounds/current`
+  can never disagree. **S-022 correction (ADR-0020):** the formula now
+  excludes the guesser's own guess from both sides of the ratio — an earlier
+  version compared each guesser against the *whole* correct-guess
+  population including themselves, which meant a lone (or first) correct
+  guesser was trivially "100% of the population sharing their own answer"
+  and scored 0% unique / 0 points, backwards from the intent that being the
+  only correct answer for a cell should score maximally, not minimally. See
+  ADR-0020 for the full rationale and the previously-recorded "not a bug"
+  decision it reverses. `GET /rounds/current`
   (`XGArcade.Api.Rounds.RoundEndpoints`) computes `UniquePercent` live, on
   every request, for any cell the requesting player has correctly guessed —
   never persisted until the round closes. Frontend: `CellState.tsx` shows
@@ -435,7 +444,10 @@ present, updates on refresh)
   (`= round(uniqueScore * MaxPointsPerCell)`, `MaxPointsPerCell = 100`, a
   Tier 0 default — no document specified an exact value); `PointsFromUniqueScore`
   was extracted in S-018 so this same call also backs REQ-204's live
-  `LivePoints` estimate. An incorrect guess gets `FinalUniquenessScore = null` and
+  `LivePoints` estimate. **S-022 correction (ADR-0020):** `uniqueScore` itself
+  now excludes the guesser's own guess from the comparison (see REQ-204's
+  status note) — a lone correct guesser locks at `FinalUniquenessScore = 1.0`
+  and `FinalPoints = MaxPointsPerCell`, not 0. An incorrect guess gets `FinalUniquenessScore = null` and
   `FinalPoints = 0`. This is idempotent and safe to call again on an
   already-closed round. What's still missing: there is no automated
   scheduled job yet that calls round-close at a round's real `end_time` in
@@ -830,6 +842,44 @@ case covers the game-selection step added in S-021)
 
 **Test level:** Unit, API, UI
 
+**REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
+implemented — drafted 2026-07-12, see `docs/backlog.md` S-027; open design
+questions below are unresolved, not oversights)*
+> As a player, I want to see the leaderboard filtered to the current round,
+> week, month, or year — not only the all-time total — so I can compare
+> recent performance, not just who has played longest.
+
+- Given a player opens the leaderboard
+- When the player selects a resolution (round / week / month / year — all-time
+  remains the REQ-401/404 default)
+- Then the ranking sums `FinalPoints` (same locked-only rule as REQ-401/404 —
+  this REQ does not change what counts, only the time window) for guesses
+  whose `Round.EndTime` falls within the selected window, sorted descending
+- And "round" specifically means the single most recently *closed* round for
+  the game (Tier 0 has no past-round browsing UI at all yet — REQ-206's
+  status note already flags this gap; this REQ does not resolve it, it only
+  needs the *most recent* closed round, not an arbitrary one)
+
+**Open design questions this REQ deliberately leaves unresolved (must be
+answered before implementation, not decided implicitly in code):**
+- Calendar-aligned windows (ISO week, calendar month starting the 1st) vs.
+  rolling windows (last 7/30/365 days) — these give different rankings and
+  the difference is a real product decision, not an implementation detail
+- Which timezone a "day/week/month" boundary is evaluated in — UTC (simplest,
+  matches every other timestamp in this system) vs. some other reference are
+  both non-obvious to a player mid-week
+- Whether a round whose `EndTime` is null (still active, unlocked) ever
+  contributes to any window — REQ-401/404's existing locked-only rule
+  suggests no, but this should be stated explicitly here once decided, not
+  left to be inferred from REQ-401/404's silence
+- Performance: REQ-607's existing pagination gap (leaderboard responses are
+  currently unbounded) gets worse with four more query shapes to index for;
+  this REQ's own acceptance criteria will need a REQ-607-aligned indexing
+  plan, not just "add a `WHERE` clause," before this is implemented at
+  Tier 0's already-thin performance budget
+
+**Test level:** Unit, API, UI
+
 ---
 
 ### 4.5 Data management and overrides
@@ -900,6 +950,77 @@ case covers the game-selection step added in S-021)
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),
   or remove the data point
 - And the action is logged with `admin_id` and a timestamp
+
+**Test level:** API, UI
+
+**REQ-504 – Admin UI page** *(Status: Proposed, not yet implemented — drafted
+2026-07-12, see `docs/backlog.md` S-026)*
+> As an admin, I want an actual page (not just API calls) to perform admin
+> actions, so I don't need to script HTTP requests to correct data, manage
+> rounds, or manage users.
+
+- Given the S-012 admin API (REQ-501/502/503) and this REQ's new endpoints
+  below already require the existing "Admin" authorization policy
+  (`Admin__UserIds`)
+- When a user whose id is in `Admin__UserIds` logs in
+- Then they can reach a protected admin screen (not linked from the normal
+  player nav) exposing: the REQ-503 unverified-data review list and
+  override CRUD (REQ-501/502/503), the REQ-505 round controls, and the
+  REQ-506 user-management action
+- And a non-admin user gets no visible entry point to it and a 403 from
+  every underlying endpoint if they reach it directly
+- And in `ASPNETCORE_ENVIRONMENT == Production`, the REQ-505/506 sections are
+  not merely non-functional but not rendered at all (the page must not show
+  dead buttons for endpoints ADR-0006 says don't exist in prod) — the
+  REQ-501/502/503 override-review sections, which have no such
+  Production restriction, remain visible
+
+**Test level:** UI
+
+**REQ-505 – Admin round control (non-Production only)**
+> As an admin testing the game, I want to end the active round or adjust its
+> schedule on demand, so I don't have to wait for real time to pass to test
+> round-close behavior outside of the existing E2E harness.
+
+- **Relationship to REQ-806:** `POST
+  /internal/test-data/force-close-round/{roundId}` already exists for
+  automated E2E tests (REQ-806) but requires the round id and the
+  `INTERNAL_JOB_TOKEN` bearer, not admin login — this REQ is the
+  human-facing, admin-authenticated equivalent for manual testing, plus a
+  new capability REQ-806 doesn't cover: adjusting a round's schedule rather
+  than only closing it immediately.
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin ends the currently active round for a game
+- Then round-close (REQ-205) runs immediately for that round, exactly as it
+  would at its real `end_time`
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin sets a new `end_time` for the active round (must remain
+  after `start_time` and after the current time, i.e. this cannot be used to
+  retroactively close a round that already ended — REQ-205's lock behavior
+  handles that path)
+- Then the round's `end_time` is updated and reflected on the next `GET
+  /rounds/current` read
+- And in `ASPNETCORE_ENVIRONMENT == Production`, no endpoint backing either
+  action is registered at all — same fail-closed pattern REQ-806/ADR-0006
+  already established for `XGArcade.Testing`, checked in `Program.cs`
+  before routing, never guarded only by an attribute
+
+**Test level:** API, UI
+
+**REQ-506 – Admin user deletion (non-Production only)**
+> As an admin testing the game, I want to delete a test user's account, so I
+> can clean up seeded/test accounts without touching the database directly.
+
+- Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
+- When the admin deletes a specified user
+- Then the same anonymization behavior REQ-710 defines for self-deletion
+  applies (the `User` row and credentials are removed, `Guess` rows are
+  anonymized rather than deleted, per-user leaderboard/uniqueness history
+  stays accurate) — this REQ does not define a second, different deletion
+  behavior, only a second, admin-initiated way to trigger REQ-710's existing
+  one
+- And in `ASPNETCORE_ENVIRONMENT == Production`, no endpoint backing this
+  action is registered at all, same fail-closed pattern as REQ-505
 
 **Test level:** API, UI
 

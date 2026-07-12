@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.37"
+version: "0.38"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -767,9 +767,21 @@ live (on every page load, not persisted permanently until the Round closes):
     // much *failing* happened on a cell distort everyone's score, which
     // has nothing to do with answer rarity. See REQ-204's own acceptance
     // criteria and UniquenessCalculator's doc comment for the same rule.
-    totalGuesses = COUNT(Guess WHERE CellId = X AND IsCorrect = true)
-    sameAnswer   = COUNT(Guess WHERE CellId = X AND IsCorrect = true AND PlayerAnswerId = myAnswer)
-    uniqueScore  = 1 - (sameAnswer / totalGuesses)
+    //
+    // ADR-0020 (S-022): the comparison excludes the guesser's own guess
+    // from both sides — comparing a guess against itself is degenerate,
+    // and a naive self-inclusive version made a lone correct guesser score
+    // 0% unique (100% of a population of themselves "sharing" their own
+    // answer), the opposite of the intended "first/only correct answer is
+    // maximally unique" behavior.
+    totalGuesses = COUNT(Guess WHERE CellId = X AND IsCorrect = true)   // includes my own guess
+    otherGuesses = totalGuesses - 1
+    IF otherGuesses == 0:
+        uniqueScore = 1.0   // no other correct guesser yet to compare against
+    ELSE:
+        sameAnswer       = COUNT(Guess WHERE CellId = X AND IsCorrect = true AND PlayerAnswerId = myAnswer)   // includes my own guess
+        othersSameAnswer = sameAnswer - 1
+        uniqueScore = 1 - (othersSameAnswer / otherGuesses)
 
 at Round.EndTime (scheduled job):
     for each Guess in Round:
@@ -797,19 +809,23 @@ Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
 
-**Tier 0 status (S-008/S-009/S-011, extended S-018):** as of S-011, both
-halves of this pseudocode are implemented, in `XGArcade.Core.Scoring`:
-`UniquenessCalculator.Calculate` is the "live" half, called both by `GET
-/rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, on every request,
-never persisted) and by `IScoreLockingService`/`ScoreLockingService`'s "at
-Round.EndTime" half, which `RoundCloseService` (`XGArcade.Core.Rounds`)
-now calls at round close — the same formula is shared, so the live value
-and the final locked value can never disagree by construction. As of
-S-018, the `uniqueScore → points` half of the formula was likewise
-consolidated into `ScoringRules.PointsFromUniqueScore`, so `GET
-/rounds/current`'s new live `LivePoints` field and `ScoreLockingService`'s
-`FinalPoints` locking share that code too, not just the uniqueness
-calculation upstream of it.
+**Tier 0 status (S-008/S-009/S-011, extended S-018, corrected S-022):** as of
+S-011, both halves of this pseudocode are implemented, in
+`XGArcade.Core.Scoring`: `UniquenessCalculator.Calculate` is the "live"
+half, called both by `GET /rounds/current`
+(`XGArcade.Api.Rounds.RoundEndpoints`, on every request, never persisted)
+and by `IScoreLockingService`/`ScoreLockingService`'s "at Round.EndTime"
+half, which `RoundCloseService` (`XGArcade.Core.Rounds`) now calls at round
+close — the same formula is shared, so the live value and the final locked
+value can never disagree by construction. As of S-018, the `uniqueScore →
+points` half of the formula was likewise consolidated into
+`ScoringRules.PointsFromUniqueScore`, so `GET /rounds/current`'s new live
+`LivePoints` field and `ScoreLockingService`'s `FinalPoints` locking share
+that code too, not just the uniqueness calculation upstream of it. As of
+S-022 (ADR-0020), `UniquenessCalculator.Calculate` excludes the guesser's
+own guess from both sides of the ratio (see the pseudocode above) — a lone
+correct guesser now locks/live-estimates at `uniqueScore = 1.0`
+(`FinalPoints`/`LivePoints = MaxPointsPerCell`), not `0.0`/`0`.
 `RoundCloseService` itself still only pulls a round's `EndTime` forward
 (idempotently — never later than what's already scheduled) before
 delegating; that trigger remains invoked today only via REQ-806's

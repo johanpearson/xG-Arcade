@@ -552,6 +552,178 @@ already tracks this as a deliberately unresolved open question — a
 reversal of the light-only v1 direction deserves its own design session,
 not a quick story).
 
+**S-022 · Fix uniqueness formula's self-comparison bug (REQ-204/205)**
+Real play-testing found that a lone or first correct guesser for a cell
+scored "0% unique" / 0 points — backwards from the intent that being the
+only correct answer should score maximally. `UniquenessCalculator.Calculate`
+compared each guess against a population that included itself, which is
+degenerate at low guesser counts. Excludes the guesser's own guess from
+both sides of the ratio; see ADR-0020 for the full rationale (this reverses
+a previously-recorded "not a bug" decision from S-011).
+*Accept:* REQ204/205-named tests updated across
+`UniquenessCalculatorTests.cs`, `RoundCloseServiceScoringTests.cs`, and
+`CurrentRoundEndpointTests.cs` to assert the corrected values (a lone
+correct guesser locks/estimates at 1.0/`MaxPointsPerCell`, not 0.0/0); a new
+test covers the 3-guesser partial-sharing case previously only covered at
+the unit level. *Deps:* S-011, S-018.
+**Built as:** matches the plan; `UniquenessCalculator.Calculate`
+(`XGArcade.Core.Scoring`) now short-circuits to `1.0` when there are zero
+*other* correct guessers, else computes `1 - (othersWithSameAnswer /
+otherCorrectGuessCount)` — both counts exclude the guesser's own guess.
+`ScoringRules.PointsFromUniqueScore` itself is unchanged (the fix is
+entirely upstream, in the uniqueness fraction it's given). Seven existing
+tests across three files were updated to their corrected expected values,
+one new API-level test
+(`REQ204_CurrentRound_Get_OneOfTwoOtherCorrectGuessersSharesMyAnswer_ReturnsUniquePercentHalf`)
+and one new round-close test
+(`REQ205_CloseRoundAsync_TwoOfThreeCorrectGuessesShareAnAnswer_SharedPairLocksHalfAndDistinctLocksFull`)
+were added to keep the "genuine partial uniqueness, not just the 0/1
+extremes" case covered now that the two-distinct-answer case scores both
+guessers at 100%. `requirements-document.md` (REQ-204/205 status notes,
+glossary), `architecture-document.md` (COMP-04 status note), and
+`implementation-document.md` (§6a pseudocode) all updated to describe the
+corrected formula; new `docs/decisions/0020-uniqueness-formula-excludes-self-comparison.md`.
+Backend test suite could not be executed in this environment (no dotnet SDK
+available, same limitation S-018 recorded) — all math was hand-verified
+against the corrected formula and the existing/updated test expectations
+before committing.
+
+**S-023 · Fix live-meta-disclosure toggle not closing on a second click (REQ-204/S-019)**
+Real usage found that clicking the "live" reveal toggle a second time didn't
+close the panel — it only closed once the mouse physically moved away.
+Root cause: a real click leaves the pointer resting on the button (it never
+moved), so `hovering` stayed `true` through the whole click and kept
+`revealed` true via the `toggledOpen || hovering || keyboardFocused` OR,
+regardless of `toggledOpen` flipping back to `false`.
+*Accept:* a second click closes the panel immediately, without requiring
+the mouse to also leave the button; hover's own peek-on-enter/close-on-leave
+behavior still works afterward. *Deps:* S-019.
+**Built as:** `CellState.tsx`'s `LiveMetaDisclosure` gained a `hoverSuppressed`
+flag: when a click transitions `toggledOpen` from `true` to `false` while
+still hovering, hover's contribution to `revealed` is suppressed until the
+pointer actually leaves (`onMouseLeave` resets it), so a click-driven close
+sticks even though the mouse hasn't moved. `revealed` is now `toggledOpen
+|| (hovering && !hoverSuppressed) || keyboardFocused`. The existing
+`CellState.test.tsx` test that had asserted the old (buggy) behavior —
+closing only after both a second click *and* `unhover` — was rewritten to
+assert the panel closes on the second click alone, then verifies hover
+still peeks correctly on a later, fresh mouse enter. No REQ/design-document
+change: the fix makes the implementation match what S-019's own acceptance
+criteria and design-document.md already described ("a tap toggles a
+persistent open/closed state"), not a new interaction design.
+A code-reviewer pass caught the identical bug still present on the keyboard
+path (worse: pressing Enter an odd number of times before tabbing away left
+the panel stuck open with no visible way to notice) — `keyboardFocused` had
+no `keyboardSuppressed` counterpart, so a keyboard/screen-reader user could
+never close the panel via Enter/Space at all. Fixed the same way, with a
+mirrored `keyboardSuppressed` flag reset on blur; `revealed` is now
+`toggledOpen || (hovering && !hoverSuppressed) || (keyboardFocused &&
+!keyboardSuppressed)`. Two new tests cover it: pressing Enter twice closes
+the panel without needing to blur first, and — to confirm this didn't
+regress the *intended* persistence — an odd number of Enter presses
+followed by tabbing away leaves the panel open (mirroring a mouse click's
+own persistence after the pointer leaves), not silently closed. 71/71
+frontend tests green (`npm run test`).
+
+**S-024 · Leaderboard auto-refresh polling (REQ-401/404)**
+`LeaderboardScreen` only fetched once per mount, so an already-open
+leaderboard tab went stale as other players' rounds closed and locked new
+`FinalPoints` — the only way to see updated totals was to navigate away and
+back. Added polling while the screen stays mounted.
+*Accept:* REQ401/404-named test: the leaderboard re-fetches and updates its
+displayed totals on an interval without the player navigating away, without
+re-showing the loading state on each poll tick, and without a transient
+poll failure replacing an already-displayed leaderboard with an error.
+*Deps:* S-011.
+**Built as:** `LeaderboardScreen.tsx` now runs its fetch through a shared
+`load(showLoadingState)` function, called once immediately
+(`showLoadingState: true`) and then self-reschedules via `setTimeout`
+(`showLoadingState: false`, `REFRESH_INTERVAL_MS` = 15s) — never flips back
+to the `loading` phase, and a non-401 error on a background tick never
+overwrites a good `ready` state with an error message; a 401 still calls
+`onAuthError` regardless of which tick it happened on. Explicitly out of
+scope, by design: this only refreshes the existing locked-total ranking
+(`SUM(FinalPoints)`) faster — it does not fold in unlocked/live points from
+an in-progress round, which would contradict REQ-205/S-018's "provisional,
+never a promise" rule for live values. A code-reviewer pass flagged two
+gaps in the first version: background poll failures were swallowed with
+zero trace (now logged via `console.error`, still without touching
+`state`), and a plain `setInterval` doesn't guard against overlapping/
+out-of-order responses if a request ever runs longer than the interval
+(switched to self-rescheduling `setTimeout` — the next poll is only
+scheduled after the previous one settles, in `.finally()`, so at most one
+fetch is ever in flight). Two new tests added to `LeaderboardScreen.test.tsx`
+using fake timers: one confirms a poll tick updates the displayed totals
+without flashing "Loading…," the other confirms a failed poll tick leaves
+an already-loaded leaderboard displayed rather than replacing it with an
+error. Full frontend suite (71/71) green.
+
+**Verified, not a new story: post-login landing-page routing.** A reported
+concern that logging in should always land on the game-selection screen,
+loading a game's round only on explicit selection, turned out to already be
+correctly implemented by S-021 (merged the same day) — `App.tsx` initializes
+`screen` to `'game-select'` unconditionally (not persisted/restored to a
+previous screen), `GameSelectScreen` performs no round fetching of its own,
+and `GridScreen` is only mounted once `screen === 'grid'`. No code change
+made; confirmed via the existing `REQ-303` App.test.tsx coverage plus manual
+reading of the mount/render logic.
+
+**Proposed, not yet built — drafted 2026-07-12 in response to direct product
+feedback, queued here rather than implemented in the same session as
+S-022–024 above, per this repo's one-story-per-session/PR convention:**
+
+**S-025 · Self-service account deletion (REQ-710)**
+`DELETE /account` (or similar): a confirmation-gated, irreversible action a
+logged-in player can trigger themselves. Anonymize (`UserId = NULL`) the
+player's `Guess` rows rather than deleting them (preserves other players'
+historical uniqueness/leaderboard accuracy — same rule
+`CLAUDE.md`/ADR-none already states for account deletion generally); delete
+the `User` row, `NotificationPreference`, and the credential via the auth
+provider; the email becomes available for a new signup afterward.
+*Accept:* REQ710-named test (unit): anonymization leaves no reversible link
+from a `Guess` back to the deleted user. REQ710-named test (API): deletion
+requires the confirmation step, deletes/anonymizes exactly the rows REQ-710
+specifies, and a subsequent login attempt with the same credentials fails.
+*Deps:* S-004 (auth), S-009 (Guess exists to anonymize).
+
+**S-026 · Admin UI page + round control + user deletion (REQ-504/505/506)**
+Builds the actual admin page S-012 deliberately deferred (REQ-501/502/503's
+override review UI), plus two new non-Production-only admin capabilities:
+ending the active round or adjusting its schedule on demand (REQ-505 — the
+human-facing, admin-authenticated equivalent of REQ-806's E2E-only
+force-close endpoint, plus a new "adjust end_time" action REQ-806 doesn't
+cover), and deleting a user's account (REQ-506, reusing S-025's REQ-710
+anonymization logic via an admin-triggered path rather than a second,
+independently-written deletion implementation). Both new admin-only actions
+must follow ADR-0006's existing fail-closed pattern (endpoint not registered
+at all in Production, checked in `Program.cs` before routing — never guarded
+only by an attribute), the same rule already governing REQ-806's
+`/internal/test-data/*` endpoints.
+*Accept:* REQ501/502/503-named UI tests: the existing override-review flow
+works end-to-end from the new page, not just via direct API calls.
+REQ505-named tests: ending/rescheduling a round works for an admin and is
+absent (404, not just 403) in a Production-configured test host. REQ506-named
+tests: an admin can delete another user's account (reusing REQ710's
+anonymization contract) and this is likewise absent in Production. A
+non-admin gets 403 from every underlying endpoint and no visible entry point
+to the page. *Deps:* S-012 (admin API/authorization already exists), S-025
+(REQ-710's anonymization logic, reused rather than duplicated), S-008
+(REQ-806's existing round-close/force-close logic, extended rather than
+replaced).
+
+**S-027 · Leaderboard time-window resolutions (REQ-405)**
+Add round/week/month/year resolution tabs to the leaderboard, per REQ-405 —
+**not startable as written**: REQ-405 explicitly leaves open design
+questions (calendar-aligned vs. rolling windows, timezone for boundary
+calculation, whether an in-progress round's guesses ever count, and a
+REQ-607-aligned indexing plan for four new query shapes) that must be
+answered — by the product owner, not inferred by whoever implements this —
+before this story can be scoped into concrete acceptance criteria.
+*Accept:* not yet defined — first task of this story is resolving REQ-405's
+open questions and rewriting this story's acceptance criteria to match,
+*then* implementing. *Deps:* S-011 (locked `FinalPoints`/leaderboard
+exist), REQ-405's open questions resolved.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
