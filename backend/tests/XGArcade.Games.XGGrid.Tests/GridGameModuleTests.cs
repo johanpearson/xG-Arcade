@@ -44,9 +44,15 @@ public class GridGameModuleTests
     // pre-existing test in this file (written before Club x Club existed)
     // asserts a specific Country x Club outcome, so BuildModule pins that
     // choice by default (nextValue: 0) rather than letting Random.Shared
-    // make those tests flaky. REQ107_/REQ211_-named Club x Club tests below
-    // either force the choice with nextValue: 1, or (more robustly) just
-    // seed too few countries for Country x Club to be feasible at all.
+    // make those tests flaky. Most REQ107_/REQ211_-named Club x Club tests
+    // below instead seed too few countries for Country x Club to be
+    // feasible at all, forcing Club x Club regardless of the injected
+    // Random — the more robust technique, since it also covers
+    // SelectPairing's "only one pairing feasible" branches. The one
+    // exception is REQ107_GenerateInstanceAsync_BothPairingsFeasible_
+    // CoinFlipsBetweenCountryClubAndClubClub below, which explicitly passes
+    // nextValue: 1 to exercise the "both feasible, coin-flip picks Club x
+    // Club" branch that no data-starved test can reach.
     private sealed class FixedChoiceRandom(int nextValue) : Random
     {
         public override int Next(int maxValue) => nextValue;
@@ -411,6 +417,36 @@ public class GridGameModuleTests
         Assert.That(colValues, Has.Count.EqualTo(3), "REQ-102: N unique column categories");
         Assert.That(rowValues.Intersect(colValues), Is.Empty,
             "REQ-102: no row category value may equal a column category value — the constraint Club x Club actually needs 2xSize clubs for");
+    }
+
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_BothPairingsFeasible_CoinFlipsBetweenCountryClubAndClubClub()
+    {
+        // Unlike every other Club x Club test in this file, both pairings
+        // are feasible here (1 country, 2 clubs) — SelectPairing's
+        // random-coin-flip branch (both feasible) only fires in this shape;
+        // every other test either pins FixedChoiceRandom(0)'s default
+        // (Country x Club) or starves countries to force Club x Club
+        // deterministically regardless of the random draw. This is the only
+        // test that actually exercises the "both feasible, _random.Next(2)
+        // resolves to Club x Club" branch — without it, a bug that always
+        // resolved to Country x Club even when the draw should pick
+        // Club x Club (e.g. a swapped ternary) would go uncaught.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedCachedMatches("France", "Arsenal", 2);
+        SeedCachedClubClubMatches("Arsenal", "Barcelona", 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20, random: new FixedChoiceRandom(1));
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
+            "with both pairings feasible, FixedChoiceRandom(1) must steer SelectPairing to Club x Club, not the Country x Club default");
     }
 
     // ---- REQ-109: category value reference tables --------------------------

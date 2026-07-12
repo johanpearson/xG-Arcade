@@ -46,7 +46,7 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync(query, countryWikidataQid, clubWikidataQid, cancellationToken);
+        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
@@ -60,11 +60,11 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
-        return await RunIntersectionQueryAsync(query, clubAWikidataQid, clubBWikidataQid, cancellationToken);
+        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, cancellationToken);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
-        string query, string qidA, string qidB, CancellationToken cancellationToken)
+        string queryKind, string qidA, string qidB, string query, CancellationToken cancellationToken)
     {
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
@@ -100,7 +100,8 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
             // outage — log so that distinction is visible during development
             // instead of silently looking identical to a genuine no-match.
             _logger.LogWarning(ex,
-                "Wikidata SPARQL query failed for {QidA}/{QidB}; treating as no match.", qidA, qidB);
+                "Wikidata {QueryKind} SPARQL query failed for {QidA}/{QidB}; treating as no match.",
+                queryKind, qidA, qidB);
             return [];
         }
     }

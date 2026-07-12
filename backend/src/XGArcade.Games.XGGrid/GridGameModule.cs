@@ -238,35 +238,46 @@ public class GridGameModule(
     // other pairing (e.g. a future Trophy cell) can't be resolved from the
     // reference tables this way at all, and is left to fail closed via the
     // caller's existing cached-only result, same as a genuinely-incorrect
-    // guess.
+    // guess. Routes through the same LookupLiveMatchesAsync dispatcher
+    // GetMatchCountAsync uses during generation, rather than a second,
+    // independently-written pairing check — LookupLiveMatchesAsync returns
+    // null for a pairing it doesn't handle, which is exactly this method's
+    // fail-closed signal.
     private async Task<bool> RefreshCellFromLiveLookupAsync(GridCell cell, CancellationToken cancellationToken)
     {
-        if (cell.RowCategoryType == CategoryPairingRules.Country && cell.ColCategoryType == CategoryPairingRules.Club)
+        var row = await ResolveCandidateAsync(cell.RowCategoryType, cell.RowCategoryValue, cancellationToken);
+        var col = await ResolveCandidateAsync(cell.ColCategoryType, cell.ColCategoryValue, cancellationToken);
+        if (row is null || col is null)
+            return false;
+
+        var liveMatches = await LookupLiveMatchesAsync(
+            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value, cancellationToken);
+        return liveMatches is not null;
+    }
+
+    // Looks a single category value up in whichever reference table its type
+    // points at — null if the type is unrecognized or the value isn't a row
+    // in that table (REQ-109: shouldn't happen in practice, since generation
+    // only ever picks from these tables, but guess-checking must still fail
+    // closed rather than throw for a malformed/legacy cell).
+    private async Task<CategoryCandidate?> ResolveCandidateAsync(
+        string categoryType, string categoryValue, CancellationToken cancellationToken)
+    {
+        if (categoryType == CategoryPairingRules.Country)
         {
             var country = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
-                .FirstOrDefault(c => c.Name == cell.RowCategoryValue);
-            var club = (await categoryValueRepository.GetClubsAsync(cancellationToken))
-                .FirstOrDefault(c => c.Name == cell.ColCategoryValue);
-            if (country is null || club is null)
-                return false;
-
-            await wikidataLookupService.LookupAndPersistAsync(country, club, cancellationToken);
-            return true;
+                .FirstOrDefault(c => c.Name == categoryValue);
+            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid);
         }
 
-        if (cell.RowCategoryType == CategoryPairingRules.Club && cell.ColCategoryType == CategoryPairingRules.Club)
+        if (categoryType == CategoryPairingRules.Club)
         {
-            var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
-            var rowClub = clubs.FirstOrDefault(c => c.Name == cell.RowCategoryValue);
-            var colClub = clubs.FirstOrDefault(c => c.Name == cell.ColCategoryValue);
-            if (rowClub is null || colClub is null)
-                return false;
-
-            await wikidataLookupService.LookupAndPersistClubClubAsync(rowClub, colClub, cancellationToken);
-            return true;
+            var club = (await categoryValueRepository.GetClubsAsync(cancellationToken))
+                .FirstOrDefault(c => c.Name == categoryValue);
+            return club is null ? null : new CategoryCandidate(club.Name, club.WikidataQid);
         }
 
-        return false;
+        return null;
     }
 
     // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")
@@ -351,16 +362,22 @@ public class GridGameModule(
             return cachedCount;
 
         var liveMatches = await LookupLiveMatchesAsync(rowCategoryType, row, colCategoryType, col, cancellationToken);
-        return liveMatches.Count;
+        return liveMatches?.Count ?? 0;
     }
 
     // Dispatches to whichever IWikidataLookupService method matches this
-    // pairing. WikidataLookupService only ever reads Name/WikidataQid off
-    // the CountryDefinition/ClubDefinition it's given (never Id) — safe to
+    // pairing — the single place that decision is made, shared by
+    // GetMatchCountAsync (generation-time) and RefreshCellFromLiveLookupAsync
+    // (REQ-211 guess-time fallback) so the two can't drift on which pairings
+    // are handled. Returns null for a pairing neither method knows how to
+    // resolve (e.g. a future Trophy cell) — distinct from an empty list,
+    // which means the pairing IS handled but Wikidata found no match.
+    // WikidataLookupService only ever reads Name/WikidataQid off the
+    // CountryDefinition/ClubDefinition it's given (never Id) — safe to
     // construct throwaway instances here rather than threading the real
     // reference-table rows through the whole candidate-picking pipeline
     // just for an Id nothing downstream uses.
-    private async Task<IReadOnlyList<Player>> LookupLiveMatchesAsync(
+    private async Task<IReadOnlyList<Player>?> LookupLiveMatchesAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,
         CancellationToken cancellationToken)
@@ -381,7 +398,7 @@ public class GridGameModule(
                 cancellationToken);
         }
 
-        return [];
+        return null;
     }
 
     private static List<GridCell> BuildCells(
