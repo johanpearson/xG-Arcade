@@ -810,8 +810,9 @@ bulk query).
 
 **S-033 · Show point value on the "incorrect, no attempts left" cell state (REQ-204)**
 Frontend-only gap, flagged and left unfixed three times (originally around
-S-011, again at S-028): `CellState.tsx`'s fourth state (both guesses wrong,
-cell locked) renders "no attempts left" with no point value, unlike every
+S-011, again at S-028): `CellState.tsx`'s state 3 (SCREEN-01a's "Incorrect,
+no attempts remaining" — both guesses wrong, cell locked) renders "no
+attempts left" with no point value, unlike every
 other locked state (live-correct shows an estimate, locked-correct and
 round-closed both show "Y pts"). `design-document.md`'s SCREEN-01a mock
 already shows this state as "no attempts left · 100 pts" (corrected during

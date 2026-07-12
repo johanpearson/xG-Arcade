@@ -437,6 +437,14 @@ without erroring), API
   unchanged API fields, this is a frontend display-wording fix only, applied
   everywhere this value is shown (state 1's live disclosure and state 4's
   locked "final" text).
+- **Acknowledged gap, queued as `docs/backlog.md` S-033 (2026-07-12):**
+  SCREEN-01a's state 3 ("Incorrect, no attempts remaining" — both guesses
+  wrong, cell locked) does not render a point value at all, unlike every
+  other locked state. `design-document.md` SCREEN-01a's mock already shows
+  "no attempts left · 100 pts" (corrected during S-028/ADR-0021);
+  `CellState.tsx` was never updated to match. The value is a known constant
+  (`ScoringRules.MaxPointsPerCell`), so this is a pure rendering fix, not a
+  new calculation.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -471,13 +479,6 @@ without erroring), API
 - And that estimate is worded so it is unmistakably provisional (e.g. "~N
   pts estimated"), visually and textually distinct from REQ-205's locked
   "Y pts" — it must never read as a preview or promise of the final score
-- **Acknowledged gap, queued as `docs/backlog.md` S-033 (2026-07-12):** the
-  fourth cell state (both guesses wrong, no attempts left) does not render
-  a point value at all — every other locked state does. `design-document.md`
-  SCREEN-01a's mock already shows "no attempts left · 100 pts" (corrected
-  during S-028/ADR-0021); `CellState.tsx` was never updated to match. The
-  value is a known constant (`ScoringRules.MaxPointsPerCell`), so this is a
-  pure rendering fix, not a new calculation.
 
 **Test level:** Unit (calculation logic), API, UI (visual "live" indicator is
 present, updates on refresh)
