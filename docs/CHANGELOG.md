@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — `infra/scripts/lib/game-data-tables.sh` (ADR-0009) — fixed
+  the singular/plural table-name bug NOTES.md flagged on 2026-07-09
+  (S-006): six of the allowlist's nine entries used the entity's singular
+  name instead of its real EF Core table name — verified directly against
+  `XGArcadeDbContext.cs`'s `DbSet<T>` properties (`Player`→`Players`,
+  `PlayerOverride`→`PlayerOverrides`, `PlayerAttribute`→`PlayerAttributes`,
+  `PlayerAlias`→`PlayerAliases`, `TrophyDefinition`→`TrophyDefinitions`,
+  `GridTemplate`→`GridTemplates`; `PlayerData` was already correct).
+  `PlayerNameIndex`/`ClubCrest` left as-is and commented — both are
+  placeholders for tables that don't exist yet (S-032, Tier 2), so their
+  real names can't be confirmed until built. Harmless in practice today —
+  `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh` are still unused until
+  Tier 1's dev/prod split (T-106) — but would have broken the first real
+  sync. Corresponding NOTES.md entry removed (resolved, not just noted).
+  No REQ/ADR change — this corrects a data value in an existing script
+  against an already-decided design (ADR-0009), not a new decision.
 - 2026-07-12 — Post-Tier-0 planning session: `MVP-SCOPE.md`,
   `docs/backlog.md`, `docs/requirements-document.md` (version 0.39 → 0.40),
   `TODO.md` — no code changed, this is scope/story planning only. Reviewed

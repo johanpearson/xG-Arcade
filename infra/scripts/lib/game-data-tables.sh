@@ -22,13 +22,18 @@
 # the schema is excluded until someone consciously puts it here.
 
 GAME_DATA_TABLES=(
-  "public.\"Player\""
+  "public.\"Players\""
   "public.\"PlayerData\""
-  "public.\"PlayerOverride\""
-  "public.\"PlayerAttribute\""
+  "public.\"PlayerOverrides\""
+  "public.\"PlayerAttributes\""
   "public.\"PlayerNameIndex\""
-  "public.\"PlayerAlias\""
-  "public.\"TrophyDefinition\""
+  "public.\"PlayerAliases\""
+  "public.\"TrophyDefinitions\""
   "public.\"ClubCrest\""
-  "public.\"GridTemplate\""
+  "public.\"GridTemplates\""
 )
+# Note: "PlayerNameIndex" and "ClubCrest" are placeholders for tables that
+# don't exist yet (S-032, Tier 2 respectively) — their real DbSet/table
+# names aren't confirmed until those entities are actually built. Every
+# other entry above is verified directly against XGArcadeDbContext.cs's
+# DbSet<T> property names (EF Core's default table-naming convention).
