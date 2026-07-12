@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.11"
+version: "0.12"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -416,6 +416,14 @@ Unchanged from v0.1:
   real SCREEN-00 entry (loading/submitting state, error copy, the exact
   tab/toggle pattern) rather than leaving the built version as the
   unreviewed de facto spec.
+- **No SCREEN-xx spec exists for the post-login game-selection landing
+  screen either** (`frontend/src/games/GameSelectScreen.tsx`, added S-021,
+  REQ-303's UX addition). Same gap as SCREEN-00 above, same reasoning: kept
+  deliberately minimal (a single tokens-only tile for xG Grid, no
+  wireframe/copy/state review) since Tier 0 only ever has one game to
+  select from — but once a second game exists this screen stops being
+  trivial and needs a real spec (multi-tile layout, empty/loading states,
+  copy) rather than staying an unreviewed de facto one.
 - **§2 has no numeric spacing scale.** SCREEN-01/01a/02's implementation
   (S-010) used an unreviewed 4px-based scale (4/8/12/16/24/32/48) for
   padding/gaps in the absence of one, rather than one-off values per

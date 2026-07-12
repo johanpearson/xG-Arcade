@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.33"
+version: "0.34"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -714,13 +714,15 @@ match with no attribute data and budget exhausted → fails closed), API
 **Test level:** Unit, API
 
 **REQ-303 – Fetch the active round and grid for display**
-> As a player, I want to open the app and see the current round's grid with
-> my own progress on it, so I can play without already knowing a round id.
+> As a player, I want to open the app, select a game, and see that game's
+> current round with my own progress on it, so I can play without already
+> knowing a round id.
 
-- **Status: Implemented (Tier 0, S-010).** Added as part of building the
-  Grid UI (`docs/backlog.md` S-010): no read endpoint existed for a client
-  to discover "the round I can currently play" before this — `GET
-  /rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, `[RequireAuthorization]`)
+- **Status: Implemented (Tier 0, S-010; UX updated S-021).** Added as part
+  of building the Grid UI (`docs/backlog.md` S-010): no read endpoint
+  existed for a client to discover "the round I can currently play" before
+  this — `GET /rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`,
+  `[RequireAuthorization]`)
   resolves the caller's local `User` from the bearer token, finds the
   currently `Active` (REQ-302) round for the xG Grid `GameKey` via the new
   `IRoundRepository.GetActiveByGameKeyAsync`, and returns its cells (row/col
@@ -750,8 +752,15 @@ match with no attribute data and budget exhausted → fails closed), API
   requesting player's own
 - And an upcoming (not-yet-started) round scheduled one round ahead
   (REQ-301) is never returned as if it were playable now
+- **(S-021)** And, in the frontend, the player only reaches the screen that
+  calls this endpoint after selecting a game from a game-selection landing
+  screen shown immediately after login/signup — a client-side routing
+  change only (no "list games" endpoint exists or is needed while Tier 0
+  has exactly one game, `GameKey="xg-grid"`); this endpoint's own contract
+  is unchanged
 
-**Test level:** API
+**Test level:** API, E2E (`tests/e2e/play-grid.spec.ts`'s REQ-303-tagged
+case covers the game-selection step added in S-021)
 
 ---
 

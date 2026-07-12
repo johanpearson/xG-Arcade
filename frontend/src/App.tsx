@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { AuthScreen } from './auth/AuthScreen';
+import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 
@@ -12,14 +13,16 @@ type HealthState =
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 
-type Screen = 'grid' | 'leaderboard';
+// REQ-303 (S-021): 'game-select' is the landing screen shown after login,
+// before any game's grid — see docs/backlog.md S-021.
+type Screen = 'game-select' | 'grid' | 'leaderboard';
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
   const [accessToken, setAccessToken] = useState<string | null>(() =>
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
-  const [screen, setScreen] = useState<Screen>('grid');
+  const [screen, setScreen] = useState<Screen>('game-select');
 
   useEffect(() => {
     let cancelled = false
@@ -49,11 +52,13 @@ function App() {
   function handleAuthenticated(token: string) {
     window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
     setAccessToken(token);
+    setScreen('game-select');
   }
 
   function handleLogout() {
     window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setAccessToken(null);
+    setScreen('game-select');
   }
 
   return (
@@ -62,6 +67,14 @@ function App() {
         <h1 className="app__title">xG Arcade</h1>
         {accessToken && (
           <div className="app__header-actions">
+            <button
+              type="button"
+              className="app__nav-link"
+              aria-current={screen === 'game-select' ? 'page' : undefined}
+              onClick={() => setScreen('game-select')}
+            >
+              Games
+            </button>
             <button
               type="button"
               className="app__nav-link"
@@ -87,7 +100,9 @@ function App() {
 
       <main className="app__main">
         {accessToken ? (
-          screen === 'grid' ? (
+          screen === 'game-select' ? (
+            <GameSelectScreen onSelectGame={() => setScreen('grid')} />
+          ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
