@@ -12,6 +12,12 @@ export interface CurrentRoundGuess {
   attemptCount: number;
   locked: boolean;
   submittedName: string;
+  // Frontend name-display fix: the canonical, properly-cased Player.FullName
+  // for a correct guess — null whenever isCorrect is false (an incorrect
+  // guess shows no name at all, only that it was wrong) or, defensively, if
+  // it somehow can't be resolved. Never a substitute for submittedName,
+  // which stays the raw as-typed text unaffected.
+  resolvedPlayerName: string | null;
   // REQ-204: null until the guess is correct — re-derived on every request,
   // not persisted, until the round closes.
   uniquePercent: number | null;
@@ -45,6 +51,8 @@ export interface SubmitGuessResponse {
   isCorrect: boolean;
   attemptCount: number;
   locked: boolean;
+  // Frontend name-display fix: see CurrentRoundGuess.resolvedPlayerName.
+  resolvedPlayerName: string | null;
 }
 
 export interface SignupResponse {

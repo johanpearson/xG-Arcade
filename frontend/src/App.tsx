@@ -64,25 +64,21 @@ function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1 className="app__title">xG Arcade</h1>
+        {/* xG Arcade is the landing page (S-021's game-select screen) — the
+            title itself is the way back to it, so a separate "Games" nav
+            link isn't needed alongside it (and "Grid" isn't either: picking
+            a game from that landing page is how a player gets there). Fewer
+            nav items also means the header no longer wraps onto a second
+            line on a narrow phone. */}
+        {accessToken ? (
+          <button type="button" className="app__title app__title--link" onClick={() => setScreen('game-select')}>
+            xG Arcade
+          </button>
+        ) : (
+          <h1 className="app__title">xG Arcade</h1>
+        )}
         {accessToken && (
           <div className="app__header-actions">
-            <button
-              type="button"
-              className="app__nav-link"
-              aria-current={screen === 'game-select' ? 'page' : undefined}
-              onClick={() => setScreen('game-select')}
-            >
-              Games
-            </button>
-            <button
-              type="button"
-              className="app__nav-link"
-              aria-current={screen === 'grid' ? 'page' : undefined}
-              onClick={() => setScreen('grid')}
-            >
-              Grid
-            </button>
             <button
               type="button"
               className="app__nav-link"

@@ -5,14 +5,19 @@ export interface GridCellProps {
   cell: CurrentRoundCell;
   roundStatus: RoundStatus;
   roundEndTime: string;
-  knownPlayerName?: string;
+  // S-020: true only when this cell's guess was submitted in this browser
+  // session (GridScreen tracks this per cellId) — false for a guess loaded
+  // from GET /rounds/current on page load (e.g. a reload showing a cell
+  // someone already attempted). See CellState's submittedThisSession doc
+  // comment for why this distinction matters for the shake cue.
+  submittedThisSession?: boolean;
   onOpenGuess: (cell: CurrentRoundCell) => void;
 }
 
 // Guard clause for the implicit fifth visual (an unattempted cell) lives
 // here, before CellState's four-state logic — not a fifth case inside that
 // component (SCREEN-01a).
-export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onOpenGuess }: GridCellProps) {
+export function GridCell({ cell, roundStatus, roundEndTime, submittedThisSession, onOpenGuess }: GridCellProps) {
   const { guess } = cell;
   const canOpen = guess === null || !guess.locked;
 
@@ -23,13 +28,10 @@ export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onO
       </span>
     ) : (
       <CellState
-        // knownPlayerName (this browser session's own submission) wins
-        // when present since it's the freshest; guess.submittedName
-        // (REQ-303) is what makes a cell answered before this session
-        // still show a name after a reload — POST .../guesses' own
-        // response doesn't echo the name back, so the session cache can't
-        // be retired in favor of it.
-        playerName={knownPlayerName ?? guess.submittedName}
+        // Frontend name-display fix: only a correct guess ever gets a name —
+        // resolvedPlayerName is the canonical Player.FullName, never the raw
+        // as-typed submittedName. An incorrect guess passes no name at all.
+        playerName={guess.isCorrect ? (guess.resolvedPlayerName ?? undefined) : undefined}
         isCorrect={guess.isCorrect}
         attemptCount={guess.attemptCount}
         locked={guess.locked}
@@ -37,12 +39,7 @@ export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onO
         uniquePercent={guess.uniquePercent}
         livePoints={guess.livePoints}
         roundEndTime={roundEndTime}
-        // S-020: knownPlayerName is only ever set by GridScreen right when
-        // this browser session submitted this cell's guess (see CellState's
-        // submittedThisSession doc comment) — a guess loaded from GET
-        // /rounds/current on page load has no entry here, so this is false
-        // for that case, same as intended.
-        submittedThisSession={knownPlayerName != null}
+        submittedThisSession={submittedThisSession}
         rowCategoryType={cell.rowCategoryType}
         rowCategoryValue={cell.rowCategoryValue}
         colCategoryType={cell.colCategoryType}

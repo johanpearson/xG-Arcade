@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.38"
+version: "0.39"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -407,6 +407,18 @@ without erroring), API
   "~N pts estimated"/"X% unique · Y pts" wording is unchanged text, but
   SCREEN-01a/SCREEN-03 now also state the lowest-wins framing explicitly
   (design-document.md) so a player doesn't assume the opposite from habit.
+- **S-029 wording correction:** direct player feedback found "X% unique"
+  confusing once paired with ADR-0021's golf-style points — a *higher*
+  uniqueness percentage means *fewer* points, the opposite of what "unique"
+  suggests on its own. The frontend (`CellState.tsx`) now shows the same
+  number reframed as its complement — "N% of others guessed this too,"
+  where N = `round((1 - uniqueScore) * 100)` — so the percentage and the
+  point value move in the same direction (more people guessing the same
+  answer reads as more common, and scores worse under golf rules). No
+  formula changed on the backend; `UniquePercent`/`LivePoints` are
+  unchanged API fields, this is a frontend display-wording fix only, applied
+  everywhere this value is shown (state 1's live disclosure and state 4's
+  locked "final" text).
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -449,8 +461,8 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018;
-  lowest-wins correction S-028/ADR-0021).**
+- **Status: Implemented (Tier 0, S-011; formula extraction S-018;
+  lowest-wins correction S-028/ADR-0021; scheduled trigger S-029/ADR-0022).**
   `RoundCloseService`
   (`XGArcade.Core.Rounds`) pulls `EndTime` forward (idempotently — never
   later than what's already scheduled) to force immediate closure, then
@@ -471,11 +483,21 @@ present, updates on refresh)
   `FinalUniquenessScore = null` and `FinalPoints = MaxPointsPerCell` (the
   *worst* score — previously 0, which would otherwise tie a wrong answer
   with the best possible correct one under the lowest-wins model). This is
-  idempotent and safe to call again on an already-closed round. What's
-  still missing: there is no automated scheduled job yet that calls
-  round-close at a round's real `end_time` in production — today it is
-  only ever invoked via REQ-806's non-Production-only
-  `POST /internal/test-data/force-close-round/{roundId}`.
+  idempotent and safe to call again on an already-closed round. **S-029
+  correction (ADR-0022):** direct play-testing found that, in the deployed
+  dev environment, a completed grid's score never actually reached the
+  leaderboard — nothing had ever called round-close automatically, so
+  `Guess.FinalPoints` stayed null forever and every leaderboard total summed
+  to 0. `RoundGenerationService.GenerateNextRoundIfNeededAsync` (the code
+  `generate-round.yml`'s cron actually invokes, Tier 0's only production-
+  scheduled trigger point) now also closes a round's predecessor before
+  deciding whether to generate a successor — see ADR-0022 for why the round
+  to close is never `latest` itself. REQ-806's non-Production-only
+  `POST /internal/test-data/force-close-round/{roundId}` still exists too,
+  unchanged, for manual/E2E use. Trade-off accepted, not fixed: any rounds
+  that had already ended-but-never-closed *before* this fix shipped need one
+  additional `generate-round.yml` cron cycle each to catch up (or can be
+  force-closed immediately by hand via the endpoint above) — see ADR-0022.
   The UI's "clearly different styling/icon" clause is built for `CellState`'s
   closed state (`cell-state--final`, "final" label, "X% unique · Y pts"),
   but that state is only reachable via constructed props in
@@ -497,19 +519,33 @@ present, updates on refresh)
 > As a player, I want to see my total score for the whole grid, so I can
 > compare myself to others.
 
-- **Status note (Tier 0, S-011; unanswered-cell correction S-028/ADR-0021).**
+- **Status note (Tier 0, S-011; unanswered-cell correction S-028/ADR-0021;
+  live grid-screen total S-029).**
   `ScoreCalculator.CalculateTotalPoints`
   (`XGArcade.Core.Scoring`) implements this exact formula (`SUM(FinalPoints
   ?? 0)`) and is unit-tested against it directly. Its contribution is
   reflected correctly in the global leaderboard's running total (REQ-401,
   via `GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s equivalent
-  database-side `SUM`/`GROUP BY`). However, there is currently no
-  per-round-specific total surfaced anywhere via API or UI — Tier 0 has no
-  "view a specific closed round" screen at all (`GET /rounds/current` only
-  ever returns an Active round), so there is nowhere to show one round's
-  total distinctly from the leaderboard's all-time running total. Not a
-  regression — revisit once/if a past-round-detail view exists. **S-028
-  correction (ADR-0021):** "unanswered cells count as 0 points" was true
+  database-side `SUM`/`GROUP BY`), and — as of ADR-0022's round-closing fix
+  — that total now actually reaches the leaderboard in the deployed
+  environment, not just in theory. **S-029 addition:** `GridScreen.tsx` now
+  also shows a running, live "~N pts estimated" total while a round is still
+  active — summed client-side from the same per-cell `LivePoints` REQ-204
+  already returns for each correctly-guessed cell, using the same "~"/
+  "estimated" wording convention as a single cell's own live estimate, so it
+  is never mistaken for the locked total REQ-205 computes at round close.
+  This isn't REQ-206's own per-round locked total — that total is only
+  computed once every cell in the round is locked (REQ-205), and even then
+  it is never surfaced as a distinct per-round figure: it is only ever
+  folded, uncredited, into the global leaderboard's all-time running sum
+  (REQ-401). This live estimate is instead the closest a player can get to
+  "my total for this grid" while still playing it. There is still no
+  per-round-specific *locked* total surfaced anywhere via API or UI once a
+  round closes — Tier 0 has no "view a specific closed round" screen at all
+  (`GET /rounds/current` only ever returns an Active round), so there is
+  still nowhere to show one closed round's final total distinctly from the
+  leaderboard's all-time running total. Not a regression — revisit once/if
+  a past-round-detail view exists. **S-028 correction (ADR-0021):** "unanswered cells count as 0 points" was true
   under the higher-is-better model (0 was the worst score, matching "no
   credit"); under lowest-wins, 0 is the *best* score, so leaving unanswered
   cells at 0 would make skipping a cell entirely optimal. `ScoreLockingService
@@ -789,6 +825,25 @@ match with no attribute data and budget exhausted → fails closed), API
   narrow) exception to ADR-0003's boundary rule 2, not covered by the
   existing `GridTemplateResolver` precedent; recorded explicitly in the new
   ADR-0016 rather than left as an undocumented shortcut.
+- **S-029 addition:** `SubmittedName` is unchanged (still the raw as-typed
+  text), but the guess object now also carries `ResolvedPlayerName` — the
+  canonical, properly-cased `Player.FullName` for a correct guess, resolved
+  via a new bulk `IPlayerStoreRepository.GetPlayersByIdsAsync` (also added to
+  `POST .../guesses`' own response, via `GuessSubmissionService` calling
+  `IPlayerStoreRepository.GetPlayerByIdAsync` directly, so a name is
+  available immediately on submission, not only on the next `GET
+  /rounds/current`). `ResolvedPlayerName` is always null for an incorrect
+  guess — a player-feedback pass found the raw as-typed guess unhelpful to
+  display for a wrong answer (and inconsistent casing distracting for a
+  right one), so the frontend now shows the canonical name for a correct
+  guess and no name at all for an incorrect one (`CellState.tsx`), only the
+  ✕ icon and attempt count. Separately, the frontend's header nav no longer
+  has separate "Games"/"Grid" links — the "xG Arcade" title itself now
+  routes back to the game-selection landing screen (S-021), which was the
+  only other place a player could reach the grid from anyway; this reduced
+  the header to "Leaderboard" + "Log out" so it stops wrapping onto a second
+  line on a narrow phone. No endpoint change, client-side routing only, same
+  as S-021's own note above — see the new acceptance criterion below.
 - Given a logged-in player
 - When they request the current round
 - Then the system returns the currently active round for the game (if any),
@@ -808,6 +863,17 @@ match with no attribute data and budget exhausted → fails closed), API
   change only (no "list games" endpoint exists or is needed while Tier 0
   has exactly one game, `GameKey="xg-grid"`); this endpoint's own contract
   is unchanged
+- **(S-029)** And, for a correct guess, the response also includes the
+  canonical, properly-cased player name (not just the raw text the player
+  originally typed) — the frontend shows this instead of the as-typed guess;
+  for an incorrect guess, no name is shown at all in the UI, only that it
+  was wrong and how many attempts remain
+- **(S-029)** And, in the frontend, the header nav no longer exposes
+  separate "Games"/"Grid" links duplicating this screen's entry point — the
+  "xG Arcade" title itself is the (client-side) route back to the
+  game-selection landing screen (S-021), leaving only "Leaderboard" and
+  "Log out" in the header at every viewport width; this endpoint's own
+  contract is unchanged
 
 **Test level:** API, E2E (`tests/e2e/play-grid.spec.ts`'s REQ-303-tagged
 case covers the game-selection step added in S-021)

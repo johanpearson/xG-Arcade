@@ -17,6 +17,18 @@
 
 .app__title {
   font-size: 22px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.app__title--link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  min-height: var(--touch-target-min);
 }
 
 .app__header-actions {

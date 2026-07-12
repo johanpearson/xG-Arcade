@@ -111,7 +111,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-303: the header\'s "Games" nav link returns from the grid to the game-selection screen', async () => {
+  it('REQ-303: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen — nav no longer has separate "Games"/"Grid" links', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -123,9 +123,24 @@ describe('App game-selection routing', () => {
       expect(screen.getByText('No round to play right now')).toBeInTheDocument(),
     )
 
-    await user.click(screen.getByRole('button', { name: 'Games' }))
+    expect(screen.queryByRole('button', { name: 'Games' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Grid' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }))
 
     expect(screen.getByText('Choose a game')).toBeInTheDocument()
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
+  })
+
+  it('REQ-303: the nav only offers Leaderboard and Log out once authenticated', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    expect(screen.getByRole('button', { name: 'Leaderboard' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument()
   })
 })

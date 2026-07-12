@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.39"
+version: "0.40"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.33 · 2026-07-11
+Version 0.40 · 2026-07-12
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -859,10 +859,20 @@ the new `IGameModule.GetCellIdsAsync`, implemented in `GridGameModule` by
 reading the already-generated `GridInstance`'s `Cells`.
 `RoundCloseService` itself still only pulls a round's `EndTime` forward
 (idempotently — never later than what's already scheduled) before
-delegating; that trigger remains invoked today only via REQ-806's
-non-Production `POST /internal/test-data/force-close-round/{roundId}` —
-there is still no automated scheduled job that calls round-close at a
-round's real `end_time` in any environment.
+delegating. **Correction (S-029/ADR-0022):** this used to be invoked only
+via REQ-806's non-Production `POST /internal/test-data/force-close-round/{roundId}`,
+with no automated scheduled job calling round-close anywhere — that gap is
+now closed. `RoundGenerationService.GenerateNextRoundIfNeededAsync` (the
+one piece of code `generate-round.yml`'s cron actually invokes) now also
+closes the round it is about to supersede — never `latest` itself, but its
+predecessor, found via the new `IRoundRepository.GetPreviousByGameKeyAsync`
+— before deciding whether to generate a new one. See ADR-0022 for the full
+derivation and the accepted trade-offs (a small backlog of never-closed
+rounds from before this fix needs one extra cron cycle each to catch up;
+the pre-existing, documented concurrent-call race in
+`MaterializeUnansweredCellsAsync` is now reachable from this real scheduled
+path too, still not fixed). The non-Production force-close-round endpoint
+still exists, unchanged, for manual/E2E use.
 
 **Leaderboard pagination (REQ-607)**
 

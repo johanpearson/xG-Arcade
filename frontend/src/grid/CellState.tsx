@@ -6,11 +6,12 @@ import './CellState.css';
 export type RoundStatus = 'active' | 'closed';
 
 export interface CellStateProps {
-  // The guessed/revealed player's name. GET /rounds/current does not return
-  // this (only isCorrect/attemptCount/locked) — the real name is only known
-  // client-side for a guess submitted in the current session. Falls back to
-  // a plain, non-fabricated label rather than inventing a name; see the
-  // frontend report for this gap flagged back for a follow-up REQ.
+  // The correct guess's canonical, properly-cased name (GET /rounds/current
+  // and the guess-submission response both now return this —
+  // resolvedPlayerName). Only ever passed for a correct guess; an incorrect
+  // guess renders no name at all (only that it was wrong), never the raw
+  // as-typed text. Falls back to a plain, non-fabricated label if somehow
+  // absent for a correct guess, rather than inventing a name.
   playerName?: string;
   isCorrect: boolean;
   attemptCount: number;
@@ -181,7 +182,7 @@ export function CellState({
         <Row name={name} correct={isCorrect} badges={isCorrect ? badges : undefined} />
         {isCorrect && uniquePercent != null && finalPoints != null && (
           <p className="cell-state__meta">
-            {formatPercent(uniquePercent)}% unique · {finalPoints} pts
+            {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too · {finalPoints} pts
           </p>
         )}
         <p className="cell-state__meta">final</p>
@@ -226,11 +227,15 @@ export function CellState({
   // state 2) — same technique useRevealToken's callers use above.
   const shakeClassName = shakeToken > 0 ? 'cell-state--shake' : '';
 
+  // States 2/3 (incorrect): no name is shown at all, not even the raw guess —
+  // just the ✕ and the attempts text. A wrong guess isn't useful information
+  // for anyone else viewing the grid later, and showing the as-typed text
+  // (rather than a real player's canonical name) was misleading either way.
   // State 2: incorrect, at least one attempt remaining.
   if (!locked && attemptsLeft > 0) {
     return (
       <div key={shakeToken} className={`cell-state cell-state--incorrect ${shakeClassName}`}>
-        <Row name={name} correct={false} />
+        <Row correct={false} />
         <p className="cell-state__meta">
           {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left
         </p>
@@ -242,15 +247,23 @@ export function CellState({
   // 206 don't exist yet, so no "0 pts" line — same reasoning as state 1.
   return (
     <div key={shakeToken} className={`cell-state cell-state--incorrect cell-state--locked ${shakeClassName}`}>
-      <Row name={name} correct={false} />
+      <Row correct={false} />
       <p className="cell-state__meta">no attempts left</p>
     </div>
   );
 }
 
-// REQ-204: uniquePercent arrives as a 0-1 fraction from the API.
-function formatPercent(uniquePercent: number): number {
-  return Math.round(uniquePercent * 100);
+// REQ-204: uniquePercent arrives as a 0-1 fraction from the API, and is
+// framed here as its complement — "how many other correct guessers also
+// picked this answer" — rather than "how unique is this answer." Same
+// number, reworded: a player-feedback pass found "X% unique" confusing
+// once paired with ADR-0021's golf-style points (a *higher* uniqueness
+// percentage means *fewer* points, the opposite of what "unique" suggests).
+// "N% of others also guessed this" moves in the same direction as the point
+// value instead (more people guessing the same answer = more common = more
+// points, worse under golf scoring) — no formula changed, only the wording.
+function formatOthersGuessedPercent(uniquePercent: number): number {
+  return Math.round((1 - uniquePercent) * 100);
 }
 
 function formatDateTime(isoDateTime: string): string {
@@ -364,7 +377,7 @@ function LiveMetaDisclosure({
       {revealed && (
         <div id={panelId} aria-live="polite">
           <p className="cell-state__meta mono-figure">
-            {formatPercent(uniquePercent)}% unique
+            {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too
             {livePoints != null && ` · ~${livePoints} pts estimated`}
           </p>
           {roundEndTime && (
@@ -383,7 +396,9 @@ function Row({
   correct,
   badges,
 }: {
-  name: string;
+  // Absent for an incorrect guess (states 2/3) — no name is shown at all,
+  // only that the guess was wrong.
+  name?: string;
   correct: boolean;
   badges?: { row: CategoryRef; col: CategoryRef };
 }) {
@@ -398,7 +413,7 @@ function Row({
           <CategoryGlyph categoryType={badges.row.categoryType} value={badges.row.value} size="small" />
         </span>
       )}
-      <span className="cell-state__name">{name}</span>
+      {name && <span className="cell-state__name">{name}</span>}
       {badges && (
         <span
           className="cell-state__badge-dock cell-state__badge-dock--col"

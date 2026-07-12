@@ -22,6 +22,7 @@ public static class RoundEndpoints
             IRoundRepository roundRepository,
             IGridInstanceRepository gridInstanceRepository,
             IGuessRepository guessRepository,
+            IPlayerStoreRepository playerStoreRepository,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -67,6 +68,17 @@ public static class RoundEndpoints
                     .GroupBy(g => g.CellId)
                     .ToDictionary(group => group.Key, group => group.ToList());
 
+            // Frontend name-display fix: the requesting player's own correct
+            // guesses' canonical, properly-cased names — bulk-fetched once,
+            // never the raw as-typed SubmittedName. An incorrect guess has no
+            // PlayerAnswerId and is never included here.
+            var ownCorrectPlayerAnswerIds = guesses
+                .Where(g => g.IsCorrect && g.PlayerAnswerId is not null)
+                .Select(g => g.PlayerAnswerId!.Value)
+                .Distinct()
+                .ToList();
+            var playersById = await playerStoreRepository.GetPlayersByIdsAsync(ownCorrectPlayerAnswerIds, cancellationToken);
+
             var cells = instance.Cells
                 .OrderBy(c => c.Row).ThenBy(c => c.Col)
                 .Select(cell =>
@@ -93,11 +105,17 @@ public static class RoundEndpoints
                             ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
                             : null;
 
+                        string? resolvedPlayerName = guess.IsCorrect && guess.PlayerAnswerId is not null
+                            && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var resolvedPlayer)
+                            ? resolvedPlayer.FullName
+                            : null;
+
                         guessResponse = new CurrentRoundGuessResponse(
                             guess.IsCorrect,
                             guess.AttemptCount,
                             guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
                             guess.SubmittedName,
+                            resolvedPlayerName,
                             uniquePercent,
                             livePoints);
                     }
@@ -150,4 +168,9 @@ public record CurrentRoundCellResponse(
 // interchangeable with FinalPoints; the naming ("Live"/provisional vs.
 // "Final"/locked) is deliberate and must be preserved wherever this value
 // is surfaced (API and UI alike).
-public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, double? UniquePercent, int? LivePoints);
+// ResolvedPlayerName (frontend name-display fix): the canonical, properly-
+// cased player name, only ever set when IsCorrect (never a substitute for
+// SubmittedName, which is unchanged and still the raw as-typed text) — the
+// frontend shows this instead of SubmittedName for a correct guess, and no
+// name at all for an incorrect one.
+public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, string? ResolvedPlayerName, double? UniquePercent, int? LivePoints);

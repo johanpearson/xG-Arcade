@@ -216,7 +216,9 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // closes itself on a successfully-accepted (even if wrong) submission.
     // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
     await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
-    await expect(cell.getByText('Definitely Not A Real Player')).toBeVisible()
+    // Frontend name-display fix (S-029): an incorrect guess shows no name at
+    // all, not even the raw as-typed text — only the ✕ and attempt count.
+    await expect(cell.getByText('Definitely Not A Real Player')).not.toBeVisible()
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
 
@@ -289,7 +291,9 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // as incorrect — shown as visible text, never color/icon-only. Same
     // ADR-0018 live-lookup cost applies to this second miss too.
     await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
-    await expect(cell.getByText('Wrong Guess Number Two')).toBeVisible()
+    // Frontend name-display fix (S-029): no name shown for an incorrect
+    // guess, same as the single-wrong-guess case above.
+    await expect(cell.getByText('Wrong Guess Number Two')).not.toBeVisible()
     await expect(cell.getByText('no attempts left')).toBeVisible()
     await expect(cell).toBeDisabled()
 

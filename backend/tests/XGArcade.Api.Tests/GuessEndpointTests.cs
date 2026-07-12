@@ -221,6 +221,7 @@ public class GuessEndpointTests
         Assert.That(body!.IsCorrect, Is.True, "REQ-203/REQ-201: correctness must be determined and returned immediately upon submission");
         Assert.That(body.AttemptCount, Is.EqualTo(1));
         Assert.That(body.Locked, Is.True);
+        Assert.That(body.ResolvedPlayerName, Is.EqualTo(correctAnswer), "frontend name-display fix: a correct guess's canonical name is returned in the same response");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -314,6 +315,24 @@ public class GuessEndpointTests
         var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
         Assert.That(body!.IsCorrect, Is.True);
         Assert.That(body.AttemptCount, Is.EqualTo(2));
+    }
+
+    // ---- Frontend name-display fix: canonical name for a correct guess -----
+
+    [Test]
+    public async Task REQ201_Guess_Post_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, correctAnswer) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(correctAnswer.ToLowerInvariant()));
+
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.ResolvedPlayerName, Is.EqualTo(correctAnswer), "the display name must be the canonical Player.FullName, not the raw as-typed guess");
     }
 
     // ---- REQ-210: two guesses per cell, locked immediately on correct -----

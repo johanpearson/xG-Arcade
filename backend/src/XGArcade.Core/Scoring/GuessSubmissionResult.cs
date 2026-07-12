@@ -21,9 +21,22 @@ public class GuessSubmissionResult
     public int AttemptCount { get; init; }
     public bool Locked { get; init; }
 
+    // Frontend name-display fix: the canonical, properly-cased Player.FullName
+    // for a correct guess — never the raw as-typed text (that stays on the
+    // Guess row's own SubmittedName, unaffected). Null whenever IsCorrect is
+    // false; there is no real player to display a name for.
+    public string? ResolvedPlayerName { get; init; }
+
     public static GuessSubmissionResult Rejected(GuessSubmissionOutcome outcome) =>
         new() { Outcome = outcome };
 
-    public static GuessSubmissionResult Accepted(bool isCorrect, int attemptCount, bool locked) =>
-        new() { Outcome = GuessSubmissionOutcome.Accepted, IsCorrect = isCorrect, AttemptCount = attemptCount, Locked = locked };
+    public static GuessSubmissionResult Accepted(bool isCorrect, int attemptCount, bool locked, string? resolvedPlayerName = null) =>
+        new()
+        {
+            Outcome = GuessSubmissionOutcome.Accepted,
+            IsCorrect = isCorrect,
+            AttemptCount = attemptCount,
+            Locked = locked,
+            ResolvedPlayerName = resolvedPlayerName,
+        };
 }

@@ -57,7 +57,7 @@ describe('CellState', () => {
     fireEvent.click(screen.getByRole('button', { name: /live/i }));
 
     expect(screen.getByText('live')).toBeInTheDocument();
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
     expect(screen.getByText(/updates until round closes on/)).toBeInTheDocument();
   });
 
@@ -79,7 +79,7 @@ describe('CellState', () => {
     fireEvent.click(screen.getByRole('button', { name: /live/i }));
 
     expect(screen.getByText('live')).toBeInTheDocument();
-    expect(screen.getByText('12% unique · ~12 pts estimated')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too · ~12 pts estimated')).toBeInTheDocument();
   });
 
   it('REQ-204 (S-018): the live point estimate is visually and textually distinct from a round-closed locked score', () => {
@@ -98,7 +98,7 @@ describe('CellState', () => {
     // the closed/final half below never uses the toggle at all (state 4 has
     // no disclosure — see REQ-205/206).
     fireEvent.click(screen.getByRole('button', { name: /live/i }));
-    const liveText = screen.getByText('12% unique · ~12 pts estimated');
+    const liveText = screen.getByText('88% of others guessed this too · ~12 pts estimated');
     expect(liveContainer.querySelector('.cell-state--live')).toBeInTheDocument();
     expect(liveContainer.querySelector('.cell-state--final')).not.toBeInTheDocument();
 
@@ -113,7 +113,7 @@ describe('CellState', () => {
         finalPoints={88}
       />,
     );
-    const closedText = screen.getByText('12% unique · 88 pts');
+    const closedText = screen.getByText('88% of others guessed this too · 88 pts');
     expect(closedContainer.querySelector('.cell-state--final')).toBeInTheDocument();
     expect(closedContainer.querySelector('.cell-state--live')).not.toBeInTheDocument();
 
@@ -186,7 +186,7 @@ describe('CellState', () => {
       />,
     );
 
-    expect(screen.getByText('12% unique · 88 pts')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too · 88 pts')).toBeInTheDocument();
     expect(screen.getByText('final')).toBeInTheDocument();
   });
 
@@ -228,7 +228,7 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     // Disclosed detail: not yet revealed, so genuinely absent from the DOM
     // (not just visually hidden) until the player interacts.
-    expect(screen.queryByText(/12% unique/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/of others guessed this too/)).not.toBeInTheDocument();
     expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
     expect(screen.queryByText(/updates until round closes on/)).not.toBeInTheDocument();
   });
@@ -250,11 +250,11 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+    expect(screen.queryByText('88% of others guessed this too')).not.toBeInTheDocument();
   });
 
   it('REQ-204: focusing the toggle reveals the text (keyboard equivalent) and blurring hides it again', () => {
@@ -275,11 +275,11 @@ describe('CellState live meta disclosure (S-019)', () => {
     // the "not mouse/touch-only" half of S-019's acceptance criteria.
     fireEvent.focus(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
 
     fireEvent.blur(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+    expect(screen.queryByText('88% of others guessed this too')).not.toBeInTheDocument();
   });
 
   it('REQ-204: hovering reveals the text (desktop equivalent) and moving the mouse away hides it again', () => {
@@ -298,11 +298,11 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     fireEvent.mouseEnter(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
 
     fireEvent.mouseLeave(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+    expect(screen.queryByText('88% of others guessed this too')).not.toBeInTheDocument();
   });
 
   it('REQ-204: once revealed, the live meta text lives inside an aria-live="polite" region, so screen readers are told about the change', () => {
@@ -322,7 +322,7 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     const livePanel = container.querySelector('[aria-live="polite"]');
     expect(livePanel).toBeInTheDocument();
-    expect(livePanel).toHaveTextContent('12% unique');
+    expect(livePanel).toHaveTextContent('88% of others guessed this too');
     expect(livePanel).toHaveTextContent(/updates until round closes on/);
   });
 
@@ -359,7 +359,7 @@ describe('CellState live meta disclosure (S-019)', () => {
     await user.click(toggle);
 
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
   });
 
   it('REQ-204: a second realistic click un-toggles the panel immediately, even though a real click leaves the button both hovered and focused', async () => {
@@ -387,7 +387,7 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+    expect(screen.queryByText('88% of others guessed this too')).not.toBeInTheDocument();
 
     // Hover's own peek behavior must still work afterward: leaving and
     // re-entering reveals it again, so the fix doesn't just permanently
@@ -443,7 +443,7 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     await user.keyboard('{Enter}');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByText('12% unique')).not.toBeInTheDocument();
+    expect(screen.queryByText('88% of others guessed this too')).not.toBeInTheDocument();
   });
 
   it("REQ-204: an odd number of Enter presses leaves the panel open via the click toggle even after tabbing away, the same as a mouse click's persistent state survives the pointer leaving", async () => {
@@ -472,7 +472,7 @@ describe('CellState live meta disclosure (S-019)', () => {
 
     await user.tab();
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('12% unique')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
   });
 });
 

@@ -498,3 +498,20 @@ and the fix's own startup log line (`Program.cs`) announces the resolved
 address so this is confirmable in one log-stream check on the next real
 deploy — but if a future session finds it wrong, that's expected to have
 needed live confirmation, not a sign the fix itself was rushed.
+
+### 2026-07-12 — "latest round" is never the round that needs closing (ADR-0022)
+
+Non-obvious enough to be worth writing down: when wiring round-closing
+into `RoundGenerationService`, the tempting first instinct is "if
+`latest.EndTime <= now`, close it." That's wrong. REQ-301's "one round
+ahead" design means a round is generated — and becomes `GetLatestByGameKeyAsync`'s
+answer — the moment its *predecessor* has merely started, not once the
+predecessor has ended. So by the time a round's own `EndTime` actually
+passes, it has long since stopped being `latest`; something newer already
+took over that title. Checking `latest.EndTime` will (almost) never fire.
+The round that actually needs closing at any given `generate-round.yml`
+tick is `latest`'s *predecessor* — `IRoundRepository.GetPreviousByGameKeyAsync`
+exists specifically to fetch it. Worked through by hand with concrete
+timelines before committing (no `dotnet` SDK in this sandbox to verify by
+running it) — if this ever gets refactored, re-derive the timeline rather
+than trusting intuition about which round is "latest" at close time.

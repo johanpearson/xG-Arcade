@@ -64,7 +64,7 @@ public static class GuessEndpoints
             return result.Outcome switch
             {
                 GuessSubmissionOutcome.Accepted => Results.Ok(
-                    new SubmitGuessResponse(result.IsCorrect, result.AttemptCount, result.Locked)),
+                    new SubmitGuessResponse(result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName)),
                 GuessSubmissionOutcome.RoundNotFound => Results.NotFound(),
                 GuessSubmissionOutcome.RoundNotActive => Results.Problem(
                     title: "Round is not active",
@@ -90,7 +90,11 @@ public static class GuessEndpoints
 
 public record SubmitGuessRequest(string SubmittedName);
 
-public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked);
+// ResolvedPlayerName (frontend name-display fix): the canonical, properly-
+// cased player name, only ever set when IsCorrect — never a substitute for
+// SubmittedName on an incorrect guess, which the frontend now shows no name
+// for at all.
+public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string? ResolvedPlayerName);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalRoundEndpoints.RoundGenerationLogCategory.
