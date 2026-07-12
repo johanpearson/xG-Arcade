@@ -33,9 +33,19 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
     private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
+    // S-030: a second, independent pair of dictionaries for Club x Club —
+    // kept separate from the Country x Club ones above (rather than sharing
+    // one dictionary keyed loosely by two strings) so a test can't
+    // accidentally cross-contaminate a Country x Club expectation with a
+    // Club x Club one that happens to share a name.
+    private readonly Dictionary<(string ClubA, string ClubB), List<Player>> _clubClubMatches = new();
+    private readonly Dictionary<(string ClubA, string ClubB), int> _clubClubCallCounts = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
+
+    public void SetClubClubMatches(string clubAName, string clubBName, IReadOnlyList<Player> players) =>
+        _clubClubMatches[(clubAName, clubBName)] = players.ToList();
 
     // REQ-211's fallback must call this at most once per guess (bounded by
     // REQ-210's attempt cap, ADR-0018) — exposed so a test can assert the
@@ -43,6 +53,9 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     // that answers the guess.
     public int GetCallCount(string countryName, string clubName) =>
         _callCounts.TryGetValue((countryName, clubName), out var count) ? count : 0;
+
+    public int GetClubClubCallCount(string clubAName, string clubBName) =>
+        _clubClubCallCounts.TryGetValue((clubAName, clubBName), out var count) ? count : 0;
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, CancellationToken cancellationToken = default)
@@ -58,13 +71,37 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         if (playerStore is not null)
         {
             foreach (var player in players)
-                await PersistAsync(player, country.Name, club.Name, cancellationToken);
+                await PersistAsync(player, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
         }
 
         return players;
     }
 
-    private async Task PersistAsync(Player player, string countryName, string clubName, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
+        ClubDefinition clubA, ClubDefinition clubB, CancellationToken cancellationToken = default)
+    {
+        _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;
+
+        if (clubA.WikidataQid is null || clubB.WikidataQid is null)
+            return [];
+
+        if (!_clubClubMatches.TryGetValue((clubA.Name, clubB.Name), out var players))
+            return [];
+
+        if (playerStore is not null)
+        {
+            foreach (var player in players)
+                await PersistAsync(player, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, cancellationToken);
+        }
+
+        return players;
+    }
+
+    private async Task PersistAsync(
+        Player player,
+        string attributeTypeA, string attributeValueA,
+        string attributeTypeB, string attributeValueB,
+        CancellationToken cancellationToken)
     {
         var existing = player.WikidataQid is null
             ? null
@@ -73,14 +110,14 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
             new Player { Id = player.Id, FullName = player.FullName, WikidataQid = player.WikidataQid },
             cancellationToken);
 
-        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, NationalityAttributeType, countryName, cancellationToken))
+        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeA, attributeValueA, cancellationToken))
             await playerStore.AddPlayerAttributeAsync(
-                new PlayerAttribute { PlayerId = persisted.Id, AttributeType = NationalityAttributeType, AttributeValue = countryName },
+                new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeA, AttributeValue = attributeValueA },
                 cancellationToken);
 
-        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, ClubAttributeType, clubName, cancellationToken))
+        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeB, attributeValueB, cancellationToken))
             await playerStore.AddPlayerAttributeAsync(
-                new PlayerAttribute { PlayerId = persisted.Id, AttributeType = ClubAttributeType, AttributeValue = clubName },
+                new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeB, AttributeValue = attributeValueB },
                 cancellationToken);
     }
 }

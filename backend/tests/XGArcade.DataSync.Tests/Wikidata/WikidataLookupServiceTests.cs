@@ -17,6 +17,11 @@ public class WikidataLookupServiceTests
     // MVP-SCOPE.md seeded QID — a second, distinct cell (France x Barcelona)
     // for the "same player resolved by two different cells" upsert test.
     private static readonly ClubDefinition Barcelona = new() { Id = Guid.NewGuid(), Name = "Barcelona", WikidataQid = "Q7156" };
+    // S-030: a third club, so Club x Club tests have two distinct clubs to
+    // pair (Barcelona x RealMadrid) without reusing Arsenal/Barcelona's
+    // existing Country x Club role above in a way that could blur which
+    // scenario a given test is exercising.
+    private static readonly ClubDefinition RealMadrid = new() { Id = Guid.NewGuid(), Name = "Real Madrid", WikidataQid = "Q8682" };
 
     private const string SingleHenryMatchJson = """
         {

@@ -45,7 +45,27 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         if (!QidPattern().IsMatch(clubWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
-        var query = BuildIntersectionQuery(countryWikidataQid, clubWikidataQid);
+        var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
+        return await RunIntersectionQueryAsync(query, countryWikidataQid, clubWikidataQid, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
+        string clubAWikidataQid,
+        string clubBWikidataQid,
+        CancellationToken cancellationToken = default)
+    {
+        if (!QidPattern().IsMatch(clubAWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubAWikidataQid}'", nameof(clubAWikidataQid));
+        if (!QidPattern().IsMatch(clubBWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
+
+        var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
+        return await RunIntersectionQueryAsync(query, clubAWikidataQid, clubBWikidataQid, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
+        string query, string qidA, string qidB, CancellationToken cancellationToken)
+    {
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
@@ -80,8 +100,7 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
             // outage — log so that distinction is visible during development
             // instead of silently looking identical to a genuine no-match.
             _logger.LogWarning(ex,
-                "Wikidata SPARQL query failed for country={CountryQid} club={ClubQid}; treating as no match.",
-                countryWikidataQid, clubWikidataQid);
+                "Wikidata SPARQL query failed for {QidA}/{QidB}; treating as no match.", qidA, qidB);
             return [];
         }
     }
@@ -91,11 +110,26 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
     // in the same query so aliases cost nothing extra (REQ-208's alias
     // value, free). P106 = occupation (association football player),
     // P27 = country of citizenship, P54 = member of sports team.
-    private static string BuildIntersectionQuery(string countryQid, string clubQid) => $$"""
+    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P27 wd:{{countryQid}}.
           ?player wdt:P54 wd:{{clubQid}}.
+          OPTIONAL {
+            ?player skos:altLabel ?alias.
+            FILTER(LANG(?alias) = "en")
+          }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
+    // S-030: "ever played for both clubs" — P54 checked twice instead of
+    // once against P27, same no-LIMIT/altLabel-in-one-query rules as above.
+    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
+        SELECT ?player ?playerLabel ?alias WHERE {
+          ?player wdt:P106 wd:Q937857.
+          ?player wdt:P54 wd:{{clubAQid}}.
+          ?player wdt:P54 wd:{{clubBQid}}.
           OPTIONAL {
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")

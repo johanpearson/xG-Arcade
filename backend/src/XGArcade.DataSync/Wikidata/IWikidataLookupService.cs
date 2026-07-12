@@ -17,4 +17,13 @@ public interface IWikidataLookupService
         CountryDefinition country,
         ClubDefinition club,
         CancellationToken cancellationToken = default);
+
+    // S-030: the Club x Club counterpart, same empty-on-unresolved-QID/
+    // never-throws contract. Both clubs persist their matched players under
+    // AttributeType "club" — with two distinct AttributeValues (clubA.Name,
+    // clubB.Name), never the same value twice.
+    Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
+        ClubDefinition clubA,
+        ClubDefinition clubB,
+        CancellationToken cancellationToken = default);
 }
