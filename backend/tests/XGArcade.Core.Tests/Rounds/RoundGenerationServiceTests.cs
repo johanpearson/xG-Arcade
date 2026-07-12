@@ -198,4 +198,38 @@ public class RoundGenerationServiceTests
 
         Assert.That(_roundCloseService.Calls, Is.Empty, "the very first round ever generated has no predecessor to close");
     }
+
+    [Test]
+    public async Task REQ205_GenerateNextRoundIfNeeded_CalledAgainAfterSuccessorAlreadyGenerated_DoesNotCloseOrGenerateAgain()
+    {
+        // Idempotency at *this* layer (not ScoreLockingService/RoundCloseService's
+        // own, already covered by RoundCloseServiceTests): once one job run has
+        // both closed a predecessor and generated its successor, a second run
+        // against the exact same clock (e.g. a retried cron invocation) must be a
+        // total no-op — no duplicate close call, no duplicate round.
+        //
+        // Round A ended; Round B (latest) started but hasn't ended yet, no
+        // upcoming round exists yet.
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        var roundA = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-8), endTime: now.UtcDateTime.AddDays(-4));
+        await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddDays(1));
+        var service = BuildService(now, TimeSpan.FromDays(4));
+
+        // First run: closes A (B's predecessor) and generates C, B's successor,
+        // starting at B's future EndTime — so C is itself still upcoming.
+        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        Assert.That(_roundCloseService.Calls, Has.Count.EqualTo(1));
+        Assert.That(_roundCloseService.Calls[0].RoundId, Is.EqualTo(roundA.Id));
+        Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1));
+        Assert.That(await _dbContext.Rounds.CountAsync(), Is.EqualTo(3));
+
+        // Second run, same clock, same repository state: "latest" is now C,
+        // which hasn't started yet — the one-round-ahead early return applies,
+        // so nothing further should be closed or generated.
+        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(_roundCloseService.Calls, Has.Count.EqualTo(1), "a repeated call must not close anything a second time");
+        Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1), "a repeated call must not generate a second successor");
+        Assert.That(await _dbContext.Rounds.CountAsync(), Is.EqualTo(3));
+    }
 }

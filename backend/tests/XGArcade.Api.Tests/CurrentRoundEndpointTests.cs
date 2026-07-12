@@ -332,7 +332,7 @@ public class CurrentRoundEndpointTests
     }
 
     [Test]
-    public async Task CurrentRound_Get_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName_ButSubmittedNameStaysAsTyped()
+    public async Task REQ303_CurrentRound_Get_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName_ButSubmittedNameStaysAsTyped()
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);
@@ -350,7 +350,7 @@ public class CurrentRoundEndpointTests
     }
 
     [Test]
-    public async Task CurrentRound_Get_IncorrectGuess_ResolvedPlayerNameIsNull()
+    public async Task REQ303_CurrentRound_Get_IncorrectGuess_ResolvedPlayerNameIsNull()
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);

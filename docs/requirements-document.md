@@ -534,8 +534,11 @@ present, updates on refresh)
   already returns for each correctly-guessed cell, using the same "~"/
   "estimated" wording convention as a single cell's own live estimate, so it
   is never mistaken for the locked total REQ-205 computes at round close.
-  This isn't REQ-206's own locked total (that still only exists once the
-  round closes, via the leaderboard) — it's the closest a player can get to
+  This isn't REQ-206's own per-round locked total — that total is only
+  computed once every cell in the round is locked (REQ-205), and even then
+  it is never surfaced as a distinct per-round figure: it is only ever
+  folded, uncredited, into the global leaderboard's all-time running sum
+  (REQ-401). This live estimate is instead the closest a player can get to
   "my total for this grid" while still playing it. There is still no
   per-round-specific *locked* total surfaced anywhere via API or UI once a
   round closes — Tier 0 has no "view a specific closed round" screen at all
@@ -834,13 +837,13 @@ match with no attribute data and budget exhausted → fails closed), API
   display for a wrong answer (and inconsistent casing distracting for a
   right one), so the frontend now shows the canonical name for a correct
   guess and no name at all for an incorrect one (`CellState.tsx`), only the
-  ✕ icon and attempt count. **(S-029)** And, in the frontend, the header nav
-  no longer has separate "Games"/"Grid" links — the "xG Arcade" title itself
-  now routes back to the game-selection landing screen (S-021), which was
-  the only other place a player could reach the grid from anyway; this
-  reduced the header to "Leaderboard" + "Log out" so it stops wrapping onto
-  a second line on a narrow phone. No endpoint change, client-side routing
-  only, same as S-021's own note above.
+  ✕ icon and attempt count. Separately, the frontend's header nav no longer
+  has separate "Games"/"Grid" links — the "xG Arcade" title itself now
+  routes back to the game-selection landing screen (S-021), which was the
+  only other place a player could reach the grid from anyway; this reduced
+  the header to "Leaderboard" + "Log out" so it stops wrapping onto a second
+  line on a narrow phone. No endpoint change, client-side routing only, same
+  as S-021's own note above — see the new acceptance criterion below.
 - Given a logged-in player
 - When they request the current round
 - Then the system returns the currently active round for the game (if any),
@@ -865,6 +868,12 @@ match with no attribute data and budget exhausted → fails closed), API
   originally typed) — the frontend shows this instead of the as-typed guess;
   for an incorrect guess, no name is shown at all in the UI, only that it
   was wrong and how many attempts remain
+- **(S-029)** And, in the frontend, the header nav no longer exposes
+  separate "Games"/"Grid" links duplicating this screen's entry point — the
+  "xG Arcade" title itself is the (client-side) route back to the
+  game-selection landing screen (S-021), leaving only "Leaderboard" and
+  "Log out" in the header at every viewport width; this endpoint's own
+  contract is unchanged
 
 **Test level:** API, E2E (`tests/e2e/play-grid.spec.ts`'s REQ-303-tagged
 case covers the game-selection step added in S-021)

@@ -172,4 +172,124 @@ describe('GridScreen', () => {
     expect(screen.queryByText('Definitely Not A Real Player')).not.toBeInTheDocument();
     expect(document.querySelector('.cell-state--shake')).toBeInTheDocument();
   });
+
+  // REQ-206: the live "~N pts estimated" running total shown in the header,
+  // summed client-side from each correctly-guessed cell's already-fetched
+  // livePoints (never fabricated, never the locked REQ-205 total).
+  it('REQ-206: shows a live running total summed from multiple correctly-guessed cells’ livePoints', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: {
+                isCorrect: true,
+                attemptCount: 1,
+                locked: true,
+                submittedName: 'thierry henry',
+                resolvedPlayerName: 'Thierry Henry',
+                uniquePercent: 40,
+                livePoints: 40,
+              },
+            },
+            {
+              cellId: 'cell-2',
+              row: 0,
+              col: 1,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Chelsea',
+              guess: {
+                isCorrect: true,
+                attemptCount: 1,
+                locked: true,
+                submittedName: 'didier drogba',
+                resolvedPlayerName: 'Didier Drogba',
+                uniquePercent: 15,
+                livePoints: 15,
+              },
+            },
+            {
+              cellId: 'cell-3',
+              row: 1,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'Brazil',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('~55 pts estimated')).toBeInTheDocument());
+  });
+
+  // REQ-206: never fabricates a total before any correct guess's livePoints
+  // is actually known — must not render "~0 pts estimated" or similar.
+  it('REQ-206: shows no live total when no cell has a known livePoints yet', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+            {
+              cellId: 'cell-2',
+              row: 0,
+              col: 1,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Chelsea',
+              guess: {
+                isCorrect: false,
+                attemptCount: 1,
+                locked: false,
+                submittedName: 'wrong guess',
+                resolvedPlayerName: null,
+                uniquePercent: null,
+                livePoints: null,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('1/2 answered')).toBeInTheDocument());
+    expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
+  });
 });

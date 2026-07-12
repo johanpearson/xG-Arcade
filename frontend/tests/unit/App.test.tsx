@@ -111,7 +111,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen — nav no longer has separate "Games"/"Grid" links', async () => {
+  it('REQ-303: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen — nav no longer has separate "Games"/"Grid" links', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -132,7 +132,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  it('the nav only offers Leaderboard and Log out once authenticated', async () => {
+  it('REQ-303: the nav only offers Leaderboard and Log out once authenticated', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 

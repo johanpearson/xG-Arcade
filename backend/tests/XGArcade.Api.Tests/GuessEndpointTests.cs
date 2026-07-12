@@ -320,7 +320,7 @@ public class GuessEndpointTests
     // ---- Frontend name-display fix: canonical name for a correct guess -----
 
     [Test]
-    public async Task Guess_Post_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName()
+    public async Task REQ201_Guess_Post_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName()
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);

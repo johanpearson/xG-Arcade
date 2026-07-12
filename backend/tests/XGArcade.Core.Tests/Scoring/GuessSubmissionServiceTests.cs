@@ -145,7 +145,7 @@ public class GuessSubmissionServiceTests
     // ---- Frontend name-display fix: canonical name for a correct guess -----
 
     [Test]
-    public async Task SubmitGuess_Correct_ReturnsCanonicalPlayerFullName_NotTheRawAsTypedSubmittedName()
+    public async Task REQ201_SubmitGuess_Correct_ReturnsCanonicalPlayerFullName_NotTheRawAsTypedSubmittedName()
     {
         var round = await SeedActiveRoundAsync();
         var playerAnswerId = await SeedPlayerAsync("Thierry Henry");
@@ -158,7 +158,7 @@ public class GuessSubmissionServiceTests
     }
 
     [Test]
-    public async Task SubmitGuess_Incorrect_ResolvedPlayerNameIsNull()
+    public async Task REQ201_SubmitGuess_Incorrect_ResolvedPlayerNameIsNull()
     {
         var round = await SeedActiveRoundAsync();
         SetNextResult(_gameModule, isCorrect: false);
