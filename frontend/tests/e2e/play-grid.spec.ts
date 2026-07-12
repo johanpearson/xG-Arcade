@@ -176,6 +176,11 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByLabel('Display name').fill(`Test Player ${tag}`)
     await page.getByLabel(/at least 16 years old/).check()
     await page.getByRole('button', { name: 'Create account' }).click()
+
+    // REQ-303 (S-021): signup/login now lands on the game-selection screen,
+    // not the grid directly — select xG Grid (Tier 0's only game) to reach
+    // SCREEN-01.
+    await page.getByRole('button', { name: 'xG Grid' }).click()
   }
 
   // REQ-701 (account creation + auto-login) / REQ-303 (fetch the active

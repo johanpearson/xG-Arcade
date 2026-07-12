@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — doc-sync for S-021 (branch claude/story-s-021-h1qbxp):
+  requirements-document.md's REQ-303 was already updated by the author
+  (user story/acceptance criteria now describe "open the app, select a
+  game, see that game's current round," plus a bullet noting the endpoint
+  contract is unchanged) — verified accurate, no further edit needed.
+  design-document.md's §7 open-questions bullet flagging the missing
+  SCREEN-xx spec for the new game-selection landing screen — also verified
+  accurate, no further edit needed. architecture-document.md — checked, no
+  change needed: an architecture-reviewer pass confirmed no `COMP-xx`
+  boundary touched (pure frontend routing, no backend endpoint added or
+  changed, `XG_GRID_GAME_KEY` has no coupling to `GridGameModule`'s backend
+  `GameKey`), and architecture-document.md's data flows (§6) don't describe
+  frontend screen routing at all. implementation-document.md §4 — added a
+  `/games` entry to the frontend project-structure tree (new
+  `GameSelectScreen`, S-021) and corrected the `/tests/unit` note, which
+  had said only the pre-S-010 App/health-check test remained there — no
+  longer true now that REQ-303's game-selection routing tests were added to
+  the same `App.test.tsx` (App.tsx isn't under a feature folder, so its
+  tests still live in /tests/unit rather than co-located under /src);
+  version 0.36 -> 0.37. backlog.md — added a "Built as:" note to S-021
+  covering the header "Games" nav button (a deviation from the original
+  story text, added as the natural way back to the landing screen), the
+  code-reviewer-flagged comment on the discarded `gameKey` argument in
+  `App.tsx`, and the added "Games" nav round-trip test; no frontmatter
+  bump (none exists). No new ADR — confirmed a pure frontend routing
+  change with no component/boundary change. REQ-303, ADR (none).
 - 2026-07-12 — doc-sync for S-020 (branch claude/story-s-020-pm8xzq):
   design-document.md's §2 "Rejected-guess cue" paragraph and SCREEN-01a
   state 2/3 mock annotations (already added by the author in the first

@@ -522,6 +522,27 @@ game-selection screen, not the grid; selecting xG Grid navigates to
 SCREEN-01/`GET /rounds/current`. Existing S-010-era E2E flows updated to
 select xG Grid before interacting with the grid, still passing. *Deps:*
 S-010.
+**Built as:** matches the plan, plus one deviation and one
+code-reviewer-found follow-up. Deviation: the plan didn't call out a way
+back to the game-selection screen once a player has moved past it, so a
+"Games" button was added to the header nav (alongside the existing
+"Grid"/"Leaderboard" links) as the natural round-trip — `App.tsx`'s
+`Screen` union gained a `'game-select'` member, which is also now the
+default post-login/post-logout screen instead of `'grid'`. Since Tier 0
+has exactly one game, `App.tsx` routes any `onSelectGame` call straight to
+`'grid'` regardless of the `gameKey` argument passed
+(`GameSelectScreen`'s exported `XG_GRID_GAME_KEY` constant) — a
+code-reviewer pass flagged the discarded argument as worth a comment
+explaining that's deliberate Tier-0 behavior, not an oversight, so one was
+added at the `App.tsx` call site. The same pass suggested a regression
+test for the new "Games" nav round-trip (login -> select xG Grid -> click
+"Games" -> back on the game-selection screen), added to
+`tests/unit/App.test.tsx` alongside the other two REQ-303 cases (lands on
+game-selection after login; selecting xG Grid navigates to the grid). An
+architecture-reviewer pass ran clean: no boundary violation, no ADR
+needed — pure frontend routing, no backend endpoint added or changed, and
+`XG_GRID_GAME_KEY` is a frontend-only constant with no coupling to
+`GridGameModule`'s backend `GameKey`.
 
 **Left open, not scoped as stories this round:** a scheduled/proactive
 cache pre-warming job (no evidence on-demand fetching is a real problem

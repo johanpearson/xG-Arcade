@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.36"
+version: "0.37"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -224,6 +224,11 @@ misconfigured per-endpoint. See ADR-0006.
                                    per docs/coding-guidelines.md, not kept in
                                    a separate /tests/unit tree.
     /auth                        -> AuthScreen (login/signup, REQ-701)
+    /games                        -> GameSelectScreen (REQ-303's S-021 UX
+                                     addition: post-login/post-signup landing
+                                     screen, one static tile for xG Grid —
+                                     no backend "list games" endpoint;
+                                     Tier 0 only ever has one game)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
                                      GuessInput, CategoryLabel (SCREEN-01/01a/02)
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
@@ -231,9 +236,12 @@ misconfigured per-endpoint. See ADR-0006.
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts
   /tests
-    /unit                       -> Vitest — only the pre-S-010 App/health-check
-                                   test remains here; newer component tests
-                                   live under /src (see above)
+    /unit                       -> Vitest — mostly the pre-S-010 App/health-check
+                                   test; App.tsx's own top-level routing tests
+                                   (e.g. REQ-303's game-selection landing/nav
+                                   cases, S-021) also live here since App.tsx
+                                   itself isn't under a feature folder. Newer
+                                   component tests live under /src (see above)
     /e2e                        -> Playwright (full user flows)
 
 /infra
