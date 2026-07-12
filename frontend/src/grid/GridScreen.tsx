@@ -63,11 +63,11 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       // POST .../guesses' own response doesn't echo the submitted name back
       // (SubmitGuessResponse only has isCorrect/attemptCount/locked) —
       // filled in from what was just typed, same source knownPlayerNames uses.
-      // uniquePercent isn't in that response either (REQ-204 is a read-time
-      // calculation, GET /rounds/current's job, not the write response's) —
-      // null here is accurate for this instant; the next fetchCurrentRound
-      // (e.g. a reload) picks up the real live value.
-      const guess = { ...result, submittedName, uniquePercent: null };
+      // uniquePercent/livePoints aren't in that response either (REQ-204 is a
+      // read-time calculation, GET /rounds/current's job, not the write
+      // response's) — null here is accurate for this instant; the next
+      // fetchCurrentRound (e.g. a reload) picks up the real live values.
+      const guess = { ...result, submittedName, uniquePercent: null, livePoints: null };
 
       setKnownPlayerNames((prev) => ({ ...prev, [cellId]: submittedName }));
       setState((prev) => {

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.31"
+version: "0.32"
 status: draft
-last_updated: 2026-07-11
+last_updated: 2026-07-12
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -344,7 +344,7 @@ without erroring), API
 > As a player, I want to see how unique my guess is, updated live, so I get
 > immediate feedback.
 
-- **Status: Implemented (Tier 0, S-011).** `UniquenessCalculator.Calculate`
+- **Status: Implemented (Tier 0, S-011; extended S-018).** `UniquenessCalculator.Calculate`
   (`XGArcade.Core.Scoring`) is the one place this formula is written, shared
   by both the live read path below and REQ-205's round-close lock so they
   can never disagree. `GET /rounds/current`
@@ -353,6 +353,21 @@ without erroring), API
   never persisted until the round closes. Frontend: `CellState.tsx` shows
   "X% unique" plus "updates until round closes on [date/time]" for state 1
   (correct + round active), per `design-document.md` SCREEN-01a.
+- **S-018 addition:** the same endpoint also computes `LivePoints` alongside
+  `UniquePercent`, via the new `ScoringRules.PointsFromUniqueScore(double
+  uniqueScore)` (`XGArcade.Core.Scoring`) — extracted in this story as the
+  one place `round(uniqueScore * MaxPointsPerCell)` is written, called by
+  both this live path and REQ-205's `ScoreLockingService.LockRoundScoresAsync`
+  when it locks `FinalPoints`, so the two literally share code rather than
+  independently matching formulas. `LivePoints` is null whenever
+  `UniquePercent` is (i.e. until the guess is correct) and is recomputed on
+  every request, never persisted.
+  `CellState.tsx` renders it in state 1 only, as "~N pts estimated"
+  (the "~" and "estimated" are both always present) alongside the existing
+  "X% unique" line — deliberately different wording from state 4's plain
+  "X% unique · Y pts", so it can never read as a preview or promise of
+  REQ-205's locked score, only as a provisional value that can still
+  change before the round closes.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -370,6 +385,13 @@ without erroring), API
 - And the value is clearly and visually marked as "live" (e.g. an icon/pulsing
   indicator plus text "updates until the round closes on [date/time]")
 - And the value MAY change between page loads before the round closes
+- And (S-018) a live, provisional point estimate is shown alongside the
+  uniqueness percentage, computed via `ScoringRules.PointsFromUniqueScore`
+  — the same shared method REQ-205 calls to lock `FinalPoints` at round
+  close, never a second, independently-written formula
+- And that estimate is worded so it is unmistakably provisional (e.g. "~N
+  pts estimated"), visually and textually distinct from REQ-205's locked
+  "Y pts" — it must never read as a preview or promise of the final score
 
 **Test level:** Unit (calculation logic), API, UI (visual "live" indicator is
 present, updates on refresh)
@@ -378,16 +400,19 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-011).** `RoundCloseService`
+- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018).**
+  `RoundCloseService`
   (`XGArcade.Core.Rounds`) pulls `EndTime` forward (idempotently — never
   later than what's already scheduled) to force immediate closure, then
   delegates the actual score locking to `IScoreLockingService`
   /`ScoreLockingService` (`XGArcade.Core.Scoring`, COMP-04), added S-011:
   for every `Guess` in the round, a correct guess gets
   `FinalUniquenessScore` (via the same `UniquenessCalculator` REQ-204 uses)
-  and `FinalPoints = round(uniqueScore * ScoringRules.MaxPointsPerCell)`
-  (`MaxPointsPerCell = 100`, a Tier 0 default — no document specified an
-  exact value); an incorrect guess gets `FinalUniquenessScore = null` and
+  and `FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore)`
+  (`= round(uniqueScore * MaxPointsPerCell)`, `MaxPointsPerCell = 100`, a
+  Tier 0 default — no document specified an exact value); `PointsFromUniqueScore`
+  was extracted in S-018 so this same call also backs REQ-204's live
+  `LivePoints` estimate. An incorrect guess gets `FinalUniquenessScore = null` and
   `FinalPoints = 0`. This is idempotent and safe to call again on an
   already-closed round. What's still missing: there is no automated
   scheduled job yet that calls round-close at a round's real `end_time` in

@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.8"
+version: "0.9"
 status: draft
-last_updated: 2026-07-11
+last_updated: 2026-07-12
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -165,7 +165,8 @@ Mobile (single column)                Desktop (grid + side panel)
   once a cell has an answer, so an unanswered grid doesn't feel cluttered.
 - A live cell: player name, small green dot (not a heavy pulse — a quiet
   4px dot with a slow, subtle opacity shift), live `unique_percent` in mono
-  numerals, "updates until round closes" microcopy (REQ-204).
+  numerals plus a "~N pts estimated" live point estimate (REQ-204, S-018),
+  "updates until round closes" microcopy (REQ-204).
 - A locked cell: gold checkmark (correct) or red cross (incorrect), no
   motion, `FinalPoints` shown (REQ-205).
 - Desktop's side panel is additive only — mobile gets the same information
@@ -182,10 +183,21 @@ still live until round close):
 ```
 ┌─────────────────────────┐
 │  Henry            ✓ live │   ← gold check (correct) + small green dot
-│  12% unique               │      (still live) — both shown together,
-│  updates until 18:00 Fri  │      since "correct" and "final" are different
-└─────────────────────────┘      moments (REQ-203)
+│  12% unique · ~12 pts    │      (still live) — both shown together,
+│  estimated                │      since "correct" and "final" are different
+│  updates until 18:00 Fri  │      moments (REQ-203)
+└─────────────────────────┘
 ```
+
+The point value (S-018, REQ-204 extension) is computed live via
+`ScoringRules.PointsFromUniqueScore` — the exact same shared method
+REQ-205's `ScoreLockingService` calls to lock `FinalPoints` at round close,
+not a second, independently-written formula — but "~" plus the word
+"estimated" are both always present, deliberately
+different wording from state 4's plain "X% unique · Y pts", so this never
+reads as a preview or promise of the locked score. It moves in lockstep
+with the % line above it (both are re-derived from the same live read) and
+disappears/reappears together with it, never shown alone.
 
 **2. Incorrect, one attempt remaining:**
 

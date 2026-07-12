@@ -83,12 +83,23 @@ public static class RoundEndpoints
                             ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
                             : null;
 
+                        // S-018 (REQ-204 extension): ScoringRules.PointsFromUniqueScore
+                        // is the exact same call ScoreLockingService makes to lock
+                        // FinalPoints at round-close (REQ-205), computed live here
+                        // instead so it can only ever drift with uniquePercent
+                        // itself, never as a second formula. Still provisional —
+                        // see LivePoints' own doc comment below.
+                        int? livePoints = uniquePercent is not null
+                            ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
+                            : null;
+
                         guessResponse = new CurrentRoundGuessResponse(
                             guess.IsCorrect,
                             guess.AttemptCount,
                             guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
                             guess.SubmittedName,
-                            uniquePercent);
+                            uniquePercent,
+                            livePoints);
                     }
 
                     return new CurrentRoundCellResponse(
@@ -131,4 +142,12 @@ public record CurrentRoundCellResponse(
 // UniquePercent (REQ-204) is null until the guess is correct — an
 // incorrect guess has no answer to measure rarity against, and it is
 // re-derived on every request (never persisted) until the round closes.
-public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, double? UniquePercent);
+//
+// LivePoints (S-018, REQ-204 extension) is likewise null until correct, and
+// recomputed on every request from the current UniquePercent — it is an
+// estimate that can still move before the round closes, never a preview or
+// promise of REQ-205's locked FinalPoints. Callers must not treat this as
+// interchangeable with FinalPoints; the naming ("Live"/provisional vs.
+// "Final"/locked) is deliberate and must be preserved wherever this value
+// is surfaced (API and UI alike).
+public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, double? UniquePercent, int? LivePoints);

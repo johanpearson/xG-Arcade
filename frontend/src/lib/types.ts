@@ -15,6 +15,11 @@ export interface CurrentRoundGuess {
   // REQ-204: null until the guess is correct — re-derived on every request,
   // not persisted, until the round closes.
   uniquePercent: number | null;
+  // S-018 (REQ-204 extension): null until the guess is correct, recomputed
+  // on every request from uniquePercent via the same round(uniqueScore *
+  // MaxPointsPerCell) formula REQ-205 locks at round close — an estimate
+  // that can still change, never the locked FinalPoints.
+  livePoints: number | null;
 }
 
 export interface CurrentRoundCell {

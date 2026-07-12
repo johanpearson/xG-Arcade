@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — doc-sync for S-018 (branch claude/story-s-018-of5t7c):
+  requirements-document.md's REQ-204 entry — reworded the S-018 addition and
+  its two new acceptance-criteria bullets to name the actual extracted
+  method, `ScoringRules.PointsFromUniqueScore(double)`, rather than just
+  restating the formula (`RoundEndpoints`'s new `LivePoints` and
+  `ScoreLockingService`'s existing `FinalPoints` now call the same method
+  instead of two independently-written copies of `round(uniqueScore *
+  MaxPointsPerCell)`), and updated REQ-205's status note the same way;
+  version 0.31 → 0.32. architecture-document.md — documented
+  `ScoringRules.PointsFromUniqueScore` in the COMP-04 status note (§5) as
+  the formula's single shared entry point, and updated §6's data-flow prose
+  to mention the new `LivePoints` field on `GET /rounds/current`; version
+  0.24 → 0.25. design-document.md — SCREEN-01a's state-1 mock now shows
+  "~N pts estimated" alongside the live uniqueness %, with a note on why
+  that wording is deliberately distinct from state 4's locked "Y pts", and
+  named `ScoringRules.PointsFromUniqueScore` explicitly rather than
+  restating the formula; also added the same live-points mention to
+  SCREEN-01's top-level "a live cell" bullet, which had drifted out of sync
+  with SCREEN-01a; version 0.8 → 0.9. implementation-document.md — the
+  REQ-204/205 pseudocode's "Tier 0 status" note and the
+  `MAX_POINTS_PER_CELL` paragraph both only described the pre-S-018 shared
+  `UniquenessCalculator`; added the S-018 `PointsFromUniqueScore` extraction
+  to both, since this doc's job is to track the concrete implementation
+  most literally; version 0.35 → 0.36. backlog.md — added a "Built as:"
+  note to S-018 covering the `PointsFromUniqueScore` extraction, the
+  frontend wiring, and the deliberate additive-assertion-over-new-tests
+  deviation for the 3 pre-existing REQ-204 API tests (no frontmatter —
+  backlog.md is not one of the three versioned governing docs).
+  REQ-204/REQ-205.
 - 2026-07-11 — doc-sync for S-017 (branch
   claude/story-s-017-displayname-pk0ct1, commits 5a8e195/710e896/240bc54):
   requirements-document.md's REQ-701 status note (added directly by the
