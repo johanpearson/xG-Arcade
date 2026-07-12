@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.40"
+version: "0.41"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.40 · 2026-07-12
+Version 0.41 · 2026-07-12
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -471,6 +471,13 @@ without erroring), API
 - And that estimate is worded so it is unmistakably provisional (e.g. "~N
   pts estimated"), visually and textually distinct from REQ-205's locked
   "Y pts" — it must never read as a preview or promise of the final score
+- **Acknowledged gap, queued as `docs/backlog.md` S-033 (2026-07-12):** the
+  fourth cell state (both guesses wrong, no attempts left) does not render
+  a point value at all — every other locked state does. `design-document.md`
+  SCREEN-01a's mock already shows "no attempts left · 100 pts" (corrected
+  during S-028/ADR-0021); `CellState.tsx` was never updated to match. The
+  value is a known constant (`ScoringRules.MaxPointsPerCell`), so this is a
+  pure rendering fix, not a new calculation.
 
 **Test level:** Unit (calculation logic), API, UI (visual "live" indicator is
 present, updates on refresh)
@@ -1370,12 +1377,13 @@ its own explicit opt-in separate from this one, not be folded into it.
   (`XGArcade.Api.Leagues.LeaderboardEndpoints`) returns every member of the
   global league in one unbounded response, no cursor/pageSize. Flagged by
   an architecture-reviewer pass during S-011 and deliberately left
-  unfixed for this pass — pagination itself is out of scope. Trigger to
-  revisit: global league membership grows large enough that an unbounded
-  response becomes a real perf/payload concern (see
-  `implementation-document.md` §6's "Leaderboard pagination" pseudocode for
-  the intended shape once this is built). The other two bullets below are
-  unaffected by this note.
+  unfixed for this pass — pagination itself is out of scope. **Queued as
+  `docs/backlog.md` S-034 (2026-07-12)**, ahead of the original "membership
+  grows large" trigger actually firing — decided proactively rather than
+  waited on, since the shape was already fully specified (see
+  `implementation-document.md` §6's "Leaderboard pagination" pseudocode)
+  and cheap to build now. The other two bullets below are unaffected by
+  this note.
 - Leaderboard queries (REQ-404) must be paginated; the API must never
   return an entire league's membership in one unbounded response
 - Guess correctness/uniqueness lookups (REQ-203, REQ-204) must use indexed

@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — `docs/requirements-document.md` (version 0.40 → 0.41),
+  `docs/backlog.md` — two more acknowledged gaps, previously flagged but
+  never turned into stories, scoped into the backlog: **S-033** (`CellState`
+  never renders a point value on the "incorrect, no attempts left" cell
+  state, even though `design-document.md`'s mock has shown it since S-028
+  — frontend-only rendering fix, REQ-204 status note added) and **S-034**
+  (the global leaderboard endpoint is still unbounded, REQ-607's own
+  acknowledged gap since S-011 — pagination shape was already fully
+  specified in `implementation-document.md` §6, just never built; REQ-607
+  status note updated to record it as queued rather than waiting on the
+  original "membership grows large" trigger). No architecture/
+  implementation doc changes needed — both stories build to an
+  already-decided design, no new structural decision. REQ-204, REQ-607.
 - 2026-07-12 — `infra/scripts/lib/game-data-tables.sh` (ADR-0009) — fixed
   the singular/plural table-name bug NOTES.md flagged on 2026-07-09
   (S-006): six of the allowlist's nine entries used the entity's singular

@@ -808,6 +808,42 @@ become trivially easy to solve via what does/doesn't autocomplete
 name matching exists), S-006 (Wikidata client exists to extend for the
 bulk query).
 
+**S-033 · Show point value on the "incorrect, no attempts left" cell state (REQ-204)**
+Frontend-only gap, flagged and left unfixed three times (originally around
+S-011, again at S-028): `CellState.tsx`'s fourth state (both guesses wrong,
+cell locked) renders "no attempts left" with no point value, unlike every
+other locked state (live-correct shows an estimate, locked-correct and
+round-closed both show "Y pts"). `design-document.md`'s SCREEN-01a mock
+already shows this state as "no attempts left · 100 pts" (corrected during
+S-028/ADR-0021) — the component itself was just never updated to match. The
+value is a known constant under golf-scoring rules
+(`ScoringRules.MaxPointsPerCell`), not a live computation, so this is a
+pure rendering fix with no backend/API change.
+*Accept:* REQ204-named Vitest test confirms the incorrect/no-attempts-left
+state renders the point value alongside "no attempts left," matching
+`design-document.md`'s existing mock; visually verified against a locked-
+incorrect cell. *Deps:* none — `CellState.tsx` and `MaxPointsPerCell` both
+already exist.
+
+**S-034 · Paginate the global leaderboard endpoint (REQ-607)**
+Closes the gap an architecture-reviewer pass flagged during S-011 and
+deliberately left unfixed at the time: `GET /leagues/global/leaderboard`
+(`XGArcade.Api.Leagues.LeaderboardEndpoints`) still returns every league
+member in one unbounded response. Build it per `implementation-document.md`
+§6's already-specified pagination shape (`cursor`/`pageSize` query params,
+`ORDER BY totalPoints ASC` per ADR-0021, response includes the requesting
+user's own rank/row even if it falls outside the current page — SCREEN-03's
+sticky "your position" footer needs this without a second round-trip). No
+`{leagueId}` route needed yet (custom leagues remain Tier 1/T-109) — this
+paginates the existing global-only endpoint as it stands today.
+*Accept:* REQ607-named tests: response is capped at `pageSize`; a second
+page via `cursor` returns the next distinct slice with no overlap or gap;
+the requesting user's own row is always present even when off-page;
+existing REQ401/404-named tests updated for the now-paginated response
+shape; `LeaderboardScreen.tsx` updated to consume pages (load-more or
+equivalent — no new SCREEN-xx design needed, this is existing SCREEN-03
+behavior catching up to a real data shape). *Deps:* S-011.
+
 **S-028 · Golf-style (lowest-wins) scoring model (REQ-203/204/205/206/401/404, ADR-0021)**
 Direct product feedback, immediately after S-022 shipped: the requested
 scoring direction is the opposite of what S-011/S-022 built — a rarer/more-
