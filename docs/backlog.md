@@ -326,6 +326,33 @@ uniqueness requirement explicitly.
 *Accept:* REQ701-named test: signup with an already-used display name (any
 casing) is rejected with a clear error; existing display names unaffected.
 *Deps:* S-011 (DisplayName exists).
+**Built as:** matches the plan, plus one migration-safety addition and two
+code-review fixes. `User.DisplayName`'s setter now also maintains a new
+`NormalizedDisplayName` column (lowercase-folded via a new public static
+`User.NormalizeCase`, the one place "case-insensitive" is defined) backed
+by a DB unique index (`XGArcadeDbContext`); `IUserRepository` gained
+`DisplayNameExistsAsync`, called by `AuthController.Signup` as a pre-check
+before Supabase Auth is ever called (ordered after the free local checks,
+last since it's the only one costing a DB round trip), returning 409 via a
+new shared `DisplayNameConflictProblem()` helper. `UserRepository.AddAsync`
+catches the DB constraint violation as a race-safety net and throws the new
+`DisplayNameAlreadyInUseException`, which the controller also maps to the
+same 409 (now logged via a new `ILogger<AuthController>` constructor
+parameter, per a code-reviewer finding that the race path was otherwise
+silent). Deviation from the plan: the migration
+(`20260711203352_AddDisplayNameUniqueness`) also had to resolve
+pre-existing case-insensitive collisions and empty `DisplayName` rows
+before the unique index could be added — an architecture-reviewer pass
+flagged this silent-rename-on-collision as a genuine decision needing its
+own record, now `docs/decisions/0019-displayname-collision-migration-strategy.md`.
+A code-reviewer pass separately flagged the case-normalization logic as
+duplicated between `User.cs` and `UserRepository.cs` (fixed via
+`NormalizeCase` above) and asked for a trim+case interaction test
+(`REQ701_Signup_BlockedWhenDisplayNameMatchesExistingUserAfterTrimming`).
+4 new tests in `AuthEndpointTests.cs`, plus a new
+`UserRepositoryTests.cs` (4 tests). 228 backend tests green across all 5
+projects. No new component or boundary beyond ADR-0019 above —
+architecture-reviewer pass otherwise confirmed no boundary violation.
 
 **S-018 · Live indicative points per cell (REQ-204/206 extension)**
 Show a live, clearly-marked-as-provisional point value alongside the

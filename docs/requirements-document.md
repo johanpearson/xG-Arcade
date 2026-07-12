@@ -854,8 +854,8 @@ match with no attribute data and budget exhausted → fails closed), API
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
-- **Status: Partially implemented (Tier 0, S-004/S-011/S-016).** The 16+
-  checkbox clause below is built and enforced server-side (`POST
+- **Status: Partially implemented (Tier 0, S-004/S-011/S-016/S-017).** The
+  16+ checkbox clause below is built and enforced server-side (`POST
   /auth/signup` rejects the request with 400 before ever calling Supabase
   Auth if the checkbox is false) — see ADR-0013 (backend-mediated
   signup/login) and `MVP-SCOPE.md`. As of S-011, the DisplayName clause
@@ -868,13 +868,23 @@ match with no attribute data and budget exhausted → fails closed), API
   400, "Passwords do not match", if `ConfirmPassword != Password`, checked
   before the DisplayName/AgeConfirmed checks and before Supabase Auth is
   ever called) and client-side (`AuthScreen.tsx` blocks submission with
-  "Passwords do not match." without calling the API at all). The
-  password-policy clause (§5's "Decisions made as sensible technical
-  defaults") and the account-enumeration-safe error message are not yet
-  implemented; Supabase Auth's own error responses are currently passed
-  through as-is. The rest of this requirement's acceptance criteria are
-  recorded below as the full/long-term definition, not a claim of current
-  behavior.
+  "Passwords do not match." without calling the API at all). As of S-017,
+  the display-name-uniqueness clause below is also built: case-insensitive
+  only (spaces/punctuation/formatting stay exactly as entered — a
+  deliberate decision against reshaping this into a username-style field),
+  enforced both as a pre-check (`AuthController.Signup` calls
+  `IUserRepository.DisplayNameExistsAsync` before Supabase Auth is ever
+  called, returning 409 "Display name already in use") and as a DB-level
+  unique index (`User.NormalizedDisplayName`, `IX_Users_NormalizedDisplayName`)
+  that a race between two concurrent signups falls back to
+  (`UserRepository.AddAsync` catches the constraint violation and throws
+  `DisplayNameAlreadyInUseException`, which the controller maps to the same
+  409 rather than letting it surface as a raw 500). The password-policy
+  clause (§5's "Decisions made as sensible technical defaults") and the
+  account-enumeration-safe error message are not yet implemented; Supabase
+  Auth's own error responses are currently passed through as-is. The rest
+  of this requirement's acceptance criteria are recorded below as the
+  full/long-term definition, not a claim of current behavior.
 - Given a person provides an email address and a password meeting the
   platform's password policy
 - And they confirm the password by re-entering it in a second field, which
@@ -883,6 +893,12 @@ match with no attribute data and budget exhausted → fails closed), API
 - And a display name between 1 and 30 characters — this is the only
   identity a leaderboard (REQ-401/404) ever shows another player; the
   account's email address is never shown to other players
+- And the display name must be unique, case-insensitively, across all
+  accounts — spaces and other formatting are not otherwise restricted or
+  reshaped; attempting to sign up with a display name already in use (in
+  any casing) is rejected with a clear, specific error before an account is
+  created, not a generic failure, and does not affect the existing account
+  using that name
 - And they have checked a required confirmation "I am at least 16 years
   old" — self-declared, no age verification performed, but signup cannot
   proceed without it checked

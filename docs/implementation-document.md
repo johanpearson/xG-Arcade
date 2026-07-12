@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.34"
+version: "0.35"
 status: draft
 last_updated: 2026-07-11
 owner: Johan
@@ -463,6 +463,14 @@ public class User
     // predate this column were backfilled (UserDisplayNameBackfiller) from
     // the email's local part (before "@").
     public string DisplayName { get; set; }
+    // Added S-017 (REQ-701): lowercase-folded mirror of DisplayName, kept in
+    // lockstep by the DisplayName setter (User.NormalizeCase is the one
+    // place "case-insensitive" is defined, called by both the entity setter
+    // and UserRepository.DisplayNameExistsAsync). Backs the unique index
+    // below. Pre-existing rows that collided case-insensitively were
+    // resolved by migration 20260711203352_AddDisplayNameUniqueness before
+    // the index was added — see ADR-0019.
+    public string NormalizedDisplayName { get; private set; }
     public bool EmailConfirmed { get; set; }       // mirrors Supabase Auth's confirmed state; see REQ-702
     public DateTime CreatedAt { get; set; }
 }
@@ -554,6 +562,7 @@ public class LeagueMembership
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |
 | `User` | `(AuthProviderUserId)` unique | Every authenticated request resolves this first |
+| `User` | `(NormalizedDisplayName)` unique | Built S-017 (REQ-701): the DB-level backstop behind `AuthController.Signup`'s `DisplayNameExistsAsync` pre-check, closing the race window between two concurrent signups choosing the same display name (any casing) — `UserRepository.AddAsync` catches the resulting `Npgsql.PostgresException` and throws `DisplayNameAlreadyInUseException`. See ADR-0019 for how pre-existing collisions were resolved before this index could be added |
 
 ## 6. Core algorithms
 

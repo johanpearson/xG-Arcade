@@ -143,6 +143,139 @@ public class AuthEndpointTests
         Assert.That(user!.DisplayName, Is.EqualTo("Test Player"));
     }
 
+    // S-017: case-insensitive DisplayName uniqueness (REQ-701/REQ-401).
+    // These exercise AuthController.Signup's IUserRepository
+    // .DisplayNameExistsAsync pre-check only — the in-memory EF Core
+    // provider this test host uses (see SetUp) does not enforce the real
+    // unique index (IX_Users_NormalizedDisplayName), so the DbUpdateException
+    // /DisplayNameAlreadyInUseException race-condition catch in
+    // UserRepository.AddAsync can't be exercised at this level. That path is
+    // covered only by the manual verification against a real local Postgres
+    // instance noted in docs/backlog.md's S-017 entry — see also
+    // XGArcade.Data.Tests/UserRepositoryTests.cs for why it can't be
+    // meaningfully unit-tested with InMemory either.
+    [Test]
+    public async Task REQ701_Signup_BlockedWhenDisplayNameExactlyMatchesExistingUser()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "existing-name-owner@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("new-signup-same-name@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        // The important assertion: the display name collision is caught
+        // before any identity is created anywhere, not just before a User
+        // row is saved.
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    [Test]
+    public async Task REQ701_Signup_BlockedWhenDisplayNameMatchesExistingUserOnlyInCasing()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "existing-name-owner-2@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("new-signup-different-casing@example.com", "a-reasonable-password", "a-reasonable-password", "TEST PLAYER", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    // REQ-701's uniqueness check runs against the already-trimmed
+    // DisplayName (see Signup's existing `request.DisplayName.Trim()`), so a
+    // leading/trailing-whitespace variant of an existing name must still be
+    // caught as a collision — not treated as a distinct name.
+    [Test]
+    public async Task REQ701_Signup_BlockedWhenDisplayNameMatchesExistingUserAfterTrimming()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "existing-name-owner-4@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("new-signup-untrimmed@example.com", "a-reasonable-password", "a-reasonable-password", "  Test Player  ", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    [Test]
+    public async Task REQ701_Signup_LeavesExistingUsersDisplayNameUnchanged_AfterFailedCollidingSignup()
+    {
+        var existingUserId = Guid.NewGuid();
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = existingUserId,
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "existing-name-owner-3@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("new-signup-should-fail@example.com", "a-reasonable-password", "a-reasonable-password", "test player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var existingUser = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == existingUserId);
+        Assert.That(existingUser.DisplayName, Is.EqualTo("Test Player"));
+        // No second row was created for the rejected signup's email either.
+        var rejectedSignupUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Email == "new-signup-should-fail@example.com");
+        Assert.That(rejectedSignupUser, Is.Null);
+    }
+
     // Not REQ-701-named: this exercises Supabase's own rejection (e.g.
     // duplicate email) surfacing as a client error, not the checkbox clause
     // REQ-701 is narrowed to for this story (docs/backlog.md S-004).

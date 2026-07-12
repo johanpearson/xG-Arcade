@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-11 — doc-sync for S-017 (branch
+  claude/story-s-017-displayname-pk0ct1, commits 5a8e195/710e896/240bc54):
+  requirements-document.md's REQ-701 status note (added directly by the
+  author, ahead of this pass) verified accurate against the final code, no
+  further edit needed. architecture-document.md — added ADR-0019 to §10's
+  table (was missing) and a new "COMP-01 status (S-017)" note documenting
+  `User.NormalizedDisplayName`'s unique index and its pre-check/DB-backstop
+  shape; version 0.23 → 0.24. implementation-document.md — the `User`
+  entity code block and the "Required indexes" table were both missing
+  `NormalizedDisplayName`/its unique index entirely (drifted ahead of this
+  pass); added both, referencing ADR-0019 for the migration's
+  collision-resolution step; version 0.34 → 0.35. backlog.md — added a
+  "Built as:" note to S-017 summarizing the `NormalizeCase` extraction, the
+  `ILogger`/`DisplayNameConflictProblem` code-review fixes, the ADR-0019
+  addition, and the final 228-test count. This pass ran while commit
+  240bc54 (the `NormalizeCase` extraction, `ILogger`/
+  `DisplayNameConflictProblem` fixes, and trim+case test) was still
+  uncommitted working-tree state; it has since been committed and pushed,
+  resolving what would otherwise be an open question here. REQ-701,
+  ADR-0019.
+
 - 2026-07-11 — doc-sync for S-016 (branch claude/story-s-016-t31r8j, commit
   08ab8b2): requirements-document.md (REQ-701) — added the confirm-password
   Given/When/Then clause to the acceptance criteria and updated the status

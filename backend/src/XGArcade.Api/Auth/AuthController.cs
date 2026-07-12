@@ -15,7 +15,8 @@ namespace XGArcade.Api.Auth;
 public class AuthController(
     ISupabaseAuthClient authClient,
     IUserRepository userRepository,
-    ILeagueRepository leagueRepository) : ControllerBase
+    ILeagueRepository leagueRepository,
+    ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("signup")]
     public async Task<IActionResult> Signup([FromBody] SignupRequest request, CancellationToken cancellationToken)
@@ -55,6 +56,18 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // REQ-701: uniqueness is case-insensitive only — spaces and
+        // formatting stay exactly as entered, no username-style reshaping.
+        // Checked before Supabase Auth is ever called, same discipline as
+        // the checks above (ordered last among the free, local-only checks
+        // since it's the only one that costs a DB round trip); the DB's own
+        // unique index (UserRepository.AddAsync) is the race-safety net
+        // behind this check, not the primary mechanism.
+        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken))
+        {
+            return DisplayNameConflictProblem();
+        }
+
         var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, cancellationToken);
         if (!signUpResult.Success)
         {
@@ -64,17 +77,32 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var user = await userRepository.AddAsync(new User
+        User user;
+        try
         {
-            Id = Guid.NewGuid(),
-            // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
-            // Success = true without AuthProviderUserId set.
-            AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
-            Email = request.Email,
-            DisplayName = displayName,
-            EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
-            CreatedAt = DateTime.UtcNow,
-        }, cancellationToken);
+            user = await userRepository.AddAsync(new User
+            {
+                Id = Guid.NewGuid(),
+                // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
+                // Success = true without AuthProviderUserId set.
+                AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
+                Email = request.Email,
+                DisplayName = displayName,
+                EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
+                CreatedAt = DateTime.UtcNow,
+            }, cancellationToken);
+        }
+        catch (DisplayNameAlreadyInUseException ex)
+        {
+            // The check above raced with another signup for the same
+            // display name and lost — same clear error either way, never a
+            // raw 500 from the DB's constraint violation. Logged (coding-
+            // guidelines.md: "log the full exception server-side") since
+            // this is otherwise invisible — DisplayNameExistsAsync's own
+            // pre-check already returned false moments earlier.
+            logger.LogWarning(ex, "Signup lost a race on display name uniqueness.");
+            return DisplayNameConflictProblem();
+        }
 
         // REQ-401: "requires no action from the user" — done automatically
         // here, right after the local User row exists, never left to a
@@ -125,4 +153,13 @@ public class AuthController(
 
         return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed));
     }
+
+    // Shared by both places REQ-701's uniqueness rule can reject a signup —
+    // the pre-check and the DB-constraint race fallback — so both give the
+    // caller the exact same 409 shape.
+    private ObjectResult DisplayNameConflictProblem() =>
+        Problem(
+            title: "Display name already in use",
+            detail: "That display name is already taken. Please choose another.",
+            statusCode: StatusCodes.Status409Conflict);
 }
