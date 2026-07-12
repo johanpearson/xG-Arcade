@@ -661,9 +661,13 @@ describe('CellState badge-dock reveal (S-015)', () => {
 // on a rejected guess, mechanically and visually distinct from S-015's
 // badge-dock reveal above — different trigger (a rejection, not a match),
 // never sharing a class or keyframe with the reveal. Same "transition, not
-// mount" rule as useRevealToken: useShakeToken only fires while the
+// mount" rule as useRevealToken in spirit: useShakeToken fires while the
 // component stays mounted and attemptCount increases with isCorrect still
-// false, never on a first mount already incorrect (e.g. a page reload).
+// false, and also — via the submittedThisSession prop — on a first mount
+// that is itself a fresh rejection (a cell's first-ever guess this session,
+// which GridCell mounts CellState directly into rather than transitioning
+// into from an already-mounted render). It never fires on a first mount of
+// a guess loaded from a page reload (submittedThisSession false/omitted).
 // Exercised the same black-box way as S-015 — via CellState's rendered
 // className/markup, not by reaching into the hook directly.
 describe('CellState shake-and-flash reveal (S-020)', () => {
@@ -760,6 +764,36 @@ describe('CellState shake-and-flash reveal (S-020)', () => {
     );
 
     rerender(<CellState playerName="Henry" isCorrect attemptCount={2} locked roundStatus="active" />);
+
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+  });
+
+  it('S-020: a cell\'s first-ever guess this session (submittedThisSession, mounting directly incorrect) still applies cell-state--shake, unlike an ordinary page-reload mount', () => {
+    const { container } = render(
+      <CellState
+        playerName="Definitely Not A Real Player"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+        submittedThisSession
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--shake')).toBeInTheDocument();
+  });
+
+  it('S-020: submittedThisSession on a first mount that is already correct does not apply cell-state--shake (only a rejection seeds it)', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        submittedThisSession
+      />,
+    );
 
     expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
   });

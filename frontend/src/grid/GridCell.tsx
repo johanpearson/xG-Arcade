@@ -37,6 +37,12 @@ export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onO
         uniquePercent={guess.uniquePercent}
         livePoints={guess.livePoints}
         roundEndTime={roundEndTime}
+        // S-020: knownPlayerName is only ever set by GridScreen right when
+        // this browser session submitted this cell's guess (see CellState's
+        // submittedThisSession doc comment) — a guess loaded from GET
+        // /rounds/current on page load has no entry here, so this is false
+        // for that case, same as intended.
+        submittedThisSession={knownPlayerName != null}
         rowCategoryType={cell.rowCategoryType}
         rowCategoryValue={cell.rowCategoryValue}
         colCategoryType={cell.colCategoryType}

@@ -53,6 +53,19 @@ export interface CellStateProps {
   rowCategoryValue?: string;
   colCategoryType?: string;
   colCategoryValue?: string;
+  // S-020: true only when this guess result came from a submission made in
+  // this browser session (GridCell derives it from knownPlayerName being
+  // set), false for a guess loaded from GET /rounds/current on page load
+  // (e.g. a reload showing a cell someone already attempted). Needed
+  // because CellState doesn't exist in the tree at all for an unattempted
+  // cell (GridCell's guard clause) — a cell's *first* guess this session
+  // therefore mounts CellState directly into the rejected state rather than
+  // transitioning into it from an already-mounted incorrect render, which
+  // useShakeToken's normal transition-based logic can't see. Only consulted
+  // by useShakeToken's initial state below; useRevealToken (S-015) is
+  // intentionally left alone — fixing its equivalent first-correct-guess
+  // gap is out of this story's scope.
+  submittedThisSession?: boolean;
 }
 
 interface CategoryRef {
@@ -90,12 +103,22 @@ function useRevealToken(isCorrect: boolean, roundStatus: RoundStatus): number {
 // useRevealToken's badge-dock reveal above (triggered by a rejection, not a
 // match; never touches badge-dock elements or keyframes). Fires whenever
 // attemptCount increases while the cell is still incorrect, whether or not
-// an attempt remains afterward (state 2 -> state 2, or state 2 -> state 3)
-// — never on first mount already incorrect (e.g. a page reload), same
-// "transition, not mount" rule as the badge dock.
-function useShakeToken(attemptCount: number, isCorrect: boolean): number {
+// an attempt remains afterward (state 2 -> state 2, or state 2 -> state 3).
+//
+// A cell's *first* guess this session is a special case: GridCell doesn't
+// render CellState at all for an unattempted cell, so the first guess
+// mounts CellState directly already-incorrect rather than transitioning
+// into that state from an already-mounted render — indistinguishable, from
+// inside this hook alone, from a page reload showing a cell someone else
+// already attempted (which must NOT shake). `submittedThisSession` is the
+// caller-supplied signal that breaks that tie: true only means "this
+// specific guess result was just submitted in this browser session," so
+// seeding the token on mount in that case still fires the cue on a fresh
+// cell's first rejection while a real page-load mount (submittedThisSession
+// false/undefined) stays silent, same as before.
+function useShakeToken(attemptCount: number, isCorrect: boolean, submittedThisSession: boolean): number {
   const prevRef = useRef({ attemptCount, isCorrect });
-  const [token, setToken] = useState(0);
+  const [token, setToken] = useState(() => (submittedThisSession && !isCorrect ? 1 : 0));
 
   useEffect(() => {
     const prev = prevRef.current;
@@ -127,10 +150,11 @@ export function CellState({
   rowCategoryValue,
   colCategoryType,
   colCategoryValue,
+  submittedThisSession = false,
 }: CellStateProps) {
   const name = playerName ?? 'Guess submitted';
   const revealToken = useRevealToken(isCorrect, roundStatus);
-  const shakeToken = useShakeToken(attemptCount, isCorrect);
+  const shakeToken = useShakeToken(attemptCount, isCorrect, submittedThisSession);
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
