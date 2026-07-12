@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — doc-sync for S-020 (branch claude/story-s-020-pm8xzq):
+  design-document.md's §2 "Rejected-guess cue" paragraph and SCREEN-01a
+  state 2/3 mock annotations (already added by the author in the first
+  commit, before implementation, per CLAUDE.md's rule against undocumented
+  animations) verified accurate against the final, bug-fixed code — its
+  "fires on every rejected guess" line is now actually true after the
+  second commit's fix, so no further edit needed; version 0.11 confirmed
+  correct as-is, not bumped further. requirements-document.md and
+  architecture-document.md — checked, no change needed: no REQ describes
+  this animation (REQ-210's two-guesses-per-cell acceptance criteria don't
+  mention UI feedback, same gap S-015 left undocumented for the
+  correct-guess case), and architecture-document.md has no mention of
+  frontend animation at all — this is a frontend-only presentational
+  addition inside the existing `CellState` component, no new `COMP-xx`,
+  API surface, or data flow. backlog.md — added a "Built as:" note to
+  S-020 covering the `useShakeToken` hook/keyframes, the clean
+  architecture-reviewer pass, the code-reviewer-found bug (a cell's
+  first-ever rejected guess mounted `CellState` directly into the rejected
+  state, indistinguishable from a page-reload mount without the new
+  `submittedThisSession` prop) and its fix, and the identical
+  `useRevealToken`/first-correct-guess gap deliberately left unfixed (out
+  of scope, same pattern as other acknowledged-gap notes in the backlog).
+  No frontmatter bump for backlog.md (none exists).
 - 2026-07-12 — doc-sync for S-019 (branch claude/story-s-019-bs4t7x):
   design-document.md's SCREEN-01a state-1 mock (already reworded by the
   author, ahead of this pass, to show an "at rest"/"revealed" split plus a

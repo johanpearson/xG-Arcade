@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.10"
+version: "0.11"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -138,6 +138,16 @@ Used only at guess-submit and round-close reveal, nowhere else. Respects
 `prefers-reduced-motion`: badges appear already docked, no slide, with a
 brief background color flash (green→gold) instead.
 
+**Rejected-guess cue (S-020).** When a submitted guess is rejected, the
+cell gives a literal, immediate "no match" cue: a brief lateral shake
+paired with a red background flash that fades back to transparent.
+Mechanically and visually distinct from the badge dock above — it's
+triggered by a *rejection*, not a match, uses a shake rather than a slide,
+and never touches the badge-dock elements or its keyframes. Fires on
+every rejected guess (whether or not an attempt remains afterward), never
+on a page load that shows a cell already incorrect. Respects
+`prefers-reduced-motion`: flash only, no shake.
+
 ## 3. Key screens
 
 ### SCREEN-01: Grid (home)
@@ -227,6 +237,8 @@ disappears/reappears together with it, never shown alone.
 │  Ronaldinho        ✕      │   ← red cross, not locked
 │  1 attempt left           │   ← always spelled out, never just an icon
 └─────────────────────────┘
+      ↑ rejected-guess cue (S-020) plays once here: a brief shake + red
+        flash, distinct from the badge dock above — see §2
 ```
 
 **3. Incorrect, no attempts remaining** (round still active, cell is done):
@@ -236,6 +248,8 @@ disappears/reappears together with it, never shown alone.
 │  Ronaldinho        ✕      │
 │  no attempts left · 0 pts │   ← guaranteed 0, stated plainly, not implied
 └─────────────────────────┘
+      ↑ same rejected-guess cue plays here too, on the guess that used up
+        the last attempt
 ```
 
 **4. Round closed** (either prior state, now permanent):
