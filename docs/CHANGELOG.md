@@ -13,6 +13,70 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — independent test-writer and requirements-writer passes over
+  the same S-022/023/024/028 branch (claude/points-ui-concerns-z9tvc2),
+  run alongside the doc-sync pass below. **requirements-writer** fixed
+  three leftover inconsistencies in requirements-document.md from the
+  ADR-0021 golf-scoring flip that the author's own pass had missed: REQ-210
+  still said an exhausted-attempts guess is "guaranteed 0 points" (now the
+  *best* score, not a penalty — corrected to `ScoringRules.MaxPointsPerCell`);
+  REQ-203's status note quoted stale "0 points regardless of uniqueness"
+  wording; REQ-505/506 were missing the "Status: Proposed" marker REQ-405/
+  504 already had, despite being equally unbuilt; REQ-504's Given clause
+  wrongly implied it defines its own endpoints (REQ-505/506 do); and §7
+  Open Questions still read "None" despite REQ-405 explicitly flagging
+  unresolved product decisions — added a cross-reference rather than
+  duplicating REQ-405's own list. Version 0.37 -> 0.38, and the stale
+  in-body "Version 0.30 · 2026-07-10" header line (already out of sync with
+  frontmatter before this branch) corrected to match. **test-writer** found
+  two real test-coverage gaps: `ScoringRules.PointsFromUniqueScore` was
+  only ever exercised indirectly through DB-backed scenarios that happened
+  to land on exact 0.0/0.5/1.0 `uniqueScore`s, never verifying
+  `Math.Round`'s default `MidpointRounding.ToEven` behavior at a real .5
+  boundary — new `backend/tests/XGArcade.Core.Tests/Scoring/ScoringRulesTests.cs`
+  covers the two opposite-direction midpoint cases (0.625->38, 0.375->62)
+  plus a monotonicity regression guard; and `MaterializeUnansweredCellsAsync`
+  resolving a `Round.GameKey` with no registered `IGameModule` was untested
+  at the `CloseRoundAsync` integration level (only `GameModuleResolverTests`
+  covered the resolver in isolation) — new
+  `REQ206_CloseRoundAsync_RoundGameKeyHasNoRegisteredGameModule_ThrowsInvalidOperationException`
+  confirms it fails loudly rather than silently defaulting unanswered cells
+  to the best possible score. Also: renamed one `GridGameModuleTests.cs`
+  test to carry its `REQ206_` prefix (it verifies a real acceptance
+  criterion, unlike the file's unprefixed defensive-error-path tests), and
+  strengthened `LeaderboardScreen.test.tsx`'s original REQ-404 test, which
+  predated this branch and still used a descending-order mock asserting
+  only that names appeared somewhere in the document — a regression back to
+  descending sort would have passed it silently; now asserts actual DOM
+  order and rank numbers against an ascending mock. Frontend suite 72/72
+  green after these changes (`npm run test`), `tsc -b`/`npm run lint`
+  clean. REQ-203, REQ-210, REQ-405, REQ-504, REQ-505, REQ-506, REQ-206.
+- 2026-07-12 — independent doc-sync verification pass over the S-022/023/024
+  (points-ui-concerns) and S-028 (golf-style scoring) commits on
+  claude/points-ui-concerns-z9tvc2, run after the author's own substantial
+  manual doc updates (both entries below). Found and fixed one real gap:
+  architecture-document.md §6.2's guess-submission-and-scoring data-flow
+  diagram/prose (the `[scheduled, at Round.EndTime]` block) had not been
+  updated for ADR-0021's `MaterializeUnansweredCellsAsync` step — §5's
+  COMP-04 status note already described it fully, but §6.2 still showed
+  round-close as `Core.Scoring → Database` only, with no mention of the new
+  `IRoundRepository`/`IGameModuleResolver`/`IGameModule.GetCellIdsAsync`
+  dependency chain or the synthesized-`Guess`-row step. Added a bullet to
+  §6.2's "what's built" prose and a corresponding block to the ASCII
+  diagram itself describing the new step and its dependency edges to
+  `Core.Rounds`/`Games.XGGrid` (COMP-05); version 0.27 -> 0.28. Checked and
+  confirmed accurate, no further edit needed: implementation-document.md's
+  `IGameModule` interface listing and §6a scoring pseudocode (verified
+  line-by-line against the real `IGameModule.cs`, `ScoreLockingService.cs`,
+  `ScoringRules.cs`, `UniquenessCalculator.cs`, `GridGameModule.cs`
+  source), requirements-document.md's REQ-203/204/205/206/401/404/405
+  updates, design-document.md's SCREEN-01a/SCREEN-03 mocks (point-value
+  arithmetic and CSS class/token names cross-checked against
+  `CellState.tsx`/`LeaderboardScreen.tsx`/`.css`), backlog.md's S-022/023/
+  024/028 "Built as" and S-025/026/027 proposed entries, both ADRs
+  (0020/0021), and every doc's frontmatter version/last_updated bump. No
+  backend/frontend file changed by this diff was found undocumented. REQ-203,
+  REQ-204, REQ-205, REQ-206, REQ-401, REQ-404, ADR-0021.
 - 2026-07-12 — golf-style scoring model, S-028 (branch
   claude/points-ui-concerns-z9tvc2): direct follow-up product feedback,
   immediately after the S-022/ADR-0020 entry below shipped, asked for the

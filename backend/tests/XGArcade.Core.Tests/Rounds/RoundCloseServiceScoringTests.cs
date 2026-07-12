@@ -307,4 +307,53 @@ public class RoundCloseServiceScoringTests
             .CountAsync(g => g.RoundId == round.Id && g.UserId == participantId && g.CellId == unattemptedCellId);
         Assert.That(count, Is.EqualTo(1));
     }
+
+    [Test]
+    public async Task REQ206_CloseRoundAsync_RoundGameKeyHasNoRegisteredGameModule_ThrowsInvalidOperationException()
+    {
+        // Defensive regression test: MaterializeUnansweredCellsAsync resolves
+        // the round's game module via IGameModuleResolver before it can look
+        // up cell ids (ADR-0021, via IGameModule.GetCellIdsAsync per
+        // ADR-0003). If a Round's GameKey somehow has no registered
+        // IGameModule (a data/deploy inconsistency — never expected in
+        // practice, since RoundGenerationService already resolves the same
+        // GameKey when the round is created), this must fail loudly
+        // (InvalidOperationException, GameModuleResolver's own contract),
+        // never silently skip the unanswered-cell penalty and let those
+        // cells default to 0 points — the BEST possible score under
+        // ADR-0021's lowest-wins model, which would make an unregistered
+        // GameKey quietly the most exploitable outcome rather than an error.
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = "some-unregistered-game",
+            GameInstanceId = Guid.NewGuid(),
+            StartTime = DateTime.UtcNow.AddDays(-1),
+            EndTime = DateTime.UtcNow.AddDays(1),
+            AllowGuessChange = true,
+        };
+        _dbContext.Rounds.Add(round);
+        // At least one participant, so MaterializeUnansweredCellsAsync
+        // doesn't short-circuit on its empty-participant-set check before
+        // ever reaching the resolver.
+        _dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = round.Id,
+            UserId = Guid.NewGuid(),
+            CellId = Guid.NewGuid(),
+            SubmittedName = "Someone",
+            PlayerAnswerId = Guid.NewGuid(),
+            IsCorrect = true,
+            AttemptCount = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+
+        var ex = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await _service.CloseRoundAsync(round.Id, DateTime.UtcNow));
+
+        Assert.That(ex!.Message, Does.Contain("some-unregistered-game"),
+            "the exception must propagate all the way out of CloseRoundAsync, not be caught/swallowed anywhere in RoundCloseService/ScoreLockingService");
+    }
 }

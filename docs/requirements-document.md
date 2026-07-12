@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.37"
+version: "0.38"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.30 · 2026-07-10
+Version 0.38 · 2026-07-12
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -326,8 +326,9 @@ without erroring), API
   triggers a Tier-0-simplified version of REQ-211's live lookup first (see
   REQ-211's own status note for exactly what differs from the full spec);
   only a guess that still doesn't resolve after that fallback is scored
-  incorrect. "0 points regardless of uniqueness" isn't independently
-  verifiable yet since point computation itself doesn't exist until S-011.
+  incorrect. The "incorrect guess scores worst" acceptance criterion below
+  isn't independently verifiable yet since point computation itself doesn't
+  exist until S-011.
 - Given a guess for cell X
 - When the answer is checked against the effective data (an override always
   takes precedence over synced/unverified data)
@@ -640,7 +641,8 @@ required, no valid candidate), UI (disambiguation prompt)
 - And if a guess is correct, the cell locks immediately — no further
   guesses are accepted for it, even if only 1 of the 2 attempts was used
 - And if both attempts are used without a correct answer, the cell locks
-  as incorrect — the player sees this clearly, with 0 points guaranteed
+  as incorrect — the player sees this clearly, with `ScoringRules.MaxPointsPerCell`
+  points guaranteed (the worst score, per ADR-0021's lowest-wins model)
   regardless of what round-close scoring later computes
 - And resolving a disambiguation prompt (REQ-209) is part of the same
   attempt that triggered it, not a separate attempt — a player isn't
@@ -1000,8 +1002,9 @@ answered before implementation, not decided implicitly in code):**
 > actions, so I don't need to script HTTP requests to correct data, manage
 > rounds, or manage users.
 
-- Given the S-012 admin API (REQ-501/502/503) and this REQ's new endpoints
-  below already require the existing "Admin" authorization policy
+- Given the S-012 admin API (REQ-501/502/503) and REQ-505/506's new endpoints
+  (this REQ adds no endpoints of its own — it is the UI surface over all of
+  them) already require the existing "Admin" authorization policy
   (`Admin__UserIds`)
 - When a user whose id is in `Admin__UserIds` logs in
 - Then they can reach a protected admin screen (not linked from the normal
@@ -1018,7 +1021,8 @@ answered before implementation, not decided implicitly in code):**
 
 **Test level:** UI
 
-**REQ-505 – Admin round control (non-Production only)**
+**REQ-505 – Admin round control (non-Production only)** *(Status: Proposed,
+not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
 > As an admin testing the game, I want to end the active round or adjust its
 > schedule on demand, so I don't have to wait for real time to pass to test
 > round-close behavior outside of the existing E2E harness.
@@ -1048,7 +1052,8 @@ answered before implementation, not decided implicitly in code):**
 
 **Test level:** API, UI
 
-**REQ-506 – Admin user deletion (non-Production only)**
+**REQ-506 – Admin user deletion (non-Production only)** *(Status: Proposed,
+not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
 > As an admin testing the game, I want to delete a test user's account, so I
 > can clean up seeded/test accounts without touching the database directly.
 
@@ -1569,7 +1574,16 @@ shows the default is wrong.
 
 ## 7. Open questions (remaining)
 
-None. Both items from the terms-of-service/privacy-policy drafting were
+- **Leaderboard time-window resolutions (REQ-405):** calendar-aligned vs.
+  rolling windows, which timezone a window boundary is evaluated in,
+  whether an unlocked (still-active) round's guesses ever contribute to a
+  window, and the indexing plan for the new query shapes — see REQ-405's
+  own "Open design questions" list for the full framing. These must be
+  answered by product decision before `docs/backlog.md` S-027 can be
+  scoped into concrete acceptance criteria; not decided here to avoid
+  duplicating (and risking drift from) REQ-405's own list.
+
+Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:
 
 - **Minimum age:** 16, enforced via a self-declared checkbox at signup

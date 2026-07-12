@@ -16,15 +16,24 @@ describe('LeaderboardScreen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('REQ-404: renders ranked rows sorted by total points, with the requesting user marked distinctly', async () => {
+  it('REQ-404/ADR-0021: renders rows in the order the API returns them, numbering rank #1 as the row the API put first (lowest total wins), with the requesting user marked distinctly', async () => {
+    // The API (LeaderboardServiceTests, backend) sorts ascending —
+    // lowest total first. This mock is deliberately given in that same
+    // ascending order (Sam 120 < Player One 138 < Alex 142), not the
+    // "highest first" order a pre-ADR-0021 assumption would produce, and
+    // the assertions below check actual DOM order/rank numbers rather than
+    // just that all three names appear somewhere — the component itself
+    // does no sorting of its own, it trusts the API's order and labels each
+    // row `index + 1`, so a wrongly-ordered response would previously have
+    // passed this test undetected.
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() =>
         jsonResponse({
           rows: [
-            { userId: 'user-1', displayName: 'Alex', totalPoints: 142, isRequestingUser: false },
-            { userId: 'user-2', displayName: 'Player One', totalPoints: 138, isRequestingUser: true },
             { userId: 'user-3', displayName: 'Sam', totalPoints: 120, isRequestingUser: false },
+            { userId: 'user-2', displayName: 'Player One', totalPoints: 138, isRequestingUser: true },
+            { userId: 'user-1', displayName: 'Alex', totalPoints: 142, isRequestingUser: false },
           ],
         }),
       ),
@@ -33,9 +42,19 @@ describe('LeaderboardScreen', () => {
     render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
-    expect(screen.getByText('142 pts')).toBeInTheDocument();
-    expect(screen.getByText('Player One')).toBeInTheDocument();
-    expect(screen.getByText('you')).toBeInTheDocument();
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    const rankOf = (row: HTMLElement) => row.querySelector('.leaderboard-screen__rank')?.textContent;
+    expect(rankOf(rows[0])).toBe('1');
+    expect(rows[0]).toHaveTextContent('Sam');
+    expect(rows[0]).toHaveTextContent('120 pts');
+    expect(rankOf(rows[1])).toBe('2');
+    expect(rows[1]).toHaveTextContent('Player One');
+    expect(rows[1]).toHaveTextContent('138 pts');
+    expect(rows[1]).toHaveTextContent('you');
+    expect(rankOf(rows[2])).toBe('3');
+    expect(rows[2]).toHaveTextContent('Alex');
+    expect(rows[2]).toHaveTextContent('142 pts');
   });
 
   it('REQ-404/ADR-0021: shows "Lowest total wins" so a player does not assume the opposite from habit', async () => {

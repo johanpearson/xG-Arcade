@@ -174,7 +174,7 @@ public class GridGameModuleTests
     // ---- ADR-0021: cell ids for round-close's unanswered-cell penalty -----
 
     [Test]
-    public async Task GetCellIdsAsync_GeneratedInstance_ReturnsEveryCellId()
+    public async Task REQ206_GetCellIdsAsync_GeneratedInstance_ReturnsEveryCellId()
     {
         var template = SeedTemplate(size: 1);
         SeedCountry("France");

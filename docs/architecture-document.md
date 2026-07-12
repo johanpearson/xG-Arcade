@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.27"
+version: "0.28"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.23 · 2026-07-10
+Version 0.28 · 2026-07-12
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -470,7 +470,19 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   round-close at a round's real `end_time` in production yet; today this
   is only ever invoked via REQ-806's non-Production-only
   `POST /internal/test-data/force-close-round/{roundId}` (REQ-205's status
-  note).
+  note). **S-028 addition (ADR-0021):** this block now has a step before
+  locking, not shown in the pre-S-028 diagram below — `ScoreLockingService`
+  first calls `MaterializeUnansweredCellsAsync`, which reads the `Round`
+  via the newly-added `IRoundRepository` dependency to resolve its
+  `GameKey`/`GameInstanceId`, resolves the owning game module via the also
+  newly-added `IGameModuleResolver` dependency, and calls
+  `IGameModule.GetCellIdsAsync(instanceId)` (COMP-05) to find, for each
+  round participant, any cell they never attempted — inserting a
+  synthetic, worst-case-scored `Guess` row for each one before the existing
+  lock-every-`Guess`-in-the-round step runs. This is `Core.Scoring`'s first
+  dependency on `Core.Rounds`/COMP-05 data at round-close time (previously
+  this leg only wrote to `Database`); see COMP-04's status note in §5 for
+  the full rationale.
 
 ```
 Player → Web Frontend: types a guess
@@ -507,6 +519,11 @@ Player → Web Frontend → Backend API: POST guess (selected/typed name)
 
 [scheduled, at Round.EndTime]
 Round Scheduler Job → Core.Scoring: lock final scores for all guesses in round
+  → Core.Rounds (via IRoundRepository): resolve the round's GameKey/GameInstanceId
+  → Games.XGGrid (COMP-05, via IGameModule.GetCellIdsAsync, ADR-0003): resolve
+    every cell id for the instance
+  → for each round participant, synthesize a worst-case-scored Guess row
+    (ADR-0021) for any cell they never attempted
   → Database: persist FinalUniquenessScore / FinalPoints
 ```
 
