@@ -656,3 +656,111 @@ describe('CellState badge-dock reveal (S-015)', () => {
     expect(container.querySelector('.cell-state--reveal')).not.toBeInTheDocument();
   });
 });
+
+// S-020 (design-document.md §2's "Rejected-guess cue"): a shake + red flash
+// on a rejected guess, mechanically and visually distinct from S-015's
+// badge-dock reveal above — different trigger (a rejection, not a match),
+// never sharing a class or keyframe with the reveal. Same "transition, not
+// mount" rule as useRevealToken: useShakeToken only fires while the
+// component stays mounted and attemptCount increases with isCorrect still
+// false, never on a first mount already incorrect (e.g. a page reload).
+// Exercised the same black-box way as S-015 — via CellState's rendered
+// className/markup, not by reaching into the hook directly.
+describe('CellState shake-and-flash reveal (S-020)', () => {
+  it('S-020: a rejection transition (attemptCount increasing while still incorrect, at least one attempt remaining) applies cell-state--shake and remounts the DOM node, not just toggles a class', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+    const nodeBeforeRejection = container.querySelector('.cell-state');
+
+    rerender(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={2}
+        locked={false}
+        roundStatus="active"
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--shake')).toBeInTheDocument();
+    // Node identity must actually change (a real remount), not just gain a
+    // class — the same check S-015's "both reveals in one mounted lifetime"
+    // test uses via node reference comparison, since key={shakeToken} is
+    // what restarts the CSS animation on every rejection.
+    expect(container.querySelector('.cell-state')).not.toBe(nodeBeforeRejection);
+  });
+
+  it('S-020: a rejection transition into state 3 (no attempts remaining) also applies cell-state--shake on the locked branch', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+
+    rerender(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+      />,
+    );
+
+    expect(screen.getByText('no attempts left')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--locked')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--shake')).toBeInTheDocument();
+  });
+
+  it('S-020: mounting directly already incorrect (e.g. a page reload, no prior render) shows no cell-state--shake class', () => {
+    const { container } = render(
+      <CellState
+        playerName="Ronaldinho"
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+      />,
+    );
+
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+  });
+
+  it('S-020: a correct-guess transition (incorrect -> correct) never applies cell-state--shake — that is the badge-dock reveal\'s territory, not this one', () => {
+    const { container, rerender } = render(
+      <CellState playerName="Henry" isCorrect={false} attemptCount={1} locked={false} roundStatus="active" />,
+    );
+
+    rerender(<CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" />);
+
+    // The badge-dock reveal fires as expected (S-015's territory) while the
+    // shake never does — the two animations stay mutually exclusive.
+    expect(container.querySelector('.cell-state--reveal')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+  });
+
+  it('S-020: attemptCount increasing while already correct (a locked, correct cell re-rendering with a bumped attempt count) does not apply cell-state--shake', () => {
+    const { container, rerender } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" />,
+    );
+
+    rerender(<CellState playerName="Henry" isCorrect attemptCount={2} locked roundStatus="active" />);
+
+    expect(container.querySelector('.cell-state--shake')).not.toBeInTheDocument();
+  });
+});

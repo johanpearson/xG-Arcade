@@ -175,3 +175,54 @@
     background-color: transparent;
   }
 }
+
+/* design-document.md §2 "Rejected-guess cue" (S-020): a subtle shake + red
+   flash on a rejected guess — a literal, immediate "no match" cue, distinct
+   from (not reusing) the badge-dock reveal above: different trigger (a
+   rejection, not a match), different motion (lateral shake, not an inward
+   slide), separate keyframes. `.cell-state--shake` is only applied for the
+   render that corresponds to a guess just being rejected (see
+   CellState.tsx's useShakeToken) — a page reload showing an
+   already-incorrect cell never gets it, same "transition, not mount" rule
+   as the badge dock. */
+.cell-state--shake {
+  animation:
+    cell-state-shake 0.4s ease-in-out,
+    cell-state-incorrect-flash 0.4s ease-in-out;
+}
+
+@keyframes cell-state-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes cell-state-incorrect-flash {
+  0% {
+    background-color: var(--color-accent-red);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* prefers-reduced-motion fallback (design-document.md §2): flash only, no
+   shake. */
+@media (prefers-reduced-motion: reduce) {
+  .cell-state--shake {
+    animation: cell-state-incorrect-flash 0.6s ease-out;
+  }
+}

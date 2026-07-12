@@ -85,6 +85,30 @@ function useRevealToken(isCorrect: boolean, roundStatus: RoundStatus): number {
   return token;
 }
 
+// design-document.md §2 "Rejected-guess cue" (S-020): a shake + red flash on
+// a rejected guess — mechanically and visually distinct from
+// useRevealToken's badge-dock reveal above (triggered by a rejection, not a
+// match; never touches badge-dock elements or keyframes). Fires whenever
+// attemptCount increases while the cell is still incorrect, whether or not
+// an attempt remains afterward (state 2 -> state 2, or state 2 -> state 3)
+// — never on first mount already incorrect (e.g. a page reload), same
+// "transition, not mount" rule as the badge dock.
+function useShakeToken(attemptCount: number, isCorrect: boolean): number {
+  const prevRef = useRef({ attemptCount, isCorrect });
+  const [token, setToken] = useState(0);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    const justRejected = !isCorrect && !prev.isCorrect && attemptCount > prev.attemptCount;
+    if (justRejected) {
+      setToken((current) => current + 1);
+    }
+    prevRef.current = { attemptCount, isCorrect };
+  }, [attemptCount, isCorrect]);
+
+  return token;
+}
+
 // SCREEN-01a: the four "attempted" cell states from REQ-210. An unattempted
 // cell (guess === null) is a simple guard clause in the caller (GridCell),
 // not a fifth case here — this component always assumes at least one
@@ -106,6 +130,7 @@ export function CellState({
 }: CellStateProps) {
   const name = playerName ?? 'Guess submitted';
   const revealToken = useRevealToken(isCorrect, roundStatus);
+  const shakeToken = useShakeToken(attemptCount, isCorrect);
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -171,11 +196,16 @@ export function CellState({
   }
 
   const attemptsLeft = MAX_ATTEMPTS_PER_CELL - attemptCount;
+  // key={shakeToken}: forces a remount so the shake/flash restarts on each
+  // rejected guess, even if a prior rejection already left the same
+  // className string in place (e.g. two rejections in a row while still in
+  // state 2) — same technique useRevealToken's callers use above.
+  const shakeClassName = shakeToken > 0 ? 'cell-state--shake' : '';
 
   // State 2: incorrect, at least one attempt remaining.
   if (!locked && attemptsLeft > 0) {
     return (
-      <div className="cell-state cell-state--incorrect">
+      <div key={shakeToken} className={`cell-state cell-state--incorrect ${shakeClassName}`}>
         <Row name={name} correct={false} />
         <p className="cell-state__meta">
           {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left
@@ -187,7 +217,7 @@ export function CellState({
   // State 3: incorrect, no attempts remaining (round still active). REQ-205/
   // 206 don't exist yet, so no "0 pts" line — same reasoning as state 1.
   return (
-    <div className="cell-state cell-state--incorrect cell-state--locked">
+    <div key={shakeToken} className={`cell-state cell-state--incorrect cell-state--locked ${shakeClassName}`}>
       <Row name={name} correct={false} />
       <p className="cell-state__meta">no attempts left</p>
     </div>

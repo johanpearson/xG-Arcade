@@ -215,6 +215,16 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
 
+    // S-020 (design-document.md §2's "rejected-guess cue"): the rejected
+    // guess triggers the shake-and-flash animation, distinct from S-015's
+    // badge-dock reveal below. Only presence of the trigger class is
+    // asserted here — CellState.test.tsx's constructed-props tests cover
+    // the trigger-logic itself (mount-vs-transition, mutual exclusivity
+    // with the badge dock), and the CSS keyframes are a visual concern
+    // neither suite drives directly, same reasoning as the badge-dock
+    // check below.
+    await expect(cell.locator('.cell-state--shake')).toBeVisible()
+
     // Second attempt: the real correct player name from the seed response.
     await cell.click()
     await expect(page.getByRole('dialog')).toBeVisible()
@@ -277,6 +287,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText('Wrong Guess Number Two')).toBeVisible()
     await expect(cell.getByText('no attempts left')).toBeVisible()
     await expect(cell).toBeDisabled()
+
+    // S-020: the rejected-guess cue also fires on the guess that uses up
+    // the last attempt (state 2 -> state 3), not just state 2 -> state 2.
+    await expect(cell.locator('.cell-state--shake')).toBeVisible()
   })
 
   // S-011 (docs/backlog.md): REQ-204 (denominator = correct guesses only,
