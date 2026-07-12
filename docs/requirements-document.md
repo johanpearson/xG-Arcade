@@ -200,8 +200,8 @@ Wikidata-fails/API-Football-fallback branch), API
   limit this REQ ever imposed — `CategoryPairingRules.IsAllowedPairing`
   already permitted Club × Club before S-030. Trophy pairings are queued as
   S-031, scoped to Trophy × Country/Trophy × Club only for v1 (a
-  single-trophy pool can't
-  satisfy REQ-102's N-unique-headers rule for Trophy × Trophy, so that
+  single-trophy pool can't satisfy REQ-102's N-unique-headers rule for
+  Trophy × Trophy, so that
   pairing is structurally unreachable until more trophies exist, not
   separately banned).
 - Given a grid is being generated
