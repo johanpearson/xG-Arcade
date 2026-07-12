@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.9"
+version: "0.10"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -181,13 +181,34 @@ revealed immediately (REQ-203), separate from whether the round has closed:
 still live until round close):
 
 ```
+At rest (default):
 ┌─────────────────────────┐
 │  Henry            ✓ live │   ← gold check (correct) + small green dot
-│  12% unique · ~12 pts    │      (still live) — both shown together,
-│  estimated                │      since "correct" and "final" are different
-│  updates until 18:00 Fri  │      moments (REQ-203)
+└─────────────────────────┘      (still live) — nothing else shown
+
+Revealed (tap/long-press, or hover/focus on desktop):
+┌─────────────────────────┐
+│  Henry            ✓ live │
+│  12% unique · ~12 pts    │      "correct" and "final" are different
+│  estimated                │      moments (REQ-203) — the dot signals
+│  updates until 18:00 Fri  │      "still live" at rest either way
 └─────────────────────────┘
 ```
+
+**S-019 redesign:** the uniqueness %/point-estimate/round-end line is no
+longer always visible — every unresolved cell showing its full live text at
+once was cluttered at real grid sizes. It's now disclosed only on tap/
+long-press (a tap toggles it open/closed, since touch has no hover) or the
+desktop equivalent, hover/focus (transient — closes again on mouseleave/
+blur). The green live-dot plus the word "live" stay the permanent at-rest
+indicator regardless — that part never hides, satisfying REQ-204's "always
+as text, never icon-only" rule for what's visible before any interaction.
+The disclosed text itself is unchanged from before this story: this changes
+*when* it renders, not what it says or whether it exists. The toggle is a
+real focusable control (`aria-expanded` reflects open/closed state,
+`aria-live="polite"` on the revealed panel) so keyboard and screen-reader
+users have the same access as a mouse/touch user — never a hover-only or
+touch-only affordance.
 
 The point value (S-018, REQ-204 extension) is computed live via
 `ScoringRules.PointsFromUniqueScore` — the exact same shared method

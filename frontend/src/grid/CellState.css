@@ -65,6 +65,21 @@
   color: var(--color-text-muted);
 }
 
+/* S-019: the disclosure toggle re-uses .cell-state__meta's text styling
+   (same size/color/font as the plain "live" <p> it replaces) but as a real
+   <button> so it's focusable/clickable — reset to look identical at rest,
+   the global :focus-visible ring (index.css) is what shows it's interactive
+   once focused. */
+.cell-state__reveal-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 /* Small, quiet 4px dot with a slow opacity shift — design-document.md §3
    ("not a heavy pulse"). Gated behind prefers-reduced-motion below. */
 .cell-state__live-dot {

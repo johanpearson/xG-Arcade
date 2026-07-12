@@ -66,11 +66,14 @@
   cursor: pointer;
 }
 
-.grid-cell:disabled {
+/* S-019: a locked cell is now a plain container, not a <button disabled> —
+   GridCell never renders a disabled button, so there's nothing for
+   :disabled to match here, only .grid-cell--locked. */
+.grid-cell--locked {
   cursor: default;
 }
 
-.grid-cell:hover:not(:disabled) {
+.grid-cell:hover:not(.grid-cell--locked) {
   background: var(--color-surface-sunken);
 }
 

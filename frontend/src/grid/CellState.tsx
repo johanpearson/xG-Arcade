@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
@@ -22,7 +22,11 @@ export interface CellStateProps {
   roundStatus: RoundStatus;
   // REQ-204: live unique_percent (0-1), re-derived on every request. Only
   // ever set when isCorrect — undefined/null means "not correct yet" or
-  // (state 4) "not wired to a live source yet," never fabricated.
+  // (state 4) "not wired to a live source yet," never fabricated. S-019:
+  // in state 1 this and the two fields below are only rendered once the
+  // player reveals them (tap/long-press, or hover/focus on desktop) — see
+  // LiveMetaDisclosure below; the text itself is unchanged, only when it
+  // renders.
   uniquePercent?: number | null;
   // S-018 (REQ-204 extension): live, provisional point estimate for state 1
   // only — same round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks
@@ -137,7 +141,11 @@ export function CellState({
   }
 
   // State 1: correct, round still active — locked from further guessing,
-  // but still "live" until round close (REQ-203/204).
+  // but still "live" until round close (REQ-203/204). S-019: the live
+  // uniqueness/points/round-end text is disclosed on tap/long-press (or
+  // hover/focus on desktop) rather than always shown, to cut the clutter of
+  // every unresolved cell showing full live text at once — the quiet green
+  // dot stays the permanent at-rest "still live" indicator either way.
   if (isCorrect) {
     return (
       // key={revealToken}: forces a remount (not just a class toggle) so the
@@ -150,22 +158,13 @@ export function CellState({
         }`}
       >
         <Row name={name} correct badges={badges} />
-        <p className="cell-state__meta">
-          <span className="cell-state__live-dot" aria-hidden="true" />
-          live
-        </p>
-        {uniquePercent != null && (
-          <>
-            <p className="cell-state__meta mono-figure">
-              {formatPercent(uniquePercent)}% unique
-              {livePoints != null && ` · ~${livePoints} pts estimated`}
-            </p>
-            {roundEndTime && (
-              <p className="cell-state__meta cell-state__meta--muted">
-                updates until round closes on {formatDateTime(roundEndTime)}
-              </p>
-            )}
-          </>
+        {uniquePercent != null ? (
+          <LiveMetaDisclosure uniquePercent={uniquePercent} livePoints={livePoints} roundEndTime={roundEndTime} />
+        ) : (
+          <p className="cell-state__meta">
+            <span className="cell-state__live-dot" aria-hidden="true" />
+            live
+          </p>
         )}
       </div>
     );
@@ -206,6 +205,90 @@ function formatDateTime(isoDateTime: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+// S-019 (REQ-204/SCREEN-01a redesign): the live uniqueness %/points/round-end
+// text is disclosed only on tap/long-press (a tap toggles it open/closed,
+// since touch has no hover) or hover/focus (the desktop-equivalent, transient
+// peek — open while hovering/focused, closes again on mouseleave/blur). The
+// quiet green live-dot and "live" text stay permanently visible either way,
+// satisfying REQ-204's "always as text, never icon-only" rule for the
+// at-rest state; the disclosed text is the same text as before, just not
+// always rendered. `aria-expanded` on the toggle and `aria-live="polite"` on
+// the revealed panel are what make the state change itself accessible to
+// screen readers, not just sighted users.
+//
+// Three independent flags combine via OR rather than one shared boolean: a
+// real mouse click fires a native `focus` event immediately before its
+// `click` event, so a single toggle driven off one merged value would reveal
+// (via focus) and then immediately hide again (via the click's own toggle)
+// within the same physical click. Separating click/hover/focus into their
+// own flags fixes that first-click case, but focus alone isn't quite right
+// either: a mouse click leaves the button focused afterward, and if that
+// lingering `focused` counted the same as a real keyboard tab, a *second*
+// click could never close the panel (its own toggle would flip `toggledOpen`
+// off, but `revealed` would stay true via `focused` regardless). `pointerDownRef`
+// distinguishes the two: a mousedown immediately before focus means this
+// focus is a side effect of a pointer click (already covered by `hovering`,
+// since the pointer has to be over the button to click it) and is not
+// counted; a focus with no preceding mousedown is a real keyboard tab, which
+// still peeks like hover does.
+function LiveMetaDisclosure({
+  uniquePercent,
+  livePoints,
+  roundEndTime,
+}: {
+  uniquePercent: number;
+  livePoints?: number | null;
+  roundEndTime?: string;
+}) {
+  const [toggledOpen, setToggledOpen] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const [keyboardFocused, setKeyboardFocused] = useState(false);
+  const pointerDownRef = useRef(false);
+  const revealed = toggledOpen || hovering || keyboardFocused;
+  const panelId = useId();
+
+  return (
+    <>
+      <button
+        type="button"
+        className="cell-state__meta cell-state__reveal-toggle"
+        aria-expanded={revealed}
+        aria-controls={panelId}
+        onClick={() => setToggledOpen((current) => !current)}
+        onMouseDown={() => {
+          pointerDownRef.current = true;
+        }}
+        onFocus={() => {
+          if (!pointerDownRef.current) setKeyboardFocused(true);
+          pointerDownRef.current = false;
+        }}
+        onBlur={() => {
+          setKeyboardFocused(false);
+          pointerDownRef.current = false;
+        }}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+      >
+        <span className="cell-state__live-dot" aria-hidden="true" />
+        live
+      </button>
+      {revealed && (
+        <div id={panelId} aria-live="polite">
+          <p className="cell-state__meta mono-figure">
+            {formatPercent(uniquePercent)}% unique
+            {livePoints != null && ` · ~${livePoints} pts estimated`}
+          </p>
+          {roundEndTime && (
+            <p className="cell-state__meta cell-state__meta--muted">
+              updates until round closes on {formatDateTime(roundEndTime)}
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  );
 }
 
 function Row({
