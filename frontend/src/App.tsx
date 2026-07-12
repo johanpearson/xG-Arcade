@@ -101,6 +101,9 @@ function App() {
       <main className="app__main">
         {accessToken ? (
           screen === 'game-select' ? (
+            // Tier 0 has exactly one game, so any selection routes to
+            // 'grid' — the gameKey argument goes unused until a second
+            // game module exists to switch on it.
             <GameSelectScreen onSelectGame={() => setScreen('grid')} />
           ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} />

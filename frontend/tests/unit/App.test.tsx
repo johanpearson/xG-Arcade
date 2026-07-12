@@ -110,4 +110,22 @@ describe('App game-selection routing', () => {
     )
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
+
+  it('REQ-303: the header\'s "Games" nav link returns from the grid to the game-selection screen', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+    await user.click(screen.getByRole('button', { name: 'xG Grid' }))
+    await waitFor(() =>
+      expect(screen.getByText('No round to play right now')).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Games' }))
+
+    expect(screen.getByText('Choose a game')).toBeInTheDocument()
+    expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
+  })
 })
