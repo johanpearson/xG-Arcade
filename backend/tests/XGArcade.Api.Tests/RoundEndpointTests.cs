@@ -2,12 +2,14 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using XGArcade.Api.Rounds;
+using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
@@ -188,6 +190,41 @@ public class RoundEndpointTests
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task GenerateRound_Post_ReturnsProblemDetails_WhenAnUnexpectedExceptionOccurs()
+    {
+        // Regression coverage for the 2026-07-12 dev incident: a manual
+        // workflow_dispatch of generate-round.yml got a bare, opaque 500
+        // with no diagnosable body because the endpoint's try/catch only
+        // ever handled GridGenerationException — anything else (a DB blip,
+        // here simulated directly) fell through to ASP.NET's default empty
+        // 500. This asserts the catch-all branch added in response to that
+        // incident actually produces a caller-visible problem-details body.
+        var throwingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IRoundGenerationService>();
+                services.AddScoped<IRoundGenerationService, ThrowingRoundGenerationService>();
+            });
+        });
+        var client = throwingFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round generation failed unexpectedly"));
+        Assert.That(problem.Detail, Is.EqualTo("simulated DB failure"));
+    }
+
+    private sealed class ThrowingRoundGenerationService : IRoundGenerationService
+    {
+        public Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("simulated DB failure");
     }
 
     // ---- REQ-806: force-close-round is a non-Production-only test control --
