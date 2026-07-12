@@ -366,6 +366,42 @@ preview of the locked score (avoid it reading as a promise).
 /rounds/current` for a correct cell equals `round(uniqueScore *
 MaxPointsPerCell)` at read time; UI test confirms it's visually distinct
 from a locked score. *Deps:* S-011.
+**Built as:** matches the plan, plus one refactor called out in the task
+itself. `CurrentRoundGuessResponse` gained `LivePoints` (int?, null exactly
+when `UniquePercent` is), computed in `RoundEndpoints.cs` — but rather than
+writing `round(uniqueScore * MaxPointsPerCell)` a second time next to
+`ScoreLockingService`'s existing copy, that formula was extracted into a
+single new method, `ScoringRules.PointsFromUniqueScore(double uniqueScore)`
+(`XGArcade.Core.Scoring`), and both `ScoreLockingService.LockRoundScoresAsync`
+(REQ-205's locked `FinalPoints`) and `RoundEndpoints` (this story's live
+`LivePoints`) now call it — one formula, one place, not two
+independently-written copies that could drift. Frontend: `livePoints`
+threaded through `types.ts` → `GridScreen.tsx` → `GridCell.tsx` →
+`CellState.tsx`, rendered in state 1 only as "~N pts estimated" appended to
+the existing "X% unique" line — wording deliberately different from state
+4's plain "X% unique · Y pts" so it never reads as a preview or promise of
+the locked score; `GridScreen.tsx`'s optimistic post-guess state sets both
+`uniquePercent` and `livePoints` to `null` for the same reason the former
+already was (the write response doesn't echo either, only the next `GET
+/rounds/current` does). Deviation from a literal reading of the accept
+criteria: the 3 pre-existing REQ-204 API tests in
+`CurrentRoundEndpointTests.cs` (0% unique, 50% unique, incorrect-guess-is-
+null) got additive `LivePoints` assertions appended to their existing test
+bodies rather than 3 new, separately-named REQ-204 tests — each of those
+scenarios already exercised the exact `UniquePercent` state `LivePoints`
+derives from, so a parallel set of near-identical tests would have doubled
+the file for no additional coverage; the null-propagation and
+formula-correctness assertions are still explicit and independently
+readable within each test. 2 new dedicated tests were added in
+`frontend/src/grid/CellState.test.tsx` (REQ-204-named), since these exercise
+genuinely new rendering/wording behavior with no pre-existing equivalent —
+41/41 frontend tests green (full suite run). Backend test suite could not be
+executed in this environment (no dotnet SDK available); an
+architecture-reviewer pass and a code-reviewer pass both reviewed the diff
+instead and confirmed the formula-reuse fix and no boundary violation. No
+new ADR — this is a refactor consolidating an already-decided formula
+(REQ-205's), not a new architecturally significant choice, same reasoning
+as S-011's inline-logic extraction.
 
 **S-019 · Tap/long-press reveal of live per-cell info (REQ-204/SCREEN-01a
 redesign)**

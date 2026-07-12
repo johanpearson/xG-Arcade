@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — doc-sync for S-018 (branch claude/story-s-018-of5t7c):
+  requirements-document.md's REQ-204 entry — added an "S-018 addition" note
+  and two new acceptance-criteria bullets for the live `LivePoints`
+  estimate, and updated REQ-205's status note for the `ScoringRules.
+  PointsFromUniqueScore(double)` extraction (`RoundEndpoints`'s new
+  `LivePoints` and `ScoreLockingService`'s existing `FinalPoints` now call
+  the same method instead of two independently-written copies of
+  `round(uniqueScore * MaxPointsPerCell)`); version 0.31 → 0.32.
+  architecture-document.md — documented `ScoringRules.PointsFromUniqueScore`
+  as COMP-04's single shared entry point for that formula, and updated the
+  §6 data-flow and §9 "what's actually built" sections to mention
+  `LivePoints`; version 0.24 → 0.25. design-document.md — SCREEN-01a's
+  state-1 mock now shows "~N pts estimated" alongside the live uniqueness
+  %, with a note on why that wording is deliberately distinct from state
+  4's locked "Y pts"; version 0.8 → 0.9. backlog.md — added a "Built as:"
+  note to S-018 covering the `PointsFromUniqueScore` extraction, the
+  frontend wiring, and the deliberate additive-assertion-over-new-tests
+  deviation for the 3 pre-existing REQ-204 API tests. REQ-204/REQ-205.
 - 2026-07-11 — doc-sync for S-017 (branch
   claude/story-s-017-displayname-pk0ct1, commits 5a8e195/710e896/240bc54):
   requirements-document.md's REQ-701 status note (added directly by the

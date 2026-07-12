@@ -24,6 +24,12 @@ export interface CellStateProps {
   // ever set when isCorrect — undefined/null means "not correct yet" or
   // (state 4) "not wired to a live source yet," never fabricated.
   uniquePercent?: number | null;
+  // S-018 (REQ-204 extension): live, provisional point estimate for state 1
+  // only — same round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks
+  // at round close, computed live and re-derived on every request. Rendered
+  // with wording that marks it an estimate that can still change; never
+  // reused for state 4's finalPoints, which is a separate, locked prop.
+  livePoints?: number | null;
   // REQ-204's "updates until round closes on [date/time]" microcopy — only
   // rendered alongside uniquePercent, since it describes that value's
   // liveness, not the cell generally.
@@ -86,6 +92,7 @@ export function CellState({
   locked,
   roundStatus,
   uniquePercent,
+  livePoints,
   roundEndTime,
   finalPoints,
   rowCategoryType,
@@ -149,7 +156,10 @@ export function CellState({
         </p>
         {uniquePercent != null && (
           <>
-            <p className="cell-state__meta mono-figure">{formatPercent(uniquePercent)}% unique</p>
+            <p className="cell-state__meta mono-figure">
+              {formatPercent(uniquePercent)}% unique
+              {livePoints != null && ` · ~${livePoints} pts estimated`}
+            </p>
             {roundEndTime && (
               <p className="cell-state__meta cell-state__meta--muted">
                 updates until round closes on {formatDateTime(roundEndTime)}

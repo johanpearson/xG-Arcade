@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.24"
+version: "0.25"
 status: draft
-last_updated: 2026-07-11
+last_updated: 2026-07-12
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -162,7 +162,16 @@ written, shared by the live read path (`GET /rounds/current`,
 `XGArcade.Api.Rounds.RoundEndpoints`) and `IScoreLockingService`
 /`ScoreLockingService` (REQ-205), which `Core.Rounds`' `RoundCloseService`
 calls at round close to persist `FinalUniquenessScore`/`FinalPoints` for
-every `Guess` in the round. `ScoreCalculator.CalculateTotalPoints`
+every `Guess` in the round. As of S-018, the uniqueScore→points formula
+itself was likewise extracted to a single shared method,
+`ScoringRules.PointsFromUniqueScore` — `ScoreLockingService` calls it to
+compute `FinalPoints` (REQ-205) and `RoundEndpoints` calls the same method
+to compute a new live `LivePoints` field on `GET /rounds/current` (REQ-204
+extension), so COMP-04 has exactly one place this formula is written, same
+principle as `UniquenessCalculator.Calculate` above. `LivePoints` is
+read-only and re-derived per request, never persisted, so it does not
+change COMP-04's data-flow boundary — only the API response shape (§6).
+`ScoreCalculator.CalculateTotalPoints`
 (REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
 all-time total (COMP-02, below) recomputes the same formula database-side
 rather than calling this directly (see `ScoreCalculator`'s own doc comment
@@ -369,7 +378,9 @@ shape. What's actually built and real end to end: `POST
 and an immediate lock on a correct answer or on the 2nd attempt. As of
 S-011, the live-uniqueness and round-close-lock legs (below) are also real
 end to end: `GET /rounds/current` computes `UniquePercent` live via
-`UniquenessCalculator`, and `RoundCloseService` (`Core.Rounds`) calls
+`UniquenessCalculator` (and, as of S-018, a `LivePoints` estimate alongside
+it via `ScoringRules.PointsFromUniqueScore`), and `RoundCloseService`
+(`Core.Rounds`) calls
 `IScoreLockingService` (`Core.Scoring`) at round close to persist
 `FinalUniquenessScore`/`FinalPoints` for every `Guess` in the round.
 
@@ -421,14 +432,16 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   no API-Football fallback leg or `ExternalApiUsage` budget-gating for this
   call site, same as REQ-103's status.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
-  built (S-011)** — `GET /rounds/current` computes `UniquePercent` on every
-  request via `UniquenessCalculator.Calculate`, for any cell the requesting
-  player has correctly guessed. One attribution correction versus the
-  diagram: this line is drawn as part of the guess-submission response
+  built (S-011, extended S-018)** — `GET /rounds/current` computes
+  `UniquePercent` on every request via `UniquenessCalculator.Calculate`,
+  for any cell the requesting player has correctly guessed, plus (as of
+  S-018) a `LivePoints` estimate derived from that same `UniquePercent` via
+  `ScoringRules.PointsFromUniqueScore`. One attribution correction versus
+  the diagram: this line is drawn as part of the guess-submission response
   path, but the actual read happens on `GET /rounds/current`
   (`XGArcade.Api.Rounds.RoundEndpoints`), a separate request — the guess
   submission response itself (`POST .../guesses`) does not include
-  `UniquePercent`, only the next `GET /rounds/current` does.
+  `UniquePercent` or `LivePoints`, only the next `GET /rounds/current` does.
 - The final `[scheduled, at Round.EndTime]` block (locking
   `FinalUniquenessScore`/`FinalPoints`) **is now built (S-011)** —
   `RoundCloseService` (`Core.Rounds`) calls `IScoreLockingService`

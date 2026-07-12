@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Rounds;
+using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
@@ -351,6 +352,10 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.0));
+        // S-018: LivePoints follows the same round(uniqueScore *
+        // MaxPointsPerCell) formula REQ-205 locks at round close — 0%
+        // unique must live-estimate to 0 points, not null.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round(0.0 * ScoringRules.MaxPointsPerCell)));
     }
 
     [Test]
@@ -382,6 +387,13 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.5));
+        // S-018: this scenario's LivePoints must equal exactly
+        // round(uniqueScore * ScoringRules.MaxPointsPerCell), referencing
+        // the real constant (not hardcoding 100) so the assertion can't
+        // silently drift from REQ-205's locked-score formula. 0.5 unique
+        // resolves to 50 (round(0.5 * 100)).
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round(guessedCell.Guess.UniquePercent!.Value * ScoringRules.MaxPointsPerCell)));
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(50));
     }
 
     [Test]
@@ -401,5 +413,9 @@ public class CurrentRoundEndpointTests
         Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
         Assert.That(guessedCell.Guess.UniquePercent, Is.Null,
             "an incorrect guess has no real answer to measure rarity against");
+        // S-018: LivePoints is null exactly when UniquePercent is — an
+        // incorrect guess has no uniqueness fraction to estimate points from.
+        Assert.That(guessedCell.Guess.LivePoints, Is.Null,
+            "LivePoints must be null whenever UniquePercent is, per its own doc comment on CurrentRoundGuessResponse");
     }
 }

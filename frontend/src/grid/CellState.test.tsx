@@ -42,6 +42,61 @@ describe('CellState', () => {
     expect(screen.getByText(/updates until round closes on/)).toBeInTheDocument();
   });
 
+  it('REQ-204 (S-018): correct + round active with a live uniqueness value and a live point estimate shows "X% unique · ~N pts estimated"', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        livePoints={12}
+        roundEndTime="2026-07-11T18:00:00Z"
+      />,
+    );
+
+    expect(screen.getByText('live')).toBeInTheDocument();
+    expect(screen.getByText('12% unique · ~12 pts estimated')).toBeInTheDocument();
+  });
+
+  it('REQ-204 (S-018): the live point estimate is visually and textually distinct from a round-closed locked score', () => {
+    const { container: liveContainer } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        livePoints={12}
+      />,
+    );
+    const liveText = screen.getByText('12% unique · ~12 pts estimated');
+    expect(liveContainer.querySelector('.cell-state--live')).toBeInTheDocument();
+    expect(liveContainer.querySelector('.cell-state--final')).not.toBeInTheDocument();
+
+    const { container: closedContainer } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="closed"
+        uniquePercent={0.12}
+        finalPoints={88}
+      />,
+    );
+    const closedText = screen.getByText('12% unique · 88 pts');
+    expect(closedContainer.querySelector('.cell-state--final')).toBeInTheDocument();
+    expect(closedContainer.querySelector('.cell-state--live')).not.toBeInTheDocument();
+
+    // The live estimate's wording ("~N pts estimated") must never collapse
+    // to, or be mistaken for, the locked-score wording ("Y pts") — this is
+    // the acceptance criterion, not just an implementation detail.
+    expect(liveText.textContent).not.toEqual(closedText.textContent);
+  });
+
   it('REQ-210 state 2: incorrect with one attempt remaining spells out the count as text', () => {
     render(
       <CellState

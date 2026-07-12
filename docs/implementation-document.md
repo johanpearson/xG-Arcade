@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.35"
+version: "0.36"
 status: draft
-last_updated: 2026-07-11
+last_updated: 2026-07-12
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -775,21 +775,33 @@ at Round.EndTime (scheduled job):
 `XGArcade.Core.Scoring`) — no document specified an exact value for "how
 many points is a 100%-unique correct guess worth"; this is the Tier 0
 default, chosen and recorded here (S-011), same non-appsettings-bound,
-plain-constant pattern as `GuessRules.MaxAttemptsPerCell`.
+plain-constant pattern as `GuessRules.MaxAttemptsPerCell`. The
+`round(uniqueScore * MAX_POINTS_PER_CELL)` computation itself is written in
+exactly one place, `ScoringRules.PointsFromUniqueScore(double uniqueScore)`
+(extracted S-018) — both the "at Round.EndTime" `FinalPoints` locking above
+and a live, provisional `LivePoints` estimate returned by `GET
+/rounds/current` for any correctly-guessed, still-open cell (REQ-204
+extension) call this same method, never two independently-written copies
+of the formula.
 
 Race conditions (REQ-603) are handled by keeping `Guess` inserts simple
 (insert/update, no incremental counter to keep in sync) — the calculation is
 always done via a `COUNT()` query against current table data, which is
 atomic at the database level.
 
-**Tier 0 status (S-008/S-009/S-011):** as of S-011, both halves of this
-pseudocode are implemented, in `XGArcade.Core.Scoring`:
+**Tier 0 status (S-008/S-009/S-011, extended S-018):** as of S-011, both
+halves of this pseudocode are implemented, in `XGArcade.Core.Scoring`:
 `UniquenessCalculator.Calculate` is the "live" half, called both by `GET
 /rounds/current` (`XGArcade.Api.Rounds.RoundEndpoints`, on every request,
 never persisted) and by `IScoreLockingService`/`ScoreLockingService`'s "at
 Round.EndTime" half, which `RoundCloseService` (`XGArcade.Core.Rounds`)
 now calls at round close — the same formula is shared, so the live value
-and the final locked value can never disagree by construction.
+and the final locked value can never disagree by construction. As of
+S-018, the `uniqueScore → points` half of the formula was likewise
+consolidated into `ScoringRules.PointsFromUniqueScore`, so `GET
+/rounds/current`'s new live `LivePoints` field and `ScoreLockingService`'s
+`FinalPoints` locking share that code too, not just the uniqueness
+calculation upstream of it.
 `RoundCloseService` itself still only pulls a round's `EndTime` forward
 (idempotently — never later than what's already scheduled) before
 delegating; that trigger remains invoked today only via REQ-806's

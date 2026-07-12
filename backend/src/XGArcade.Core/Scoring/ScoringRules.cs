@@ -7,4 +7,11 @@ namespace XGArcade.Core.Scoring;
 public static class ScoringRules
 {
     public const int MaxPointsPerCell = 100;
+
+    // REQ-205's locked-score formula, and the one place it's allowed to be
+    // written — shared by ScoreLockingService's FinalPoints and
+    // RoundEndpoints' live LivePoints (S-018) so the two can never drift
+    // into two different roundings/scalings of the same uniqueScore.
+    public static int PointsFromUniqueScore(double uniqueScore) =>
+        (int)Math.Round(uniqueScore * MaxPointsPerCell);
 }

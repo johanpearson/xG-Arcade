@@ -23,7 +23,7 @@ public class ScoreLockingService(IGuessRepository guessRepository) : IScoreLocki
                 // cell's correct-guesses group.
                 var uniqueScore = UniquenessCalculator.Calculate(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
                 guess.FinalUniquenessScore = uniqueScore;
-                guess.FinalPoints = (int)Math.Round(uniqueScore * ScoringRules.MaxPointsPerCell);
+                guess.FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore);
             }
             else
             {

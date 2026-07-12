@@ -53,6 +53,7 @@ export function GridCell({ cell, roundStatus, roundEndTime, knownPlayerName, onO
           locked={guess.locked}
           roundStatus={roundStatus}
           uniquePercent={guess.uniquePercent}
+          livePoints={guess.livePoints}
           roundEndTime={roundEndTime}
           rowCategoryType={cell.rowCategoryType}
           rowCategoryValue={cell.rowCategoryValue}
