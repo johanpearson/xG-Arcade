@@ -465,6 +465,46 @@ against undocumented animations).
 *Accept:* Playwright/Vitest coverage confirms an incorrect guess triggers
 the animation (or its reduced-motion fallback). *Deps:* S-015 (build
 alongside the correct-guess animation work).
+**Built as:** matches the plan, plus one bug found and fixed by a
+code-reviewer pass. `CellState.tsx` gained a new `useShakeToken` hook
+(alongside S-015's `useRevealToken`, same "transition, not mount" trigger
+shape) applying `cell-state--shake` — separate CSS keyframes
+(`cell-state-shake` translateX wiggle + `cell-state-incorrect-flash`
+red-to-transparent) from the badge dock's, remounted via `key={shakeToken}`
+so repeated rejections on the same cell restart the animation — whenever
+`attemptCount` increases while `isCorrect` stays false, covering both
+state 2 -> state 2 and state 2 -> state 3 transitions; the existing
+`prefers-reduced-motion` media query overrides it to the flash only, no
+shake, matching the badge dock's own fallback pattern. An
+architecture-reviewer pass ran clean (no boundary violation, no ADR
+needed — a self-contained interaction-pattern addition to the existing
+`CellState` component using only already-defined design tokens, same
+reasoning as S-015/S-019). A code-reviewer pass then found a real bug:
+because `GridCell` only renders `CellState` once a cell has a guess (an
+unattempted cell shows a plain "+" placeholder instead), a cell's very
+first-ever rejected guess this session mounted `CellState` directly
+already-incorrect rather than transitioning into that state from an
+already-mounted render — indistinguishable, from inside `useShakeToken`
+alone, from a page reload showing a cell someone else already attempted
+(which correctly must never shake). This silently contradicted
+design-document.md's "fires on every rejected guess" line and would have
+failed the new Playwright assertion. Fixed with a new
+`submittedThisSession` prop (`GridCell` derives it from the existing
+`knownPlayerName != null` signal, already the marker for "this browser
+session submitted this guess") that seeds `useShakeToken`'s initial state
+correctly only for a first-mount rejection, leaving a real page-load mount
+silent as before. `useRevealToken` (S-015's badge-dock reveal) has the
+identical latent gap for a cell's first-ever *correct* guess —
+deliberately left unfixed here, out of this story's scope, same as other
+documented "acknowledged gap, not fixed this story" notes elsewhere in
+this backlog (e.g. S-011/S-018). Regression coverage added at both levels:
+`CellState.test.tsx` gained unit tests for the new prop (including that it
+only seeds on a rejection, not a correct first mount) and a new
+`GridScreen.test.tsx` integration test drives the real
+null-guess -> rejected-guess transition end to end — the level at which
+the bug actually lived, since `CellState`-only tests couldn't see it.
+`play-grid.spec.ts` asserts `.cell-state--shake` is visible on both the
+state 2 and state 3 rejection paths.
 
 **S-021 · Post-login game-selection landing page (REQ-303 UX addition)**
 Add a landing screen shown immediately after login/signup, before the
