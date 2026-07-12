@@ -33,7 +33,9 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
     // Core.Scoring.ScoreCalculator.CalculateTotalPoints implements, computed
     // database-side instead — the leaderboard's scope (every guess a member
     // has ever made) is too large to pull into memory just to re-sum it.
-    // Keep both in sync if this formula ever changes.
+    // Keep both in sync if this formula ever changes. ADR-0021: lower is
+    // better (SUM is minimized, not maximized) — see LeaderboardService's
+    // ascending sort, the actual place this total's direction matters.
     public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) =>
         await dbContext.Guesses
             .AsNoTracking()
@@ -47,6 +49,15 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
         dbContext.Guesses.Add(guess);
         await dbContext.SaveChangesAsync(cancellationToken);
         return guess;
+    }
+
+    public async Task AddRangeAsync(IReadOnlyCollection<Guess> guesses, CancellationToken cancellationToken = default)
+    {
+        if (guesses.Count == 0)
+            return;
+
+        dbContext.Guesses.AddRange(guesses);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task UpdateAsync(Guess guess, CancellationToken cancellationToken = default)

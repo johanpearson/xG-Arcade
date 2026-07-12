@@ -87,6 +87,11 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     <div className="leaderboard-screen">
       <div className="leaderboard-screen__header">
         <h2>Global leaderboard</h2>
+        {/* ADR-0021/design-document.md SCREEN-03: scored like golf — this
+            corrects the natural "higher number = better" assumption before
+            a player reads any rank. Must never be omitted or left implicit
+            in the ranking order alone. */}
+        <p className="leaderboard-screen__subtitle">Lowest total wins</p>
       </div>
       {state.rows.length === 0 ? (
         // design-document.md §5: "empty states are invitations."

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.36"
+version: "0.37"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -80,7 +80,8 @@ second game (the architecture must not block this later, but it is not built now
 | Cell | The intersection of one row category and one column category |
 | Round | A time-bound instance of a grid, with a start and end time |
 | Guess | A player's answer for a cell |
-| Uniqueness score | Share of *other* correct guessers who did NOT give the same answer for a cell — the guesser's own guess is excluded from the comparison, so a lone correct guesser is 100% (not 0%) unique (ADR-0020) |
+| Uniqueness score | Share of *other* correct guessers who did NOT give the same answer for a cell — the guesser's own guess is excluded from the comparison, so a lone correct guesser is 100% (not 0%) unique (ADR-0020). **Note the points derived from it are inverted (ADR-0021): a HIGHER uniqueness score yields FEWER points — see "Points"/"Score" below.** |
+| Points / Score | xG Arcade is scored like golf: LOWER is better, and a player's (or the leaderboard's) goal is to MINIMIZE their total, never maximize it (ADR-0021). A cell's most-unique possible correct answer scores 0 (best); an incorrect guess, an unanswered cell (for a round the player participated in), or the most commonly-shared correct answer all score `ScoringRules.MaxPointsPerCell` (worst, 100 by default) |
 | Override | A manually corrected data point that always wins over synced data |
 | Unverified data | Data fetched live during grid generation, not yet reviewed by an admin |
 
@@ -332,7 +333,11 @@ without erroring), API
   takes precedence over synced/unverified data)
 - Then the guess is marked `correct = true/false` and this result is
   displayed to the player immediately — not deferred to round close
-- And an incorrect guess yields 0 points regardless of uniqueness
+- And an incorrect guess yields the WORST possible score
+  (`ScoringRules.MaxPointsPerCell`) regardless of uniqueness — **ADR-0021:
+  xG Arcade is scored like golf (lower is better, lowest total wins)**, so
+  0 is the *best* possible score and an incorrect guess must never be able
+  to tie it
 - And a correct guess immediately locks the cell against further guesses
   (REQ-210), even though its final score isn't computed until the round
   closes (REQ-205) — "locked from further guessing" and "final score" are
@@ -378,7 +383,7 @@ without erroring), API
 - **S-018 addition:** the same endpoint also computes `LivePoints` alongside
   `UniquePercent`, via the new `ScoringRules.PointsFromUniqueScore(double
   uniqueScore)` (`XGArcade.Core.Scoring`) — extracted in this story as the
-  one place `round(uniqueScore * MaxPointsPerCell)` is written, called by
+  one place the `uniqueScore → points` formula is written, called by
   both this live path and REQ-205's `ScoreLockingService.LockRoundScoresAsync`
   when it locks `FinalPoints`, so the two literally share code rather than
   independently matching formulas. `LivePoints` is null whenever
@@ -390,6 +395,17 @@ without erroring), API
   "X% unique · Y pts", so it can never read as a preview or promise of
   REQ-205's locked score, only as a provisional value that can still
   change before the round closes.
+- **ADR-0021 correction (lowest-wins scoring):** `PointsFromUniqueScore` was
+  `round(uniqueScore * MaxPointsPerCell)` (higher uniqueness -> higher
+  points -> "more points is better"); it is now `round((1 - uniqueScore) *
+  MaxPointsPerCell)` — xG Arcade is scored like golf, so a rarer/more-unique
+  answer scores FEWER points (0 for the rarest possible), not more, and the
+  player's/leaderboard's goal is to MINIMIZE total points. `UniquePercent`
+  itself is unaffected (still ADR-0020's corrected uniqueness fraction) —
+  only its mapping to `LivePoints`/`FinalPoints` is inverted. The frontend's
+  "~N pts estimated"/"X% unique · Y pts" wording is unchanged text, but
+  SCREEN-01a/SCREEN-03 now also state the lowest-wins framing explicitly
+  (design-document.md) so a player doesn't assume the opposite from habit.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -432,7 +448,8 @@ present, updates on refresh)
 > As a player, I want my final score to be fixed once the round closes, so I
 > know my result is permanent.
 
-- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018).**
+- **Status: Partially implemented (Tier 0, S-011; formula extraction S-018;
+  lowest-wins correction S-028/ADR-0021).**
   `RoundCloseService`
   (`XGArcade.Core.Rounds`) pulls `EndTime` forward (idempotently — never
   later than what's already scheduled) to force immediate closure, then
@@ -441,18 +458,23 @@ present, updates on refresh)
   for every `Guess` in the round, a correct guess gets
   `FinalUniquenessScore` (via the same `UniquenessCalculator` REQ-204 uses)
   and `FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore)`
-  (`= round(uniqueScore * MaxPointsPerCell)`, `MaxPointsPerCell = 100`, a
-  Tier 0 default — no document specified an exact value); `PointsFromUniqueScore`
-  was extracted in S-018 so this same call also backs REQ-204's live
-  `LivePoints` estimate. **S-022 correction (ADR-0020):** `uniqueScore` itself
-  now excludes the guesser's own guess from the comparison (see REQ-204's
-  status note) — a lone correct guesser locks at `FinalUniquenessScore = 1.0`
-  and `FinalPoints = MaxPointsPerCell`, not 0. An incorrect guess gets `FinalUniquenessScore = null` and
-  `FinalPoints = 0`. This is idempotent and safe to call again on an
-  already-closed round. What's still missing: there is no automated
-  scheduled job yet that calls round-close at a round's real `end_time` in
-  production — today it is only ever invoked via REQ-806's
-  non-Production-only `POST /internal/test-data/force-close-round/{roundId}`.
+  (`= round((1 - uniqueScore) * MaxPointsPerCell)` as of ADR-0021,
+  `MaxPointsPerCell = 100`, a Tier 0 default — no document specified an
+  exact value); `PointsFromUniqueScore` was extracted in S-018 so this same
+  call also backs REQ-204's live `LivePoints` estimate. **S-022 correction
+  (ADR-0020):** `uniqueScore` itself excludes the guesser's own guess from
+  the comparison (see REQ-204's status note) — a lone correct guesser has
+  `FinalUniquenessScore = 1.0`. **S-028 correction (ADR-0021 — xG Arcade is
+  scored like golf, lowest total wins):** that now locks `FinalPoints = 0`
+  (the *best* score), not `MaxPointsPerCell`. An incorrect guess gets
+  `FinalUniquenessScore = null` and `FinalPoints = MaxPointsPerCell` (the
+  *worst* score — previously 0, which would otherwise tie a wrong answer
+  with the best possible correct one under the lowest-wins model). This is
+  idempotent and safe to call again on an already-closed round. What's
+  still missing: there is no automated scheduled job yet that calls
+  round-close at a round's real `end_time` in production — today it is
+  only ever invoked via REQ-806's non-Production-only
+  `POST /internal/test-data/force-close-round/{roundId}`.
   The UI's "clearly different styling/icon" clause is built for `CellState`'s
   closed state (`cell-state--final`, "final" label, "X% unique · Y pts"),
   but that state is only reachable via constructed props in
@@ -474,7 +496,8 @@ present, updates on refresh)
 > As a player, I want to see my total score for the whole grid, so I can
 > compare myself to others.
 
-- **Status note (Tier 0, S-011):** `ScoreCalculator.CalculateTotalPoints`
+- **Status note (Tier 0, S-011; unanswered-cell correction S-028/ADR-0021).**
+  `ScoreCalculator.CalculateTotalPoints`
   (`XGArcade.Core.Scoring`) implements this exact formula (`SUM(FinalPoints
   ?? 0)`) and is unit-tested against it directly. Its contribution is
   reflected correctly in the global leaderboard's running total (REQ-401,
@@ -484,12 +507,25 @@ present, updates on refresh)
   "view a specific closed round" screen at all (`GET /rounds/current` only
   ever returns an Active round), so there is nowhere to show one round's
   total distinctly from the leaderboard's all-time running total. Not a
-  regression — revisit once/if a past-round-detail view exists.
+  regression — revisit once/if a past-round-detail view exists. **S-028
+  correction (ADR-0021):** "unanswered cells count as 0 points" was true
+  under the higher-is-better model (0 was the worst score, matching "no
+  credit"); under lowest-wins, 0 is the *best* score, so leaving unanswered
+  cells at 0 would make skipping a cell entirely optimal. `ScoreLockingService
+  .MaterializeUnansweredCellsAsync` now creates a real, `MaxPointsPerCell`-scored
+  `Guess` row for each cell a round *participant* (someone with at least one
+  guess in that round) never attempted, at round close — resolved via a new
+  `IGameModule.GetCellIdsAsync(instanceId)` method (never by Core reaching
+  into a game-specific table directly, per ADR-0003). A user who never
+  opened the round at all is not penalized for it — this only applies
+  within a round someone actually played.
 - Given all cells in a round have been locked (REQ-205)
 - When the total score is calculated
 - Then the sum of `final_points` across all N×N cells for the player is shown
   as the round's total score
-- And unanswered cells count as 0 points
+- And unanswered cells, for a player who participated in the round at all,
+  count as `MaxPointsPerCell` points (the worst score) — same as an
+  incorrect guess, per ADR-0021
 
 **Test level:** Unit, API
 
@@ -823,14 +859,17 @@ case covers the game-selection step added in S-021)
 > As a player, I want to see the leaderboard for any league I'm a member of,
 > so I can track my ranking.
 
-- **Status: Partially implemented (Tier 0, S-011).** `GET
+- **Status: Partially implemented (Tier 0, S-011; sort direction corrected
+  S-028/ADR-0021).** `GET
   /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`)
   → `ILeaderboardService`/`LeaderboardService` (`XGArcade.Core.Leagues`)
   implements exactly this ranking (members' `SUM(FinalPoints ?? 0)`,
-  sorted descending, ties broken by display name) for the global league
-  only — custom leagues (REQ-402/403) don't exist yet, so there is exactly
-  one leaderboard to read today; SCREEN-03's frontend
-  (`LeaderboardScreen.tsx`) shows only the Global list, no tab switcher.
+  **sorted ascending** — ADR-0021: xG Arcade is scored like golf, lowest
+  total wins, so rank #1 is the lowest total, not the highest — ties broken
+  by display name) for the global league only — custom leagues (REQ-402/403)
+  don't exist yet, so there is exactly one leaderboard to read today;
+  SCREEN-03's frontend (`LeaderboardScreen.tsx`) shows only the Global list,
+  no tab switcher.
   **Known gap:** the response is unbounded (every member in one payload) —
   see REQ-607's own status note for why this is an acknowledged, deliberate
   Tier 0 gap rather than an oversight.
@@ -838,7 +877,8 @@ case covers the game-selection step added in S-021)
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
   score calculation per league), filtered by league membership
-- And the list is correctly sorted descending by total score
+- And the list is correctly sorted ascending by total score — lowest wins
+  (ADR-0021)
 
 **Test level:** Unit, API, UI
 
@@ -854,7 +894,8 @@ questions below are unresolved, not oversights)*
   remains the REQ-401/404 default)
 - Then the ranking sums `FinalPoints` (same locked-only rule as REQ-401/404 —
   this REQ does not change what counts, only the time window) for guesses
-  whose `Round.EndTime` falls within the selected window, sorted descending
+  whose `Round.EndTime` falls within the selected window, sorted ascending
+  (ADR-0021: lowest wins, same direction as REQ-401/404's all-time total)
 - And "round" specifically means the single most recently *closed* round for
   the game (Tier 0 has no past-round browsing UI at all yet — REQ-206's
   status note already flags this gap; this REQ does not resolve it, it only

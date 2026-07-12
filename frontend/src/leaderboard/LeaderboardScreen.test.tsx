@@ -38,6 +38,22 @@ describe('LeaderboardScreen', () => {
     expect(screen.getByText('you')).toBeInTheDocument();
   });
 
+  it('REQ-404/ADR-0021: shows "Lowest total wins" so a player does not assume the opposite from habit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }],
+        }),
+      ),
+    );
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+    expect(screen.getByText('Lowest total wins')).toBeInTheDocument();
+  });
+
   it('REQ-401: shows a calm empty-state invitation when nobody has scored yet', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse({ rows: [] })));
 

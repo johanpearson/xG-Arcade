@@ -74,6 +74,9 @@ public class LeaderboardServiceTests
     [Test]
     public async Task REQ401_GetGlobalLeaderboardAsync_NewMemberWithNoGuesses_AppearsWithZeroPoints()
     {
+        // ADR-0021: 0 is the BEST possible score under the lowest-wins
+        // model — a brand-new member legitimately starts in first place,
+        // not last.
         var member = await SeedMemberAsync("Alex");
 
         var rows = await _service.GetGlobalLeaderboardAsync(member.Id);
@@ -85,8 +88,9 @@ public class LeaderboardServiceTests
     }
 
     [Test]
-    public async Task REQ404_GetGlobalLeaderboardAsync_MultipleMembers_SortedDescendingByTotalPoints()
+    public async Task REQ404_GetGlobalLeaderboardAsync_MultipleMembers_SortedAscendingByTotalPoints()
     {
+        // ADR-0021: xG Arcade is scored like golf — lowest total wins.
         var alex = await SeedMemberAsync("Alex");
         var sam = await SeedMemberAsync("Sam");
         var you = await SeedMemberAsync("You");
@@ -97,9 +101,9 @@ public class LeaderboardServiceTests
 
         var rows = await _service.GetGlobalLeaderboardAsync(you.Id);
 
-        // Descending by TotalPoints: Alex (142) > You (50 + 88 = 138) > Sam (120).
-        Assert.That(rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You", "Sam" }));
-        Assert.That(rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 142, 138, 120 }));
+        // Ascending by TotalPoints: Sam (120) < You (50 + 88 = 138) < Alex (142).
+        Assert.That(rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "You", "Alex" }));
+        Assert.That(rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 120, 138, 142 }));
         Assert.That(rows.Single(r => r.DisplayName == "You").IsRequestingUser, Is.True);
         Assert.That(rows.Where(r => r.DisplayName != "You").All(r => !r.IsRequestingUser), Is.True);
     }

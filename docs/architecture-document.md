@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.26"
+version: "0.27"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -175,6 +175,21 @@ change COMP-04's data-flow boundary — only the API response shape (§6).
 now excludes the guesser's own guess from both sides of the ratio — no
 boundary or data-flow change, a pure formula-correctness fix within COMP-04
 (see REQ-204's status note and ADR-0020 for the rationale).
+**S-028 correction (ADR-0021 — lowest-wins scoring):** two changes, both
+within COMP-04's existing boundary. First, `ScoringRules.PointsFromUniqueScore`
+is now `round((1 - uniqueScore) * MaxPointsPerCell)` (was `round(uniqueScore
+* MaxPointsPerCell)`) and an incorrect guess now locks at `FinalPoints =
+MaxPointsPerCell` (was `0`) — both pure formula changes, no new data flow.
+Second, `ScoreLockingService` gained a new step,
+`MaterializeUnansweredCellsAsync`, run before locking: for each round
+participant (a user with ≥1 `Guess` row in that round), any cell they never
+attempted gets a synthesized `Guess` row scored the same as an incorrect
+guess. This *does* touch COMP-04's boundary with COMP-05/`IGameModule` —
+resolving "every cell id for this instance" requires a new
+`IGameModule.GetCellIdsAsync(instanceId)` method, reached the same way
+`GenerateInstanceAsync`/`ScoreSubmissionAsync` already are (via
+`IGameModuleResolver`, keyed by the `Round`'s `GameKey`), never by COMP-04
+reaching into `GridInstance`/`GridCell` directly (ADR-0003 unaffected).
 `ScoreCalculator.CalculateTotalPoints`
 (REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
 all-time total (COMP-02, below) recomputes the same formula database-side
@@ -516,8 +531,8 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
       per-round ScoreCalculator in memory (see ScoreCalculator's own doc
       comment on why these two call sites intentionally reimplement the
       same formula at different scopes)
-  → sorted descending by total, response never paginated yet (REQ-607's
-    acknowledged Tier 0 gap)
+  → sorted ascending by total (ADR-0021: lowest wins), response never
+    paginated yet (REQ-607's acknowledged Tier 0 gap)
 ```
 
 Custom leagues (REQ-402/403 — create/join via invite code) are not built;
@@ -740,6 +755,8 @@ new ADR that references the old one.
 | ADR-0017 | Validate Supabase JWTs against its JWKS endpoint, not a static shared secret | Accepted |
 | ADR-0018 | REQ-211 (guess-time live verification) implemented in Tier 0, without its `PlayerNameIndex` gate | Accepted (further revises ADR-0010's trigger condition) |
 | ADR-0019 | Silent auto-rename to resolve pre-existing DisplayName collisions during the S-017 uniqueness migration | Accepted |
+| ADR-0020 | Uniqueness formula excludes the guesser's own guess from the comparison | Accepted |
+| ADR-0021 | xG Arcade is scored like golf — lower points is better, lowest total wins | Accepted (builds on ADR-0020, does not supersede it) |
 
 ## 11. Glossary
 

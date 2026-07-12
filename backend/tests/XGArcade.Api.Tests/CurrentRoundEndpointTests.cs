@@ -352,10 +352,11 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(1.0));
-        // S-018: LivePoints follows the same round(uniqueScore *
-        // MaxPointsPerCell) formula REQ-205 locks at round close — 100%
-        // unique must live-estimate to full points, not 0.
-        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
+        // S-018/ADR-0021: LivePoints follows the same round((1 - uniqueScore)
+        // * MaxPointsPerCell) formula REQ-205 locks at round close — under
+        // the lowest-wins model, 100% unique (nobody else shares this
+        // answer) must live-estimate to the BEST score, 0, not the max.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(0));
     }
 
     [Test]
@@ -391,7 +392,8 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(1.0));
-        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
+        // ADR-0021: 100% unique live-estimates to the best score, 0.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(0));
     }
 
     [Test]
@@ -423,12 +425,15 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
         Assert.That(guessedCell.Guess.UniquePercent, Is.EqualTo(0.5));
-        // S-018: this scenario's LivePoints must equal exactly
-        // round(uniqueScore * ScoringRules.MaxPointsPerCell), referencing
-        // the real constant (not hardcoding 100) so the assertion can't
-        // silently drift from REQ-205's locked-score formula. 0.5 unique
-        // resolves to 50 (round(0.5 * 100)).
-        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round(guessedCell.Guess.UniquePercent!.Value * ScoringRules.MaxPointsPerCell)));
+        // S-018/ADR-0021: this scenario's LivePoints must equal exactly
+        // round((1 - uniqueScore) * ScoringRules.MaxPointsPerCell),
+        // referencing the real constant (not hardcoding 100) so the
+        // assertion can't silently drift from REQ-205's locked-score
+        // formula. 0.5 unique resolves to 50 either way (the midpoint is
+        // its own inverse), which is why this specific case can't
+        // distinguish the pre-ADR-0021 formula from the current one — see
+        // the two tests above for cases that do.
+        Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo((int)Math.Round((1.0 - guessedCell.Guess.UniquePercent!.Value) * ScoringRules.MaxPointsPerCell)));
         Assert.That(guessedCell.Guess.LivePoints, Is.EqualTo(50));
     }
 

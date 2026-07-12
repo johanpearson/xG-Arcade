@@ -724,6 +724,83 @@ open questions and rewriting this story's acceptance criteria to match,
 *then* implementing. *Deps:* S-011 (locked `FinalPoints`/leaderboard
 exist), REQ-405's open questions resolved.
 
+**S-028 · Golf-style (lowest-wins) scoring model (REQ-203/204/205/206/401/404, ADR-0021)**
+Direct product feedback, immediately after S-022 shipped: the requested
+scoring direction is the opposite of what S-011/S-022 built — a rarer/more-
+unique correct answer should score FEWER points, and a player's (and the
+leaderboard's) goal is to MINIMIZE their total, not maximize it. Confirmed
+with two follow-up questions before implementation (both answered
+explicitly, not assumed): an incorrect guess scores the max penalty
+(`MaxPointsPerCell`, not 0 — 0 is now the *best* score, so a wrong guess
+must never tie the best possible correct one), and an unanswered cell, for
+any round a player participated in, is penalized the same as a wrong guess
+("unanswered equals wrong guess after each round").
+*Accept:* `ScoringRules.PointsFromUniqueScore` inverted; incorrect guesses
+lock at `MaxPointsPerCell`; a round participant's unattempted cells are
+penalized the same way at round close; `LeaderboardService` sorts
+ascending. All existing REQ-204/205/401/404-named tests updated to the new
+expected values; new tests cover the unanswered-cell materialization
+specifically (a participant's missed cell, a non-participant's total
+exemption, and idempotency across repeated round-close calls). *Deps:*
+S-022 (ADR-0020's uniqueness formula, built on top of, not reverted).
+**Built as:** matches the plan, with one structural addition flagged and
+accepted up front rather than discovered afterward: penalizing unanswered
+cells requires knowing every cell id for a round's grid instance, which
+`Core.Scoring` has no existing way to ask for — ADR-0021 documents this as
+a new `IGameModule.GetCellIdsAsync(instanceId)` method (implemented in
+`GridGameModule` by reading the already-generated `GridInstance.Cells`),
+reached the same ADR-0003-respecting way `GenerateInstanceAsync`/
+`ScoreSubmissionAsync` already are — never a direct `GridCell` read from
+`Core.Scoring`. `ScoreLockingService` gained `IRoundRepository`/
+`IGameModuleResolver` dependencies (both already registered in `Program.cs`
+for other consumers, so no DI wiring changes needed) and a new
+`MaterializeUnansweredCellsAsync` step, run before locking: for each round
+participant (≥1 `Guess` row in that round — a user who never opened the
+round at all is exempt, confirmed explicitly rather than assumed), it
+inserts a synthetic `Guess` row (`IsCorrect = false`, `AttemptCount = 0`,
+`SubmittedName = ""` — distinguishing it from a real wrong guess in case
+that distinction matters later) for each cell they never attempted.
+Naturally idempotent: a second `LockRoundScoresAsync` call re-derives
+"which cells are still missing" from what's actually persisted, so already-
+materialized rows are excluded the second time with no separate guard.
+`IGuessRepository` gained `AddRangeAsync` for the batch insert.
+`ScoreCalculator.CalculateTotalPoints`/`GuessRepository
+.GetTotalFinalPointsByUserIdsAsync` needed no logic change — both still
+just sum `FinalPoints ?? 0`; the materialization step ensures that sum sees
+real rows for previously-"free" unanswered cells before either ever runs.
+Backend test suite could not be executed in this environment (no dotnet SDK
+available, same limitation S-018/S-022 recorded) — every changed formula
+and every new/updated test's expected value was hand-derived and
+cross-checked against the corrected formulas before committing; an
+architecture-reviewer and code-reviewer pass both ran against the diff
+given its size, same as S-022. Architecture review ran clean (the new
+`IRoundRepository`/`IGameModuleResolver` dependency on `ScoreLockingService`
+mirrors `GuessSubmissionService`'s existing pattern exactly; confirmed no
+other `IGameModule` implementer besides `GridGameModule`/`FakeGameModule`
+exists that would fail to compile). Code review hand-verified every
+formula/assertion as arithmetically correct and found two real gaps, both
+fixed: `REQ206_CloseRoundAsync_UserWithNoGuessesInRoundAtAll
+_NeverGetsAnyMaterializedGuesses` originally seeded a round with zero
+guesses at all, so it passed trivially (`MaterializeUnansweredCellsAsync`
+short-circuits on an empty participant set before considering anyone,
+never actually exercising the exclusion logic it claimed to test) — fixed
+by adding a real participant alongside the non-participant, so the
+materialized-for-participant / nothing-for-non-participant contrast is
+actually proven; and a stale comment in `FakeGameModule.cs` referencing a
+nonexistent `ScoreLockingServiceTests` file, corrected to
+`RoundCloseServiceScoringTests`. A speculative, non-blocking
+concurrent-round-close race (two simultaneous `LockRoundScoresAsync` calls
+for the same round could both compute the same "missing" set) was noted
+and documented as a code comment rather than fixed, since no current
+caller can trigger it. `requirements-document.md`
+(REQ-203/204/205/206/401/404/405 all touched — glossary, status notes,
+acceptance criteria), `architecture-document.md` (COMP-04 status note, the
+leaderboard data-flow diagram's sort direction, ADR table), and
+`implementation-document.md` (§6a pseudocode rewritten for the
+materialization step and inverted formula, `IGameModule`'s interface
+listing, REQ-607's pagination pseudocode's `ORDER BY` direction) all
+updated to match. New `docs/decisions/0021-golf-style-lowest-wins-scoring.md`.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

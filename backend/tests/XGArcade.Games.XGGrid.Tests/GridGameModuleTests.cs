@@ -171,6 +171,33 @@ public class GridGameModuleTests
         Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("GoodClub"));
     }
 
+    // ---- ADR-0021: cell ids for round-close's unanswered-cell penalty -----
+
+    [Test]
+    public async Task GetCellIdsAsync_GeneratedInstance_ReturnsEveryCellId()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        SeedCachedMatches("France", "Arsenal", 3);
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+
+        var cellIds = await module.GetCellIdsAsync(result.Id);
+
+        Assert.That(cellIds, Is.EquivalentTo(instance!.Cells.Select(c => c.Id)));
+    }
+
+    [Test]
+    public void GetCellIdsAsync_UnknownInstanceId_ThrowsGuessScoringException()
+    {
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        Assert.ThrowsAsync<GuessScoringException>(async () =>
+            await module.GetCellIdsAsync(Guid.NewGuid()));
+    }
+
     [Test]
     public async Task REQ101_GridGeneration_AbortsWithGridGenerationException_WhenMaxAttemptsExhausted()
     {

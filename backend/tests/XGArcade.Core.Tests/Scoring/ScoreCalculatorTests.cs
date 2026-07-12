@@ -48,10 +48,15 @@ public class ScoreCalculatorTests
     [Test]
     public void REQ206_CalculateTotalPoints_EmptyCollection_SumsToZero()
     {
-        // REQ-206: "unanswered cells count as 0 points" — there is no
-        // placeholder Guess row for a cell the player never attempted, so
-        // an empty collection (e.g. a player who answered nothing in the
-        // round) is exactly what that maps to.
+        // This pure function still just sums whatever Guess rows it's
+        // given — an empty collection (e.g. a player who never opened this
+        // round at all) sums to 0. ADR-0021: this is NOT the same as "every
+        // unanswered cell scores 0" — a round *participant's* unattempted
+        // cells are penalized at MaxPointsPerCell via materialized Guess
+        // rows before this function ever runs (see
+        // ScoreLockingService.MaterializeUnansweredCellsAsync); this
+        // function has no participation concept of its own, it only sums
+        // what it's handed.
         var total = ScoreCalculator.CalculateTotalPoints(Array.Empty<Guess>());
 
         Assert.That(total, Is.EqualTo(0));

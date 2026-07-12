@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
 using XGArcade.Data;
@@ -28,7 +29,10 @@ public class RoundCloseServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
-        _service = new RoundCloseService(_roundRepository, new ScoreLockingService(_guessRepository));
+        var gameModuleResolver = new GameModuleResolver([new FakeGameModule("xg-grid")]);
+        _service = new RoundCloseService(
+            _roundRepository,
+            new ScoreLockingService(_guessRepository, _roundRepository, gameModuleResolver));
     }
 
     [TearDown]

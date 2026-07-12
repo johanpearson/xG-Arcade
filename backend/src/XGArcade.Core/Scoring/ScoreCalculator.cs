@@ -15,11 +15,15 @@ namespace XGArcade.Core.Scoring;
 // formula ever changes, check GetTotalFinalPointsByUserIdsAsync too.
 public static class ScoreCalculator
 {
-    // Unanswered cells never have a Guess row at all, so "unanswered cells
-    // count as 0 points" falls out of summing only what's actually in the
-    // collection — no placeholder zero-rows needed. A guess whose
-    // FinalPoints hasn't been locked yet (round still active) also
-    // contributes 0, since it isn't a *final* score yet.
+    // ADR-0021: a cell a round's participant never attempted no longer
+    // relies on "no Guess row = 0" falling out for free — 0 is now the
+    // *best* possible score (lowest-wins), so ScoreLockingService
+    // materializes a real, penalized Guess row for it at round close
+    // (MaterializeUnansweredCellsAsync) before this ever sums anything. This
+    // formula itself is unchanged: still just SUM(FinalPoints ?? 0). A
+    // guess whose FinalPoints hasn't been locked yet (round still active)
+    // contributes 0 here, since it isn't a *final* score yet — not to be
+    // confused with 0 as a genuinely-locked best-case score.
     public static int CalculateTotalPoints(IEnumerable<Guess> guesses) =>
         guesses.Sum(g => g.FinalPoints ?? 0);
 }

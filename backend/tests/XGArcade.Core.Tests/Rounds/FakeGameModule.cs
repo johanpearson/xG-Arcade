@@ -37,4 +37,13 @@ internal class FakeGameModule(string gameKey) : IGameModule
         ScoreSubmissionAsyncCallCount++;
         return Task.FromResult(ScoreSubmissionResult(instanceId, userId, submission));
     }
+
+    // ADR-0021: defaults to no cells, since most existing tests using this
+    // fake predate the unanswered-cell penalty and don't exercise it —
+    // RoundCloseServiceScoringTests sets GetCellIdsResult explicitly where
+    // it matters.
+    public Func<Guid, IReadOnlyList<Guid>> GetCellIdsResult { get; set; } = _ => [];
+
+    public Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(GetCellIdsResult(instanceId));
 }

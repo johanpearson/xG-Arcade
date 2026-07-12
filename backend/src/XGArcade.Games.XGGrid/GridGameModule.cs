@@ -124,6 +124,16 @@ public class GridGameModule(
         return await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
     }
 
+    // ADR-0021: round-close's unanswered-cell penalty needs every cell id
+    // for the instance, regardless of whether anyone ever guessed it.
+    public async Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default)
+    {
+        var instance = await gridInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new GuessScoringException($"GridInstance '{instanceId}' not found.");
+
+        return instance.Cells.Select(c => c.Id).ToList();
+    }
+
     private async Task<ScoreResult> FindMatchAsync(
         GridCell cell, string normalizedName, Guid instanceId, CancellationToken cancellationToken)
     {

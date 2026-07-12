@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.12"
+version: "0.13"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -199,11 +199,19 @@ At rest (default):
 Revealed (tap/long-press, or hover/focus on desktop):
 ┌─────────────────────────┐
 │  Henry            ✓ live │
-│  12% unique · ~12 pts    │      "correct" and "final" are different
+│  12% unique · ~88 pts    │      "correct" and "final" are different
 │  estimated                │      moments (REQ-203) — the dot signals
 │  updates until 18:00 Fri  │      "still live" at rest either way
 └─────────────────────────┘
 ```
+
+**ADR-0021:** xG Arcade is scored like golf — 88, not 12, is correct here:
+12% unique means only 12% of the *other* correct guessers picked something
+different from Henry (a fairly common answer), so it scores close to
+`MaxPointsPerCell` (worst), not close to 0 (best). The point value moving
+opposite to the percentage is intentional, not a mismatched mock — see
+SCREEN-03's "Lowest total wins" line, the primary place this direction is
+made explicit to the player.
 
 **S-019 redesign:** the uniqueness %/point-estimate/round-end line is no
 longer always visible — every unresolved cell showing its full live text at
@@ -246,11 +254,16 @@ disappears/reappears together with it, never shown alone.
 ```
 ┌─────────────────────────┐
 │  Ronaldinho        ✕      │
-│  no attempts left · 0 pts │   ← guaranteed 0, stated plainly, not implied
+│  no attempts left ·       │   ← guaranteed worst score (ADR-0021), stated
+│  100 pts                  │      plainly, not implied
 └─────────────────────────┘
       ↑ same rejected-guess cue plays here too, on the guess that used up
         the last attempt
 ```
+
+**ADR-0021:** an incorrect/exhausted cell locks at `MaxPointsPerCell` (100
+by default), not 0 — xG Arcade is scored like golf, so 0 is the *best*
+possible score and must never be free just for guessing wrong.
 
 **4. Round closed** (either prior state, now permanent):
 
@@ -332,16 +345,26 @@ be handled cleanly rather than silently guessing on the player's behalf.
 ```
 ┌───────────────────────────────┐
 │ [Global] [My League ▾] [+ New] │
+│ Lowest total wins               │
 ├───────────────────────────────┤
-│ 1  Alex        142 pts         │
+│ 1  Sam         120 pts         │
 │ 2  You         138 pts   ← you │
-│ 3  Sam         120 pts         │
+│ 3  Alex        142 pts         │
 └───────────────────────────────┘
 ```
 
 Unchanged from v0.1 structurally — tabs for Global vs. custom leagues, the
 user's row always visually distinct. Recolored: the user's row uses
 `surface-sunken` instead of a dark raised surface.
+
+**ADR-0021 addition:** xG Arcade is scored like golf — lowest total wins,
+the opposite of the natural "higher number = better" assumption most
+players will bring from other games. The "Lowest total wins" line (plain
+text, `text-muted` token, no new color) is added directly under the tab
+row specifically to correct that assumption before a player reads any
+rank — it must never be omitted or left implicit in the ranking order
+alone. Rank #1 is always the lowest `TotalPoints`, consistent with
+`LeaderboardService`'s ascending sort.
 
 ### SCREEN-04: Admin review (unverified data)
 

@@ -13,6 +13,57 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — golf-style scoring model, S-028 (branch
+  claude/points-ui-concerns-z9tvc2): direct follow-up product feedback,
+  immediately after the S-022/ADR-0020 entry below shipped, asked for the
+  opposite scoring direction from what was just built — rarer/more-unique
+  correct answers should score FEWER points, and a player's/the
+  leaderboard's goal is to MINIMIZE their total (golf-style), not maximize
+  it. Two follow-up questions confirmed before implementation (not
+  assumed): an incorrect guess scores the max penalty (0 is now the *best*
+  score, so a wrong guess must never tie the best correct one), and an
+  unanswered cell is penalized the same as a wrong guess for any round a
+  player participated in. New `docs/decisions/0021-golf-style-lowest-wins-
+  scoring.md` — builds on ADR-0020 (does not revert it; `uniqueScore`
+  itself is unchanged, only its mapping to points is inverted).
+  `ScoringRules.PointsFromUniqueScore` inverted
+  (`round((1 - uniqueScore) * MaxPointsPerCell)`); incorrect guesses now
+  lock at `MaxPointsPerCell`; `LeaderboardService` sorts ascending. New:
+  `IGameModule.GetCellIdsAsync` (implemented in `GridGameModule`),
+  `ScoreLockingService.MaterializeUnansweredCellsAsync` (penalizes a round
+  participant's unattempted cells at round close, resolved through
+  `IGameModule` per ADR-0003, never a direct game-table read),
+  `IGuessRepository.AddRangeAsync`. requirements-document.md: REQ-203/204/
+  205/206/401/404/405 all updated (glossary, status notes, acceptance
+  criteria — "lowest wins," incorrect/unanswered = max penalty, leaderboard
+  sort ascending); version 0.36 -> 0.37. architecture-document.md: COMP-04
+  status note, §6 leaderboard data-flow diagram's sort direction, ADR
+  table gained both ADR-0020 (missing from a prior pass — added now) and
+  ADR-0021; version 0.26 -> 0.27. implementation-document.md: §6a
+  pseudocode rewritten for the materialization step and inverted formula,
+  `IGameModule`'s interface listing gained `GetCellIdsAsync`, REQ-607's
+  pagination pseudocode's `ORDER BY` flipped to `ASC`; version 0.38 ->
+  0.39. design-document.md: SCREEN-03's mock re-sorted ascending with a new
+  "Lowest total wins" subtitle line (`LeaderboardScreen.tsx`/`.css` gained
+  the matching `leaderboard-screen__subtitle`, `text-muted` token only, no
+  new color); SCREEN-01a's state-1 mock corrected from "~12 pts estimated"
+  to "~88 pts estimated" for its own "12% unique" example (was
+  inconsistent with the formula even before this ADR) and state-3's "no
+  attempts left · 0 pts" corrected to "100 pts", each with a short
+  ADR-0021 explanatory note; version 0.12 -> 0.13. backlog.md: S-028 added
+  as a completed "Built as" story. Every existing REQ-204/205/401/404-named
+  backend test recomputed by hand against the corrected formulas (no
+  dotnet SDK in this environment, same limitation S-018/S-022 recorded);
+  new tests added for unanswered-cell materialization (a participant's
+  missed cell, a non-participant's exemption, idempotency across repeated
+  round-close calls) and for `IGameModule.GetCellIdsAsync` itself; frontend
+  suite 72/72 green (`npm run test`), `tsc -b`/`npm run lint` clean. Flagged,
+  not fixed (pre-existing, unrelated to this ADR): `CellState.tsx`'s state 3
+  (incorrect, no attempts left) still renders no point value at all — a gap
+  predating S-011 that the design doc's mock has always shown but the
+  component never built; left as-is rather than scope-creeping a new
+  feature into this change. REQ-203, REQ-204, REQ-205, REQ-206, REQ-401,
+  REQ-404, REQ-405, ADR-0021.
 - 2026-07-12 — points-ui-concerns (branch claude/points-ui-concerns-z9tvc2):
   three real bugs found via direct product feedback, fixed, and documented
   as S-022/023/024; three larger feature requests from the same feedback

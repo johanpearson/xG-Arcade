@@ -15,16 +15,20 @@ public class LeaderboardService(
         var members = await userRepository.GetByIdsAsync(memberUserIds, cancellationToken);
         var totalsByUserId = await guessRepository.GetTotalFinalPointsByUserIdsAsync(memberUserIds, cancellationToken);
 
-        // REQ-404: sorted descending by total score. A member with no
-        // locked FinalPoints yet (no rounds closed for them) is absent
-        // from totalsByUserId — treated as 0, not omitted from the list.
+        // REQ-404/ADR-0021: sorted ascending by total score — xG Arcade is
+        // scored like golf, lowest total wins. A member with no locked
+        // FinalPoints yet (no rounds closed for them) is absent from
+        // totalsByUserId — treated as 0, not omitted from the list (and 0
+        // is the best possible score under this model, so an
+        // unlocked/never-played member legitimately ranks at the top until
+        // their first round locks).
         return members
             .Select(member => new LeaderboardEntry(
                 member.Id,
                 member.DisplayName,
                 totalsByUserId.GetValueOrDefault(member.Id, 0),
                 member.Id == requestingUserId))
-            .OrderByDescending(entry => entry.TotalPoints)
+            .OrderBy(entry => entry.TotalPoints)
             .ThenBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
