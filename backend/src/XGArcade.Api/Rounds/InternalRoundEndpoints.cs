@@ -72,13 +72,13 @@ public static class InternalRoundEndpoints
                 // REQ-301 already leans on someone noticing and checking a
                 // failed run manually (see REQ-301's own acceptance
                 // criteria) — this is what makes that check possible from
-                // the workflow's own log, not just Container App logs. Same
-                // "detail is caller-visible" call as the GridGenerationException
-                // branch above: this endpoint's only caller is the
-                // bearer-token-gated scheduler job, never an end user, so
-                // architecture-document.md §7's client-appropriate-summary
-                // rule (aimed at public endpoints) doesn't argue for hiding
-                // it here either.
+                // the workflow's own log, not just Container App logs.
+                // ex.Message in `detail` is the documented narrow exception
+                // in docs/coding-guidelines.md's error-handling rule (added
+                // alongside this fix) for a bearer-token-gated /internal/*
+                // endpoint whose only caller is a scheduled job, not a
+                // player-facing surface — the default "no raw exception text
+                // to the client" rule still applies everywhere else.
                 logger.LogError(ex, "Round generation failed unexpectedly.");
 
                 return Results.Problem(
