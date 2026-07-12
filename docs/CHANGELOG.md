@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — CI-caught E2E fix for S-029 (same branch, third commit,
+  PR #40): `ci.yml`'s real Playwright run against a live backend (this
+  sandbox has no `dotnet` SDK, so it can't run this suite locally — same
+  limitation prior S-0xx entries recorded) failed on
+  `frontend/tests/e2e/play-grid.spec.ts`'s "wrong guess shows incorrect +
+  attempts left, correct guess locks the cell live" and "two wrong guesses
+  ... lock the cell" tests: both had a pre-existing assertion that an
+  incorrect guess's raw as-typed text stays visible in the cell — exactly
+  what S-029's own name-display fix intentionally changed (no name shown at
+  all for an incorrect guess). Neither the frontend unit suite (mocked
+  fetch, doesn't exercise the real Playwright spec) nor either review pass
+  below caught this, since none of them ran the actual E2E suite. Fixed by
+  flipping both assertions to `.not.toBeVisible()`; the correct-guess
+  assertion in the same test needed no change (`resolvedPlayerName` and the
+  seed's `correctPlayerName` are the identical string, typed with matching
+  case). Test-only fix, no product code changed, no doc other than
+  `backlog.md`'s S-029 entry needed updating. REQ-303.
 - 2026-07-12 — S-029 (branch claude/arcade-nav-ui-improvements-k8sbwj):
   five separate pieces of direct product feedback from playing the deployed
   app on a phone, bundled into one session per this repo's S-022/023/024

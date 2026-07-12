@@ -874,7 +874,19 @@ S-029 tag into a proper REQ-303 acceptance-criterion bullet, and closed two
 coverage gaps — a missing test for `GridScreen`'s new live total, and a
 missing idempotency test for `RoundGenerationService`'s predecessor-closing
 call on a repeated (retried) invocation. Final frontend suite: **75/75
-green**, `tsc -b`/`npm run lint` still clean.
+green**, `tsc -b`/`npm run lint` still clean. **CI fix (third commit):**
+`ci.yml`'s real Playwright run against a live backend (not reachable from
+this sandbox — no `dotnet` SDK, see prior stories' same limitation) caught
+a real regression neither the frontend unit suite nor either review pass
+had: `frontend/tests/e2e/play-grid.spec.ts` had two pre-existing assertions
+(`REQ-701/303/201/203/210` and `REQ-210` test cases) that expected an
+incorrect guess's raw as-typed text to remain visible in the cell — exactly
+the behavior this story's own name-display fix intentionally removed.
+Fixed by flipping both to `.not.toBeVisible()`, proving the new behavior
+instead of the old one; the correct-guess assertion (`cell.getByText(seed
+.correctPlayerName)`) needed no change since `resolvedPlayerName` and the
+seed's exact-cased `correctPlayerName` are the same string. No product code
+changed, test-only fix.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
