@@ -331,6 +331,42 @@ public class CurrentRoundEndpointTests
         Assert.That(guessedCell.Guess.Locked, Is.True, "REQ-210: a correct guess locks the cell immediately, even with attempts remaining");
     }
 
+    [Test]
+    public async Task CurrentRound_Get_CorrectGuessTypedInLowercase_ReturnsCanonicallyCasedResolvedPlayerName_ButSubmittedNameStaysAsTyped()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("thierry henry"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.SubmittedName, Is.EqualTo("thierry henry"), "the raw as-typed guess is unaffected by this fix");
+        Assert.That(guessedCell.Guess.ResolvedPlayerName, Is.EqualTo("Thierry Henry"), "the display name is the canonical Player.FullName");
+    }
+
+    [Test]
+    public async Task CurrentRound_Get_IncorrectGuess_ResolvedPlayerNameIsNull()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Wrong Guess"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
+        Assert.That(guessedCell.Guess.ResolvedPlayerName, Is.Null);
+    }
+
     // ---- REQ-204: live unique_percent --------------------------------------
 
     [Test]

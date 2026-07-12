@@ -64,10 +64,13 @@ public class ScoreLockingService(
     // second time, no separate guard needed. Not guarded against two
     // CONCURRENT calls for the same round (no transaction/lock) — both
     // could compute the same "missing" set and race on the (RoundId,
-    // UserId, CellId) unique index. No current caller can trigger that
-    // (only the non-Production force-close-round endpoint calls this path
-    // today); revisit if a real concurrent scheduled round-closer is ever
-    // added.
+    // UserId, CellId) unique index. `RoundGenerationService` now calls this
+    // path for real (REQ-205: closing a round's predecessor as part of the
+    // generate-round scheduled job), alongside the pre-existing non-
+    // Production force-close-round endpoint — but both are only ever
+    // triggered by generate-round.yml's low-cadence cron (twice a week) or a
+    // manual test-data call, never expected to overlap in practice; still
+    // not fixed, just an accepted, documented risk at Tier 0 scale.
     private async Task MaterializeUnansweredCellsAsync(Guid roundId, CancellationToken cancellationToken)
     {
         var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);

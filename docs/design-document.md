@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.13"
+version: "0.14"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -160,11 +160,18 @@ Mobile (single column)                Desktop (grid + side panel)
 │      [AFC] [MIL] [BAY]  │           │                    │  Your progress │
 │ 🇫🇷 │ Henry│  +  │  +  │           │   3x3 / NxN grid   │  2/9 answered  │
 │ 🇧🇷 │  +  │ Kaká │  +  │           │   (same as left)   │                │
-│ 🇪🇸 │  +  │  ✕  │  +  │           │                    │  Live 12%       │
-│                          │           │                    │                │
-│ Total: 69 pts            │           └────────────────────┴───────────────┘
+│ 🇪🇸 │  +  │  ✕  │  +  │           │                    │  ~69 pts       │
+│                          │           │                    │  estimated     │
+│ ~69 pts estimated         │           └────────────────────┴───────────────┘
 └─────────────────────────┘
 ```
+
+**S-029:** the running total shown here (REQ-206) uses the same "~N pts
+estimated" wording as a single cell's own live point value (REQ-204/S-018)
+— it's the sum of whatever per-cell live estimates are already known, not a
+promise of the locked total the leaderboard shows once the round closes.
+Only shown once at least one cell's live point value is known (never a
+fabricated "0" while nothing has been correctly guessed yet).
 
 - Row headers: flag + country name when the row category is a nationality;
   a club badge + club name when the row category is a club (REQ-107 means
@@ -199,19 +206,26 @@ At rest (default):
 Revealed (tap/long-press, or hover/focus on desktop):
 ┌─────────────────────────┐
 │  Henry            ✓ live │
-│  12% unique · ~88 pts    │      "correct" and "final" are different
-│  estimated                │      moments (REQ-203) — the dot signals
-│  updates until 18:00 Fri  │      "still live" at rest either way
+│  88% of others guessed   │      "correct" and "final" are different
+│  this too · ~88 pts      │      moments (REQ-203) — the dot signals
+│  estimated                │      "still live" at rest either way
+│  updates until 18:00 Fri  │
 └─────────────────────────┘
 ```
 
-**ADR-0021:** xG Arcade is scored like golf — 88, not 12, is correct here:
-12% unique means only 12% of the *other* correct guessers picked something
-different from Henry (a fairly common answer), so it scores close to
-`MaxPointsPerCell` (worst), not close to 0 (best). The point value moving
-opposite to the percentage is intentional, not a mismatched mock — see
-SCREEN-03's "Lowest total wins" line, the primary place this direction is
-made explicit to the player.
+**S-029 wording fix (supersedes this section's original "X% unique"
+copy):** a direct player-feedback pass found "X% unique" confusing once
+paired with ADR-0021's golf-style points — a *higher* uniqueness
+percentage meant *fewer* points, the opposite of what "unique" suggests on
+its own, so the mock above used to need its own explanatory paragraph just
+to justify why 88 pts went with "12% unique." The frontend now shows the
+same number reframed as its complement, "N% of others guessed this too"
+(N = `round((1 - uniqueScore) * 100)`), so the percentage and the point
+value now move in the *same* direction — more people guessing Henry reads
+as "common," which scores worse (closer to `MaxPointsPerCell`) under golf
+rules, matching the "lowest total wins" framing in SCREEN-03 directly
+instead of needing a footnote to reconcile it. No formula changed — only
+the wording.
 
 **S-019 redesign:** the uniqueness %/point-estimate/round-end line is no
 longer always visible — every unresolved cell showing its full live text at
@@ -242,18 +256,27 @@ disappears/reappears together with it, never shown alone.
 
 ```
 ┌─────────────────────────┐
-│  Ronaldinho        ✕      │   ← red cross, not locked
+│                     ✕      │   ← red cross, not locked — no name shown
 │  1 attempt left           │   ← always spelled out, never just an icon
 └─────────────────────────┘
       ↑ rejected-guess cue (S-020) plays once here: a brief shake + red
         flash, distinct from the badge dock above — see §2
 ```
 
+**S-029:** a wrong guess shows no name at all, not even the text the
+player typed — just the ✕ and the attempt count. Earlier versions of this
+mock (and the shipped code, until now) showed the as-typed guess
+("Ronaldinho" above) even when wrong; a player-feedback pass found this
+unhelpful (a wrong guess isn't useful information) and, worse, inconsistent
+with the *correct* case's canonical-cased name (a wrong guess showed
+whatever casing the player happened to type). Removed entirely for the
+incorrect states rather than partially fixed.
+
 **3. Incorrect, no attempts remaining** (round still active, cell is done):
 
 ```
 ┌─────────────────────────┐
-│  Ronaldinho        ✕      │
+│                     ✕      │   ← no name shown, same as state 2
 │  no attempts left ·       │   ← guaranteed worst score (ADR-0021), stated
 │  100 pts                  │      plainly, not implied
 └─────────────────────────┘
@@ -268,11 +291,14 @@ possible score and must never be free just for guessing wrong.
 **4. Round closed** (either prior state, now permanent):
 
 ```
-┌─────────────────────────┐
-│  Henry              ✓    │   ← gold checkmark, static, no "live" dot at all
-│  12% unique · 88 pts     │
-│  final                   │
-└─────────────────────────┘
+Prior outcome: correct                Prior outcome: incorrect
+┌─────────────────────────┐           ┌─────────────────────────┐
+│  Henry              ✓    │           │                     ✕    │
+│  88% of others guessed   │           │  final                   │
+│  this too · 88 pts       │           └─────────────────────────┘
+│  final                   │             ← no name here either,
+└─────────────────────────┘               same S-029 rule as states 2/3
+   ↑ gold checkmark, static, no "live" dot at all
 ```
 
 "Live," "final," "attempt(s) left," and "no attempts left" always appear as
@@ -390,7 +416,16 @@ Unchanged from v0.1 — built "equally both" from the start:
   layout reflowing.
 - Grid cell minimum touch target: 44×44px on mobile regardless of grid
   size; a 5x5 on a narrow phone scrolls horizontally with sticky row/column
-  headers rather than shrinking below that floor.
+  headers rather than shrinking below that floor. **S-029 correction:**
+  this floor only ever applied to the cells themselves — a Tier 0 3×3 grid
+  was still forced into horizontal scroll on an ordinary phone because
+  row/column header *label text* (a country/club name, nowrap, uncapped
+  width — "Paris Saint-Germain," "United Kingdom") was wider than the
+  screen, not because of the touch-target floor. Below a 480px viewport,
+  header labels now wrap onto two lines and shrink their own width floor
+  instead (`Grid.css`); the cell floor and the horizontal-scroll fallback
+  itself are unchanged for whatever is still too wide (a larger grid, or a
+  longer name still).
 
 ## 5. Copy and voice
 

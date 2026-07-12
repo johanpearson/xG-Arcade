@@ -20,6 +20,7 @@ public class GuessSubmissionServiceTests
     private XGArcadeDbContext _dbContext = null!;
     private IRoundRepository _roundRepository = null!;
     private IGuessRepository _guessRepository = null!;
+    private IPlayerStoreRepository _playerStoreRepository = null!;
     private FakeGameModule _gameModule = null!;
 
     private static readonly DateTimeOffset Now = new(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
@@ -33,6 +34,7 @@ public class GuessSubmissionServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
+        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
         _gameModule = new FakeGameModule("xg-grid");
     }
 
@@ -40,7 +42,15 @@ public class GuessSubmissionServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private GuessSubmissionService BuildService() =>
-        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), new FixedTimeProvider(Now));
+        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerStoreRepository, new FixedTimeProvider(Now));
+
+    private async Task<Guid> SeedPlayerAsync(string fullName)
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = $"Qtest-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        await _dbContext.SaveChangesAsync();
+        return player.Id;
+    }
 
     private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime, bool allowGuessChange)
     {
@@ -130,6 +140,33 @@ public class GuessSubmissionServiceTests
         var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
         Assert.That(stored!.SubmittedName, Is.EqualTo("Second Guess"));
         Assert.That(stored.AttemptCount, Is.EqualTo(2));
+    }
+
+    // ---- Frontend name-display fix: canonical name for a correct guess -----
+
+    [Test]
+    public async Task SubmitGuess_Correct_ReturnsCanonicalPlayerFullName_NotTheRawAsTypedSubmittedName()
+    {
+        var round = await SeedActiveRoundAsync();
+        var playerAnswerId = await SeedPlayerAsync("Thierry Henry");
+        SetNextResult(_gameModule, isCorrect: true, playerAnswerId);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "thierry henry");
+
+        Assert.That(result.ResolvedPlayerName, Is.EqualTo("Thierry Henry"));
+    }
+
+    [Test]
+    public async Task SubmitGuess_Incorrect_ResolvedPlayerNameIsNull()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Wrong Guess");
+
+        Assert.That(result.ResolvedPlayerName, Is.Null);
     }
 
     // ---- REQ-202: guess locking (allow_guess_change) -----------------------

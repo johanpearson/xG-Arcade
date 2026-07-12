@@ -10,6 +10,14 @@ public interface IPlayerStoreRepository
 {
     Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default);
     Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // REQ-201/REQ-303 display fix: a correct guess's canonical, properly-cased
+    // name (Player.FullName) for a batch of PlayerAnswerIds in one query,
+    // rather than one GetPlayerByIdAsync call per correctly-guessed cell —
+    // same bulk-lookup shape as GetCorrectByCellIdsAsync's caller uses.
+    Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
+
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
     // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): guess-time name matching

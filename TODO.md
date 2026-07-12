@@ -45,6 +45,15 @@ as items complete or new ones surface; don't let it silently go stale.
   network policy blocks `wikidata.org` (same limitation NOTES.md already
   records for S-006/ADR-0017), so it also has no real guesses to sample.
 
+## S-029 follow-up (one-time, after this fix deploys)
+
+- [ ] If any round in the deployed dev environment already ended before
+  ADR-0022's round-closing fix shipped, it needs one extra
+  `generate-round.yml` cron cycle to get closed automatically — or force it
+  immediately via `POST /internal/test-data/force-close-round/{roundId}`
+  (non-Production only) so its score reaches the leaderboard right away
+  rather than waiting.
+
 ## Tier 1 — revisit only after real testing shows a specific need
 
 See `MVP-SCOPE.md`'s Tier 1 section for the full list and the reasoning

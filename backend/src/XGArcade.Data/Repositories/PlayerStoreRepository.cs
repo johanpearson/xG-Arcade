@@ -11,6 +11,18 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
     public async Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         await dbContext.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0)
+            return new Dictionary<Guid, Player>();
+
+        return await dbContext.Players
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, cancellationToken);
+    }
+
     public async Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default)
     {
         dbContext.Players.Add(player);

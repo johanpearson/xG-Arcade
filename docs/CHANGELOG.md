@@ -13,6 +13,82 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — S-029 (branch claude/arcade-nav-ui-improvements-k8sbwj):
+  five separate pieces of direct product feedback from playing the deployed
+  app on a phone, bundled into one session per this repo's S-022/023/024
+  precedent. **(1) Nav simplification:** the header wrapped onto a second
+  line on a narrow phone with four separate buttons ("Games"/"Grid"/
+  "Leaderboard"/"Log out") — "Games" and "Grid" both duplicated the existing
+  game-selection landing page (S-021), so the "xG Arcade" title itself now
+  routes there and those two buttons were removed, leaving "Leaderboard"/
+  "Log out". **(2) Uniqueness copy fix:** "X% unique" read as backwards
+  once paired with ADR-0021's golf-style points (higher uniqueness = fewer
+  points) — `CellState.tsx` now shows the same number reframed as its
+  complement, "N% of others guessed this too" (N = `round((1 - uniqueScore)
+  * 100)`), so the percentage and point value move in the same direction;
+  no formula changed, wording only, applied to both the live disclosure and
+  the closed/final text. **(3) Mobile grid fit:** a Tier 0 3×3 grid still
+  forced horizontal scrolling on an ordinary phone — the actual cause was
+  uncapped-width, nowrap header label text ("Paris Saint-Germain," "United
+  Kingdom"), not the 44px touch-target floor (which is unchanged and still
+  applies to cells). Below a 480px viewport, header labels now wrap onto
+  two lines and shrink their own width floor (`Grid.css`); the floor-plus-
+  scroll design itself is unchanged for whatever's still too wide.
+  **(4) Guessed-name display fix:** a guessed name was shown exactly as
+  typed, including wrong casing for a correct guess, and shown at all for a
+  wrong one (not useful information). New `GuessSubmissionResult`/
+  `SubmitGuessResponse`/`CurrentRoundGuessResponse` field
+  `ResolvedPlayerName` (the canonical `Player.FullName`, resolved via a new
+  bulk `IPlayerStoreRepository.GetPlayersByIdsAsync` and a direct
+  `GetPlayerByIdAsync` call from `GuessSubmissionService`) is null unless
+  `IsCorrect`; the frontend now shows it instead of the raw `submittedName`
+  for a correct guess, and no name at all for an incorrect one (`Row` in
+  `CellState.tsx` gained an optional `name`). **(5) Round-closing fix, the
+  real bug behind "I can't see my points":** direct play-testing found that
+  a completed grid's score never reached the leaderboard in the deployed
+  dev environment — nothing had ever called round-close automatically, so
+  `Guess.FinalPoints` stayed null forever and every leaderboard total summed
+  to 0 (REQ-205's own status note had already flagged this exact gap as
+  "still missing"). `RoundGenerationService` (the code `generate-round.yml`'s
+  cron actually invokes, Tier 0's only production-scheduled trigger point)
+  now also closes a round before deciding whether to generate its successor
+  — new `IRoundRepository.GetPreviousByGameKeyAsync` finds the correct round
+  to close, which is never `latest` itself (REQ-301's "one round ahead"
+  design means a round stops being `latest` long before it actually ends —
+  see new `docs/decisions/0022-round-closing-runs-inside-generation-job.md`
+  for the full derivation and the alternatives considered, including why no
+  `Round.ClosedAt` schema migration was attempted this pass with no `dotnet`
+  SDK available to verify one). Also added, smaller: `GridScreen.tsx` now
+  shows a live "~N pts estimated" running total, summed client-side from
+  the same per-cell `LivePoints` REQ-204 already returns (REQ-206's
+  design-document.md SCREEN-01 mock already speced a "Total" line; never
+  built until now). Trade-off recorded, not fixed: any rounds that had
+  already ended-but-never-closed *before* this shipped need one additional
+  cron cycle each to catch up, or a manual
+  `POST /internal/test-data/force-close-round/{roundId}` call.
+  `requirements-document.md` (REQ-204/205/206/303 status notes; version
+  0.38 → 0.39), `architecture-document.md` (COMP-03/COMP-04 status notes,
+  §6.2's diagram and prose corrected for the now-real scheduled trigger,
+  new ADR-0022 table row; version 0.28 → 0.29), `design-document.md`
+  (SCREEN-01's mock total line, SCREEN-01a's four state mocks — reworded
+  uniqueness copy, removed the guessed name from both incorrect states and
+  the closed-incorrect case, replaced the now-obsolete "point value moves
+  opposite the percentage" explanatory note; a new note on the mobile
+  header-wrap fix in §4; version 0.13 → 0.14), `backlog.md` (new S-029
+  entry with a "Built as" note). Backend test suite could not be executed
+  in this environment (no `dotnet` SDK available, same limitation prior
+  S-0xx entries recorded) — new/changed backend logic was hand-traced
+  against concrete round-chain timelines instead, and new
+  `RoundGenerationServiceTests`/`GuessSubmissionServiceTests`/
+  `GuessEndpointTests`/`CurrentRoundEndpointTests` cases were added
+  following this repo's existing patterns (hand-rolled `FakeRoundCloseService`,
+  no mocking framework). Frontend suite run for real (73/73 green,
+  `npm run test`), `tsc -b` and `npm run lint` (`oxlint`) both clean —
+  `CellState.test.tsx`'s uniqueness-copy assertions and two
+  `GridScreen.test.tsx` guess-submission tests were updated to match the new
+  wording/name-display behavior. No new Tier 1 trigger fired — all five
+  fixes stayed inside Tier 0's existing scope. REQ-204, REQ-205, REQ-206,
+  REQ-303, ADR-0022.
 - 2026-07-12 — independent test-writer and requirements-writer passes over
   the same S-022/023/024/028 branch (claude/points-ui-concerns-z9tvc2),
   run alongside the doc-sync pass below. **requirements-writer** fixed

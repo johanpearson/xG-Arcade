@@ -27,6 +27,13 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
             .OrderByDescending(r => r.StartTime)
             .FirstOrDefaultAsync(cancellationToken);
 
+    public async Task<Round?> GetPreviousByGameKeyAsync(string gameKey, DateTime beforeStartTime, CancellationToken cancellationToken = default) =>
+        await dbContext.Rounds
+            .AsNoTracking()
+            .Where(r => r.GameKey == gameKey && r.StartTime < beforeStartTime)
+            .OrderByDescending(r => r.StartTime)
+            .FirstOrDefaultAsync(cancellationToken);
+
     // Not AsNoTracking: RoundCloseService reads a Round, mutates it, and
     // saves it back via UpdateAsync in the same request/scope — matching
     // this repository's own read-then-write flow, unlike every other

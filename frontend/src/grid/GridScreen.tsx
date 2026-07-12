@@ -26,10 +26,12 @@ const ROUND_STATUS = 'active' as const;
 export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [activeCell, setActiveCell] = useState<CurrentRoundCell | null>(null);
-  // Player names guessed this session — GET /rounds/current doesn't return
-  // the guessed/answer name, only correctness (see CellState.tsx's comment
-  // on this gap).
-  const [knownPlayerNames, setKnownPlayerNames] = useState<Record<string, string>>({});
+  // S-020: cellIds whose guess was submitted in this browser session — see
+  // GridCell's own doc comment. GET /rounds/current already returns a
+  // correct guess's canonical resolvedPlayerName directly (no client-side
+  // name cache needed for that), so this set exists only to distinguish
+  // "just submitted" from "loaded via page reload" for the shake cue.
+  const [submittedThisSessionCellIds, setSubmittedThisSessionCellIds] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -60,16 +62,16 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       const roundId = state.round.roundId;
 
       const result = await submitGuess(accessToken, roundId, cellId, submittedName);
-      // POST .../guesses' own response doesn't echo the submitted name back
-      // (SubmitGuessResponse only has isCorrect/attemptCount/locked) —
-      // filled in from what was just typed, same source knownPlayerNames uses.
-      // uniquePercent/livePoints aren't in that response either (REQ-204 is a
+      // uniquePercent/livePoints aren't in the submit response (REQ-204 is a
       // read-time calculation, GET /rounds/current's job, not the write
       // response's) — null here is accurate for this instant; the next
       // fetchCurrentRound (e.g. a reload) picks up the real live values.
+      // resolvedPlayerName IS in the submit response (frontend name-display
+      // fix) — the canonical name for a correct guess, never the raw
+      // submittedName.
       const guess = { ...result, submittedName, uniquePercent: null, livePoints: null };
 
-      setKnownPlayerNames((prev) => ({ ...prev, [cellId]: submittedName }));
+      setSubmittedThisSessionCellIds((prev) => new Set(prev).add(cellId));
       setState((prev) => {
         if (prev.phase !== 'ready') return prev;
         return {
@@ -107,19 +109,39 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
 
   const answeredCount = state.round.cells.filter((cell) => cell.guess !== null).length;
 
+  // REQ-206: the round's running total, shown here since there's otherwise
+  // nowhere a player can see it before the round closes and the leaderboard
+  // picks it up. Same "~N pts estimated" wording REQ-204/S-018 already
+  // established for a single cell's live point value — this is that same
+  // provisional value, just summed, never a promise of the locked total
+  // REQ-205 computes at round close. Only counts cells whose livePoints is
+  // already known (never fabricates a number for one that isn't yet).
+  const totalLivePoints = state.round.cells.reduce(
+    (sum, cell) => (cell.guess?.isCorrect && cell.guess.livePoints != null ? sum + cell.guess.livePoints : sum),
+    0,
+  );
+  const anyLivePointsKnown = state.round.cells.some(
+    (cell) => cell.guess?.isCorrect && cell.guess.livePoints != null,
+  );
+
   return (
     <div className="grid-screen">
       <div className="grid-screen__header">
         <h2>Current round</h2>
-        <p className="grid-screen__progress mono-figure">
-          {answeredCount}/{state.round.cells.length} answered
-        </p>
+        <div className="grid-screen__header-stats">
+          <p className="grid-screen__progress mono-figure">
+            {answeredCount}/{state.round.cells.length} answered
+          </p>
+          {anyLivePointsKnown && (
+            <p className="grid-screen__total mono-figure">~{totalLivePoints} pts estimated</p>
+          )}
+        </div>
       </div>
       <Grid
         cells={state.round.cells}
         roundStatus={ROUND_STATUS}
         roundEndTime={state.round.endTime}
-        knownPlayerNames={knownPlayerNames}
+        submittedThisSessionCellIds={submittedThisSessionCellIds}
         onCellClick={setActiveCell}
       />
       {activeCell && (

@@ -18,6 +18,7 @@ public class GuessSubmissionService(
     IRoundRepository roundRepository,
     IGuessRepository guessRepository,
     IGameModuleResolver gameModuleResolver,
+    IPlayerStoreRepository playerStoreRepository,
     TimeProvider timeProvider) : IGuessSubmissionService
 {
     public async Task<GuessSubmissionResult> SubmitGuessAsync(
@@ -79,6 +80,16 @@ public class GuessSubmissionService(
         // REQ-210: locks immediately on a correct answer, even if only 1 of
         // the 2 attempts was used; otherwise locks once both are used.
         var locked = scoreResult.IsCorrect || attemptCount >= GuessRules.MaxAttemptsPerCell;
-        return GuessSubmissionResult.Accepted(scoreResult.IsCorrect, attemptCount, locked);
+
+        // Frontend name-display fix: a correct guess's canonical, properly-
+        // cased name — never the raw as-typed submittedName, which stays
+        // exactly as the player entered it on the Guess row itself. Safe:
+        // scoreResult.IsCorrect is never true without PlayerAnswerId also
+        // being set (ScoreResult's own doc comment).
+        var resolvedPlayerName = scoreResult.IsCorrect
+            ? (await playerStoreRepository.GetPlayerByIdAsync(scoreResult.PlayerAnswerId!.Value, cancellationToken))?.FullName
+            : null;
+
+        return GuessSubmissionResult.Accepted(scoreResult.IsCorrect, attemptCount, locked, resolvedPlayerName);
     }
 }

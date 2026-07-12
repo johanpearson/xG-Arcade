@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.28"
+version: "0.29"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -190,6 +190,19 @@ resolving "every cell id for this instance" requires a new
 `GenerateInstanceAsync`/`ScoreSubmissionAsync` already are (via
 `IGameModuleResolver`, keyed by the `Round`'s `GameKey`), never by COMP-04
 reaching into `GridInstance`/`GridCell` directly (ADR-0003 unaffected).
+**Frontend name-display fix (2026-07-12):** `GuessSubmissionService` now also
+calls `IPlayerStoreRepository.GetPlayerByIdAsync` directly for a correct
+guess, to return its canonical `Player.FullName` (`GuessSubmissionResult
+.ResolvedPlayerName`) alongside the existing correctness/attempt-count
+result — the frontend now shows this instead of the raw as-typed guess for
+a correct answer, and no name at all for an incorrect one. This is a plain
+by-ID lookup, not a new matching/correctness path, so it doesn't touch
+boundary rule 5's autocomplete/correctness separation; `GET /rounds/current`
+(`RoundEndpoints`, §6.2) gained the same field via a new bulk
+`IPlayerStoreRepository.GetPlayersByIdsAsync`, for the same reason.
+`ADR-0022`: `RoundGenerationService` (COMP-03) now also depends on
+`IRoundCloseService` (COMP-03/COMP-04's existing extension point) —
+see COMP-03's own status note below for what changed and why.
 `ScoreCalculator.CalculateTotalPoints`
 (REQ-206) sums `FinalPoints` for a given set of guesses; the leaderboard's
 all-time total (COMP-02, below) recomputes the same formula database-side
@@ -308,6 +321,16 @@ a `GridTemplate`, calls `RoundGenerationService.GenerateNextRoundIfNeededAsync`
 that service creates the `Round` itself once `GridGameModule
 .GenerateInstanceAsync` (`IGameModule`, COMP-05) succeeds — matching the
 diagram's last line exactly.
+
+**ADR-0022 addition (2026-07-12):** `RoundGenerationService` now also closes
+a round via `IRoundCloseService` (a new constructor dependency) — this same
+`generate-round.yml` cron is Tier 0's only production-scheduled trigger
+point, so REQ-205's score-locking (§6.2) now actually runs in the deployed
+environment, not only via the non-Production test-data endpoint. The round
+closed is never `latest` itself but its predecessor (`IRoundRepository
+.GetPreviousByGameKeyAsync`, new) — see ADR-0022 for why "latest" is the
+wrong round to check, and REQ-205's status note for the leaderboard-facing
+effect.
 
 Two things from the S-007-era version of this note did **not** resolve the
 way that note predicted:
@@ -462,15 +485,21 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   submission response itself (`POST .../guesses`) does not include
   `UniquePercent` or `LivePoints`, only the next `GET /rounds/current` does.
 - The final `[scheduled, at Round.EndTime]` block (locking
-  `FinalUniquenessScore`/`FinalPoints`) **is now built (S-011)** —
-  `RoundCloseService` (`Core.Rounds`) calls `IScoreLockingService`
+  `FinalUniquenessScore`/`FinalPoints`) **is now built (S-011), and its
+  scheduled trigger is now real too (ADR-0022).** `RoundCloseService`
+  (`Core.Rounds`) calls `IScoreLockingService`
   (`Core.Scoring`), which persists `FinalUniquenessScore`/`FinalPoints` for
-  every `Guess` in the round. Still not built: the "[scheduled, at
-  Round.EndTime]" trigger itself — there is no automated job that calls
-  round-close at a round's real `end_time` in production yet; today this
-  is only ever invoked via REQ-806's non-Production-only
-  `POST /internal/test-data/force-close-round/{roundId}` (REQ-205's status
-  note). **S-028 addition (ADR-0021):** this block now has a step before
+  every `Guess` in the round. **Correction (ADR-0022):** this diagram
+  previously said no automated job called round-close in production —
+  `RoundGenerationService.GenerateNextRoundIfNeededAsync` (the one piece of
+  code `generate-round.yml`'s cron actually invokes) now closes a round's
+  predecessor before deciding whether to generate a successor, so this leg
+  runs for real, on the same schedule REQ-301's generation already runs on
+  — not a second scheduled job. REQ-806's non-Production-only
+  `POST /internal/test-data/force-close-round/{roundId}` still exists too,
+  for manual/E2E use (REQ-205's status note has the full picture, including
+  the trade-off accepted for a pre-existing backlog of never-closed rounds
+  from before this fix). **S-028 addition (ADR-0021):** this block now has a step before
   locking, not shown in the pre-S-028 diagram below — `ScoreLockingService`
   first calls `MaterializeUnansweredCellsAsync`, which reads the `Round`
   via the newly-added `IRoundRepository` dependency to resolve its
@@ -517,8 +546,12 @@ Player → Web Frontend → Backend API: POST guess (selected/typed name)
   → Core.Scoring: compute live uniqueness on read, not on write
   → Database: persist Guess (AttemptCount incremented, IsCorrect set)
 
-[scheduled, at Round.EndTime]
-Round Scheduler Job → Core.Scoring: lock final scores for all guesses in round
+[triggered by generate-round.yml's cron, ADR-0022 — the same schedule
+ REQ-301's round generation already runs on, not a separate job]
+Round Scheduler Job (Core.Rounds, via RoundGenerationService) → Core.Rounds
+  (via IRoundRepository.GetPreviousByGameKeyAsync): find the round this
+  invocation is about to supersede
+  → Core.Scoring: lock final scores for all guesses in that round
   → Core.Rounds (via IRoundRepository): resolve the round's GameKey/GameInstanceId
   → Games.XGGrid (COMP-05, via IGameModule.GetCellIdsAsync, ADR-0003): resolve
     every cell id for the instance
@@ -774,6 +807,7 @@ new ADR that references the old one.
 | ADR-0019 | Silent auto-rename to resolve pre-existing DisplayName collisions during the S-017 uniqueness migration | Accepted |
 | ADR-0020 | Uniqueness formula excludes the guesser's own guess from the comparison | Accepted |
 | ADR-0021 | xG Arcade is scored like golf — lower points is better, lowest total wins | Accepted (builds on ADR-0020, does not supersede it) |
+| ADR-0022 | Round closing runs inside the round-generation scheduled job, not a second cron | Accepted |
 
 ## 11. Glossary
 

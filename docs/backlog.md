@@ -801,6 +801,72 @@ materialization step and inverted formula, `IGameModule`'s interface
 listing, REQ-607's pagination pseudocode's `ORDER BY` direction) all
 updated to match. New `docs/decisions/0021-golf-style-lowest-wins-scoring.md`.
 
+**S-029 · Navigation, uniqueness copy, mobile grid fit, guess-name display, and round-closing fixes (REQ-205/206/303, ADR-0022)**
+Five separate pieces of direct product feedback from actually playing the
+deployed app on a phone, bundled into one session per this repo's
+precedent for a small batch of related polish/bugfixes (S-022/023/024):
+(1) the header nav wrapped onto a second line on a narrow phone because
+"Games"/"Grid"/"Leaderboard"/"Log out" were all separate buttons, when
+"Games" and "Grid" already duplicated the existing game-selection landing
+page (S-021); (2) "X% unique" read as backwards once paired with
+ADR-0021's golf-style points (higher uniqueness = fewer points); (3) a
+Tier 0 3×3 grid still needed horizontal scrolling on an ordinary phone,
+caused by header label text width, not the touch-target floor; (4) a
+guessed name showed exactly as typed (wrong casing for a correct guess,
+and shown at all for a wrong one, which isn't useful information); (5) a
+completed grid's points never reached the leaderboard in the deployed
+environment — round-close had a real production trigger gap.
+*Accept:* nav reduced to "Leaderboard"/"Log out" with the "xG Arcade" title
+itself routing to game-select; `CellState.tsx` shows "N% of others guessed
+this too" instead of "X% unique" (same underlying number, N = 1 -
+uniqueScore); a Tier 0 3×3 grid fits a common phone viewport without
+horizontal scroll; a correct guess shows `Player.FullName`, an incorrect
+guess shows no name; `GridScreen` shows a live "~N pts estimated" running
+total; `generate-round.yml`'s cron actually locks a round's score at close,
+verified by new `RoundGenerationServiceTests` cases. *Deps:* S-011 (scoring/
+leaderboard), S-018 (`LivePoints`), S-021 (game-selection landing page),
+S-028 (golf-style scoring, for the copy fix's framing).
+**Built as:** matches the plan. Backend: `IPlayerStoreRepository` gained
+`GetPlayersByIdsAsync` (bulk); `GuessSubmissionResult`/`SubmitGuessResponse`/
+`CurrentRoundGuessResponse` all gained `ResolvedPlayerName` (null unless
+`IsCorrect`), resolved via `GuessSubmissionService`/`RoundEndpoints` calling
+`IPlayerStoreRepository` directly — a plain by-ID lookup, not a new
+matching path, so boundary rule 5 (autocomplete/correctness separation) is
+unaffected. `IRoundRepository` gained `GetPreviousByGameKeyAsync`;
+`RoundGenerationService` now takes `IRoundCloseService` and closes a
+round's *predecessor* (never `latest` itself — see ADR-0022 for why
+"latest" is structurally the wrong round to check) before deciding whether
+to generate a successor, so `generate-round.yml`'s existing cron is now
+also Tier 0's real round-closing trigger, not just the non-Production
+`force-close-round` test-data endpoint. New
+`docs/decisions/0022-round-closing-runs-inside-generation-job.md`; trade-
+off recorded there, not fixed: any rounds already ended-but-never-closed
+before this shipped need one extra cron cycle each to catch up, or a manual
+`force-close-round` call. Frontend: `App.tsx`'s header nav simplified (the
+title is now a button when authenticated); `CellState.tsx`'s
+`formatOthersGuessedPercent` replaces `formatPercent`, and its two
+incorrect-guess states no longer pass a name to `Row` (now optional) at
+all; `GridScreen.tsx` replaced its `knownPlayerNames`-by-value map with a
+`submittedThisSessionCellIds` set (S-020's shake cue only ever needed the
+*session* signal, not a name — the name now comes straight from
+`resolvedPlayerName`) and added a client-side-summed live total; `Grid.css`
+gained a `max-width: 480px` media query wrapping header label text instead
+of forcing it onto one uncapped-width line. Backend test suite could not
+be executed in this environment (no `dotnet` SDK available, same
+limitation prior stories recorded) — new/changed logic was hand-traced
+against concrete round-chain timelines before committing, particularly
+`RoundGenerationService`'s predecessor-closing branch (worked through by
+hand: does "latest" ever point at the round that actually needs closing?
+No — it's always one step ahead of it, which is exactly why
+`GetPreviousByGameKeyAsync` exists rather than checking `latest.EndTime`
+directly). Frontend suite run for real this time (73/73 green,
+`npm run test`), `tsc -b` and `npm run lint` (`oxlint`) both clean —
+`CellState.test.tsx`'s uniqueness-copy assertions and
+`GridScreen.test.tsx`'s two guess-submission tests needed updating to match
+the new wording/name-display behavior (an incorrect guess's mocked POST
+response has no name to assert on anymore, so those tests now wait on the
+attempt-count text landing instead).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

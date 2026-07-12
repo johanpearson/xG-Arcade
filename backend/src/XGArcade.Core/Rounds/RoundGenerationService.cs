@@ -16,6 +16,7 @@ namespace XGArcade.Core.Rounds;
 public class RoundGenerationService(
     IRoundRepository roundRepository,
     IGameModuleResolver gameModuleResolver,
+    IRoundCloseService roundCloseService,
     RoundSchedulingOptions options,
     TimeProvider timeProvider) : IRoundGenerationService
 {
@@ -23,6 +24,28 @@ public class RoundGenerationService(
     {
         var latest = await roundRepository.GetLatestByGameKeyAsync(options.GameKey, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
+
+        // REQ-205: this scheduler job is the only production-scheduled
+        // trigger point Tier 0 has (generate-round.yml's cron), so closing
+        // (and thereby locking FinalPoints/the leaderboard total for) a round
+        // happens here rather than needing a second scheduled job of its own.
+        //
+        // The round to close is never "latest" itself here — "latest" only
+        // ever becomes the round about to start (or already active), one
+        // full cycle before it, in the same generation call that made it
+        // "latest" (see the branch below: startTime = latest?.EndTime ??
+        // now). By construction, that predecessor's EndTime equals latest's
+        // StartTime, so once latest has actually started (checked below),
+        // its predecessor has necessarily already ended and is exactly the
+        // round this job has never had a chance to close until now.
+        // CloseRoundAsync is idempotent (its own doc comment), so a repeat
+        // call here on an already-closed predecessor is harmless.
+        if (latest is not null && latest.StartTime <= now)
+        {
+            var previous = await roundRepository.GetPreviousByGameKeyAsync(options.GameKey, latest.StartTime, cancellationToken);
+            if (previous is not null && previous.EndTime <= now)
+                await roundCloseService.CloseRoundAsync(previous.Id, now, cancellationToken);
+        }
 
         // An upcoming (not-yet-started) round already exists for this game —
         // that already satisfies "one round ahead"; generating another would

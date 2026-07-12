@@ -97,7 +97,10 @@ describe('GridScreen', () => {
         });
       }
       if (String(url).includes('/guesses') && init?.method === 'POST') {
-        return jsonResponse({ isCorrect: true, attemptCount: 1, locked: true });
+        // Frontend name-display fix: a correct guess's response now carries
+        // the canonical resolvedPlayerName, shown instead of the raw as-typed
+        // submittedName ("Thierry Henry" below, typed in lowercase).
+        return jsonResponse({ isCorrect: true, attemptCount: 1, locked: true, resolvedPlayerName: 'Thierry Henry' });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -108,7 +111,7 @@ describe('GridScreen', () => {
     const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
     await user.click(cellButton);
 
-    await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
+    await user.type(screen.getByLabelText('Player name'), 'thierry henry');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
 
     await waitFor(() => expect(screen.getByText('Thierry Henry')).toBeInTheDocument());
@@ -162,10 +165,11 @@ describe('GridScreen', () => {
     await user.type(screen.getByLabelText('Player name'), 'Definitely Not A Real Player');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
 
-    await waitFor(() =>
-      expect(screen.getByText('Definitely Not A Real Player')).toBeInTheDocument(),
-    );
-    expect(screen.getByText('1 attempt left')).toBeInTheDocument();
+    // Frontend name-display fix: an incorrect guess shows no name at all
+    // (not even the raw as-typed text) — waiting on the attempt-count text
+    // instead of a name is what proves the state update actually landed.
+    await waitFor(() => expect(screen.getByText('1 attempt left')).toBeInTheDocument());
+    expect(screen.queryByText('Definitely Not A Real Player')).not.toBeInTheDocument();
     expect(document.querySelector('.cell-state--shake')).toBeInTheDocument();
   });
 });
