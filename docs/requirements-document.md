@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.39"
+version: "0.40"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.38 · 2026-07-12
+Version 0.40 · 2026-07-12
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -189,6 +189,14 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want every grid to be answerable with a real footballer, so
 > the puzzle stays fair and interesting rather than impossible or trivial.
 
+- **Status note (2026-07-12):** Club × Club is queued as `docs/backlog.md`
+  S-030 — Tier 0 grid generation has so far only ever produced
+  Country × Club, a scope restriction in `MVP-SCOPE.md`, not a limit this
+  REQ ever imposed. Trophy pairings are queued as S-031, scoped to
+  Trophy × Country/Trophy × Club only for v1 (a single-trophy pool can't
+  satisfy REQ-102's N-unique-headers rule for Trophy × Trophy, so that
+  pairing is structurally unreachable until more trophies exist, not
+  separately banned).
 - Given a grid is being generated
 - When row and column categories are assigned
 - Then a Country × Country pairing is never generated (two nationality
@@ -211,6 +219,16 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want trophies to be a category alongside country and club,
 > so grids have more variety than just nationality/club combinations.
 
+- **Status: Proposed, queued as `docs/backlog.md` S-031 (pulled forward
+  from Tier 1, `MVP-SCOPE.md`, 2026-07-12).** v1 is deliberately narrower
+  than the acceptance criteria below: exactly one trophy, **Ballon d'Or**,
+  an individual award resolvable via Wikidata's `P166` ("award received") —
+  the same simple query shape as the existing Country/Club intersection
+  query. Team-competition trophies (World Cup, Champions League, the rest
+  of the example list below) need a structurally different query (squad
+  membership + tournament result, no single property linking a player to
+  "won this tournament") and are explicitly deferred to a follow-up story,
+  not part of S-031.
 - Given the platform's list of recognized trophies (e.g. FIFA World Cup,
   UEFA Champions League, Ballon d'Or, UEFA European Championship, Copa
   América — an initial, extensible list, not hardcoded into game logic)
@@ -571,6 +589,14 @@ present, updates on refresh)
 > seeing a name suggested (or not) doesn't itself tell me whether it's the
 > right answer.
 
+- **Status: Proposed, queued as `docs/backlog.md` S-032 (pulled forward
+  from Tier 1, `MVP-SCOPE.md`, 2026-07-12, by deliberate choice rather than
+  the stated trigger having strictly fired).** Builds exactly what ADR-0007
+  already specifies — `PlayerNameIndex` populated via a one-time bulk
+  Wikidata query for `P106` (association football player) — no new
+  architectural decision. This story covers the suggestion-list UX only;
+  REQ-208's alias/fuzzy-typo-tolerance clauses for guess *scoring* remain
+  separately deferred.
 - Given a player is typing a guess
 - When autocomplete suggestions are shown
 - Then suggestions are drawn from a broad player name index covering many
@@ -951,8 +977,8 @@ case covers the game-selection step added in S-021)
 **Test level:** Unit, API, UI
 
 **REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
-implemented — drafted 2026-07-12, see `docs/backlog.md` S-027; open design
-questions below are unresolved, not oversights)*
+implemented — drafted 2026-07-12, see `docs/backlog.md` S-027. Open design
+questions resolved 2026-07-12 — see below; implementation-ready.)*
 > As a player, I want to see the leaderboard filtered to the current round,
 > week, month, or year — not only the all-time total — so I can compare
 > recent performance, not just who has played longest.
@@ -968,24 +994,25 @@ questions below are unresolved, not oversights)*
   the game (Tier 0 has no past-round browsing UI at all yet — REQ-206's
   status note already flags this gap; this REQ does not resolve it, it only
   needs the *most recent* closed round, not an arbitrary one)
+- And week/month/year windows are **calendar-aligned** (ISO week, calendar
+  month starting the 1st, calendar year), not rolling (last 7/30/365 days)
+- And a window boundary is always evaluated in **UTC**, matching every other
+  timestamp in this system
+- And a round whose `EndTime` is null (still active, unlocked) never
+  contributes to any window — the same locked-only rule REQ-401/404's
+  all-time total already follows, now stated explicitly here rather than
+  left to be inferred from their silence
 
-**Open design questions this REQ deliberately leaves unresolved (must be
-answered before implementation, not decided implicitly in code):**
-- Calendar-aligned windows (ISO week, calendar month starting the 1st) vs.
-  rolling windows (last 7/30/365 days) — these give different rankings and
-  the difference is a real product decision, not an implementation detail
-- Which timezone a "day/week/month" boundary is evaluated in — UTC (simplest,
-  matches every other timestamp in this system) vs. some other reference are
-  both non-obvious to a player mid-week
-- Whether a round whose `EndTime` is null (still active, unlocked) ever
-  contributes to any window — REQ-401/404's existing locked-only rule
-  suggests no, but this should be stated explicitly here once decided, not
-  left to be inferred from REQ-401/404's silence
+**Design questions this REQ previously left open — resolved 2026-07-12:**
+- Calendar-aligned vs. rolling windows → **calendar-aligned**, decided above
+- Timezone for boundary evaluation → **UTC**, decided above
+- Whether an unlocked round ever contributes → **no**, decided above
 - Performance: REQ-607's existing pagination gap (leaderboard responses are
-  currently unbounded) gets worse with four more query shapes to index for;
-  this REQ's own acceptance criteria will need a REQ-607-aligned indexing
-  plan, not just "add a `WHERE` clause," before this is implemented at
-  Tier 0's already-thin performance budget
+  currently unbounded) gets worse with four more query shapes to index for —
+  **not resolved as a product decision, still an implementation-time
+  requirement**: S-027's acceptance criteria requires a REQ-607-aligned
+  indexing plan as part of implementing this REQ, not just "add a `WHERE`
+  clause"
 
 **Test level:** Unit, API, UI
 
@@ -1640,14 +1667,9 @@ shows the default is wrong.
 
 ## 7. Open questions (remaining)
 
-- **Leaderboard time-window resolutions (REQ-405):** calendar-aligned vs.
-  rolling windows, which timezone a window boundary is evaluated in,
-  whether an unlocked (still-active) round's guesses ever contribute to a
-  window, and the indexing plan for the new query shapes — see REQ-405's
-  own "Open design questions" list for the full framing. These must be
-  answered by product decision before `docs/backlog.md` S-027 can be
-  scoped into concrete acceptance criteria; not decided here to avoid
-  duplicating (and risking drift from) REQ-405's own list.
+None — REQ-405's leaderboard time-window questions (the last entry in this
+section) were resolved 2026-07-12: calendar-aligned windows, UTC, locked
+rounds only. See REQ-405's own status note and `docs/backlog.md` S-027.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:

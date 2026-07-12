@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — Post-Tier-0 planning session: `MVP-SCOPE.md`,
+  `docs/backlog.md`, `docs/requirements-document.md` (version 0.39 → 0.40),
+  `TODO.md` — no code changed, this is scope/story planning only. Reviewed
+  what's left in Tier 1 against real Tier 0 play-testing and pulled three
+  items forward by explicit product decision (not all strictly trigger-fired
+  per `MVP-SCOPE.md`'s own discipline — recorded as such, not silently
+  reclassified): **Club × Club grid pairing** (not actually a Tier 1 item —
+  REQ-107 already allowed it, Tier 0 generation just never used it; queued
+  as new story S-030), **Trophy category** (`MVP-SCOPE.md`'s "feels
+  repetitive after a couple weeks" trigger judged hit; queued as S-031,
+  deliberately scoped to individual awards only — Ballon d'Or, via
+  Wikidata's `P166` — deferring team-competition trophies which need a
+  structurally different query), and **Autocomplete + `PlayerNameIndex`**
+  (trigger not strictly observed; pulled forward anyway by deliberate
+  choice; queued as S-032, building exactly what ADR-0007 already
+  specifies, no new ADR needed). Also resolved REQ-405's three previously-
+  open design questions for leaderboard time-window resolutions (S-027,
+  now unblocked): calendar-aligned windows, UTC, locked-rounds-only —
+  closing `requirements-document.md` §7's last open question. `TODO.md`'s
+  Tier 1 checklist updated to match (guess-time live verification checked
+  off as already built; autocomplete/Trophy annotated as queued, not
+  built). No architecture/implementation doc changes — none of this
+  changed a component boundary or added a structural decision beyond what
+  ADR-0007/ADR-0012 already cover; doc updates for architecture/
+  implementation will follow the usual per-story `/update-docs` pass once
+  each is actually implemented. REQ-107, REQ-108, REQ-207, REQ-405.
 - 2026-07-12 — CI-caught E2E fix for S-029 (same branch, third commit,
   PR #40): `ci.yml`'s real Playwright run against a live backend (this
   sandbox has no `dotnet` SDK, so it can't run this suite locally — same

@@ -712,17 +712,101 @@ to the page. *Deps:* S-012 (admin API/authorization already exists), S-025
 replaced).
 
 **S-027 · Leaderboard time-window resolutions (REQ-405)**
-Add round/week/month/year resolution tabs to the leaderboard, per REQ-405 —
-**not startable as written**: REQ-405 explicitly leaves open design
-questions (calendar-aligned vs. rolling windows, timezone for boundary
-calculation, whether an in-progress round's guesses ever count, and a
-REQ-607-aligned indexing plan for four new query shapes) that must be
-answered — by the product owner, not inferred by whoever implements this —
-before this story can be scoped into concrete acceptance criteria.
-*Accept:* not yet defined — first task of this story is resolving REQ-405's
-open questions and rewriting this story's acceptance criteria to match,
-*then* implementing. *Deps:* S-011 (locked `FinalPoints`/leaderboard
-exist), REQ-405's open questions resolved.
+Add round/week/month/year resolution tabs to the leaderboard, sorted
+ascending like the existing all-time total (ADR-0021). REQ-405's open
+design questions were resolved 2026-07-12: **calendar-aligned** windows
+(ISO week, calendar month starting the 1st, calendar year — not rolling
+7/30/365-day windows), evaluated in **UTC** (matches every other timestamp
+in this system); **locked rounds only** — an in-progress/unlocked round
+never contributes to any window, the same rule REQ-401/404's all-time
+total already follows; "round" resolution means the single most recently
+*closed* round for the game (Tier 0 still has no past-round-browsing UI —
+REQ-206's known gap, unaffected by this story). This story's own
+implementation must include a REQ-607-aligned indexing plan for the four
+new query shapes (`Round.EndTime` range + `Guess.FinalPoints` sum), not
+just "add a WHERE clause" against the existing unbounded query.
+*Accept:* REQ405-named tests: each of the four resolutions returns the
+correct ascending-sorted ranking for a seeded set of rounds spanning
+multiple weeks/months/years; a round still in progress never appears in
+any window's totals; the "round" resolution always resolves to the most
+recently closed round, never an arbitrary one. *Deps:* S-011 (locked
+`FinalPoints`/leaderboard exist).
+
+**S-030 · Enable Club × Club grid pairing (REQ-107)**
+`CategoryPairingRules.IsAllowedPairing` already permits Club × Club (only
+Country × Country is banned) but `GridGameModule.GenerateInstanceAsync` is
+currently hardcoded to always generate rows=Country/columns=Club — a Tier 0
+scope restriction in `MVP-SCOPE.md`, not a REQ-107 constraint. Closes that
+gap using data already seeded, no new reference table or category type
+required. Generalize row/column header selection so a grid's pairing can
+independently be Country×Club or Club×Club (never Country×Country). Also
+extend `RefreshCellFromLiveLookupAsync` (REQ-211's live-lookup fallback),
+which currently only knows how to refresh a Country×Club cell — a Club×Club
+cell missing cache would otherwise silently fail closed and regress the
+ADR-0018 wrongly-rejected-guess fix for this new pairing. Update
+`MVP-SCOPE.md`'s "Grid content" line to reflect the removed restriction
+(already done as part of scoping this story).
+*Accept:* REQ107-named test confirms Club×Club grids generate correctly
+(still never Country×Country, still N unique rows/N unique columns per
+REQ-102); REQ211-named test confirms a Club×Club cell missing cache also
+gets the live-lookup fallback. *Deps:* S-007, ADR-0018 (S-011 follow-up).
+
+**S-031 · Trophy category — individual awards only (REQ-108, ADR-0012)**
+Pulled forward from Tier 1 (`MVP-SCOPE.md`, 2026-07-12) after two weeks of
+real play made Country×Club feel repetitive. Deliberately scoped narrower
+than REQ-108's full definition: v1 seeds exactly one trophy, **Ballon
+d'Or**, into `TrophyDefinition` (`Name`, `WikidataQid` — resolved by hand,
+same one-time manual pattern as Country/Club QIDs, ADR-0012). "Satisfies
+this category" means the player has a `PlayerAttribute` (or override)
+record of type `trophy` with that value; the query uses Wikidata's `P166`
+("award received"), a comparably simple shape to the existing Country×Club
+intersection query, not a bulk import. Builds on S-030's generalized
+row/column header selection so Trophy can pair with Country or Club (never
+Country×Country per REQ-107); with only one trophy value seeded, a
+Trophy×Trophy grid can never satisfy REQ-102's N-unique-headers requirement
+and so structurally never generates — no separate categorical ban needed
+beyond the existing retry logic. Also extends REQ-211's live-lookup
+fallback (`RefreshCellFromLiveLookupAsync`) to handle a Trophy-typed cell,
+same reasoning as S-030's Club×Club extension. Team-competition trophies
+(World Cup, Champions League) are explicitly out of scope for this story —
+a distinct follow-up once individual awards are proven out, since they need
+a genuinely different Wikidata query pattern (squad membership + tournament
+result — no single property links a player directly to "won this
+tournament").
+*Accept:* REQ108-named tests: a Trophy×Country/Trophy×Club grid generates
+correctly with Ballon d'Or as the only seeded trophy value; a guess is
+scored correct only via a `PlayerAttribute`/`PlayerOverride` record of type
+`trophy`; REQ211-named test confirms a Trophy cell missing cache also gets
+the live-lookup fallback. *Deps:* S-007, S-030 (shares the generalized
+header-selection and live-lookup-fallback work).
+
+**S-032 · Autocomplete + `PlayerNameIndex` (REQ-207, ADR-0007)**
+Pulled forward from Tier 1 by deliberate choice, 2026-07-12 — not because
+the `MVP-SCOPE.md` trigger strictly fired (no unprompted "typing is
+tedious" complaint has been recorded), but chosen anyway. Builds exactly
+what ADR-0007 already specifies, no new architectural decision needed: a
+new `PlayerNameIndex` table (name, aliases, birth year, primary
+nationality/club for display) populated via a one-time bulk Wikidata query
+for `P106` = association football player, refreshed manually/periodically
+(start manual, per ADR-0007's own follow-up note — tighten only if names
+are noticeably missing after transfer windows). Guess input's autocomplete
+suggestions query `PlayerNameIndex` only, never `PlayerAttribute`/
+`PlayerOverride` — preserving ADR-0007's boundary rule that a name
+appearing in autocomplete implies nothing about its correctness for the
+current cell. Explicitly out of scope: REQ-208's alias-matching and
+fuzzy-typo-tolerance clauses for guess *scoring* (a player can still
+free-type past the suggestion list, and that path is unchanged) — this
+story is the suggestion-list UX only, not a change to how a submitted guess
+is checked.
+*Accept:* REQ207-named test confirms the autocomplete data source is
+`PlayerNameIndex`, structurally distinct from `PlayerAttribute` (e.g. a
+name present in the index with zero `PlayerAttribute` rows still
+suggests); UI test: typing a partial name shows matching suggestions from
+the bulk-imported index; Manual: spot-check that early/sparse grids don't
+become trivially easy to solve via what does/doesn't autocomplete
+(REQ-207's own manual test-level note). *Deps:* S-009 (guess submission/
+name matching exists), S-006 (Wikidata client exists to extend for the
+bulk query).
 
 **S-028 · Golf-style (lowest-wins) scoring model (REQ-203/204/205/206/401/404, ADR-0021)**
 Direct product feedback, immediately after S-022 shipped: the requested
@@ -891,9 +975,12 @@ changed, test-only fix.
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
-T-102 guess-time live verification (REQ-211) · T-103 autocomplete +
-`PlayerNameIndex` (REQ-207, ADR-0007) · T-104 disambiguation UI (REQ-209) ·
-T-105 Trophy category + automated ID resolution (REQ-108, ADR-0012) ·
+~~T-102 guess-time live verification~~ (built, S-011 follow-up/ADR-0018) ·
+~~T-103 autocomplete + `PlayerNameIndex`~~ (pulled forward, see S-032) ·
+T-104 disambiguation UI (REQ-209) ·
+~~T-105 Trophy category~~ (pulled forward as individual-awards-only v1, see
+S-031 — automated ID resolution for team-competition trophies is T-105's
+unclaimed remainder) ·
 T-106 dev/prod split + sync (ADR-0006/0009, REQ-801-804) · T-107 backups +
 alerting (REQ-901/902 — **bright line: before any non-self user**) ·
 T-108 email confirmation + Resend (REQ-701-705) · T-109 custom leagues
