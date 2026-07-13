@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-13 — `docs/requirements-document.md` (0.42 → 0.43),
+  `docs/implementation-document.md` (0.41 → 0.42), `docs/backlog.md`
+  (new S-035), `docs/decisions/0023-grid-generation-wall-clock-deadline.md`
+  (new) — a real `generate-round.yml` dispatch chained enough live
+  Wikidata lookups (`GridGameModule.PickHeadersAsync`) to run 4+ minutes
+  before Azure's ingress killed the connection with a 504; `MaxAttempts`
+  (500) never bounds wall-clock time in practice since the reference-data
+  pool is far smaller. Added `GridGenerationOptions.MaxDuration` (default
+  90s), checked alongside the existing abort conditions, so generation
+  always resolves — success or a clean, logged failure — well under any
+  known infrastructure timeout. A bounded-concurrency candidate search was
+  also attempted (to raise success odds, not just fail faster) but reverted
+  before commit: `PlayerStoreRepository`/`CategoryValueRepository`/
+  `WikidataLookupService` share one request-scoped `XGArcadeDbContext`,
+  and concurrent use of a single `DbContext` isn't safe in EF Core — would
+  have passed tests against the InMemory provider while throwing against
+  real Npgsql. Recorded as ADR-0023's explicit follow-up, not silently
+  dropped. REQ-101.
 - 2026-07-12 — `docs/coding-guidelines.md` (version 0.1 → 0.2) — a manual
   `generate-round.yml` dispatch returned an opaque, empty HTTP 500 (see
   NOTES.md's 2026-07-12 entry) because `InternalRoundEndpoints.cs`'s

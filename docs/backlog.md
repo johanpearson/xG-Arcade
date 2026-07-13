@@ -1047,6 +1047,63 @@ instead of the old one; the correct-guess assertion (`cell.getByText(seed
 seed's exact-cased `correctPlayerName` are the same string. No product code
 changed, test-only fix.
 
+**S-035 · Bound grid generation's wall-clock time (REQ-101, ADR-0023)**
+Incident-driven, not pre-planned: three consecutive manual `generate-round.yml`
+dispatches on 2026-07-12/13 each failed differently (two opaque HTTP 500s,
+fixed separately by REQ-301's problem-details catch-all; an unrelated
+deploy-race 503; and a genuine HTTP 504 after Azure's ingress killed the
+connection at 240s of real elapsed time). The Container App's own log
+showed the actual cause of the last one: `PickHeadersAsync` had chained
+enough live Wikidata lookups to run over 4 minutes, since
+`GridGenerationOptions.MaxAttempts` (500) never meaningfully bounds
+wall-clock time — the reference-data pool is far smaller than 500, so
+`MaxAttempts` alone can't fire before external infrastructure does. Add a
+`MaxDuration` wall-clock deadline, checked alongside the existing
+pool-exhausted/`MaxAttempts` checks, so generation always resolves —
+success or a clean, logged `GridGenerationException` — well under any
+known infrastructure timeout.
+*Accept:* REQ101-named test confirms a `GridGenerationException` naming
+the configured `MaxDuration` when it's exceeded, deterministically (a
+`ManualTimeProvider` test double advances a fake clock from within the
+fake Wikidata lookup service's own call hook, no real waiting); existing
+`MaxAttempts`-exhaustion test still passes unchanged; `GridGenerationOptions`
+default-values test extended to cover the new field. *Deps:* S-007, S-030
+(the fix has to land against S-030's generalized `PickHeadersAsync`, not
+the pre-S-030 `PickColumnHeadersAsync` it replaced).
+**Built as:** matches the plan, with one significant scope cut found
+*during* implementation, not before it: a bounded-concurrency candidate
+search (`Task.WhenAll` over a small batch of candidates instead of one at a
+time) was the other half of the original plan, meant to actually raise the
+odds of a cold-cache generation succeeding, not just fail it faster.
+Implemented, then reverted before commit on realizing
+`PlayerStoreRepository`/`CategoryValueRepository`/`WikidataLookupService`
+all share one request-scoped `XGArcadeDbContext` — concurrent use of a
+single `DbContext` instance isn't safe in EF Core, and the bug would have
+passed every test against the InMemory provider while throwing against
+real Npgsql in production. Reverted to the safe, deadline-only version;
+the concurrency piece is recorded as ADR-0023's explicit follow-up
+(needs `IDbContextFactory`-based per-call contexts, plus a concurrency
+limit chosen against ADR-0011's Wikidata query-time-throttle budget, not
+picked arbitrarily), not silently dropped. `PickHeadersAsync` gained a
+`_timeProvider`-read deadline check and `LogInformation`/`LogDebug`/
+`LogWarning` calls (candidates tried/accepted/rejected, abort reason) via
+the already-injected `ILogger<GridGameModule>` — no new logging boundary,
+same component already owned this logging. `GridGameModule` gained an
+optional `TimeProvider? timeProvider = null` constructor parameter
+(defaults to `TimeProvider.System`, same optional-param idiom as `Random?
+random` from S-030), resolved automatically via DI the same way
+`RoundGenerationService`'s `TimeProvider` already is (`Program.cs`'s
+existing `AddSingleton(TimeProvider.System)`). New
+`ManualTimeProvider` test double (`XGArcade.Games.XGGrid.Tests`) and a new
+`onCalled` hook on the existing `FakeWikidataLookupService`, so a test can
+advance simulated time from inside a simulated live-lookup call without
+any real waiting.
+`docs/requirements-document.md` (REQ-101 acceptance criteria and status
+note), `docs/implementation-document.md` (§6a's pseudocode-vs-actual note),
+and `docs/decisions/0023-grid-generation-wall-clock-deadline.md` (new)
+updated to match. No `architecture-document.md` change — this stays
+entirely within COMP-05's existing responsibility, no boundary moved.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

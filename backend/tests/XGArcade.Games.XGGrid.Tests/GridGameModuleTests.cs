@@ -4,6 +4,7 @@ using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.Games.XGGrid.Tests;
 
@@ -58,11 +59,20 @@ public class GridGameModuleTests
         public override int Next(int maxValue) => nextValue;
     }
 
-    private GridGameModule BuildModule(int minValidAnswers, int maxAttempts, Random? random = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
-            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts },
+    // ADR-0023: maxDuration defaults to a generous 10 minutes so none of the
+    // pre-existing tests below (none of which advance a fake clock) can
+    // ever trip the deadline-abort branch by accident — only tests that
+    // explicitly pass a short maxDuration plus a controllable timeProvider
+    // exercise that path.
+    private GridGameModule BuildModule(
+        int minValidAnswers, int maxAttempts, Random? random = null,
+        TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
+        IWikidataLookupService? wikidataLookupService = null) =>
+        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
+            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
-            random ?? new FixedChoiceRandom(0));
+            random ?? new FixedChoiceRandom(0),
+            timeProvider);
 
     private GridTemplate SeedTemplate(int size)
     {
@@ -262,6 +272,143 @@ public class GridGameModuleTests
         Assert.That(ex!.Message, Does.Contain("3 attempts"));
     }
 
+    // ADR-0023: the 2026-07-12/13 dev incident this abort condition exists
+    // for — MaxAttempts alone (500 by default) never helped, since a real
+    // run can chain enough genuinely-slow-or-cache-missing live Wikidata
+    // calls to blow well past any infrastructure request timeout long
+    // before exhausting that count.
+    [Test]
+    public async Task REQ101_GridGeneration_AbortsWithGridGenerationException_WhenMaxDurationExceeded()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        for (var i = 0; i < 5; i++)
+            SeedClub($"SlowClub{i}");
+        // No SeedCachedMatches call — every candidate is a genuine cache
+        // miss, forcing GetMatchCountAsync down the live-lookup path
+        // (FakeWikidataLookupService's onCalled hook below) every time,
+        // same as the incident's cold-cache scenario. None of them have any
+        // configured match either, so every one is rejected on its own
+        // terms too — the point of this test is that the deadline trips
+        // first, not that a candidate would eventually have been rejected
+        // anyway.
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var wikidataLookupService = new FakeWikidataLookupService(
+            onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
+        var module = BuildModule(
+            minValidAnswers: 5, maxAttempts: 500,
+            maxDuration: TimeSpan.FromSeconds(30), timeProvider: clock,
+            wikidataLookupService: wikidataLookupService);
+
+        var ex = Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+
+        Assert.That(ex!.Message, Does.Contain("exceeding"));
+        Assert.That(ex.Message, Does.Contain("00:00:30"), "should name the configured MaxDuration, not a raw attempt count");
+    }
+
+    // ADR-0023: MaxDuration must never interfere with an ordinary, fast
+    // generation — only a genuinely slow/stuck one. Uses a finite-but-generous
+    // MaxDuration (not BuildModule's 10-minute test default, which would mask
+    // a bad comparison/units bug) and only cached matches, so the whole run
+    // costs microseconds against the real system clock, well under the
+    // deadline. Complements the abort test above rather than duplicating it —
+    // that test proves the deadline trips when it should; this one proves it
+    // stays quiet when it shouldn't trip.
+    [Test]
+    public async Task REQ101_GridGeneration_FastSuccessfulRun_WellUnderMaxDuration_SucceedsUnaffected()
+    {
+        var template = SeedTemplate(size: 2);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedCachedMatches("France", "Arsenal", 2);
+        SeedCachedMatches("France", "Barcelona", 2);
+        SeedCachedMatches("Spain", "Arsenal", 2);
+        SeedCachedMatches("Spain", "Barcelona", 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20, maxDuration: TimeSpan.FromSeconds(5));
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(4),
+            "an ordinary all-cache-hit run must succeed normally — MaxDuration must not abort a run that never gets close to it");
+    }
+
+    // ADR-0023's deadline check (`_timeProvider.GetUtcNow() >= deadline`) is
+    // deliberately inclusive — landing exactly ON the deadline must still
+    // abort, not be allowed one more attempt. Distinct from the test above:
+    // that one advances the clock well past the deadline (40s against a 30s
+    // budget) before the trip is observed; this one lands the clock on
+    // exactly the deadline after a single attempt and proves the very next
+    // check aborts before a second live lookup is ever attempted. If the
+    // check were `>` instead of `>=`, this test would instead see a second
+    // live lookup happen and, once the two-club pool is exhausted, a
+    // "Ran out of candidates" GridGenerationException instead — a different
+    // message this test's assertions would catch.
+    [Test]
+    public async Task REQ101_GridGeneration_AbortsWithGridGenerationException_WhenClockLandsExactlyOnDeadline()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedClub("ClubA");
+        SeedClub("ClubB");
+        // Neither club has cached matches or a configured live match — both
+        // are genuine cache misses forced through the live-lookup path, and
+        // both would be rejected on their own terms too. The point is
+        // whether a second attempt is even tried once the clock lands
+        // exactly on the deadline after the first.
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var wikidataLookupService = new FakeWikidataLookupService(
+            onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
+        var module = BuildModule(
+            minValidAnswers: 5, maxAttempts: 500,
+            maxDuration: TimeSpan.FromSeconds(20), timeProvider: clock,
+            wikidataLookupService: wikidataLookupService);
+
+        var ex = Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+
+        Assert.That(ex!.Message, Does.Contain("exceeding"));
+        Assert.That(ex.Message, Does.Contain("found 0/1 valid headers in 1 attempts"),
+            "must abort on the very next check after landing exactly on the deadline, before a second live lookup");
+        Assert.That(
+            wikidataLookupService.GetCallCount("France", "ClubA") + wikidataLookupService.GetCallCount("France", "ClubB"),
+            Is.EqualTo(1), "only the first candidate's live lookup should ever run — the second must never be attempted");
+    }
+
+    // S-030: PickHeadersAsync's deadline check is shared code, not
+    // duplicated per pairing type — but GetMatchCountAsync's live-lookup
+    // dispatch (LookupLiveMatchesAsync) branches by category type, so this
+    // confirms the deadline also trips when that dispatch routes through
+    // LookupAndPersistClubClubAsync, not just the Country x Club branch the
+    // test above exercises.
+    [Test]
+    public async Task REQ101_GridGeneration_ClubClubPairing_AbortsWithGridGenerationException_WhenMaxDurationExceeded()
+    {
+        var template = SeedTemplate(size: 1);
+        // Zero countries seeded -> Country x Club is infeasible, forcing
+        // Club x Club regardless of the injected Random (same technique the
+        // other Club x Club tests in this file use).
+        for (var i = 0; i < 4; i++)
+            SeedClub($"SlowClub{i}");
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var wikidataLookupService = new FakeWikidataLookupService(
+            onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
+        var module = BuildModule(
+            minValidAnswers: 5, maxAttempts: 500,
+            maxDuration: TimeSpan.FromSeconds(30), timeProvider: clock,
+            wikidataLookupService: wikidataLookupService);
+
+        var ex = Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+
+        Assert.That(ex!.Message, Does.Contain("exceeding"));
+        Assert.That(ex.Message, Does.Contain("00:00:30"));
+    }
+
     [Test]
     public async Task REQ101_GridGeneration_CacheMiss_FallsBackToLiveLookupAndSucceeds()
     {
@@ -293,6 +440,7 @@ public class GridGameModuleTests
 
         Assert.That(options.MinValidAnswers, Is.EqualTo(5));
         Assert.That(options.MaxAttempts, Is.EqualTo(500), "S-014 only raised MinValidAnswers; MaxAttempts is unchanged");
+        Assert.That(options.MaxDuration, Is.EqualTo(TimeSpan.FromSeconds(90)), "ADR-0023");
     }
 
     [Test]

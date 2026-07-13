@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.41"
+version: "0.42"
 status: draft
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -743,14 +743,21 @@ match-counts computed together, not cell-by-cell) — a rejected club
 candidate is discarded and never revisited, and `attempts` counts
 column-candidates tried, not individual cell retries. Both shapes satisfy
 REQ-101/102's actual acceptance criteria (all N×N cells valid, N unique
-row/column headers, abort after `MaxAttempts` with a logged error) with
-the same `MinValidAnswers`/`MaxAttempts` defaults (5 / 500,
-`GridGenerationOptions`); "alert admin" is not implemented — abort
-currently only logs (`ILogger.LogError`) and returns a 500, from either
-`POST /internal/grid/generate` or (as of S-008) `POST /internal/generate-round`
-(`XGArcade.Api.Rounds.InternalRoundEndpoints`, which catches the same
-`GridGenerationException` and surfaces it the same way), no separate
-alerting channel exists yet.
+row/column headers, abort after `MaxAttempts` or `MaxDuration` with a
+logged error) with the same `MinValidAnswers`/`MaxAttempts` defaults (5 /
+500, `GridGenerationOptions`) plus, as of ADR-0023, a `MaxDuration`
+wall-clock deadline (default 90s) checked alongside `MaxAttempts` on every
+loop iteration — added after a real run chained enough live-lookup misses
+to run for 4+ minutes before an infrastructure ingress killed it, since
+`MaxAttempts` alone never bounds wall-clock time in practice (the
+reference-data pool is far smaller than 500). "Alert admin" is not
+implemented — abort currently only logs (`ILogger.LogError`) and returns a
+500 with a problem-details body, from either `POST /internal/grid/generate`
+or (as of S-008) `POST /internal/generate-round`
+(`XGArcade.Api.Rounds.InternalRoundEndpoints`, which catches
+`GridGenerationException` — and, as of the 2026-07-12 fix, any other
+exception too — and surfaces it the same way), no separate alerting
+channel exists yet.
 This shape is also Tier 0-scoped to two possible pairings, chosen once per
 instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
 Country (rows) × Club (columns), or, as of S-030, Club × Club — never a
