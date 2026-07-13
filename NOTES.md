@@ -496,3 +496,49 @@ exists specifically to fetch it. Worked through by hand with concrete
 timelines before committing (no `dotnet` SDK in this sandbox to verify by
 running it) — if this ever gets refactored, re-derive the timeline rather
 than trusting intuition about which round is "latest" at close time.
+
+### 2026-07-12 — a manual `generate-round.yml` dispatch 500'd with zero diagnostic detail; fixed the visibility gap, root cause still unconfirmed
+
+A manual `workflow_dispatch` of `generate-round.yml` (run #29205140633,
+after the Tue 07-10 scheduled run had already succeeded once) failed both
+attempts it was given — attempt 1 in ~11s, attempt 2 (the one reported)
+in ~30s, both a bare HTTP 500 with `curl -f` swallowing whatever body came
+back. Root cause is still **not confirmed** — nothing in this sandbox can
+reach the real dev Container App's log stream — but the code review that
+followed found two real, independent problems worth fixing regardless of
+what actually happened this time:
+
+1. `InternalRoundEndpoints.cs`'s `/internal/generate-round` handler only
+   ever caught `GridGenerationException` — any other failure (a DB blip,
+   an unswallowed HTTP exception, ...) fell through to ASP.NET's default
+   *empty* 500, indistinguishable from every other failure mode in the
+   workflow's own log. `GridTemplateResolver.GetOrCreateBySizeAsync` was
+   also being called *outside* the try block entirely, so a failure there
+   specifically had no chance of ever getting a problem-details response.
+   Fixed: the whole handler body now runs inside the try, with a
+   catch-all `Exception` branch added alongside the existing
+   `GridGenerationException` one — both log full detail server-side and
+   return it as `Results.Problem()`'s `detail`, matching this endpoint's
+   sole caller being the bearer-token-gated scheduler job, never a public
+   client (architecture-document.md §7's client-appropriate-summary rule
+   is aimed at public endpoints, not this one).
+2. `generate-round.yml` used `curl -f`, which discards the response body
+   on any non-2xx status — even after fix (1) started returning a real
+   problem-details body, the workflow itself would still have hidden it.
+   Switched to capturing the body with `-o`/`-w "%{http_code}"` and
+   printing it before failing the step on a >=400 status.
+
+Separately clarified for whoever reads this next: `GridGameModule`'s
+column-candidate retry (`PickColumnHeadersAsync`) rejects and replaces a
+**whole club candidate** the moment it fails against *any* fixed row
+header — it does not retry a single (row, club) cell in isolation, and
+the row headers themselves are picked once and never reshuffled. So one
+weak cell doesn't cause a failure by itself, but a row country that pairs
+poorly against the whole 15-club Tier 0 reference list can burn through
+every remaining candidate and abort the entire grid (and thus the whole
+`/internal/generate-round` request) with no fallback. Worth knowing if
+this recurs with a specific country implicated. **Next time this fires
+for real, check the Container App log stream for the actual exception
+before assuming it's this** — the fix above makes the failure visible
+from the workflow log itself, which should make that check unnecessary
+going forward.

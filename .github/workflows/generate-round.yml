@@ -24,5 +24,14 @@ jobs:
     steps:
       - name: Trigger round generation
         run: |
-          curl -f -X POST "https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round" \
-            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}"
+          http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+            "https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
+
+          echo "Response body:"
+          cat response.json
+
+          if [ "$http_status" -ge 400 ]; then
+            echo "::error::/internal/generate-round returned HTTP $http_status"
+            exit 1
+          fi

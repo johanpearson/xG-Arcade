@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-12 — `docs/coding-guidelines.md` (version 0.1 → 0.2) — a manual
+  `generate-round.yml` dispatch returned an opaque, empty HTTP 500 (see
+  NOTES.md's 2026-07-12 entry) because `InternalRoundEndpoints.cs`'s
+  `/internal/generate-round` handler only caught `GridGenerationException`;
+  any other exception fell through uncaught. Fixed by adding a catch-all
+  `Exception` branch that logs server-side and returns the exception's own
+  `Message` as the problem-details `detail`. That surfaces the actual
+  failure in the CI log without needing Container App log access, but
+  returning raw exception text contradicts this doc's existing "no raw
+  exception messages to the client" rule — `architecture-reviewer` caught
+  that the code's original justification for the exception lived only in
+  an inline comment, not in any doc it claimed to be consistent with. Added
+  an explicit, narrow carve-out to the rule here instead: `/internal/*`
+  endpoints whose only caller is a bearer-token-gated scheduled job (today,
+  just this one) may return raw exception detail, since the only "client"
+  reading it is the job's own log, not a player-facing surface. REQ-301.
 - 2026-07-12 — `docs/architecture-document.md` (version 0.29 → 0.30),
   `docs/requirements-document.md` (version 0.41 → 0.42),
   `docs/implementation-document.md` (version 0.40 → 0.41), `docs/backlog.md`

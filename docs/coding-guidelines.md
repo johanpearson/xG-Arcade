@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.1"
+version: "0.2"
 status: draft
-last_updated: 2026-07-07
+last_updated: 2026-07-12
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -55,7 +55,18 @@ update_when:
   internal use.
 - **Errors as problem-details responses** (per `architecture-document.md`
   §7), not raw exception messages leaking to the client. Log the full
-  exception server-side; return a client-appropriate summary.
+  exception server-side; return a client-appropriate summary. **Narrow
+  exception:** an `/internal/*` endpoint whose only caller is a
+  bearer-token-gated scheduled job (never a public or player-facing
+  client) may return a caught exception's own `Message` as the `detail` —
+  the "client" reading it is the job's own CI log, not an untrusted
+  surface, and REQ-902's failure alerting is Tier 1 (not built yet), so
+  this is what makes a failed scheduled job diagnosable at all without
+  direct server log access. This does not extend to any endpoint reachable
+  by a player or the frontend, gated or not — see `InternalRoundEndpoints.cs`'s
+  `/internal/generate-round` for the one endpoint currently relying on
+  this, and `GuessEndpoints.cs`/`AdminEndpoints.cs` for the default rule
+  still applying everywhere else.
 - **Naming**: `PascalCase` for types/methods/properties, `camelCase` for
   locals/parameters, per standard .NET convention — no project-specific
   deviation here.

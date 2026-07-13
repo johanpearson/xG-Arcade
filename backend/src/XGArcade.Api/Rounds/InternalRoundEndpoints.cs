@@ -32,13 +32,17 @@ public static class InternalRoundEndpoints
             if (!IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
 
-            // Tier 0 has no admin-driven template management yet — same
-            // find-or-create-by-size pattern /internal/grid/generate uses.
-            var template = await GridTemplateResolver.GetOrCreateBySizeAsync(
-                gridInstanceRepository, options.GridSize, cancellationToken);
-
             try
             {
+                // Tier 0 has no admin-driven template management yet — same
+                // find-or-create-by-size pattern /internal/grid/generate
+                // uses. Moved inside the try (previously ran unguarded
+                // before it) so a DB failure here gets the same
+                // problem-details treatment as everything below instead of
+                // an opaque, empty 500.
+                var template = await GridTemplateResolver.GetOrCreateBySizeAsync(
+                    gridInstanceRepository, options.GridSize, cancellationToken);
+
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
                     new RoundConfig { TemplateId = template.Id }, cancellationToken);
 
@@ -55,6 +59,30 @@ public static class InternalRoundEndpoints
                     // endpoint runs in every environment) — detail is still
                     // the exception's own hand-authored message, never a raw
                     // stack trace, matching docs/coding-guidelines.md.
+                    detail: ex.Message,
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+            catch (Exception ex)
+            {
+                // Anything else (a DB blip, a Supabase/Wikidata client
+                // failure that wasn't itself swallowed, ...) previously fell
+                // through as an opaque, empty 500 — indistinguishable in
+                // generate-round.yml's log from every other failure mode.
+                // REQ-902's failure alerting is Tier 1 (not built yet), so
+                // REQ-301 already leans on someone noticing and checking a
+                // failed run manually (see REQ-301's own acceptance
+                // criteria) — this is what makes that check possible from
+                // the workflow's own log, not just Container App logs.
+                // ex.Message in `detail` is the documented narrow exception
+                // in docs/coding-guidelines.md's error-handling rule (added
+                // alongside this fix) for a bearer-token-gated /internal/*
+                // endpoint whose only caller is a scheduled job, not a
+                // player-facing surface — the default "no raw exception text
+                // to the client" rule still applies everywhere else.
+                logger.LogError(ex, "Round generation failed unexpectedly.");
+
+                return Results.Problem(
+                    title: "Round generation failed unexpectedly",
                     detail: ex.Message,
                     statusCode: StatusCodes.Status500InternalServerError);
             }
