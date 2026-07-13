@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.30"
+version: "0.31"
 status: draft
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -131,7 +131,7 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-02 | Core.Leagues | Global + custom leagues, membership | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
-| COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game | `XGArcade.Games.XGGrid` |
+| COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair, run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
 | COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
@@ -822,6 +822,8 @@ new ADR that references the old one.
 | ADR-0020 | Uniqueness formula excludes the guesser's own guess from the comparison | Accepted |
 | ADR-0021 | xG Arcade is scored like golf — lower points is better, lowest total wins | Accepted (builds on ADR-0020, does not supersede it) |
 | ADR-0022 | Round closing runs inside the round-generation scheduled job, not a second cron | Accepted |
+| ADR-0023 | Grid generation gets its own wall-clock deadline (`MaxDuration`), separate from `MaxAttempts` | Accepted |
+| ADR-0024 | Player cache warming runs as a CLI verb, never an HTTP endpoint or background task | Accepted |
 
 ## 11. Glossary
 

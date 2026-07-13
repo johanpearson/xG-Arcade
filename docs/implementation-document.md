@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.42"
+version: "0.43"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -764,6 +764,23 @@ Country (rows) × Club (columns), or, as of S-030, Club × Club — never a
 mixed axis within one grid, never Trophy — so the "whichever category
 types this GridTemplate allows" line above still doesn't vary *within* a
 single grid, only across grids.
+
+**REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
+iterates every Country × Club and Club × Club pair the reference tables can
+produce, triggering the same live-lookup path `GetMatchCountAsync` uses
+during real generation for any pair not already at `MinValidAnswers`. It's
+invoked via a second `dotnet run --` CLI verb in `Program.cs`
+(`warm-player-cache`, same shape as the existing `migrate-and-seed` verb),
+run by its own `warm-player-cache.yml` workflow — deliberately not an HTTP
+endpoint, and deliberately not a fire-and-forget background task inside
+the deployed app: this job can take a long time (every reference pair, up
+to a real ~15-27s live Wikidata call each per ADR-0011), which would hit
+the same ~240s ingress wall ADR-0023 fixed round generation against if run
+synchronously inside a request, and this Container App's `minReplicas: 0`
+scale-to-zero (NOTES.md, 2026-07-09) would silently drop a background
+task's progress on a scale-down mid-run. A plain foreground CI-runner
+process, bounded only by the workflow's own job timeout, has neither
+problem.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

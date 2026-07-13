@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-13 — `docs/requirements-document.md` (0.43 → 0.44),
+  `docs/implementation-document.md` (0.42 → 0.43),
+  `docs/architecture-document.md` (0.30 → 0.31), `docs/backlog.md`
+  (new S-036), `docs/decisions/0024-cache-warming-runs-as-a-cli-verb.md`
+  (new) — the very next `generate-round.yml` dispatch after S-035's
+  `MaxDuration` fix merged failed fast with `GridGenerationException: "Ran
+  out of candidates before completing the grid."` — the data-sparsity half
+  of the same problem S-011's backlog entry predicted back when
+  `MinValidAnswers` was raised to 5 (S-014): only 15 reference clubs means
+  many real country/club pairs, especially smaller-market countries,
+  genuinely don't have 5+ shared historical players, and no amount of
+  retrying fixes that. Added new REQ-110 (proactive player-attribute cache
+  warming, `PlayerCacheWarmingService`, `XGArcade.Games.XGGrid`) plus a
+  widened reference pool (`ReferenceDataSeeder.cs`: 20→45 countries,
+  15→21 clubs). The warming job is a `dotnet run -- warm-player-cache` CLI
+  verb (same shape as `migrate-and-seed`) run via a new
+  `warm-player-cache.yml` workflow, deliberately not an HTTP endpoint or a
+  fire-and-forget background task — both would be unsafe against this
+  Container App's ~240s ingress timeout and `minReplicas: 0` scale-to-zero
+  respectively; see the new ADR-0024 for the full alternatives-considered
+  reasoning (an architecture-reviewer pass on the first draft of this
+  change flagged that this execution-model decision needed an indexed ADR,
+  not just scattered prose — added, along with the previously-unlisted
+  ADR-0023 from S-035, both now in architecture-document.md §10's table).
+  Same review pass also caught `Program.cs`'s CLI verb hand-duplicating the
+  real `AddHttpClient<IWikidataClient, WikidataClient>` registration's
+  `BaseAddress`/`User-Agent` — extracted into a shared
+  `ConfigureWikidataHttpClient` local function so the two can't drift.
+  REQ-110.
 - 2026-07-13 — `docs/requirements-document.md` (0.42 → 0.43),
   `docs/implementation-document.md` (0.41 → 0.42), `docs/backlog.md`
   (new S-035), `docs/decisions/0023-grid-generation-wall-clock-deadline.md`

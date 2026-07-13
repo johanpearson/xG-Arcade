@@ -542,3 +542,55 @@ for real, check the Container App log stream for the actual exception
 before assuming it's this** — the fix above makes the failure visible
 from the workflow log itself, which should make that check unnecessary
 going forward.
+
+### 2026-07-13 — the predicted failure mode actually happened, twice, in sequence
+
+Confirms the prediction two entries above almost exactly. After S-035's
+`MaxDuration` fix merged, the very next `generate-round.yml` dispatch (real
+`main`, real deploy) failed in two different ways back to back:
+
+1. First dispatch (right after merging PR #43+#44 close together): HTTP
+   503 `"no healthy upstream"` — a deploy race, not a real bug. The manual
+   dispatch landed mid-rollout of the deploy triggered by the merge itself;
+   irrelevant to anything below, recorded only so a future "why did it fail
+   right after I merged" doesn't re-diagnose this from scratch.
+2. Next real dispatch, once the deploy had settled: HTTP 504 `"stream
+   timeout"` after exactly 240s — `PickHeadersAsync` had chained enough
+   live Wikidata lookups to blow past Azure's ingress timeout. This is
+   S-035's whole reason for existing, and it's what motivated `MaxDuration`.
+3. **After merging S-035's fix**, the next dispatch failed fast (not slow)
+   with `GridGenerationException: "Ran out of candidates before completing
+   the grid."` — the *other* half of the same underlying problem, and
+   exactly what the 2026-07-12 entry above predicted almost word for word:
+   "a row country that pairs poorly against the whole 15-club Tier 0
+   reference list can burn through every remaining candidate and abort the
+   entire grid." `MinValidAnswers=5` (S-014) against only 15 clubs means a
+   lot of real country/club pairs, especially smaller-market countries,
+   genuinely have fewer than 5 shared historical players — no amount of
+   retrying fixes that, since it isn't bad luck, it's the reference data
+   itself. It failed *fast* this time (not another 4-minute hang) because
+   most of the 15-club pool was already cached at 0 matches from earlier
+   failed attempts — a cache hit, not a fresh Wikidata timeout.
+
+Fixed by S-036: a proactive `PlayerCacheWarmingService` (`dotnet run --
+warm-player-cache`, run manually via `warm-player-cache.yml`, deliberately
+a CLI verb and not an HTTP endpoint — see that story's own "Built as" note
+for why both an endpoint and a fire-and-forget background task are unsafe
+for this specific hosting setup) plus a widened reference pool (20→45
+countries, 15→21 clubs). **The cache-warming job alone does not raise the
+success rate** — it only makes each individual pair's cached-vs-uncached
+status resolve fast instead of slow. The reference-pool widening is what
+actually raises the odds a random row-header pick has enough valid
+columns to work with. Both were asked for together and shipped together;
+worth remembering they solve different halves of the problem if either
+one alone doesn't fully fix future failures.
+
+**If this happens again**, the two most useful diagnostics are: (1) did it
+fail fast or slow — fast means "ran out of candidates" (a data-sparsity
+problem, needs more/better reference data or a lower `MinValidAnswers`),
+slow-then-`MaxDuration` means something is still forcing a lot of live
+Wikidata calls (check whether `warm-player-cache` has actually been run
+since the last reference-data change); (2) run `warm-player-cache.yml`
+again — new reference-data entries or newly-synced Wikidata content since
+the last warming pass are the most likely explanation for a fresh
+data-sparsity failure.
