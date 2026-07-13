@@ -32,8 +32,12 @@ public class ReferenceDataSeederTests
     {
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(20));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(15));
+        // S-036: widened from 20/15 to 45/21 — these counts intentionally
+        // stay hardcoded (not read back from ReferenceDataSeeder itself)
+        // so a future accidental change to the seed data is caught here,
+        // not silently accepted.
+        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
     }
 
     [Test]
@@ -51,8 +55,12 @@ public class ReferenceDataSeederTests
         await ReferenceDataSeeder.SeedAsync(_dbContext);
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(20));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(15));
+        // S-036: widened from 20/15 to 45/21 — these counts intentionally
+        // stay hardcoded (not read back from ReferenceDataSeeder itself)
+        // so a future accidental change to the seed data is caught here,
+        // not silently accepted.
+        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
     }
 
     [Test]
@@ -66,8 +74,12 @@ public class ReferenceDataSeederTests
 
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(c => c.Name == "France"), Is.EqualTo(1));
         Assert.That(await _dbContext.ClubDefinitions.CountAsync(c => c.Name == "Arsenal"), Is.EqualTo(1));
-        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(20));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(15));
+        // S-036: widened from 20/15 to 45/21 — these counts intentionally
+        // stay hardcoded (not read back from ReferenceDataSeeder itself)
+        // so a future accidental change to the seed data is caught here,
+        // not silently accepted.
+        Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
     }
 
     [Test]

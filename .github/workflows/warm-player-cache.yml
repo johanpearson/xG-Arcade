@@ -1,0 +1,36 @@
+name: warm-player-cache
+
+# REQ-110 (ADR-0023's follow-up): proactively fills the PlayerAttribute
+# cache for every reference Country x Club / Club x Club pair, so a real
+# generate-round.yml run can resolve almost entirely from cache instead of
+# gambling on live Wikidata lookups for an unlucky row header — see
+# NOTES.md's 2026-07-13 entry and
+# docs/decisions/0023-grid-generation-wall-clock-deadline.md.
+#
+# A plain CLI job (`dotnet run -- warm-player-cache`, PlayerCacheWarmingService's
+# own doc comment has the full reasoning), not an HTTP endpoint against the
+# deployed backend — this can take a long time (up to a few hundred live
+# Wikidata calls), and a GitHub Actions job has a generous default timeout
+# unlike the deployed backend's own HTTP ingress (~240s, the exact wall
+# ADR-0023 had to work around for round generation).
+#
+# Manual trigger only, no recurring schedule — run this after any
+# reference-data change (ReferenceDataSeeder.cs), not on a fixed cadence,
+# since the reference data itself doesn't change on its own.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  warm-player-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Warm player cache
+        run: dotnet run --project backend/src/XGArcade.Api -- warm-player-cache
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

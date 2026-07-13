@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.43"
+version: "0.44"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -291,6 +291,43 @@ Wikidata-fails/API-Football-fallback branch), API
 **Test level:** Unit (grid generation only ever picks from the reference
 tables; a null QID correctly falls through to the API-Football path
 without erroring), API
+
+**REQ-110 – Proactive player-attribute cache warming**
+> As the system, I want the local player-attribute cache filled for every
+> reference category-value pair ahead of time, not only as a side effect of
+> a live round-generation attempt, so a generation request only rarely
+> needs to gamble on an uncached row/column combination.
+
+- **Status: Implemented (Tier 0, S-036).** Direct follow-up to S-011's own
+  deferred "cache pre-warming job" note and ADR-0023's logged follow-up —
+  both predicted this exact gap; a real dev-environment run confirmed it on
+  2026-07-13 (`GridGenerationException: "Ran out of candidates before
+  completing the grid."` — see NOTES.md). `PlayerCacheWarmingService`
+  (`XGArcade.Games.XGGrid`) iterates every Country × Club and Club × Club
+  pair the reference tables (REQ-109) can produce and, for any pair not
+  already at or above `MinValidAnswers`, triggers the same live-lookup path
+  REQ-103 already uses — the only difference is *when* it runs (proactively,
+  ahead of any real generation attempt) and *how* it's triggered.
+- Given the reference `CountryDefinition`/`ClubDefinition` tables
+- When the cache-warming job runs (`dotnet run -- warm-player-cache`,
+  triggered manually via `warm-player-cache.yml` — **not** an HTTP
+  endpoint against the deployed backend, and **not** on a recurring
+  schedule; see ADR-0024 for why running inside a synchronous request or a
+  fire-and-forget background task would both be unsafe for this specific
+  hosting setup)
+- Then every Country × Club pair and every unique Club × Club pair is
+  checked, and any pair not already meeting `MinValidAnswers` triggers a
+  live Wikidata lookup, persisted the same way REQ-103 already persists one
+- And a pair already meeting `MinValidAnswers` is skipped, not re-queried —
+  idempotent and safe to re-run
+- And a pair cached *below* `MinValidAnswers` is **not** distinguished from
+  a never-checked pair and is re-queried on every run — a known, accepted
+  gap for this first pass (there's no persisted "checked, genuinely low"
+  signal yet), not a correctness bug
+
+**Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
+gets checked exactly once per run; an already-valid pair is skipped; a
+below-threshold pair is re-queried, not skipped)
 
 ---
 

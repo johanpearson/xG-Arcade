@@ -1104,6 +1104,91 @@ and `docs/decisions/0023-grid-generation-wall-clock-deadline.md` (new)
 updated to match. No `architecture-document.md` change — this stays
 entirely within COMP-05's existing responsibility, no boundary moved.
 
+**S-036 · Proactive player-attribute cache warming + wider reference pool (REQ-110)**
+Direct continuation of S-035, same incident: `MaxDuration` made a failed
+generation attempt fail fast and cleanly instead of hanging, but a fast
+`GridGenerationException: "Ran out of candidates before completing the
+grid."` on the very next real dispatch (2026-07-13) showed the deeper
+problem `MaxDuration` alone was never going to fix — `MinValidAnswers=5`
+(S-014) combined with only 15 reference clubs means a lot of real
+country/club pairs, especially smaller-market countries, genuinely don't
+have 5+ shared historical players. No amount of retrying fixes an
+unlucky-but-real data gap. This is exactly the risk S-011's backlog entry
+predicted and deliberately deferred ("a scheduled/proactive cache
+pre-warming job ... revisit if S-014's threshold bump makes grid
+generation struggle in practice").
+Two parts, both requested together: (1) a proactive cache-warming job that
+checks every reference Country×Club and Club×Club pair ahead of time
+instead of only ever discovering a pair's real match count as a side
+effect of a live generation attempt; (2) a materially wider reference pool
+(more countries, more clubs) so more row-header picks have a realistic
+chance of clearing `MinValidAnswers` at all.
+*Accept:* REQ110-named tests confirm every pair gets checked, an
+already-valid pair is skipped (not re-queried), and a below-threshold pair
+is re-queried (documented as a known gap, not a bug — see REQ-110's own
+acceptance criteria for why). *Deps:* S-007, S-030, S-035.
+**Built as:** matches the plan, with the execution-model choice being the
+one real design decision made along the way. `PlayerCacheWarmingService`
+(`XGArcade.Games.XGGrid`) does the actual iteration — deliberately
+sequential (same `XGArcadeDbContext`-sharing constraint `PickHeadersAsync`
+already has to respect, see S-035's own note) and deliberately **not**
+exposed as an HTTP endpoint. An endpoint would hit the identical ~240s
+ingress wall S-035 just fixed round generation against, since this job can
+run for a genuinely long time (every reference pair, each up to a real
+~15-27s live Wikidata call) — and a fire-and-forget background task inside
+the deployed app isn't safe either, since this Container App scales to
+zero (`minReplicas: 0`, NOTES.md 2026-07-09) and a scale-down mid-run would
+silently lose all progress with nothing persisted to resume from. Instead
+it's a second `dotnet run --` CLI verb in `Program.cs` (`warm-player-cache`,
+built the same way the existing `migrate-and-seed` verb is: constructs its
+own `XGArcadeDbContext`/repositories/`WikidataClient` directly rather than
+spinning up the full DI container), triggered manually via a new
+`warm-player-cache.yml` workflow (`workflow_dispatch` only, no recurring
+schedule — this is meant to run after a reference-data change, not on a
+fixed cadence). Idempotent: skips any pair already at or above
+`MinValidAnswers` (fast, cache-only), but does **not** skip a pair cached
+*below* that threshold, since there's no persisted signal distinguishing
+"never checked" from "checked, genuinely low" — accepted as a known first-pass
+gap (documented in both REQ-110 and the service's own doc comment), not
+attempted to fix with a new tracking table this round.
+`ReferenceDataSeeder.cs` widened from 20/15 to 45/21 countries/clubs — the
+25 added countries and 6 added clubs use well-known, stable Wikidata QIDs
+from training knowledge, **not independently verified against a live
+Wikidata endpoint** (this sandbox's network policy blocks wikidata.org,
+same limitation NOTES.md already records for Supabase/JWKS verification).
+A wrong QID here is self-limiting, not dangerous — `WikidataClient`'s
+SPARQL queries against a nonexistent/mismatched QID just return zero
+bindings, indistinguishable from a real "no shared players" result — and
+`PlayerCacheWarmingService`'s own run will surface any entry that
+consistently resolves zero matches against everything it's tried against,
+which is the practical way to catch a bad one. Flagged for spot-checking,
+not blocking on it given the graceful-failure property.
+**Review pass:** an independent architecture-reviewer pass agreed
+`PlayerCacheWarmingService` living in COMP-05 is fine (no boundary
+change — reads reference data through `ICategoryValueRepository` and
+persists through `IWikidataLookupService`/`IPlayerStoreRepository`
+exactly like generation already does), but flagged two real gaps the
+original pass had missed:
+1. `Program.cs`'s CLI verb hand-duplicated the real
+   `AddHttpClient<IWikidataClient, WikidataClient>` registration's
+   `BaseAddress`/`User-Agent`, flagged only by a "kept in sync manually"
+   comment — a bug-prone pattern (the same risk already existed for
+   `migrate-and-seed`'s duplicated `DbContextOptionsBuilder`, but this
+   extended it to a second, larger surface). Fixed by extracting a shared
+   `ConfigureWikidataHttpClient` local function both the DI registration
+   and the CLI verb now call — the two can no longer silently drift.
+2. The execution-model decision (CLI verb, not an endpoint or background
+   task) *is* architecturally significant per this repo's own ADR bar,
+   closely related to ADR-0023, and was only recorded as scattered prose
+   (this entry, the service's doc comment, REQ-110's status note) rather
+   than an indexed ADR. The "judged sufficient without one" call in the
+   original draft of this entry was wrong — added
+   `docs/decisions/0024-cache-warming-runs-as-a-cli-verb.md`, plus a
+   one-line COMP-05 status note and both this ADR and the
+   previously-unlisted ADR-0023 added to `architecture-document.md`'s §10
+   table (ADR-0023 itself already existed from S-035 but was never added
+   to that table — a pre-existing gap, fixed here opportunistically).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

@@ -57,6 +57,65 @@ if (args is ["migrate-and-seed"])
     return;
 }
 
+// REQ-110 (ADR-0023's follow-up): `dotnet run -- warm-player-cache` is a
+// second distinct CLI verb, same shape as migrate-and-seed above but run
+// by its own workflow (warm-player-cache.yml), manually, after any
+// reference-data change — never inside a synchronous HTTP request (see
+// PlayerCacheWarmingService's own doc comment for why). Builds its
+// dependencies directly rather than spinning up the full WebApplication
+// DI container, same as migrate-and-seed does.
+if (args is ["warm-player-cache"])
+{
+    var warmingConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var warmingConnectionString = warmingConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var warmingDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(warmingConnectionString)
+        .Options;
+
+    using var warmingLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
+    var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
+    var warmingPlayerStoreRepository = new PlayerStoreRepository(warmingDbContext);
+
+    using var warmingHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(warmingHttpClient);
+    var warmingWikidataClient = new WikidataClient(warmingHttpClient, logger: warmingLoggerFactory.CreateLogger<WikidataClient>());
+    var warmingWikidataLookupService = new WikidataLookupService(warmingWikidataClient, warmingPlayerStoreRepository);
+
+    var warmingService = new PlayerCacheWarmingService(
+        warmingCategoryValueRepository, warmingPlayerStoreRepository, warmingWikidataLookupService,
+        new GridGenerationOptions(), warmingLoggerFactory.CreateLogger<PlayerCacheWarmingService>());
+
+    await warmingService.WarmAsync();
+
+    Console.WriteLine("warm-player-cache: complete.");
+    return;
+}
+
+// Single source of truth for WikidataClient's HttpClient config — shared by
+// the real AddHttpClient<IWikidataClient, WikidataClient> DI registration
+// below and the warm-player-cache CLI verb above (which can't use that DI
+// registration, since it returns before WebApplication.CreateBuilder ever
+// runs). A local function declaration is visible throughout this file's
+// top-level statements regardless of textual position, so this can stay
+// defined here rather than duplicated at the top.
+static void ConfigureWikidataHttpClient(HttpClient client)
+{
+    client.BaseAddress = new Uri("https://query.wikidata.org/");
+    // WDQS's own etiquette guidance asks for an identifiable User-Agent
+    // rather than a generic HttpClient default.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "xG-Arcade/1.0 (Tier 0 grid data sync; see docs/decisions/0011-wikidata-first-lookup-waterfall.md)");
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -96,16 +155,13 @@ builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 
 // COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
 // Service, per implementation-document.md §6a. No API-Football fallback
-// client yet — that's Tier 1 (ADR-0011). Not yet called from any endpoint;
-// S-007 (grid generation) is the first caller.
-builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(client =>
-{
-    client.BaseAddress = new Uri("https://query.wikidata.org/");
-    // WDQS's own etiquette guidance asks for an identifiable User-Agent
-    // rather than a generic HttpClient default.
-    client.DefaultRequestHeaders.UserAgent.ParseAdd(
-        "xG-Arcade/1.0 (Tier 0 grid data sync; see docs/decisions/0011-wikidata-first-lookup-waterfall.md)");
-});
+// client yet — that's Tier 1 (ADR-0011). ConfigureWikidataHttpClient (local
+// function, defined below main's top-level statements) is the single
+// source of truth for BaseAddress/User-Agent — also used by the
+// `warm-player-cache` CLI verb above, which can't go through this DI
+// registration since it returns before WebApplication.CreateBuilder ever
+// runs. Keeping this in one place means the two can't silently drift.
+builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(ConfigureWikidataHttpClient);
 builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 
 // COMP-05 (Games.XGGrid) — S-007's grid generation.
