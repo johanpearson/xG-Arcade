@@ -148,7 +148,7 @@ if (args is ["clean-stale-club-attributes", ..])
 // is a fourth CLI verb — deletes every Player row (and, via ON DELETE
 // CASCADE, every PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias row
 // with it) so the pool can be rebuilt from scratch entirely through the
-// male-only/last-100-years-by-date-of-birth SPARQL filters WikidataClient
+// male-only/born-1939-or-later SPARQL filters WikidataClient
 // now applies (REQ-112). A bulk, unscoped purge — unlike
 // clean-stale-club-attributes above, which only ever touches the named
 // clubs — needs its own, stronger safety gate: a required, exact

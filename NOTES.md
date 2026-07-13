@@ -651,24 +651,31 @@ training-knowledge guesses — 21→32 clubs total.
 ### 2026-07-13 — Player pool had no gender or era restriction; whole pool purged and rebuilt (S-038, ADR-0025)
 
 Separate follow-up the same day: the user flagged that the player pool
-sourced from Wikidata should be restricted to male footballers born within
-the last 100 years — neither restriction existed before this. Unlike
-S-037's wrong-QID fix, this isn't a bug in existing code (the queries
-worked exactly as written), it's a scope decision about what the game
-should cover at all.
+sourced from Wikidata should be restricted to male footballers, and to a
+particular era — neither restriction existed before this. Unlike S-037's
+wrong-QID fix, this isn't a bug in existing code (the queries worked
+exactly as written), it's a scope decision about what the game should
+cover at all.
 
 Two things had to be made concrete: how to express "male" against
 Wikidata's actual data model (`P21` = sex or gender, `Q6581097` = male —
 there's no separate "male footballer" occupation item to filter on
-instead), and what "the latest 100 years" means precisely enough to
-implement. Went with date of birth (`P569`) as a rolling window —
-`TimeProvider.GetUtcNow().AddYears(-100)`, computed fresh on every query,
-not a fixed year baked into the query text — over a career/active-period
-filter, since Wikidata's career-span data is far less consistently
-populated than date of birth and would silently exclude real in-scope
-players more often. Full reasoning, including alternatives considered, is
-in ADR-0025 — don't re-litigate the date-of-birth-vs-career-span or
-rolling-vs-fixed-cutoff choices without reading that first.
+instead), and where the era cutoff sits. **First pass got the second one
+wrong**: implemented date of birth (`P569`) as a rolling "latest 100
+years" window — `TimeProvider.GetUtcNow().AddYears(-100)`, computed fresh
+on every query — before the user corrected course mid-review: the actual
+requirement is a **fixed** date, players born in 1939 or later, not a
+window that keeps sliding forward every year. Switched to a
+`private const string` cutoff literal on `WikidataClient` and removed the
+`TimeProvider` dependency entirely, since a fixed date needs no clock at
+all. Date of birth over a career/active-period filter was still the right
+call either way, since Wikidata's career-span data is far less
+consistently populated than date of birth and would silently exclude real
+in-scope players more often. Full reasoning, including alternatives
+considered, is in ADR-0025 (rewritten in place to describe the fixed-date
+decision, since this never shipped as the rolling version) — don't
+re-litigate the date-of-birth-vs-career-span choice, or reintroduce a
+rolling cutoff, without reading that first.
 
 **The existing cached pool couldn't be selectively fixed.** Neither sex
 nor date of birth was ever recorded on `Player`/`PlayerAttribute` rows, so

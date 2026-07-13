@@ -15,25 +15,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 - 2026-07-13 — `docs/requirements-document.md` (0.45 → 0.46, new REQ-112),
   `docs/implementation-document.md` (0.44 → 0.45), `docs/backlog.md` (new
-  S-038), new `docs/decisions/0025-player-pool-restricted-to-male-last-100-years.md`
+  S-038), new
+  `docs/decisions/0025-player-pool-restricted-to-male-born-1939-or-later.md`
   — user-identified scope issue: the player pool had no gender or era
   restriction. Both `WikidataClient` SPARQL query builders now require
   `wdt:P21 wd:Q6581097` (male) and a `wdt:P569`/`FILTER` requiring date of
-  birth on/after a rolling 100-years-before-now cutoff, computed via a new
-  `TimeProvider` constructor param rather than hardcoded. Existing cached
-  player data couldn't be selectively corrected (neither property was ever
-  recorded on cached rows) so a new `purge-player-pool "delete all player
-  data"` CLI verb + workflow deletes the entire pool (Player, cascading
-  through PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias) behind a
-  required exact-confirmation-phrase gate, same extra-friction pattern as
+  birth on/after a fixed `1939-01-01T00:00:00Z` cutoff (a first pass used a
+  `TimeProvider`-driven rolling "latest 100 years" window; the user
+  corrected this to the fixed date, which also removed the clock
+  dependency entirely). Existing cached player data couldn't be
+  selectively corrected (neither property was ever recorded on cached
+  rows) so a new `purge-player-pool "delete all player data"` CLI verb +
+  workflow deletes the entire pool (Player, cascading through
+  PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias) behind a required
+  exact-confirmation-phrase gate, same extra-friction pattern as
   `promote-dev-to-prod.sh`. Reference tables and account/game-history
   tables are untouched. `docs/architecture-document.md` checked, no change
   needed — same component responsibility, stricter query only. A
-  `code-reviewer` pass caught the cutoff being formatted as a date-only
-  literal (`"1926-07-13"`) but typed `^^xsd:dateTime` in the SPARQL
-  `FILTER` — malformed for that XSD type (a SPARQL type error in a
-  `FILTER` silently excludes everything rather than throwing), fixed by
-  appending a fixed `T00:00:00Z` time component before this shipped.
+  `code-reviewer` pass on the earlier rolling-window draft caught the
+  cutoff being formatted as a date-only literal but typed `^^xsd:dateTime`
+  in the SPARQL `FILTER` — malformed for that XSD type (a SPARQL type
+  error in a `FILTER` silently excludes everything rather than throwing);
+  the fixed-date cutoff carries the same `T00:00:00Z` time component this
+  fix required.
 - 2026-07-13 — `docs/backlog.md` (new S-037) — the user manually verified
   S-036's new club Wikidata QIDs against live Wikidata pages (this sandbox
   can't reach `wikidata.org`) and found 4 of 6 wrong: Napoli, AS Roma,

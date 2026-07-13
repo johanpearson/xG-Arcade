@@ -147,20 +147,18 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task QueryCountryClubIntersectionAsync_SentQuery_FiltersToDateOfBirthWithinLast100Years()
+    public async Task QueryCountryClubIntersectionAsync_SentQuery_FiltersToDateOfBirthOnOrAfter1939()
     {
-        // ADR-0025/REQ-112: a rolling window, not a fixed year — the sent
-        // cutoff must track the injected "now" exactly (today minus 100
-        // years), not some other hardcoded date.
+        // ADR-0025/REQ-112: a fixed date, not a rolling window — the sent
+        // cutoff is always 1939-01-01, regardless of when the query runs.
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
-        var fixedNow = new DateTimeOffset(2026, 7, 13, 0, 0, 0, TimeSpan.Zero);
-        var client = new WikidataClient(BuildHttpClient(handler), timeProvider: new FixedTimeProvider(fixedNow));
+        var client = new WikidataClient(BuildHttpClient(handler));
 
         await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P569"));
-        Assert.That(sentQuery, Does.Contain("\"1926-07-13T00:00:00Z\"^^xsd:dateTime"));
+        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
     }
 
     [Test]
@@ -332,17 +330,16 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task QueryClubClubIntersectionAsync_SentQuery_FiltersToDateOfBirthWithinLast100Years()
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FiltersToDateOfBirthOnOrAfter1939()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
-        var fixedNow = new DateTimeOffset(2026, 7, 13, 0, 0, 0, TimeSpan.Zero);
-        var client = new WikidataClient(BuildHttpClient(handler), timeProvider: new FixedTimeProvider(fixedNow));
+        var client = new WikidataClient(BuildHttpClient(handler));
 
         await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P569"));
-        Assert.That(sentQuery, Does.Contain("\"1926-07-13T00:00:00Z\"^^xsd:dateTime"));
+        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
     }
 
     [Test]

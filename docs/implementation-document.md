@@ -824,8 +824,8 @@ the new, correct data too.
 "can't selectively fix already-cached data" problem, but for the whole
 pool rather than a few named clubs — neither sex nor date of birth was
 ever recorded on cached `Player`/`PlayerAttribute` rows, so there is no
-way to tell which existing rows would have passed the new male/last-100-
-years filters and which wouldn't without a live Wikidata re-check per
+way to tell which existing rows would have passed the new male/born-1939-
+or-later filters and which wouldn't without a live Wikidata re-check per
 player anyway. A fourth CLI verb, `purge-player-pool "delete all player
 data"`, deletes every `Player` row (cascading, via `ON DELETE CASCADE`,
 through `PlayerData`/`PlayerOverride`/`PlayerAttribute`/`PlayerAlias`) —
@@ -1059,7 +1059,7 @@ SELECT ?player ?playerLabel WHERE {
   ?player wdt:P54 wd:Q9617.      # member of sports team: e.g. Arsenal F.C.
   ?player wdt:P21 wd:Q6581097.   # sex or gender: male (REQ-112, ADR-0025)
   ?player wdt:P569 ?dateOfBirth. # date of birth (REQ-112, ADR-0025)
-  FILTER(?dateOfBirth >= "1926-07-13T00:00:00Z"^^xsd:dateTime) # rolling: 100 years before "now"
+  FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime) # fixed cutoff, not rolling
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ```
@@ -1089,11 +1089,12 @@ Three rules that make this query correct, not just functional:
   no manual alias curation and no separate Tier 1 system needed.
 - **Upsert players by `WikidataQid`**, never insert per query — see the
   `Player` entity's dedup note in §5.
-- **Always filter to male (`P21`) and date of birth within the last 100
-  years (`P569`), computed as a rolling window** (REQ-112, ADR-0025) —
-  `WikidataClient`'s `TimeProvider.GetUtcNow().AddYears(-100)`, not a
-  hardcoded literal year, so the cutoff drifts forward on its own as real
-  time passes with no code change ever needed. Neither property is
+- **Always filter to male (`P21`) and date of birth on or after
+  1939-01-01 (`P569`)** (REQ-112, ADR-0025) — a fixed literal on
+  `WikidataClient`, not a rolling window computed from the current time
+  (an earlier draft used a `TimeProvider`-driven rolling "latest 100
+  years" cutoff; the user corrected this to a fixed date, which also
+  removed the need for any clock dependency here). Neither property is
   recorded on the persisted `Player`/`PlayerAttribute` rows — the filter
   exists only at query time, so a player already outside these bounds is
   simply never fetched in the first place, never fetched-then-excluded.

@@ -362,25 +362,27 @@ below-threshold pair is re-queried, not skipped)
 rows and leaves zero cached matches; scopes strictly to the named clubs and
 to `AttributeType == "club"`; safe to re-run)
 
-**REQ-112 – Player pool restricted to male, born within the last 100 years**
+**REQ-112 – Player pool restricted to male, born in 1939 or later**
 > As a player, I want every candidate answer the grid could ever accept to
 > be a male footballer from a period I could plausibly recognize, so a
-> correct answer never turns out to be an unfamiliar 19th-century or
+> correct answer never turns out to be an unfamiliar early-20th-century or
 > women's-football player I had no realistic way to reason my way to.
 
 - **Status: Implemented (Tier 0, S-038, ADR-0025).** Both `WikidataClient`
   SPARQL query builders (`BuildCountryClubIntersectionQuery`,
   `BuildClubClubIntersectionQuery`) require `?player wdt:P21 wd:Q6581097`
   (P21 = sex or gender, Q6581097 = male) and `?player wdt:P569
-  ?dateOfBirth` with `FILTER(?dateOfBirth >= "<cutoff>"^^xsd:dateTime)`,
-  where `<cutoff>` is `TimeProvider.GetUtcNow().AddYears(-100)` computed at
-  query time — a rolling window, not a fixed year, so it never needs a
-  manual update as real time passes.
+  ?dateOfBirth` with `FILTER(?dateOfBirth >=
+  "1939-01-01T00:00:00Z"^^xsd:dateTime)` (P569 = date of birth). A fixed
+  date, not a rolling window relative to "now" — an earlier draft of this
+  requirement used a rolling "latest 100 years" window before the user
+  corrected it to this fixed cutoff, so there is no clock/`TimeProvider`
+  dependency involved.
 - Given any Country×Club or Club×Club intersection query
 - When the query runs against Wikidata
 - Then only players who are recorded as male (P21 = Q6581097) and whose
-  date of birth (P569) is on or after 100 years before the query's own
-  current time are ever returned as candidates
+  date of birth (P569) is on or after 1939-01-01 are ever returned as
+  candidates
 - And a player missing either P21 or P569 entirely is excluded, not
   included by default — the filter triples are non-optional
 - **Data migration note (not itself a test-level acceptance criterion):**
@@ -391,8 +393,8 @@ to `AttributeType == "club"`; safe to re-run)
   fresh `warm-player-cache` run once this filter shipped.
 
 **Test level:** Unit (`WikidataClientTests.cs` — sent SPARQL query contains
-the P21 male triple; sent query's date-of-birth cutoff matches an injected
-fixed "now" minus 100 years exactly, for both query builders)
+the P21 male triple; sent query's date-of-birth cutoff is exactly
+`1939-01-01T00:00:00Z`, for both query builders)
 
 ---
 

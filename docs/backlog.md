@@ -1246,30 +1246,32 @@ correction itself, but not purging the derived `PlayerAttribute`/
 covers. `docs/implementation-document.md` §6 also gained a paragraph on
 this CLI-verb pattern (`doc-sync` review pass).
 
-**S-038 · Restrict player pool to male, born within the last 100 years (REQ-112, ADR-0025)**
+**S-038 · Restrict player pool to male, born in 1939 or later (REQ-112, ADR-0025)**
 User-identified scope issue: the player pool sourced from Wikidata had no
 gender or era restriction, so a grid could surface a female footballer or
-an unfamiliar 19th/early-20th-century name a player has no realistic way
-to reason their way to. *Accept:* both `WikidataClient` SPARQL query
-builders always include `wdt:P21 wd:Q6581097` (male) and `wdt:P569
-?dateOfBirth` with a `FILTER` requiring it on/after a rolling 100-years-
-before-now cutoff (`TimeProvider`-driven, not a hardcoded year); a new
-`purge-player-pool "delete all player data"` CLI verb + workflow (gated
-behind an exact confirmation phrase, same extra-friction pattern
-`promote-dev-to-prod.sh` already uses) deletes the entire cached player
-pool (`Player`, cascading through `PlayerData`/`PlayerOverride`/
+an unfamiliar early-20th-century name a player has no realistic way to
+reason their way to. *Accept:* both `WikidataClient` SPARQL query builders
+always include `wdt:P21 wd:Q6581097` (male) and `wdt:P569 ?dateOfBirth`
+with a `FILTER` requiring it on/after a fixed `1939-01-01T00:00:00Z`
+cutoff; a new `purge-player-pool "delete all player data"` CLI verb +
+workflow (gated behind an exact confirmation phrase, same extra-friction
+pattern `promote-dev-to-prod.sh` already uses) deletes the entire cached
+player pool (`Player`, cascading through `PlayerData`/`PlayerOverride`/
 `PlayerAttribute`/`PlayerAlias`) since neither property was ever recorded
 on already-cached rows and can't be selectively corrected the way S-037's
 per-club fix could; reference tables and account/game-history tables
 (`User`/`League`/`Round`/`GridInstance`/`GridCell`/`Guess`) are untouched.
 *Deps:* S-006 (`WikidataClient`), S-036/S-037 (the CLI-verb pattern this
 reuses).
-**Built as:** matches the plan — see ADR-0025 for the full reasoning
-(rolling vs. fixed cutoff, date-of-birth vs. career-span filtering,
-full-purge vs. selective-fix, and the confirmation-phrase safety gate).
-New tests in `WikidataClientTests.cs` assert the sent SPARQL query
-contains the male triple and a date-of-birth cutoff matching an injected
-fixed "now" minus exactly 100 years, for both query builders. Operational
+**Built as:** first implemented with a rolling `TimeProvider`-driven
+"latest 100 years" cutoff, then corrected to a fixed `1939-01-01` date per
+the user's follow-up — see ADR-0025 for the full reasoning (fixed vs.
+rolling cutoff, date-of-birth vs. career-span filtering, full-purge vs.
+selective-fix, and the confirmation-phrase safety gate). The fixed date
+removed the need for any `TimeProvider`/clock dependency on
+`WikidataClient` at all. New tests in `WikidataClientTests.cs` assert the
+sent SPARQL query contains the male triple and a date-of-birth cutoff of
+exactly `1939-01-01T00:00:00Z`, for both query builders. Operational
 sequence after merge: (1) deploy ships the new filters, (2) trigger
 `purge-player-pool.yml` once with confirmation phrase `delete all player
 data`, (3) trigger `warm-player-cache.yml` to repopulate under the new

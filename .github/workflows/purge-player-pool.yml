@@ -2,7 +2,7 @@ name: purge-player-pool
 
 # S-038 (ADR-0025): deletes the entire cached player pool (Player, and via
 # ON DELETE CASCADE, PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias)
-# so it can be rebuilt entirely under the new male-only/last-100-years
+# so it can be rebuilt entirely under the new male-only/born-1939-or-later
 # SPARQL filters (REQ-112) — see NOTES.md's entry on why the previously
 # cached pool could contain players outside those bounds and can't be
 # selectively fixed the way a wrong-QID club could (S-037).
