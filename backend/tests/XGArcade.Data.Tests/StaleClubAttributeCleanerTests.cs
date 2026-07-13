@@ -58,7 +58,7 @@ public class StaleClubAttributeCleanerTests
     // generation lookup against this club name finds zero cached matches,
     // not a silent match against the unrelated entity's leftover data.
     [Test]
-    public async Task REQ109_CleanAsync_RemovesDataFetchedUnderAPreviouslyWrongQid_LeavingZeroCachedMatches()
+    public async Task REQ111_CleanAsync_RemovesDataFetchedUnderAPreviouslyWrongQid_LeavingZeroCachedMatches()
     {
         // Simulates what actually happened for Napoli/AS Roma/Sevilla/Porto:
         // real players persisted under the club's name, fetched while its
@@ -76,7 +76,7 @@ public class StaleClubAttributeCleanerTests
     }
 
     [Test]
-    public async Task REQ109_CleanAsync_OnlyRemovesTheNamedClubs_LeavesOthersUntouched()
+    public async Task REQ111_CleanAsync_OnlyRemovesTheNamedClubs_LeavesOthersUntouched()
     {
         await SeedPlayerWithClubAttributeAsync("Napoli");
         await SeedPlayerWithClubAttributeAsync("Arsenal");
@@ -88,7 +88,7 @@ public class StaleClubAttributeCleanerTests
     }
 
     [Test]
-    public async Task REQ109_CleanAsync_MultipleClubNamesAtOnce_RemovesAllOfThem()
+    public async Task REQ111_CleanAsync_MultipleClubNamesAtOnce_RemovesAllOfThem()
     {
         await SeedPlayerWithClubAttributeAsync("Napoli");
         await SeedPlayerWithClubAttributeAsync("AS Roma");
@@ -104,7 +104,7 @@ public class StaleClubAttributeCleanerTests
     }
 
     [Test]
-    public async Task REQ109_CleanAsync_DoesNotTouchNonClubAttributes()
+    public async Task REQ111_CleanAsync_DoesNotTouchNonClubAttributes()
     {
         var player = await SeedPlayerWithClubAttributeAsync("Napoli");
         _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "Napoli" });
@@ -117,7 +117,7 @@ public class StaleClubAttributeCleanerTests
     }
 
     [Test]
-    public async Task REQ109_CleanAsync_IsSafeToRunAgain_WhenNothingIsLeftToClean()
+    public async Task REQ111_CleanAsync_IsSafeToRunAgain_WhenNothingIsLeftToClean()
     {
         await SeedPlayerWithClubAttributeAsync("Napoli");
         await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
@@ -129,7 +129,7 @@ public class StaleClubAttributeCleanerTests
     }
 
     [Test]
-    public async Task REQ109_CleanAsync_NoMatchingData_ReturnsZero_DoesNotThrow()
+    public async Task REQ111_CleanAsync_NoMatchingData_ReturnsZero_DoesNotThrow()
     {
         var (removedAttributeCount, removedDataCount) = await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Nonexistent Club"]);
 

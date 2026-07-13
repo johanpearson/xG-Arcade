@@ -1233,11 +1233,18 @@ per correction, always *before* the next `warm-player-cache` run (running
 it after would wipe the fresh correct data too, same reasoning). Reference
 pool: 21→32 clubs (RB Leipzig, Bayer Leverkusen, Marseille, Lyon, Monaco,
 Lille, Lazio, Valencia, Real Sociedad, Newcastle United, West Ham United).
-`docs/requirements-document.md` and `docs/architecture-document.md` were
-checked and found not needing a change — this stays within COMP-06
-(Data.PlayerStore)'s and the reference-data seeder's existing
-responsibility, no new REQ or boundary; REQ-109's existing "resolved once,
-verified" language already covers the correction, no wording changed.
+`docs/architecture-document.md` was checked and found not needing a
+change — this stays within COMP-06 (Data.PlayerStore)'s existing
+responsibility, no boundary change. `docs/requirements-document.md` gained
+**REQ-111** (added by a `requirements-writer` review pass, after a
+`code-reviewer` pass flagged that `StaleClubAttributeCleaner`'s
+cache-purge/recovery behavior was being filed under REQ-109 by association
+rather than covered by its own requirement) — REQ-109's "resolved once,
+verified" language covers the `ReferenceDataSeeder.SeedAsync` in-place
+correction itself, but not purging the derived `PlayerAttribute`/
+`PlayerData` cache once a QID is corrected, which is what REQ-111 now
+covers. `docs/implementation-document.md` §6 also gained a paragraph on
+this CLI-verb pattern (`doc-sync` review pass).
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 

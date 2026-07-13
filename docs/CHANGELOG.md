@@ -32,9 +32,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   in the persisted data can tell old from new after the fact — deliberately
   a manual, argument-driven CLI verb, not wired into `migrate-and-seed`'s
   automatic chain, since running it on every deploy would eventually wipe
-  freshly-fetched correct data too. `docs/requirements-document.md` and
-  `docs/architecture-document.md` checked, no change needed — stays within
-  COMP-06's existing responsibility, no new REQ or boundary. REQ-109.
+  freshly-fetched correct data too. `docs/architecture-document.md` checked,
+  no change needed — stays within COMP-06's existing responsibility, no
+  boundary change. REQ-109. (A `requirements-writer` pass below revised the
+  "no new REQ" call for `docs/requirements-document.md` specifically.)
+- 2026-07-13 — `docs/implementation-document.md` (0.43 → 0.44) — doc-sync
+  pass on S-037 (PR #46): added a §6 paragraph documenting
+  `ReferenceDataSeeder.SeedAsync`'s new in-place `WikidataQid` correction
+  behavior and the third `clean-stale-club-attributes` CLI verb
+  (`StaleClubAttributeCleaner`), following the same documentation pattern
+  already used for `migrate-and-seed`/`warm-player-cache` — this doc had no
+  mention of either at all before this pass, and its own `update_when`
+  ("a new tool is adopted") applies. `docs/architecture-document.md`
+  re-confirmed accurate, no further change. REQ-109. (`docs/requirements-
+  document.md`'s "no change needed" call from this same pass was revised by
+  a subsequent `requirements-writer` review below.)
+- 2026-07-13 — `docs/requirements-document.md` (0.44 → 0.45) —
+  `requirements-writer` pass on S-037 (PR #46): added **REQ-111 –
+  Recovery from a corrected reference-data QID**, right after REQ-110.
+  Two earlier passes (this session's own judgment, then a `doc-sync`
+  review) had both filed `StaleClubAttributeCleaner`'s cache-purge/recovery
+  behavior under REQ-109 by association rather than giving it its own
+  requirement — a `code-reviewer` pass flagged this as a real stretch of
+  REQ-109's language, which only covers reference-table QID resolution, not
+  purging the derived `PlayerAttribute`/`PlayerData` cache once a QID is
+  corrected. `StaleClubAttributeCleanerTests.cs`'s 6 tests renamed from
+  `REQ109_...` to `REQ111_...` to match; the two `ReferenceDataSeederTests.cs`
+  tests proving `SeedAsync`'s in-place QID correction stay under REQ-109,
+  since that behavior — correcting the reference table itself — is what
+  REQ-109 already covers.
 - 2026-07-13 — `docs/requirements-document.md` (0.43 → 0.44),
   `docs/implementation-document.md` (0.42 → 0.43),
   `docs/architecture-document.md` (0.30 → 0.31), `docs/backlog.md`
