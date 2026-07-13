@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.DataSync.Tests.Wikidata;
@@ -10,6 +11,8 @@ public class WikidataClientTests
 {
     private const string CountryQid = "Q142"; // France
     private const string ClubQid = "Q9617";   // Arsenal
+    private const string ClubAQid = "Q9617";  // Arsenal
+    private const string ClubBQid = "Q7156";  // Barcelona
 
     private static HttpClient BuildHttpClient(FakeHttpMessageHandler handler) =>
         new(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
@@ -145,5 +148,161 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryCountryClubIntersectionAsync(CountryQid, "Arsenal"));
+    }
+
+    // ---- QueryClubClubIntersectionAsync (S-030) ----------------------------
+    // Mirrors every QueryCountryClubIntersectionAsync_* test above — same
+    // parsing/error-handling code path (RunIntersectionQueryAsync), just a
+    // different query builder (BuildClubClubIntersectionQuery, P54 checked
+    // twice instead of P27+P54).
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_GroupsMultipleAliasRowsUnderOnePlayer()
+    {
+        const string json = """
+            {
+              "head": { "vars": ["player", "playerLabel", "alias"] },
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "TH14" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
+        Assert.That(result[0].FullName, Is.EqualTo("Thierry Henry"));
+        Assert.That(result[0].Aliases, Is.EquivalentTo(new[] { "Titi", "TH14" }));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_PlayerWithNoAlias_ReturnsEmptyAliasList()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].Aliases, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_HttpErrorStatus_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_MalformedJson_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_NeverContainsLimit()
+    {
+        // Same non-negotiable rule as QueryCountryClubIntersectionAsync
+        // (implementation-document.md §6a): the result set IS the cell's
+        // complete answer key.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FetchesSkosAltLabelInTheSameQuery()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("skos:altLabel"));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_ChecksP54TwiceAndNeverP27()
+    {
+        // S-030: Club x Club's query shape checks "member of sports team"
+        // (P54) against both clubs, unlike Country x Club's P27+P54 —
+        // asserted explicitly since a copy-paste of the country/club query
+        // builder that forgot to swap P27 for a second P54 would otherwise
+        // silently produce a Country-shaped query for a Club x Club cell.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(Regex.Matches(sentQuery, "wdt:P54").Count, Is.EqualTo(2));
+        Assert.That(sentQuery, Does.Not.Contain("P27"));
+    }
+
+    [Test]
+    public void QueryClubClubIntersectionAsync_RejectsNonQidClubAValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryClubClubIntersectionAsync("Arsenal", ClubBQid));
+    }
+
+    [Test]
+    public void QueryClubClubIntersectionAsync_RejectsNonQidClubBValue()
+    {
+        // Separate branch from the clubA check above (two independent `if`
+        // guards in WikidataClient) — not guaranteed by symmetry.
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryClubClubIntersectionAsync(ClubAQid, "Barcelona"));
     }
 }

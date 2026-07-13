@@ -9,23 +9,27 @@ namespace XGArcade.Games.XGGrid;
 
 // COMP-05: IGameModule implementation for the xG Grid game.
 //
-// Tier 0 scope (MVP-SCOPE.md): grids are always Country (row headers) x
-// Club (column headers) — never Country x Country (REQ-107), never Trophy
-// (REQ-108, deferred). Row/column headers are fixed once chosen (REQ-102's
-// "N unique row categories and N unique column categories") — rows are
-// picked first (any country satisfies REQ-107 on its own, since the ban
-// only applies to a Country/Country pairing), then columns are picked one
-// at a time, each candidate validated against every already-fixed row
-// header before being accepted (REQ-101). A rejected candidate is
-// discarded and a new one tried, up to GridGenerationOptions.MaxAttempts
-// total attempts across the whole instance, matching REQ-101's abort rule.
+// Tier 0 scope (MVP-SCOPE.md): grids are always Country x Club or, as of
+// docs/backlog.md S-030, Club x Club — never Country x Country (REQ-107),
+// never Trophy (REQ-108, deferred). Which pairing a given instance uses is
+// picked once per call (SelectPairing), randomly whenever the seeded
+// reference data can support either. Row/column headers are then fixed
+// once chosen (REQ-102's "N unique row categories and N unique column
+// categories") — rows are picked first (any candidate satisfies REQ-107 on
+// its own, since the ban only applies to a Country/Country pairing), then
+// columns are picked one at a time, each candidate validated against every
+// already-fixed row header before being accepted (REQ-101). A rejected
+// candidate is discarded and a new one tried, up to
+// GridGenerationOptions.MaxAttempts total attempts across the whole
+// instance, matching REQ-101's abort rule.
 public class GridGameModule(
     IGridInstanceRepository gridInstanceRepository,
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
     IWikidataLookupService wikidataLookupService,
     GridGenerationOptions options,
-    ILogger<GridGameModule> logger) : IGameModule
+    ILogger<GridGameModule> logger,
+    Random? random = null) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 
@@ -35,7 +39,20 @@ public class GridGameModule(
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
 
+    // Only the Country x Club / Club x Club pairing coin-flip goes through
+    // this field (see SelectPairing) — candidate-order shuffling still uses
+    // Random.Shared, same as before S-030, since no test relies on
+    // controlling shuffle order. Optional constructor param (like
+    // WikidataClient's queryTimeout) so tests can pin the pairing choice
+    // without DI needing to register a Random.
+    private readonly Random _random = random ?? Random.Shared;
+
     public string GameKey => XGGridGameKey;
+
+    // A row/column header candidate, abstracted away from which reference
+    // table (CountryDefinition/ClubDefinition) it came from — REQ-107's
+    // generalized pairing selection (S-030) needs to treat both uniformly.
+    private readonly record struct CategoryCandidate(string Name, string? WikidataQid);
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
@@ -44,21 +61,29 @@ public class GridGameModule(
 
         // REQ-109: candidate values only ever come from the reference
         // tables, never derived ad hoc from PlayerAttribute.
-        var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
-        var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
+        var countries = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
+            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+        var clubs = (await categoryValueRepository.GetClubsAsync(cancellationToken))
+            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
 
-        if (countries.Count < template.Size || clubs.Count < template.Size)
-        {
-            throw new GridGenerationException(
-                $"Not enough reference data to build a {template.Size}x{template.Size} grid " +
-                $"({countries.Count} countries, {clubs.Count} clubs available).");
-        }
+        var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count);
 
-        // REQ-102: N unique row categories. Any country is a valid row
+        var rowPool = rowCategoryType == CategoryPairingRules.Country ? countries : clubs;
+        var colPool = colCategoryType == CategoryPairingRules.Country ? countries : clubs;
+
+        // REQ-102: N unique row categories. Any candidate is a valid row
         // header on its own — REQ-107's ban only bites once paired with a
-        // column, checked below.
-        var rowHeaders = Shuffle(countries).Take(template.Size).ToList();
-        var columns = await PickColumnHeadersAsync(rowHeaders, clubs, cancellationToken);
+        // column, checked inside PickHeadersAsync below.
+        var rowHeaders = Shuffle(rowPool).Take(template.Size).ToList();
+
+        // REQ-102's "no row category may be identical to a column category"
+        // only bites when both axes share a category type (Club x Club) —
+        // Country and Club values can never collide by name.
+        var colCandidatePool = rowCategoryType == colCategoryType
+            ? colPool.Where(c => rowHeaders.All(r => r.Name != c.Name)).ToList()
+            : colPool;
+
+        var columns = await PickHeadersAsync(rowCategoryType, rowHeaders, colCategoryType, colCandidatePool, cancellationToken);
 
         var instanceId = Guid.NewGuid();
         var instance = new GridInstance
@@ -69,11 +94,42 @@ public class GridGameModule(
             // relationship fixup via this navigation — Guid is non-nullable,
             // so an unset value would be Guid.Empty, not an obviously-wrong
             // placeholder EF would know to overwrite.
-            Cells = BuildCells(instanceId, rowHeaders, columns),
+            Cells = BuildCells(instanceId, rowCategoryType, rowHeaders, colCategoryType, columns),
         };
         await gridInstanceRepository.AddInstanceAsync(instance, cancellationToken);
 
         return new GameInstance { Id = instance.Id };
+    }
+
+    // REQ-107 (S-030): Country x Club and Club x Club are the only two
+    // pairings Tier 0 ever generates (Trophy is Tier 1, REQ-108) —
+    // Country x Country is never a candidate, so there's nothing to filter
+    // out here, only to choose between. Prefers whichever pairing(s) the
+    // seeded reference data can actually support (Club x Club needs 2xSize
+    // distinct clubs, since REQ-102 forbids a value appearing on both
+    // axes), choosing randomly between the two only when both are feasible.
+    private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount)
+    {
+        var countryClubFeasible = countryCount >= size && clubCount >= size;
+        var clubClubFeasible = clubCount >= size * 2;
+
+        if (!countryClubFeasible && !clubClubFeasible)
+        {
+            throw new GridGenerationException(
+                $"Not enough reference data to build a {size}x{size} grid " +
+                $"({countryCount} countries, {clubCount} clubs available).");
+        }
+
+        if (countryClubFeasible && clubClubFeasible)
+        {
+            return _random.Next(2) == 0
+                ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
+                : (CategoryPairingRules.Club, CategoryPairingRules.Club);
+        }
+
+        return countryClubFeasible
+            ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
+            : (CategoryPairingRules.Club, CategoryPairingRules.Club);
     }
 
     // S-009: REQ-210's lock/attempt-cap checks and REQ-202's guess-change
@@ -177,29 +233,51 @@ public class GridGameModule(
         return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
     }
 
-    // REQ-211's Tier 0 fallback only knows how to refresh a Country x Club
-    // cell (the only pairing GenerateInstanceAsync ever produces right now)
-    // — a category-value pair that can't be resolved from the reference
-    // tables at all (including any future non-Country/Club pairing) is left
-    // to fail closed via the caller's existing cached-only result, same as a
-    // genuinely-incorrect guess.
+    // REQ-211's Tier 0 fallback (ADR-0018) knows how to refresh a
+    // Country x Club cell and, as of S-030, a Club x Club cell too — any
+    // other pairing (e.g. a future Trophy cell) can't be resolved from the
+    // reference tables this way at all, and is left to fail closed via the
+    // caller's existing cached-only result, same as a genuinely-incorrect
+    // guess. Routes through the same LookupLiveMatchesAsync dispatcher
+    // GetMatchCountAsync uses during generation, rather than a second,
+    // independently-written pairing check — LookupLiveMatchesAsync returns
+    // null for a pairing it doesn't handle, which is exactly this method's
+    // fail-closed signal.
     private async Task<bool> RefreshCellFromLiveLookupAsync(GridCell cell, CancellationToken cancellationToken)
     {
-        if (cell.RowCategoryType != CategoryPairingRules.Country || cell.ColCategoryType != CategoryPairingRules.Club)
+        var row = await ResolveCandidateAsync(cell.RowCategoryType, cell.RowCategoryValue, cancellationToken);
+        var col = await ResolveCandidateAsync(cell.ColCategoryType, cell.ColCategoryValue, cancellationToken);
+        if (row is null || col is null)
             return false;
 
-        var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
-        var country = countries.FirstOrDefault(c => c.Name == cell.RowCategoryValue);
-        if (country is null)
-            return false;
+        var liveMatches = await LookupLiveMatchesAsync(
+            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value, cancellationToken);
+        return liveMatches is not null;
+    }
 
-        var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
-        var club = clubs.FirstOrDefault(c => c.Name == cell.ColCategoryValue);
-        if (club is null)
-            return false;
+    // Looks a single category value up in whichever reference table its type
+    // points at — null if the type is unrecognized or the value isn't a row
+    // in that table (REQ-109: shouldn't happen in practice, since generation
+    // only ever picks from these tables, but guess-checking must still fail
+    // closed rather than throw for a malformed/legacy cell).
+    private async Task<CategoryCandidate?> ResolveCandidateAsync(
+        string categoryType, string categoryValue, CancellationToken cancellationToken)
+    {
+        if (categoryType == CategoryPairingRules.Country)
+        {
+            var country = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
+                .FirstOrDefault(c => c.Name == categoryValue);
+            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid);
+        }
 
-        await wikidataLookupService.LookupAndPersistAsync(country, club, cancellationToken);
-        return true;
+        if (categoryType == CategoryPairingRules.Club)
+        {
+            var club = (await categoryValueRepository.GetClubsAsync(cancellationToken))
+                .FirstOrDefault(c => c.Name == categoryValue);
+            return club is null ? null : new CategoryCandidate(club.Name, club.WikidataQid);
+        }
+
+        return null;
     }
 
     // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")
@@ -213,42 +291,46 @@ public class GridGameModule(
         _ => throw new GuessScoringException($"Unknown category type '{categoryType}'."),
     };
 
-    // REQ-101/107: tries club candidates one at a time (never repeating a
+    // REQ-101/107: tries column candidates one at a time (never repeating a
     // rejected one), accepting only those valid against every fixed row
     // header, until N columns are accepted or MaxAttempts is exhausted.
-    private async Task<List<(ClubDefinition Club, int[] MatchCounts)>> PickColumnHeadersAsync(
-        IReadOnlyList<CountryDefinition> rowHeaders,
-        IReadOnlyList<ClubDefinition> clubCandidatePool,
+    // Generalized by S-030 to work for any pairing of category types, not
+    // just Country rows x Club columns.
+    private async Task<List<(CategoryCandidate Candidate, int[] MatchCounts)>> PickHeadersAsync(
+        string rowCategoryType,
+        IReadOnlyList<CategoryCandidate> rowHeaders,
+        string colCategoryType,
+        IReadOnlyList<CategoryCandidate> colCandidatePool,
         CancellationToken cancellationToken)
     {
         // REQ-107: checked once, before any matching-count query — every
-        // column candidate in this call pairs the same two category types
-        // (Country rows x Club columns), so this is invariant per call, not
-        // per candidate. Tier 1 mixed axes would call this per candidate
-        // instead, once row/column category types can vary within one grid.
-        if (!CategoryPairingRules.IsAllowedPairing(CategoryPairingRules.Country, CategoryPairingRules.Club))
+        // column candidate in this call pairs the same two category types,
+        // so this is invariant per call, not per candidate. Tier 1 mixed
+        // axes (e.g. Trophy) would call this per candidate instead, once
+        // row/column category types can vary within one grid.
+        if (!CategoryPairingRules.IsAllowedPairing(rowCategoryType, colCategoryType))
             throw new GridGenerationException("Country x Country pairing is never allowed (REQ-107).");
 
-        var remainingClubs = Shuffle(clubCandidatePool);
-        var accepted = new List<(ClubDefinition, int[])>();
+        var remaining = Shuffle(colCandidatePool);
+        var accepted = new List<(CategoryCandidate, int[])>();
         var attempts = 0;
 
         while (accepted.Count < rowHeaders.Count)
         {
-            if (remainingClubs.Count == 0)
-                throw new GridGenerationException("Ran out of club candidates before completing the grid.");
+            if (remaining.Count == 0)
+                throw new GridGenerationException("Ran out of candidates before completing the grid.");
             if (attempts >= options.MaxAttempts)
                 throw new GridGenerationException($"Grid generation aborted after {attempts} attempts.");
 
-            var candidate = remainingClubs[^1];
-            remainingClubs.RemoveAt(remainingClubs.Count - 1);
+            var candidate = remaining[^1];
+            remaining.RemoveAt(remaining.Count - 1);
             attempts++;
 
             var matchCounts = new int[rowHeaders.Count];
             var isValid = true;
             for (var i = 0; i < rowHeaders.Count; i++)
             {
-                matchCounts[i] = await GetMatchCountAsync(rowHeaders[i], candidate, cancellationToken);
+                matchCounts[i] = await GetMatchCountAsync(rowCategoryType, rowHeaders[i], colCategoryType, candidate, cancellationToken);
                 if (matchCounts[i] < options.MinValidAnswers)
                 {
                     isValid = false;
@@ -266,24 +348,63 @@ public class GridGameModule(
     // REQ-103/REQ-109 waterfall (Tier 0: Wikidata-only half, S-006): a local
     // cache miss triggers a live lookup, persisted immediately as unverified
     // data (never deferred/batched). A category value with no resolved
-    // WikidataQid is not an error — LookupAndPersistAsync just returns no
-    // matches (REQ-109), which this treats as an ordinary 0-count, handled
-    // by the caller's normal retry logic.
-    private async Task<int> GetMatchCountAsync(CountryDefinition country, ClubDefinition club, CancellationToken cancellationToken)
+    // WikidataQid is not an error — the live lookup just returns no matches
+    // (REQ-109), which this treats as an ordinary 0-count, handled by the
+    // caller's normal retry logic.
+    private async Task<int> GetMatchCountAsync(
+        string rowCategoryType, CategoryCandidate row,
+        string colCategoryType, CategoryCandidate col,
+        CancellationToken cancellationToken)
     {
         var cachedCount = await playerStoreRepository.CountPlayersWithBothAttributesAsync(
-            NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
+            MapAttributeType(rowCategoryType), row.Name, MapAttributeType(colCategoryType), col.Name, cancellationToken);
         if (cachedCount > 0)
             return cachedCount;
 
-        var liveMatches = await wikidataLookupService.LookupAndPersistAsync(country, club, cancellationToken);
-        return liveMatches.Count;
+        var liveMatches = await LookupLiveMatchesAsync(rowCategoryType, row, colCategoryType, col, cancellationToken);
+        return liveMatches?.Count ?? 0;
+    }
+
+    // Dispatches to whichever IWikidataLookupService method matches this
+    // pairing — the single place that decision is made, shared by
+    // GetMatchCountAsync (generation-time) and RefreshCellFromLiveLookupAsync
+    // (REQ-211 guess-time fallback) so the two can't drift on which pairings
+    // are handled. Returns null for a pairing neither method knows how to
+    // resolve (e.g. a future Trophy cell) — distinct from an empty list,
+    // which means the pairing IS handled but Wikidata found no match.
+    // WikidataLookupService only ever reads Name/WikidataQid off the
+    // CountryDefinition/ClubDefinition it's given (never Id) — safe to
+    // construct throwaway instances here rather than threading the real
+    // reference-table rows through the whole candidate-picking pipeline
+    // just for an Id nothing downstream uses.
+    private async Task<IReadOnlyList<Player>?> LookupLiveMatchesAsync(
+        string rowCategoryType, CategoryCandidate row,
+        string colCategoryType, CategoryCandidate col,
+        CancellationToken cancellationToken)
+    {
+        if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Club)
+        {
+            return await wikidataLookupService.LookupAndPersistAsync(
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                cancellationToken);
+        }
+
+        if (rowCategoryType == CategoryPairingRules.Club && colCategoryType == CategoryPairingRules.Club)
+        {
+            return await wikidataLookupService.LookupAndPersistClubClubAsync(
+                new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                cancellationToken);
+        }
+
+        return null;
     }
 
     private static List<GridCell> BuildCells(
         Guid gridInstanceId,
-        IReadOnlyList<CountryDefinition> rowHeaders,
-        IReadOnlyList<(ClubDefinition Club, int[] MatchCounts)> columns)
+        string rowCategoryType, IReadOnlyList<CategoryCandidate> rowHeaders,
+        string colCategoryType, IReadOnlyList<(CategoryCandidate Candidate, int[] MatchCounts)> columns)
     {
         var cells = new List<GridCell>(rowHeaders.Count * columns.Count);
         for (var row = 0; row < rowHeaders.Count; row++)
@@ -296,10 +417,10 @@ public class GridGameModule(
                     GridInstanceId = gridInstanceId,
                     Row = row,
                     Col = col,
-                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryType = rowCategoryType,
                     RowCategoryValue = rowHeaders[row].Name,
-                    ColCategoryType = CategoryPairingRules.Club,
-                    ColCategoryValue = columns[col].Club.Name,
+                    ColCategoryType = colCategoryType,
+                    ColCategoryValue = columns[col].Candidate.Name,
                 });
             }
         }

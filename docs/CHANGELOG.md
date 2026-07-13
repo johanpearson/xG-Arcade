@@ -29,6 +29,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   endpoints whose only caller is a bearer-token-gated scheduled job (today,
   just this one) may return raw exception detail, since the only "client"
   reading it is the job's own log, not a player-facing surface. REQ-301.
+- 2026-07-12 — `docs/architecture-document.md` (version 0.29 → 0.30),
+  `docs/requirements-document.md` (version 0.41 → 0.42),
+  `docs/implementation-document.md` (version 0.40 → 0.41), `docs/backlog.md`
+  — doc-sync for S-030's landed implementation (branch
+  `claude/s-030-grid-pairing-301ek8`, `git diff 8c8c638..HEAD`): Club × Club
+  grid pairing is now built, not just permitted (REQ-107), via
+  `GridGameModule.SelectPairing` choosing randomly between Country×Club and
+  Club×Club per instance when the seeded reference data supports both, with
+  a deterministic fallback otherwise. REQ-211's guess-time live-lookup
+  fallback (ADR-0018) now also covers Club×Club cells, dispatched through a
+  new shared `LookupLiveMatchesAsync` helper so generation-time and
+  guess-time code can't drift on which pairings are handled. Updated
+  architecture-document.md §6.1 (data flow diagram note, no longer
+  describing a fixed Country-rows/Club-columns axis) and §6.2 (REQ-211
+  fallback description), requirements-document.md REQ-107's status note
+  (queued → implemented, describing the coin-flip/fallback behavior) and
+  REQ-211's status note (Country×Club → Country×Club-or-Club×Club),
+  implementation-document.md's `GridCell` data-model comment and the
+  grid-generation/guess-scoring pseudocode status notes, and added a
+  retroactive "Built as" paragraph to `docs/backlog.md`'s S-030 entry
+  (matching this file's convention for other completed stories) noting the
+  `Random? random` testability seam and the code-review-driven dispatcher
+  consolidation. `MVP-SCOPE.md`'s "Grid content" line was checked and needs
+  no change — it already reads correctly for the landed state. No ADR
+  needed (architecture-reviewer pass on this diff found no boundary
+  violations). REQ-107, REQ-211, ADR-0018.
 - 2026-07-12 — `docs/requirements-document.md` (version 0.40 → 0.41),
   `docs/backlog.md` — two more acknowledged gaps, previously flagged but
   never turned into stories, scoped into the backlog: **S-033** (`CellState`

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.40"
+version: "0.41"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.40 · 2026-07-12
+Version 0.41 · 2026-07-12
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -440,14 +440,13 @@ public class GridCell
     public int Col { get; set; }
     // RowCategoryType/ColCategoryType ("country" | "club") were added in
     // S-007, beyond this section's original illustrative shape: Tier 0
-    // fixes one axis to Country and the other to Club (MVP-SCOPE.md), so
-    // within a single grid these are redundant with
-    // GridTemplate.AllowedCategoryTypes today — but recording them per cell
-    // is what lets guess-checking (S-009) know whether to query
+    // generates either Country x Club or, as of S-030, Club x Club
+    // (MVP-SCOPE.md) — recording the type per cell (rather than assuming a
+    // fixed axis) is what lets guess-checking (S-009) know whether to query
     // PlayerAttribute's "nationality" or "club" AttributeType for a given
     // cell without re-deriving it, and keeps the schema correct once a
-    // future Tier 1 grid mixes category types across an axis (REQ-107
-    // already allows Club x Club).
+    // future Tier 1 grid mixes in further category types (REQ-108's
+    // Trophy) across an axis.
     public string RowCategoryType { get; set; }
     public string RowCategoryValue { get; set; }
     public string ColCategoryType { get; set; }
@@ -684,18 +683,22 @@ Deliberately narrower than the pseudocode above, per `MVP-SCOPE.md`'s Tier
   follow-up), a differently-triggered, Tier-0-simplified version of the
   same idea does exist:** whenever `matchingCandidates` is empty after the
   normal check, `GridGameModule.ScoreSubmissionAsync` re-runs this cell's
-  own Country×Club Wikidata intersection query directly (calling
-  `IWikidataLookupService.LookupAndPersistAsync` — the same call
-  `GenerateInstanceAsync` already makes, not a new source), then re-checks
-  `matchingCandidates` once. This is unconditional on candidate count and
-  has no `ExternalApiUsage`/API-Football fallback leg — Wikidata alone
-  isn't a scarce resource (ADR-0011), so there is no budget to gate on. The
-  refresh only knows how to resolve a Country×Club cell (the only pairing
-  `GenerateInstanceAsync` currently produces); any other pairing, or a
-  category value no longer present in `CountryDefinition`/`ClubDefinition`,
-  skips the refresh and falls through to incorrect rather than throwing.
-  See ADR-0018 for why this is judged safe without the `PlayerNameIndex`
-  prerequisite in Tier 0.
+  own Wikidata intersection query directly — calling
+  `IWikidataLookupService.LookupAndPersistAsync` for a Country×Club cell
+  or, as of S-030, `LookupAndPersistClubClubAsync` for a Club×Club cell
+  (both are the same calls `GenerateInstanceAsync` already makes for that
+  pairing, not a new source; dispatched from one shared
+  `LookupLiveMatchesAsync` helper used by both generation- and guess-time
+  code, so the two can't drift on which pairings are handled) — then
+  re-checks `matchingCandidates` once. This is unconditional on candidate
+  count and has no `ExternalApiUsage`/API-Football fallback leg — Wikidata
+  alone isn't a scarce resource (ADR-0011), so there is no budget to gate
+  on. The refresh only knows how to resolve a Country×Club or Club×Club
+  cell (the two pairings `GenerateInstanceAsync` can produce); any other
+  pairing, or a category value no longer present in
+  `CountryDefinition`/`ClubDefinition`, skips the refresh and falls through
+  to incorrect rather than throwing. See ADR-0018 for why this is judged
+  safe without the `PlayerNameIndex` prerequisite in Tier 0.
 - `if matchingCandidates.count > 1: → return disambiguation prompt` is
   replaced entirely: Tier 0 auto-accepts the lowest-`Id` candidate (the
   same deterministic pick REQ-204's future uniqueness grouping depends on)
@@ -748,9 +751,12 @@ currently only logs (`ILogger.LogError`) and returns a 500, from either
 (`XGArcade.Api.Rounds.InternalRoundEndpoints`, which catches the same
 `GridGenerationException` and surfaces it the same way), no separate
 alerting channel exists yet.
-This shape is also Tier 0-scoped to Country (rows) × Club (columns) only —
-never a mixed axis, never Trophy — so the "whichever category types this
-GridTemplate allows" line above doesn't yet vary in practice.
+This shape is also Tier 0-scoped to two possible pairings, chosen once per
+instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
+Country (rows) × Club (columns), or, as of S-030, Club × Club — never a
+mixed axis within one grid, never Trophy — so the "whichever category
+types this GridTemplate allows" line above still doesn't vary *within* a
+single grid, only across grids.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

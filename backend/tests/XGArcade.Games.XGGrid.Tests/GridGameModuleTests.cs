@@ -39,10 +39,30 @@ public class GridGameModuleTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
-    private GridGameModule BuildModule(int minValidAnswers, int maxAttempts) =>
+    // S-030's SelectPairing coin-flips between Country x Club and Club x
+    // Club whenever the seeded reference data can support either — every
+    // pre-existing test in this file (written before Club x Club existed)
+    // asserts a specific Country x Club outcome, so BuildModule pins that
+    // choice by default (nextValue: 0) rather than letting Random.Shared
+    // make those tests flaky. Most REQ107_/REQ211_-named Club x Club tests
+    // below instead seed too few countries for Country x Club to be
+    // feasible at all, forcing Club x Club regardless of the injected
+    // Random — the more robust technique, since it also covers
+    // SelectPairing's "only one pairing feasible" branches. The one
+    // exception is REQ107_GenerateInstanceAsync_BothPairingsFeasible_
+    // CoinFlipsBetweenCountryClubAndClubClub below, which explicitly passes
+    // nextValue: 1 to exercise the "both feasible, coin-flip picks Club x
+    // Club" branch that no data-starved test can reach.
+    private sealed class FixedChoiceRandom(int nextValue) : Random
+    {
+        public override int Next(int maxValue) => nextValue;
+    }
+
+    private GridGameModule BuildModule(int minValidAnswers, int maxAttempts, Random? random = null) =>
         new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts },
-            NullLogger<GridGameModule>.Instance);
+            NullLogger<GridGameModule>.Instance,
+            random ?? new FixedChoiceRandom(0));
 
     private GridTemplate SeedTemplate(int size)
     {
@@ -84,6 +104,29 @@ public class GridGameModuleTests
             _dbContext.Players.Add(player);
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = countryName });
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubName });
+        }
+        _dbContext.SaveChanges();
+    }
+
+    // S-030: Club x Club counterpart to SeedCachedMatches above — both
+    // category values are AttributeType "club" (never "nationality"), since
+    // CountPlayersWithBothAttributesAsync is symmetric in its two
+    // type/value pairs (PlayerStoreRepositoryTests), one call per unordered
+    // club pair is enough to satisfy a match-count check regardless of
+    // which club ends up on the row axis vs the column axis.
+    private void SeedCachedClubClubMatches(string clubAName, string clubBName, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = $"{clubAName}-{clubBName}-Player{i}",
+                WikidataQid = $"Qplayer-{clubAName}-{clubBName}-{i}",
+            };
+            _dbContext.Players.Add(player);
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubAName });
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubBName });
         }
         _dbContext.SaveChanges();
     }
@@ -337,6 +380,75 @@ public class GridGameModuleTests
             c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country));
     }
 
+    // ---- REQ-107/S-030: Club x Club pairing --------------------------------
+
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_ClubClubGrid_ProducesExactlySizeSquaredCellsWithUniqueRowAndColumnValues()
+    {
+        var template = SeedTemplate(size: 3);
+        // Zero countries seeded at all -> Country x Club is infeasible
+        // (countryCount=0 < size=3), so SelectPairing deterministically
+        // picks Club x Club regardless of the injected Random, once >= 2 *
+        // size = 6 distinct clubs exist (REQ-102's no-shared-header rule
+        // needs 2x, not just size, distinct clubs for Club x Club).
+        var clubNames = Enumerable.Range(0, 6).Select(i => $"Club{i}").ToList();
+        foreach (var clubName in clubNames)
+            SeedClub(clubName);
+        for (var i = 0; i < clubNames.Count; i++)
+            for (var j = i + 1; j < clubNames.Count; j++)
+                SeedCachedClubClubMatches(clubNames[i], clubNames[j], count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 50);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(9));
+        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
+            "SelectPairing must have picked Club x Club, not Country x Club, given zero seeded countries");
+        Assert.That(instance.Cells, Has.None.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Country),
+            "Country x Country must never be produced (REQ-107), regardless of pairing choice");
+
+        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
+        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
+        Assert.That(rowValues, Has.Count.EqualTo(3), "REQ-102: N unique row categories");
+        Assert.That(colValues, Has.Count.EqualTo(3), "REQ-102: N unique column categories");
+        Assert.That(rowValues.Intersect(colValues), Is.Empty,
+            "REQ-102: no row category value may equal a column category value — the constraint Club x Club actually needs 2xSize clubs for");
+    }
+
+    [Test]
+    public async Task REQ107_GenerateInstanceAsync_BothPairingsFeasible_CoinFlipsBetweenCountryClubAndClubClub()
+    {
+        // Unlike every other Club x Club test in this file, both pairings
+        // are feasible here (1 country, 2 clubs) — SelectPairing's
+        // random-coin-flip branch (both feasible) only fires in this shape;
+        // every other test either pins FixedChoiceRandom(0)'s default
+        // (Country x Club) or starves countries to force Club x Club
+        // deterministically regardless of the random draw. This is the only
+        // test that actually exercises the "both feasible, _random.Next(2)
+        // resolves to Club x Club" branch — without it, a bug that always
+        // resolved to Country x Club even when the draw should pick
+        // Club x Club (e.g. a swapped ternary) would go uncaught.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedCachedMatches("France", "Arsenal", 2);
+        SeedCachedClubClubMatches("Arsenal", "Barcelona", 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20, random: new FixedChoiceRandom(1));
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
+            "with both pairings feasible, FixedChoiceRandom(1) must steer SelectPairing to Club x Club, not the Country x Club default");
+    }
+
     // ---- REQ-109: category value reference tables --------------------------
 
     [Test]
@@ -580,14 +692,49 @@ public class GridGameModuleTests
     }
 
     [Test]
-    public async Task REQ211_ScoreSubmissionAsync_CellCategoryTypesNotCountryAndClub_SkipsLiveLookup_DoesNotThrow()
+    public async Task REQ211_ScoreSubmissionAsync_ClubClubCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
     {
-        // RefreshCellFromLiveLookupAsync's guard: Tier 0's live fallback only
-        // knows how to re-run a Country x Club intersection query — any
-        // other pairing must gracefully skip the fallback (stay incorrect),
-        // never throw.
+        // S-030: RefreshCellFromLiveLookupAsync's Club x Club branch — same
+        // reproduction shape as the Country x Club test above, but for a
+        // cell whose row AND column are both category type "club".
+        SeedClub("Barcelona");
+        SeedClub("Paris Saint-Germain");
         var (instanceId, cellId) = await SeedGridInstanceAsync(
-            "SomeRow", "SomeCol", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Club);
+            "Barcelona", "Paris Saint-Germain",
+            rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Club);
+        // Some other player already satisfies this Club x Club cell in the
+        // cache — this is what let grid generation accept the pairing in
+        // the first place (REQ-101) — but the guessed player himself was
+        // never synced, so nothing cached confirms or denies him.
+        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "Some Other Player", WikidataQid = "Qother-clubclub" };
+        _dbContext.Players.Add(otherPlayer);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = otherPlayer.Id, AttributeType = "club", AttributeValue = "Barcelona" });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = otherPlayer.Id, AttributeType = "club", AttributeValue = "Paris Saint-Germain" });
+        await _dbContext.SaveChangesAsync();
+        var neymar = new Player { Id = Guid.NewGuid(), FullName = "Neymar Jr", WikidataQid = "Qneymar" };
+        _wikidataLookupService.SetClubClubMatches("Barcelona", "Paris Saint-Germain", [neymar]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Neymar Jr"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata Club x Club lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(neymar.Id));
+        Assert.That(_wikidataLookupService.GetClubClubCallCount("Barcelona", "Paris Saint-Germain"), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_CellCategoryTypeUnhandledByFallback_SkipsLiveLookup_DoesNotThrow()
+    {
+        // RefreshCellFromLiveLookupAsync's guard: Tier 0's live fallback
+        // knows how to re-run Country(rows) x Club(cols) (S-007) and, as of
+        // S-030, Club x Club — but the mirrored Club(rows) x Country(cols)
+        // shape (never produced by GenerateInstanceAsync's SelectPairing,
+        // but not otherwise impossible for a cell to have) isn't
+        // special-cased either, and must gracefully skip the fallback (stay
+        // incorrect) rather than throw.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "SomeRow", "SomeCol", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Country);
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         ScoreResult? result = null;

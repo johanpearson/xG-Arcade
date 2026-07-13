@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.29"
+version: "0.30"
 status: draft
 last_updated: 2026-07-12
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.28 · 2026-07-12
+Version 0.30 · 2026-07-12
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -360,10 +360,17 @@ selection (`Data.PlayerStore`/COMP-06 → `CountryDefinition`/`ClubDefinition`,
 ADR-0012), cache-first-then-live-lookup per combination (S-006's
 Wikidata-only half — no API-Football leg, see REQ-103's status note), and
 persistence of the resulting `GridInstance`/`GridCell`s and the chaining
-`Round`. Scoped further to Tier 0 (`MVP-SCOPE.md`): every grid is Country
-(rows) × Club (columns) only — never Country×Country (REQ-107, enforced
-structurally by always picking rows from countries and columns from
-clubs, not by a per-candidate check), never Trophy (REQ-108, deferred).
+`Round`. Scoped further to Tier 0 (`MVP-SCOPE.md`): every grid is either
+Country × Club or, as of `docs/backlog.md` S-030, Club × Club — never
+Country×Country (REQ-107), never Trophy (REQ-108, deferred). Which of the
+two allowed pairings a given instance uses is chosen once per
+`GenerateInstanceAsync` call (`GridGameModule.SelectPairing`) — randomly
+whenever the seeded reference data can support either, deterministically
+falling back to whichever single pairing is feasible otherwise. REQ-107's
+Country×Country ban is enforced by `CategoryPairingRules.IsAllowedPairing`,
+checked once per `PickHeadersAsync` call (invariant for that call, since
+every candidate in one call shares the same two category types) — not by a
+fixed-axis assumption baked into the code.
 
 **Explicit rule, not just implied by the diagram below:** every live
 lookup this round's cells will ever need to reach `MinValidAnswers` happens
@@ -462,10 +469,17 @@ deliberate per `MVP-SCOPE.md`, not bugs:
 - **REQ-211's live-lookup branch is now partially built (S-011 follow-up,
   ADR-0018), pulled forward from Tier 1 once its documented MVP-SCOPE.md
   trigger fired.** `GridGameModule.ScoreSubmissionAsync` falls back to
-  re-running the cell's own Wikidata country×club intersection query
+  re-running the cell's own Wikidata intersection query
   (`DataSync.Wikidata.WikidataLookupService`, the same call
   `GenerateInstanceAsync` uses) whenever cached data doesn't already answer
-  the guess, then re-checks. This differs from the diagram's full shape in
+  the guess, then re-checks. As of `docs/backlog.md` S-030, this covers
+  both pairings a grid can actually be generated with — a Country×Club cell
+  (`LookupAndPersistAsync`) and a Club×Club cell
+  (`LookupAndPersistClubClubAsync`) — dispatched from one shared
+  `LookupLiveMatchesAsync` helper also used by generation-time matching
+  (`GetMatchCountAsync`), so the two call sites can't drift on which
+  pairings are handled; any other pairing (e.g. a future Trophy cell) fails
+  closed rather than throwing. This differs from the diagram's full shape in
   one deliberate way: the trigger is "cached data didn't resolve this
   guess," not "guess matched a `Data.PlayerNameIndex` candidate" —
   `PlayerNameIndex`/COMP-10 (REQ-207) is still not built, and ADR-0018

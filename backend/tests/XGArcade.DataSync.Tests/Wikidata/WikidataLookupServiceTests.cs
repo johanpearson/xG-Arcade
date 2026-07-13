@@ -17,6 +17,11 @@ public class WikidataLookupServiceTests
     // MVP-SCOPE.md seeded QID — a second, distinct cell (France x Barcelona)
     // for the "same player resolved by two different cells" upsert test.
     private static readonly ClubDefinition Barcelona = new() { Id = Guid.NewGuid(), Name = "Barcelona", WikidataQid = "Q7156" };
+    // S-030: a third club, so Club x Club tests have two distinct clubs to
+    // pair (Barcelona x RealMadrid) without reusing Arsenal/Barcelona's
+    // existing Country x Club role above in a way that could blur which
+    // scenario a given test is exercising.
+    private static readonly ClubDefinition RealMadrid = new() { Id = Guid.NewGuid(), Name = "Real Madrid", WikidataQid = "Q8682" };
 
     private const string SingleHenryMatchJson = """
         {
@@ -252,6 +257,136 @@ public class WikidataLookupServiceTests
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         var result = await service.LookupAndPersistAsync(France, unresolvedClub);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ---- LookupAndPersistClubClubAsync (S-030) ------------------------------
+    // Mirrors every LookupAndPersistAsync test above — same persistence code
+    // path (PersistMatchesAsync), just both attribute type/value pairs are
+    // AttributeType "club" instead of "nationality"+"club".
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_HitPersistsPlayersAndAliases()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.FullName, Is.EqualTo("Thierry Henry"));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Barcelona"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Real Madrid"));
+
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
+
+        var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(aliases, Has.Count.EqualTo(1));
+        Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_ReRunningSameQuery_CreatesZeroDuplicatePlayers()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+
+        var players = await _dbContext.Players.Where(p => p.WikidataQid == "Q1519").ToListAsync();
+        Assert.That(players, Has.Count.EqualTo(1));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == players[0].Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+
+        var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == players[0].Id).ToListAsync();
+        Assert.That(aliases, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_UpsertsExistingPlayerByWikidataQid()
+    {
+        // Simulates the same player already cached from a previous, different
+        // intersection query (e.g. a Country x Club cell) — upserting by
+        // WikidataQid must reuse that Player row, never insert a second one.
+        var existing = await _playerStore.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+
+        var service = BuildService(SingleHenryMatchJson);
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].Id, Is.EqualTo(existing.Id));
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_UnresolvedClubAQid_SkipsWikidataAndReturnsEmpty()
+    {
+        var unresolvedClub = new ClubDefinition { Id = Guid.NewGuid(), Name = "Ruritania FC", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistClubClubAsync(unresolvedClub, RealMadrid);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_UnresolvedClubBQid_SkipsWikidataAndReturnsEmpty()
+    {
+        // Mirror of the unresolved-clubA case above — the null check is an
+        // OR across both values, so the clubB-only branch needs its own
+        // coverage rather than assuming symmetry with clubA.
+        var unresolvedClub = new ClubDefinition { Id = Guid.NewGuid(), Name = "Ruritania FC", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, unresolvedClub);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_WhenNoMatch_ReturnsEmptyWithoutThrowing()
+    {
+        var service = BuildService(NoMatchJson);
+
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_WhenWikidataTimesOut_ReturnsEmptyWithoutThrowing()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        IReadOnlyList<Player>? result = null;
+        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid));
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));

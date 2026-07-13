@@ -750,6 +750,44 @@ ADR-0018 wrongly-rejected-guess fix for this new pairing. Update
 (still never Country×Country, still N unique rows/N unique columns per
 REQ-102); REQ211-named test confirms a Club×Club cell missing cache also
 gets the live-lookup fallback. *Deps:* S-007, ADR-0018 (S-011 follow-up).
+**Built as:** matches the plan, plus one testability seam and one
+consolidation done during code review. `GridGameModule.GenerateInstanceAsync`
+gained a new `SelectPairing` step: countries/clubs are read into a common
+`CategoryCandidate(Name, WikidataQid)` shape, then `SelectPairing` decides
+Country×Club vs. Club×Club per instance — a coin flip
+(`GridGameModule`'s optional `Random? random` constructor param, defaulting
+to `Random.Shared`, added purely so tests can pin the outcome without DI
+needing to register a `Random`) whenever the seeded reference data can
+support both (Club×Club needs `2 × Size` distinct clubs, since REQ-102 bars
+a value on both axes), else a deterministic fallback to whichever single
+pairing is feasible; both infeasible still throws `GridGenerationException`,
+same as before this story. `PickColumnHeadersAsync` was generalized to
+`PickHeadersAsync` (works over either pairing, not just Country rows ×
+Club columns) and `RefreshCellFromLiveLookupAsync` (REQ-211) now resolves
+a cell's row/column values back into `CategoryCandidate`s
+(`ResolveCandidateAsync`) and dispatches through a new shared
+`LookupLiveMatchesAsync` helper — also used by generation-time
+`GetMatchCountAsync` — rather than each call site independently deciding
+which `IWikidataLookupService` method a pairing maps to; a code-reviewer
+pass caught the first-draft version duplicating that dispatch logic across
+both call sites and it was collapsed into the one helper before merge.
+`IWikidataClient.QueryClubClubIntersectionAsync` and
+`IWikidataLookupService.LookupAndPersistClubClubAsync` were added alongside
+the existing Country×Club methods, sharing `WikidataClient`'s underlying
+SPARQL-running logic (its warning log now names the query kind
+alongside the two QIDs, restoring debuggability lost when that logic was
+shared). `CategoryPairingRules.IsAllowedPairing` itself needed no code
+change — Club×Club was already permitted, only Country×Country is banned.
+Full REQ107/REQ211-named test coverage added in `GridGameModuleTests.cs`
+plus new DataSync-level coverage for both new Wikidata methods in
+`WikidataClientTests.cs`/`WikidataLookupServiceTests.cs`, including the
+random-coin-flip branch specifically
+(`REQ107_GenerateInstanceAsync_BothPairingsFeasible_CoinFlipsBetweenCountryClubAndClubClub`).
+`docs/architecture-document.md` §6.1/6.2, `docs/requirements-document.md`
+(REQ-107/REQ-211 status notes), and `docs/implementation-document.md`
+(GridCell/grid-generation/guess-scoring pseudocode notes) updated to
+describe per-instance pairing selection instead of a fixed Country-rows/
+Club-columns assumption.
 
 **S-031 · Trophy category — individual awards only (REQ-108, ADR-0012)**
 Pulled forward from Tier 1 (`MVP-SCOPE.md`, 2026-07-12) after two weeks of

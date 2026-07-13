@@ -25,18 +25,46 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         var matches = await wikidataClient.QueryCountryClubIntersectionAsync(
             country.WikidataQid, club.WikidataQid, cancellationToken);
 
+        return await PersistMatchesAsync(
+            matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
+        ClubDefinition clubA,
+        ClubDefinition clubB,
+        CancellationToken cancellationToken = default)
+    {
+        if (clubA.WikidataQid is null || clubB.WikidataQid is null)
+            return [];
+
+        var matches = await wikidataClient.QueryClubClubIntersectionAsync(
+            clubA.WikidataQid, clubB.WikidataQid, cancellationToken);
+
+        return await PersistMatchesAsync(
+            matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, cancellationToken);
+    }
+
+    // Fetched once for the whole batch rather than re-queried per player —
+    // every match in this result set shares the same two attribute
+    // type/value pairs (this cell's two category values). Shared by both
+    // LookupAndPersistAsync (country + club) and LookupAndPersistClubClubAsync
+    // (club + club) — the only difference between the two callers is which
+    // attribute type/value pairs the matches get persisted under.
+    private async Task<IReadOnlyList<Player>> PersistMatchesAsync(
+        IReadOnlyList<WikidataPlayerMatch> matches,
+        string attributeTypeA, string attributeValueA,
+        string attributeTypeB, string attributeValueB,
+        CancellationToken cancellationToken)
+    {
         if (matches.Count == 0)
             return [];
 
-        // Fetched once for the whole batch rather than re-queried per
-        // player — every match in this result set shares the same two
-        // attribute values (this cell's country and club).
-        var playerIdsWithNationalityAttribute = (await playerStore.GetPlayerAttributesAsync(
-                NationalityAttributeType, country.Name, cancellationToken))
+        var playerIdsWithAttributeA = (await playerStore.GetPlayerAttributesAsync(
+                attributeTypeA, attributeValueA, cancellationToken))
             .Select(a => a.PlayerId)
             .ToHashSet();
-        var playerIdsWithClubAttribute = (await playerStore.GetPlayerAttributesAsync(
-                ClubAttributeType, club.Name, cancellationToken))
+        var playerIdsWithAttributeB = (await playerStore.GetPlayerAttributesAsync(
+                attributeTypeB, attributeValueB, cancellationToken))
             .Select(a => a.PlayerId)
             .ToHashSet();
 
@@ -46,8 +74,8 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         {
             var player = await GetOrCreatePlayerAsync(match, cancellationToken);
 
-            await PersistAttributeAsync(player.Id, NationalityAttributeType, country.Name, playerIdsWithNationalityAttribute, cancellationToken);
-            await PersistAttributeAsync(player.Id, ClubAttributeType, club.Name, playerIdsWithClubAttribute, cancellationToken);
+            await PersistAttributeAsync(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, cancellationToken);
+            await PersistAttributeAsync(player.Id, attributeTypeB, attributeValueB, playerIdsWithAttributeB, cancellationToken);
             await PersistAliasesAsync(player.Id, match.Aliases, cancellationToken);
 
             persisted.Add(player);
