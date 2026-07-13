@@ -100,6 +100,50 @@ if (args is ["warm-player-cache"])
     return;
 }
 
+// S-037: `dotnet run -- clean-stale-club-attributes "<comma-separated club names>"`
+// is a third distinct CLI verb — see StaleClubAttributeCleaner's own doc
+// comment for the full reasoning (why this exists, and why it's manual and
+// argument-driven rather than wired into migrate-and-seed's automatic,
+// safe-to-run-forever chain the way the other backfillers are). Club names
+// are passed as one comma-separated argument, not one shell argument per
+// name, so a name containing a space (e.g. "AS Roma") survives a
+// GitHub Actions workflow_dispatch text input intact without any shell
+// word-splitting/quoting risk.
+//
+// Matched on the verb alone (not the full ["...", var arg] shape) so a
+// malformed invocation — the names argument missing or blank, e.g. an empty
+// workflow_dispatch text field — fails loudly via the explicit throw below
+// instead of silently falling through to WebApplication.CreateBuilder and
+// starting the full server, which would leave a workflow_dispatch job
+// either hanging or exiting with no signal of what went wrong.
+if (args is ["clean-stale-club-attributes", ..])
+{
+    var cleanClubNamesArg = args.Length > 1 ? args[1] : null;
+    if (string.IsNullOrWhiteSpace(cleanClubNamesArg))
+        throw new InvalidOperationException(
+            "clean-stale-club-attributes requires a comma-separated club names argument, e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"`.");
+
+    var cleanClubNames = cleanClubNamesArg
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    var cleanConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var cleanConnectionString = cleanConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var cleanDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(cleanConnectionString)
+        .Options;
+
+    await using var cleanDbContext = new XGArcadeDbContext(cleanDbContextOptions);
+    var (removedAttributeCount, removedDataCount) = await StaleClubAttributeCleaner.CleanAsync(cleanDbContext, cleanClubNames);
+
+    Console.WriteLine($"clean-stale-club-attributes: removed {removedAttributeCount} PlayerAttribute row(s) and {removedDataCount} PlayerData row(s) for: {string.Join(", ", cleanClubNames)}.");
+    return;
+}
+
 // Single source of truth for WikidataClient's HttpClient config — shared by
 // the real AddHttpClient<IWikidataClient, WikidataClient> DI registration
 // below and the warm-player-cache CLI verb above (which can't use that DI

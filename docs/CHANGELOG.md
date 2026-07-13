@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-13 — `docs/backlog.md` (new S-037) — the user manually verified
+  S-036's new club Wikidata QIDs against live Wikidata pages (this sandbox
+  can't reach `wikidata.org`) and found 4 of 6 wrong: Napoli, AS Roma,
+  Sevilla, Porto. Each wrong QID happened to be some *other* real Wikidata
+  entity, so queries against them silently returned real-but-wrong player
+  data rather than failing loudly — S-036's own doc comment predicting
+  "self-limiting, not dangerous" was wrong for these 4. Corrected in
+  `ReferenceDataSeeder.cs`, plus 11 further clubs with verified (not
+  guessed) QIDs, 21→32 total. Two real gaps fixed alongside the QID
+  correction itself: `ReferenceDataSeeder.SeedAsync` only ever added a
+  missing row, never corrected an existing one's `WikidataQid`, so editing
+  the QID literals alone would have silently done nothing against the
+  already-seeded dev database — now updates in place. New
+  `StaleClubAttributeCleaner` (`dotnet run -- clean-stale-club-attributes`,
+  via a new `clean-stale-club-attributes.yml` workflow) purges whatever
+  got persisted under a club's name while its QID was wrong, since nothing
+  in the persisted data can tell old from new after the fact — deliberately
+  a manual, argument-driven CLI verb, not wired into `migrate-and-seed`'s
+  automatic chain, since running it on every deploy would eventually wipe
+  freshly-fetched correct data too. `docs/requirements-document.md` and
+  `docs/architecture-document.md` checked, no change needed — stays within
+  COMP-06's existing responsibility, no new REQ or boundary. REQ-109.
 - 2026-07-13 — `docs/requirements-document.md` (0.43 → 0.44),
   `docs/implementation-document.md` (0.42 → 0.43),
   `docs/architecture-document.md` (0.30 → 0.31), `docs/backlog.md`

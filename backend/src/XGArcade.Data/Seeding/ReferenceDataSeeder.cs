@@ -7,22 +7,31 @@ namespace XGArcade.Data.Seeding;
 // original 15 clubs and 20 countries whose Wikidata QIDs were looked up and
 // verified in MVP-SCOPE.md, plus a 2026-07-13 expansion (S-036, ADR-0023's
 // "revisit if S-014's threshold bump makes grid generation struggle in
-// practice" follow-up — it did). Pure data entry, no live research
-// performed here or in the original pass either.
+// practice" follow-up — it did), plus an S-037 correction/second expansion
+// the same day. Pure data entry, no live research performed here or in the
+// original pass either.
 //
-// The expansion entries below were NOT verified against a live Wikidata
+// S-036's expansion entries were NOT verified against a live Wikidata
 // endpoint from this sandbox (network policy blocks wikidata.org — see
 // NOTES.md's 2026-07-09/11 entries for the same limitation elsewhere in
-// this codebase); they're well-known, stable Wikidata QIDs from training
-// knowledge, not freshly looked up. A wrong QID here is self-limiting, not
-// dangerous: WikidataClient's SPARQL queries against a nonexistent or
-// mismatched QID just return zero bindings, identical to a real "no shared
-// players" result — REQ-110's cache-warming job will surface any entry
-// that consistently resolves zero matches across every pairing it's tried
-// against, which is the practical way to catch a bad QID here. Spot-check
-// before fully trusting this data, but it is safe to run either way.
+// this codebase); they were well-known, stable Wikidata QIDs from training
+// knowledge, not freshly looked up. That risk was real, not theoretical:
+// manual verification against live Wikidata (S-037) found 4 of the 6 new
+// club QIDs were wrong — each happened to be some *other* real Wikidata
+// entity, so WikidataClient's SPARQL queries against them didn't error or
+// return empty, they silently returned real-but-wrong player data. See
+// NOTES.md's 2026-07-13 entry and StaleClubAttributeCleaner (which purges
+// whatever got persisted under a corrected club's name so it gets a clean
+// re-fetch, since nothing in the persisted data can tell a wrong-QID row
+// from a correct one after the fact). S-037's 11 further new clubs use
+// QIDs someone actually checked, not training-knowledge guesses.
+//
 // Idempotent by (Name) — CountryDefinition/ClubDefinition's unique index —
-// so re-running against an already-seeded database inserts nothing new.
+// but *not* purely additive: an existing row whose seeded WikidataQid no
+// longer matches this file (a correction, not a new entry) gets its QID
+// updated in place, not skipped — otherwise fixing a wrong QID here would
+// silently do nothing against an already-seeded database, exactly the
+// gap that let S-037's correction not take effect on its own.
 public static class ReferenceDataSeeder
 {
     private static readonly (string Name, string WikidataQid)[] Countries =
@@ -95,32 +104,51 @@ public static class ReferenceDataSeeder
         ("Paris Saint-Germain", "Q483020"),
         ("Ajax", "Q81888"),
         ("Benfica", "Q131499"),
-        // S-036 expansion. Deliberately smaller than the country expansion
-        // above — club QIDs carry more risk of a training-knowledge
-        // misremember than the very well-known country ones, so this list
-        // stays conservative rather than padded; widen it further only with
-        // QIDs someone has actually confirmed, not more guesses.
+        // S-036 expansion. Napoli/AS Roma/Sevilla/Porto's QIDs were wrong
+        // (training-knowledge guesses, never checked against live Wikidata)
+        // — corrected in S-037 against verified Wikidata pages. See this
+        // file's own doc comment and NOTES.md's 2026-07-13 entry.
         ("Tottenham Hotspur", "Q18741"),
         ("Atletico Madrid", "Q8701"),
-        ("Napoli", "Q1176"),
-        ("AS Roma", "Q2483"),
-        ("Sevilla", "Q10360"),
-        ("Porto", "Q182982"),
+        ("Napoli", "Q2641"),
+        ("AS Roma", "Q2739"),
+        ("Sevilla", "Q10329"),
+        ("Porto", "Q128446"),
+        // S-037 expansion — QIDs verified against live Wikidata pages, not
+        // training-knowledge guesses (unlike S-036's above).
+        ("RB Leipzig", "Q702455"),
+        ("Bayer Leverkusen", "Q104761"),
+        ("Marseille", "Q132885"),
+        ("Lyon", "Q704"),
+        ("Monaco", "Q180305"),
+        ("Lille", "Q19516"),
+        ("Lazio", "Q2609"),
+        ("Valencia", "Q10333"),
+        ("Real Sociedad", "Q10315"),
+        ("Newcastle United", "Q18716"),
+        ("West Ham United", "Q18747"),
     ];
 
     public static async Task SeedAsync(XGArcadeDbContext dbContext, CancellationToken cancellationToken = default)
     {
-        var existingCountryNames = await dbContext.CountryDefinitions.Select(c => c.Name).ToListAsync(cancellationToken);
+        // Keyed by Name (CountryDefinition/ClubDefinition's unique index) so
+        // an existing row can be corrected in place, not just skipped —
+        // see this class's own doc comment (S-037) for why that matters.
+        var existingCountries = await dbContext.CountryDefinitions.ToDictionaryAsync(c => c.Name, cancellationToken);
         foreach (var (name, wikidataQid) in Countries)
         {
-            if (!existingCountryNames.Contains(name))
+            if (existingCountries.TryGetValue(name, out var existing))
+                existing.WikidataQid = wikidataQid;
+            else
                 dbContext.CountryDefinitions.Add(new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid });
         }
 
-        var existingClubNames = await dbContext.ClubDefinitions.Select(c => c.Name).ToListAsync(cancellationToken);
+        var existingClubs = await dbContext.ClubDefinitions.ToDictionaryAsync(c => c.Name, cancellationToken);
         foreach (var (name, wikidataQid) in Clubs)
         {
-            if (!existingClubNames.Contains(name))
+            if (existingClubs.TryGetValue(name, out var existing))
+                existing.WikidataQid = wikidataQid;
+            else
                 dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid });
         }
 
