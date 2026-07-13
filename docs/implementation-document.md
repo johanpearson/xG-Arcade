@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.43"
+version: "0.44"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -781,6 +781,44 @@ scale-to-zero (NOTES.md, 2026-07-09) would silently drop a background
 task's progress on a scale-down mid-run. A plain foreground CI-runner
 process, bounded only by the workflow's own job timeout, has neither
 problem.
+
+**REQ-109 correction/recovery path (S-037):** `ReferenceDataSeeder.SeedAsync`
+(`XGArcade.Data.Seeding`) is no longer purely additive — a `Countries`/
+`Clubs` entry whose `Name` already exists in the database but whose
+`WikidataQid` in code has changed now updates that row's `WikidataQid` in
+place, rather than being skipped as already-seeded. This matters because a
+wrong QID here is otherwise undetectable by construction: `WikidataClient`'s
+SPARQL queries have no way to know a QID is the wrong entity, so a wrong
+QID that happens to also be a real Wikidata item just returns real, but
+wrong, player data — exactly what happened for 4 of S-036's club entries
+(Napoli, AS Roma, Sevilla, Porto), caught only by manual verification
+against live Wikidata pages (NOTES.md, 2026-07-13). Correcting the QID in
+code and re-running `migrate-and-seed` is not enough on its own, though:
+whatever was already fetched and persisted under the old, wrong QID
+(`PlayerData`/`PlayerAttribute` rows for that club) stays in place and
+stays wrong, since nothing in that persisted data distinguishes an old,
+wrong-QID row from a correct one.
+
+`StaleClubAttributeCleaner` (`XGArcade.Data.Seeding`) is the recovery tool
+for that gap: a third `dotnet run --` CLI verb, `clean-stale-club-attributes
+"<comma-separated club names>"` (club names as one comma-separated argument
+so a name containing a space, e.g. "AS Roma", survives a GitHub Actions
+`workflow_dispatch` text input intact), run by its own
+`clean-stale-club-attributes.yml` workflow. It deletes every `PlayerData`
+and `PlayerAttribute` row of type `club` whose value matches one of the
+given names, querying `XGArcadeDbContext` directly rather than through
+`IPlayerStoreRepository` — acceptable here because this code lives inside
+`XGArcade.Data` itself (COMP-06), the same direct-DbContext precedent
+`ReferenceDataSeeder` already sets for reference tables, not an external
+caller reaching around COMP-06's interface. Unlike `migrate-and-seed`'s
+other backfillers (`PlayerNormalizedFullNameBackfiller`,
+`UserDisplayNameBackfiller`, `LeagueMembershipBackfiller`), this is
+deliberately **not** wired into `migrate-and-seed`'s automatic,
+safe-to-run-forever chain: it has no way to tell an old wrong-QID row from
+a freshly correct one, so it must be triggered manually, once, for the
+specific club name(s) just corrected — and strictly *before* the next
+`warm-player-cache` run, since running it after a fresh warm would delete
+the new, correct data too.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

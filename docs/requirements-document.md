@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.44"
+version: "0.45"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -328,6 +328,39 @@ without erroring), API
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
 below-threshold pair is re-queried, not skipped)
+
+**REQ-111 – Recovery from a corrected reference-data QID**
+> As the system, I want to purge PlayerAttribute/PlayerData rows fetched
+> under a club's previously-wrong Wikidata QID once that QID is corrected,
+> so re-fetching against the corrected QID isn't silently blocked by
+> leftover data that can't otherwise be told apart from correct data.
+
+- **Status: Implemented (Tier 0, S-037).** `StaleClubAttributeCleaner`
+  (`XGArcade.Data.Seeding`), run manually via the `clean-stale-club-attributes`
+  CLI verb — a one-off maintenance tool, not wired into any automatic
+  migrate-and-seed or scheduled run, and not idempotent-forever the way
+  REQ-110's cache warming or the other Seeding backfillers are (a wrong-QID
+  row is indistinguishable from a correct one after the fact, so there's no
+  "already fixed" marker to detect and skip on). Must be run for the
+  specific corrected club name(s) before the next REQ-110 cache-warming
+  pass — running it after a fresh warming pass would incorrectly wipe the
+  new, correct data too, since nothing here can tell old from new.
+- Given a `ClubDefinition` row's `WikidataQid` was corrected (REQ-109)
+  after `PlayerAttribute`/`PlayerData` rows were already fetched and
+  persisted under its old, wrong QID
+- When the cleanup tool is run for that club's name
+- Then every `PlayerData` row of type `club` with that club as its value is
+  deleted, and every derived `PlayerAttribute` row of type `club` with that
+  value is deleted too — regardless of whether any individual row happens
+  to be correct, since nothing in a persisted row distinguishes data
+  fetched under the old QID from data fetched under the corrected one
+- And club names not included in the run are left untouched
+- And running the tool again once nothing is left to clean deletes zero
+  rows and does not error
+
+**Test level:** Unit (`StaleClubAttributeCleanerTests.cs` — removes stale
+rows and leaves zero cached matches; scopes strictly to the named clubs and
+to `AttributeType == "club"`; safe to re-run)
 
 ---
 

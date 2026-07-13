@@ -1189,6 +1189,63 @@ original pass had missed:
    table (ADR-0023 itself already existed from S-035 but was never added
    to that table — a pre-existing gap, fixed here opportunistically).
 
+**S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
+Direct follow-up requested after S-036 shipped: the user manually checked
+S-036's new club QIDs against live Wikidata pages (this sandbox can't —
+network policy blocks `wikidata.org`) and found 4 of the 6 were wrong —
+Napoli, AS Roma, Sevilla, Porto. Each wrong QID happened to be some
+*other* real Wikidata entity, so `WikidataClient`'s SPARQL queries against
+them didn't error or return empty (S-036's own doc comment predicted
+"self-limiting, not dangerous... just return zero bindings" — wrong for
+these 4), they silently returned real-but-wrong player data persisted
+under the intended club's name. See NOTES.md's 2026-07-13 entry for the
+full incident writeup.
+*Accept:* the 4 QIDs corrected in `ReferenceDataSeeder.cs`; 11 further
+clubs added with QIDs the user verified directly, not guessed;
+`ReferenceDataSeeder.SeedAsync` corrects an existing row's `WikidataQid`
+in place (not just skips duplicates by name — needed or the QID fix
+would silently do nothing against an already-seeded database); a new
+tool purges whatever got persisted under a club's name while its QID was
+wrong, and a REQ109-named regression test proves it: seed a club with
+data shaped like it came from a wrong QID, confirm cleaning it leaves
+zero cached matches, not a lingering silent match against the unrelated
+entity's data. *Deps:* S-005, S-036.
+**Built as:** matches the plan. `ReferenceDataSeeder.SeedAsync` reworked
+from "skip if a row with this name exists" to "look up by name, update
+`WikidataQid` in place if found, else insert" — same by-`Name` idempotency
+check, now correcting instead of only preventing duplicates. New
+`StaleClubAttributeCleaner` (`XGArcade.Data.Seeding`, same static-class-
+plus-`XGArcadeDbContext` shape as `PlayerNormalizedFullNameBackfiller`/
+`UserDisplayNameBackfiller`/`LeagueMembershipBackfiller`) deletes every
+`PlayerAttribute`/`PlayerData` row for a given set of club names.
+Deliberately **not** wired into `migrate-and-seed`'s automatic,
+safe-to-run-forever chain the other backfillers share — unlike those,
+there's no way to tell a wrong-QID-sourced row from a correct one after
+the fact (both look like an ordinary `PlayerAttribute(club="Napoli")`
+row), so leaving this running on every deploy would eventually delete
+freshly-fetched *correct* data too. Instead it's a fourth `dotnet run --`
+CLI verb (`clean-stale-club-attributes "<comma-separated names>"` — one
+argument, comma-separated, not one shell arg per name, so a name
+containing a space like "AS Roma" survives a GitHub Actions
+`workflow_dispatch` text input without any shell quoting risk), triggered
+manually via a new `clean-stale-club-attributes.yml` workflow, run once
+per correction, always *before* the next `warm-player-cache` run (running
+it after would wipe the fresh correct data too, same reasoning). Reference
+pool: 21→32 clubs (RB Leipzig, Bayer Leverkusen, Marseille, Lyon, Monaco,
+Lille, Lazio, Valencia, Real Sociedad, Newcastle United, West Ham United).
+`docs/architecture-document.md` was checked and found not needing a
+change — this stays within COMP-06 (Data.PlayerStore)'s existing
+responsibility, no boundary change. `docs/requirements-document.md` gained
+**REQ-111** (added by a `requirements-writer` review pass, after a
+`code-reviewer` pass flagged that `StaleClubAttributeCleaner`'s
+cache-purge/recovery behavior was being filed under REQ-109 by association
+rather than covered by its own requirement) — REQ-109's "resolved once,
+verified" language covers the `ReferenceDataSeeder.SeedAsync` in-place
+correction itself, but not purging the derived `PlayerAttribute`/
+`PlayerData` cache once a QID is corrected, which is what REQ-111 now
+covers. `docs/implementation-document.md` §6 also gained a paragraph on
+this CLI-verb pattern (`doc-sync` review pass).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

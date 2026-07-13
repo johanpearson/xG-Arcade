@@ -32,12 +32,12 @@ public class ReferenceDataSeederTests
     {
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        // S-036: widened from 20/15 to 45/21 — these counts intentionally
-        // stay hardcoded (not read back from ReferenceDataSeeder itself)
-        // so a future accidental change to the seed data is caught here,
-        // not silently accepted.
+        // S-036 widened 20/15 to 45/21, S-037 widened clubs again to 32
+        // (45/32) — these counts intentionally stay hardcoded (not read
+        // back from ReferenceDataSeeder itself) so a future accidental
+        // change to the seed data is caught here, not silently accepted.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
     }
 
     [Test]
@@ -55,12 +55,12 @@ public class ReferenceDataSeederTests
         await ReferenceDataSeeder.SeedAsync(_dbContext);
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        // S-036: widened from 20/15 to 45/21 — these counts intentionally
-        // stay hardcoded (not read back from ReferenceDataSeeder itself)
-        // so a future accidental change to the seed data is caught here,
-        // not silently accepted.
+        // S-036 widened 20/15 to 45/21, S-037 widened clubs again to 32
+        // (45/32) — these counts intentionally stay hardcoded (not read
+        // back from ReferenceDataSeeder itself) so a future accidental
+        // change to the seed data is caught here, not silently accepted.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
     }
 
     [Test]
@@ -74,12 +74,12 @@ public class ReferenceDataSeederTests
 
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(c => c.Name == "France"), Is.EqualTo(1));
         Assert.That(await _dbContext.ClubDefinitions.CountAsync(c => c.Name == "Arsenal"), Is.EqualTo(1));
-        // S-036: widened from 20/15 to 45/21 — these counts intentionally
-        // stay hardcoded (not read back from ReferenceDataSeeder itself)
-        // so a future accidental change to the seed data is caught here,
-        // not silently accepted.
+        // S-036 widened 20/15 to 45/21, S-037 widened clubs again to 32
+        // (45/32) — these counts intentionally stay hardcoded (not read
+        // back from ReferenceDataSeeder itself) so a future accidental
+        // change to the seed data is caught here, not silently accepted.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(45));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(21));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
     }
 
     [Test]
@@ -89,5 +89,40 @@ public class ReferenceDataSeederTests
 
         Assert.That(await _dbContext.CountryDefinitions.AnyAsync(c => c.Name == "United Kingdom" && c.WikidataQid == "Q145"), Is.True);
         Assert.That(await _dbContext.CountryDefinitions.AnyAsync(c => c.Name == "England"), Is.False);
+    }
+
+    // S-037: the actual bug that motivated this — SeedAsync used to only
+    // ever add a missing row, never correct an existing one, so fixing a
+    // wrong QID in this file alone would have silently done nothing against
+    // an already-seeded database (exactly Napoli/AS Roma/Sevilla/Porto's
+    // situation after S-036's deploy). This proves an existing row with a
+    // stale QID actually gets corrected, not skipped, by the same by-Name
+    // idempotency check that prevents duplicates.
+    [Test]
+    public async Task REQ109_SeedAsync_CorrectsExistingRow_WhenSeededQidHasChanged()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Napoli", WikidataQid = "Q1176" });
+        await _dbContext.SaveChangesAsync();
+
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        var napoli = await _dbContext.ClubDefinitions.AsNoTracking().SingleAsync(c => c.Name == "Napoli");
+        Assert.That(napoli.WikidataQid, Is.EqualTo("Q2641"), "the corrected QID (S-037) must overwrite the stale one, not coexist with a skipped duplicate");
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(c => c.Name == "Napoli"), Is.EqualTo(1), "correcting a row must never create a second row for the same name");
+    }
+
+    [Test]
+    public async Task REQ109_SeedAsync_CorrectedClubQids_MatchTheirLiveVerifiedValues()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        // S-037: the 4 club QIDs manual verification against live Wikidata
+        // pages found wrong in S-036 — asserted individually (not just via
+        // the aggregate "no empty QID" check above) so a future accidental
+        // revert of just one of these four is caught here specifically.
+        Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "Napoli" && c.WikidataQid == "Q2641"), Is.True);
+        Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "AS Roma" && c.WikidataQid == "Q2739"), Is.True);
+        Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "Sevilla" && c.WikidataQid == "Q10329"), Is.True);
+        Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "Porto" && c.WikidataQid == "Q128446"), Is.True);
     }
 }

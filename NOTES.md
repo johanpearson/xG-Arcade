@@ -594,3 +594,56 @@ since the last reference-data change); (2) run `warm-player-cache.yml`
 again — new reference-data entries or newly-synced Wikidata content since
 the last warming pass are the most likely explanation for a fresh
 data-sparsity failure.
+
+### 2026-07-13 — 4 of S-036's hand-guessed club QIDs were wrong; caught only by manual verification, not by the system itself (S-037)
+
+Asked-for follow-up after S-036 shipped: the user manually checked every
+new QID against live Wikidata pages (something this sandbox can't do —
+network policy blocks `wikidata.org`, same limitation recorded elsewhere
+in this file) and found 4 of the 6 new club QIDs were wrong: Napoli
+(`Q1176`→`Q2641`), AS Roma (`Q2483`→`Q2739`), Sevilla (`Q10360`→`Q10329`),
+Porto (`Q182982`→`Q128446`). Worth internalizing why this class of bug is
+genuinely dangerous rather than a minor data-entry slip: a wrong QID
+doesn't fail loudly. `WikidataClient`'s SPARQL queries have no way to know
+a QID doesn't correspond to the intended entity — if it happens to be some
+*other* real Wikidata item that also satisfies the query shape (`?player
+wdt:P106 wd:Q937857. ?player wdt:P54 wd:{{clubQid}}.`), the query returns
+real players, persisted under the *intended* club's name, looking
+completely normal. `ReferenceDataSeeder.cs`'s own S-036 comment predicted
+exactly this ("a wrong QID here is self-limiting, not dangerous... just
+return zero bindings") and that prediction was simply wrong for these 4 —
+they weren't nonexistent QIDs returning nothing, they were *other real
+entities* returning real-but-wrong data. **Don't repeat that reasoning
+next time a QID goes unverified** — "probably safe because it'll just
+return nothing if wrong" only holds for a QID that doesn't resolve to
+anything at all, not for one that resolves to the wrong thing.
+
+Two real gaps found and fixed while correcting the QIDs, both worth
+remembering:
+
+1. `ReferenceDataSeeder.SeedAsync` only ever *added* a club/country row by
+   name, never corrected an existing one's `WikidataQid` if it changed —
+   meaning simply editing the QID literals in this file would have done
+   **nothing** against the already-seeded dev database (the wrong-QID rows
+   were already there from S-036's deploy). Fixed: `SeedAsync` now updates
+   an existing row's `WikidataQid` in place when it differs, keyed by the
+   same by-`Name` lookup that already prevented duplicates. **If a QID
+   ever needs correcting again, remember this only takes effect on the
+   next `migrate-and-seed` run** (automatic on every `deploy.yml` push) —
+   editing the source file alone changes nothing already deployed.
+2. Even once the `ClubDefinition.WikidataQid` is corrected, whatever got
+   persisted into `PlayerAttribute`/`PlayerData` under the wrong QID
+   lingers forever with no way to tell it apart from correct data after
+   the fact (no column records which QID a row was fetched under) — new
+   `StaleClubAttributeCleaner` (`dotnet run -- clean-stale-club-attributes
+   "Napoli,AS Roma,Sevilla,Porto"`, via `clean-stale-club-attributes.yml`)
+   purges it so the next `warm-player-cache` run gets a clean re-fetch.
+   **Run this manually, once, after `migrate-and-seed` has applied the QID
+   correction and *before* the next `warm-player-cache` run** — running it
+   after a fresh warm-player-cache pass would delete the new correct data
+   too, since (again) nothing distinguishes old from new after the fact.
+
+Also added 11 further clubs (RB Leipzig, Bayer Leverkusen, Marseille,
+Lyon, Monaco, Lille, Lazio, Valencia, Real Sociedad, Newcastle United,
+West Ham United) with QIDs the user verified directly this time, not
+training-knowledge guesses — 21→32 clubs total.

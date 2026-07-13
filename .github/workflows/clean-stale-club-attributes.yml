@@ -1,0 +1,35 @@
+name: clean-stale-club-attributes
+
+# S-037: manual, one-off maintenance tool (StaleClubAttributeCleaner's own
+# doc comment has the full reasoning) for recovering from a wrong Wikidata
+# QID discovered after real player data was already fetched under it — see
+# NOTES.md's 2026-07-13 entry.
+#
+# Run this ONCE for a given set of club names, immediately after correcting
+# their QIDs in ReferenceDataSeeder.cs and letting a migrate-and-seed run
+# apply that correction, and BEFORE the next warm-player-cache.yml run.
+# Running it after a fresh warm-player-cache pass would incorrectly wipe
+# the new, correct data too — nothing in the persisted data can tell a
+# wrong-QID row from a correct one after the fact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      club_names:
+        description: "Comma-separated club names to purge, exactly as seeded (e.g. Napoli,AS Roma,Sevilla,Porto)"
+        required: true
+        type: string
+
+jobs:
+  clean-stale-club-attributes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Clean stale club attributes
+        run: dotnet run --project backend/src/XGArcade.Api -- clean-stale-club-attributes "$CLUB_NAMES"
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+          CLUB_NAMES: ${{ inputs.club_names }}
