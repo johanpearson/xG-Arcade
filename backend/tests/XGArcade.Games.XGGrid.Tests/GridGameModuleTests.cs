@@ -58,11 +58,20 @@ public class GridGameModuleTests
         public override int Next(int maxValue) => nextValue;
     }
 
-    private GridGameModule BuildModule(int minValidAnswers, int maxAttempts, Random? random = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
-            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts },
+    // ADR-0023: maxDuration defaults to a generous 10 minutes so none of the
+    // pre-existing tests below (none of which advance a fake clock) can
+    // ever trip the deadline-abort branch by accident — only tests that
+    // explicitly pass a short maxDuration plus a controllable timeProvider
+    // exercise that path.
+    private GridGameModule BuildModule(
+        int minValidAnswers, int maxAttempts, Random? random = null,
+        TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
+        IWikidataLookupService? wikidataLookupService = null) =>
+        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
+            new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
-            random ?? new FixedChoiceRandom(0));
+            random ?? new FixedChoiceRandom(0),
+            timeProvider);
 
     private GridTemplate SeedTemplate(int size)
     {
@@ -262,6 +271,41 @@ public class GridGameModuleTests
         Assert.That(ex!.Message, Does.Contain("3 attempts"));
     }
 
+    // ADR-0023: the 2026-07-12/13 dev incident this abort condition exists
+    // for — MaxAttempts alone (500 by default) never helped, since a real
+    // run can chain enough genuinely-slow-or-cache-missing live Wikidata
+    // calls to blow well past any infrastructure request timeout long
+    // before exhausting that count.
+    [Test]
+    public async Task REQ101_GridGeneration_AbortsWithGridGenerationException_WhenMaxDurationExceeded()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        for (var i = 0; i < 5; i++)
+            SeedClub($"SlowClub{i}");
+        // No SeedCachedMatches call — every candidate is a genuine cache
+        // miss, forcing GetMatchCountAsync down the live-lookup path
+        // (FakeWikidataLookupService's onCalled hook below) every time,
+        // same as the incident's cold-cache scenario. None of them have any
+        // configured match either, so every one is rejected on its own
+        // terms too — the point of this test is that the deadline trips
+        // first, not that a candidate would eventually have been rejected
+        // anyway.
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var wikidataLookupService = new FakeWikidataLookupService(
+            onCalled: () => clock.Advance(TimeSpan.FromSeconds(20)));
+        var module = BuildModule(
+            minValidAnswers: 5, maxAttempts: 500,
+            maxDuration: TimeSpan.FromSeconds(30), timeProvider: clock,
+            wikidataLookupService: wikidataLookupService);
+
+        var ex = Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+
+        Assert.That(ex!.Message, Does.Contain("exceeding"));
+        Assert.That(ex.Message, Does.Contain("00:00:30"), "should name the configured MaxDuration, not a raw attempt count");
+    }
+
     [Test]
     public async Task REQ101_GridGeneration_CacheMiss_FallsBackToLiveLookupAndSucceeds()
     {
@@ -293,6 +337,7 @@ public class GridGameModuleTests
 
         Assert.That(options.MinValidAnswers, Is.EqualTo(5));
         Assert.That(options.MaxAttempts, Is.EqualTo(500), "S-014 only raised MinValidAnswers; MaxAttempts is unchanged");
+        Assert.That(options.MaxDuration, Is.EqualTo(TimeSpan.FromSeconds(90)), "ADR-0023");
     }
 
     [Test]

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.42"
+version: "0.43"
 status: draft
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -110,15 +110,27 @@ in Given/When/Then format, and the test level that primarily verifies it
 > As a player, I want to always be presented with a grid where every cell has
 > at least one correct answer, so that I never get stuck on an unsolvable cell.
 
+- **Status note (2026-07-13, ADR-0023):** a real dev-environment run chained
+  enough live-lookup misses to run for 4+ minutes before an infrastructure
+  ingress killed the request — attempt count alone (`MaxAttempts`) never
+  bounds wall-clock time in practice, since it's far higher than the
+  reference-data pool can ever supply attempts for. `GridGameModule.PickHeadersAsync`
+  now also aborts once `MaxDuration` (configurable, default 90s) of
+  wall-clock time elapses, so generation always resolves — success or a
+  clean, logged failure — within a bounded time, well under any known
+  infrastructure request timeout. This is an additional abort condition,
+  not a replacement for the attempt-count one below.
 - Given an NxN grid is being generated with randomized categories per row/column
 - When the combination of a row and column category for a cell has fewer than
   `MIN_VALID_ANSWERS` (configurable, default 5) matching players in the local cache
 - Then that combination is discarded and a new combination is randomized for that cell
 - And this repeats until all N×N cells are valid, or a maximum number of
-  attempts (e.g. 500) is reached, at which point generation aborts and logs an error
+  attempts (`MAX_ATTEMPTS`, configurable, default 500) is reached, or a
+  maximum wall-clock duration (`MAX_DURATION`, configurable, default 90s,
+  ADR-0023) elapses, at which point generation aborts and logs an error
 
-**Test level:** Unit (combination validation, retry logic), API (endpoint never
-returns a grid with an invalid cell)
+**Test level:** Unit (combination validation, retry logic, MaxDuration
+abort), API (endpoint never returns a grid with an invalid cell)
 
 **REQ-102 – Configurable grid size**
 > As an admin, I want to configure grid size (3x3, 4x4, 5x5) per GridTemplate,

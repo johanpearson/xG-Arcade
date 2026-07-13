@@ -26,7 +26,13 @@ namespace XGArcade.Games.XGGrid.Tests;
 // the "live" match. playerStore is optional (defaults to null) so tests that
 // only care about GenerateInstanceAsync's match-count branching, not
 // persistence, aren't forced to wire one up.
-public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = null) : IWikidataLookupService
+//
+// ADR-0023: onCalled fires at the start of every live lookup, before this
+// fake's own configured-match logic runs — lets a test simulate a live
+// call's real-world latency (e.g. advancing a ManualTimeProvider) without
+// any actual waiting, so PickHeadersAsync's MaxDuration deadline-abort
+// branch can be exercised deterministically.
+public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = null, Action? onCalled = null) : IWikidataLookupService
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
@@ -60,6 +66,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, CancellationToken cancellationToken = default)
     {
+        onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
 
         if (country.WikidataQid is null || club.WikidataQid is null)
@@ -80,6 +87,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA, ClubDefinition clubB, CancellationToken cancellationToken = default)
     {
+        onCalled?.Invoke();
         _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;
 
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)

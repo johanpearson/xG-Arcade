@@ -20,8 +20,11 @@ namespace XGArcade.Games.XGGrid;
 // columns are picked one at a time, each candidate validated against every
 // already-fixed row header before being accepted (REQ-101). A rejected
 // candidate is discarded and a new one tried, up to
-// GridGenerationOptions.MaxAttempts total attempts across the whole
-// instance, matching REQ-101's abort rule.
+// GridGenerationOptions.MaxAttempts total attempts (a rarely-hit backstop)
+// or GridGenerationOptions.MaxDuration of wall-clock time (ADR-0023 — this
+// is what actually bounds a real run, well under any infrastructure
+// request timeout) — whichever trips first aborts with GridGenerationException,
+// matching REQ-101's abort rule.
 public class GridGameModule(
     IGridInstanceRepository gridInstanceRepository,
     ICategoryValueRepository categoryValueRepository,
@@ -29,7 +32,8 @@ public class GridGameModule(
     IWikidataLookupService wikidataLookupService,
     GridGenerationOptions options,
     ILogger<GridGameModule> logger,
-    Random? random = null) : IGameModule
+    Random? random = null,
+    TimeProvider? timeProvider = null) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 
@@ -46,6 +50,14 @@ public class GridGameModule(
     // WikidataClient's queryTimeout) so tests can pin the pairing choice
     // without DI needing to register a Random.
     private readonly Random _random = random ?? Random.Shared;
+
+    // ADR-0023: PickHeadersAsync's own wall-clock deadline reads this
+    // rather than DateTime.UtcNow directly, so tests can exercise the
+    // deadline-abort branch deterministically. Falls back to the real
+    // clock in production the same way RoundGenerationService's
+    // TimeProvider does — already registered as TimeProvider.System in
+    // Program.cs's DI container, resolved automatically.
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public string GameKey => XGGridGameKey;
 
@@ -293,9 +305,30 @@ public class GridGameModule(
 
     // REQ-101/107: tries column candidates one at a time (never repeating a
     // rejected one), accepting only those valid against every fixed row
-    // header, until N columns are accepted or MaxAttempts is exhausted.
-    // Generalized by S-030 to work for any pairing of category types, not
-    // just Country rows x Club columns.
+    // header, until N columns are accepted or one of three abort conditions
+    // trips: the candidate pool is exhausted, MaxAttempts is hit (a
+    // backstop that rarely matters in practice — see its own doc comment),
+    // or MaxDuration elapses (ADR-0023 — this is what actually bounds a
+    // real run's wall-clock time, well under any infrastructure request
+    // timeout, so the caller always gets a definitive answer — success or a
+    // clean GridGenerationException — instead of the request being killed
+    // out from under it). Generalized by S-030 to work for any pairing of
+    // category types, not just Country rows x Club columns.
+    //
+    // Deliberately still sequential, not concurrent, despite each
+    // candidate's live-lookup cost being the dominant source of latency —
+    // PlayerStoreRepository/CategoryValueRepository/WikidataLookupService
+    // all share one request-scoped XGArcadeDbContext (Program.cs's
+    // AddDbContext/AddScoped registrations), and EF Core's DbContext isn't
+    // safe for concurrent use by a single instance. Running candidates
+    // through Task.WhenAll here would intermittently throw against real
+    // Npgsql ("a second operation was started on this context before a
+    // previous operation completed") while quietly working against the
+    // InMemory provider tests use — exactly the kind of bug that looks
+    // fine in CI and breaks in production. Real concurrency would need
+    // IDbContextFactory-based per-call contexts threaded through all three
+    // components, which is real, valuable follow-up work but a separate,
+    // carefully-scoped change, not part of this fix (see ADR-0023).
     private async Task<List<(CategoryCandidate Candidate, int[] MatchCounts)>> PickHeadersAsync(
         string rowCategoryType,
         IReadOnlyList<CategoryCandidate> rowHeaders,
@@ -314,6 +347,11 @@ public class GridGameModule(
         var remaining = Shuffle(colCandidatePool);
         var accepted = new List<(CategoryCandidate, int[])>();
         var attempts = 0;
+        var deadline = _timeProvider.GetUtcNow() + options.MaxDuration;
+
+        logger.LogInformation(
+            "Picking {Needed} {ColCategoryType} headers against {RowCategoryType} rows from a pool of {PoolSize} candidates (MaxDuration={MaxDuration}).",
+            rowHeaders.Count, colCategoryType, rowCategoryType, remaining.Count, options.MaxDuration);
 
         while (accepted.Count < rowHeaders.Count)
         {
@@ -321,6 +359,16 @@ public class GridGameModule(
                 throw new GridGenerationException("Ran out of candidates before completing the grid.");
             if (attempts >= options.MaxAttempts)
                 throw new GridGenerationException($"Grid generation aborted after {attempts} attempts.");
+            if (_timeProvider.GetUtcNow() >= deadline)
+            {
+                logger.LogWarning(
+                    "Grid generation aborted after exceeding MaxDuration ({MaxDuration}): {Accepted}/{Needed} headers " +
+                    "found in {Attempts} attempts, {Remaining} candidates left untried.",
+                    options.MaxDuration, accepted.Count, rowHeaders.Count, attempts, remaining.Count);
+                throw new GridGenerationException(
+                    $"Grid generation aborted after exceeding {options.MaxDuration} " +
+                    $"(found {accepted.Count}/{rowHeaders.Count} valid headers in {attempts} attempts).");
+            }
 
             var candidate = remaining[^1];
             remaining.RemoveAt(remaining.Count - 1);
@@ -338,8 +386,16 @@ public class GridGameModule(
                 }
             }
 
-            if (isValid)
-                accepted.Add((candidate, matchCounts));
+            if (!isValid)
+            {
+                logger.LogDebug("Rejected {ColCategoryType} candidate '{Candidate}' — below MinValidAnswers on at least one row.",
+                    colCategoryType, candidate.Name);
+                continue;
+            }
+
+            logger.LogDebug("Accepted {ColCategoryType} candidate '{Candidate}' ({Accepted}/{Needed}).",
+                colCategoryType, candidate.Name, accepted.Count + 1, rowHeaders.Count);
+            accepted.Add((candidate, matchCounts));
         }
 
         return accepted;
