@@ -1,0 +1,36 @@
+name: purge-player-pool
+
+# S-038 (ADR-0025): deletes the entire cached player pool (Player, and via
+# ON DELETE CASCADE, PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias)
+# so it can be rebuilt entirely under the new male-only/last-100-years
+# SPARQL filters (REQ-112) — see NOTES.md's entry on why the previously
+# cached pool could contain players outside those bounds and can't be
+# selectively fixed the way a wrong-QID club could (S-037).
+#
+# Reference tables (CountryDefinition/ClubDefinition/TrophyDefinition) and
+# account/game-history tables (User/League/Round/GridInstance/GridCell/
+# Guess) are NOT touched by this workflow.
+#
+# Run this ONCE, then trigger warm-player-cache.yml to repopulate the pool.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type exactly "delete all player data" to confirm this irreversible bulk delete'
+        required: true
+        type: string
+
+jobs:
+  purge-player-pool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Purge player pool
+        run: dotnet run --project backend/src/XGArcade.Api -- purge-player-pool "$CONFIRMATION"
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+          CONFIRMATION: ${{ inputs.confirmation }}

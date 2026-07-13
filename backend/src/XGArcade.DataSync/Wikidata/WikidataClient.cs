@@ -11,13 +11,28 @@ namespace XGArcade.DataSync.Wikidata;
 // from the REST clients elsewhere in DataSync.Clients (implementation-
 // document.md §6a). Injected via HttpClient with BaseAddress
 // https://query.wikidata.org/ (see Program.cs's AddHttpClient registration).
-public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeout = null, ILogger<WikidataClient>? logger = null) : IWikidataClient
+public partial class WikidataClient(
+    HttpClient httpClient,
+    TimeSpan? queryTimeout = null,
+    ILogger<WikidataClient>? logger = null,
+    TimeProvider? timeProvider = null) : IWikidataClient
 {
     // Optional param (like queryTimeout) so tests can construct a client
     // without wiring DI's logging; falls back to a real ILogger<T> in
     // production via the AddHttpClient<IWikidataClient, WikidataClient>
     // registration in Program.cs, which supplies one automatically.
     private readonly ILogger<WikidataClient> _logger = logger ?? NullLogger<WikidataClient>.Instance;
+
+    // Same optional-param-defaulting-to-TimeProvider.System shape as
+    // GridGameModule — lets ADR-0025's rolling 100-year-old date-of-birth
+    // cutoff be pinned to a fixed instant in tests instead of drifting with
+    // real wall-clock time.
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
+    // ADR-0025: Tier 0's player pool is restricted to male footballers born
+    // within the last 100 years — Q6581097 is Wikidata's "male" item for P21
+    // (sex or gender).
+    private const string MaleWikidataQid = "Q6581097";
 
     // ADR-0011's original "e.g. 5-10s" was only an illustrative example;
     // the ADR's own evidence (WDQS queries observed taking 9-27s under
@@ -45,7 +60,7 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         if (!QidPattern().IsMatch(clubWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
-        var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
+        var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid, DateOfBirthCutoff());
         return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
     }
 
@@ -59,9 +74,24 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         if (!QidPattern().IsMatch(clubBWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
-        var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
+        var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid, DateOfBirthCutoff());
         return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, cancellationToken);
     }
+
+    // ADR-0025: recomputed from _timeProvider on every call rather than
+    // cached — a rolling window, not a fixed year, so it drifts forward on
+    // its own as real time passes with no code change ever needed. Must
+    // include the T00:00:00Z time component even though P569 values on
+    // Wikidata are themselves frequently only year/month/day precision
+    // (WDQS normalizes that at storage time) — the FILTER literal below is
+    // explicitly typed ^^xsd:dateTime, and a date-only lexical form
+    // ("1926-07-13") is malformed for that type, not merely imprecise;
+    // SPARQL treats a type error in a FILTER as "does not match" rather
+    // than throwing, so this would silently zero out every result instead
+    // of failing loudly. AddYears(-100) can land a Feb 29 cutoff one day
+    // early (Feb 28) once every 400 years (the next non-leap century
+    // divisible by 400 doesn't occur again until 2400) — negligible here.
+    private string DateOfBirthCutoff() => _timeProvider.GetUtcNow().AddYears(-100).ToString("yyyy-MM-ddT00:00:00Z");
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
         string queryKind, string qidA, string qidB, string query, CancellationToken cancellationToken)
@@ -110,12 +140,17 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
     // result set IS the cell's complete answer key. Fetches skos:altLabel
     // in the same query so aliases cost nothing extra (REQ-208's alias
     // value, free). P106 = occupation (association football player),
-    // P27 = country of citizenship, P54 = member of sports team.
-    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
+    // P27 = country of citizenship, P54 = member of sports team, P21 = sex
+    // or gender, P569 = date of birth (ADR-0025's male-only/last-100-years
+    // player pool restriction — REQ-112).
+    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid, string dateOfBirthCutoff) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P27 wd:{{countryQid}}.
           ?player wdt:P54 wd:{{clubQid}}.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
+          ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{dateOfBirthCutoff}}"^^xsd:dateTime)
           OPTIONAL {
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")
@@ -125,12 +160,16 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         """;
 
     // S-030: "ever played for both clubs" — P54 checked twice instead of
-    // once against P27, same no-LIMIT/altLabel-in-one-query rules as above.
-    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
+    // once against P27, same no-LIMIT/altLabel-in-one-query/male-only/
+    // last-100-years rules as above.
+    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid, string dateOfBirthCutoff) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P54 wd:{{clubAQid}}.
           ?player wdt:P54 wd:{{clubBQid}}.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
+          ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{dateOfBirthCutoff}}"^^xsd:dateTime)
           OPTIONAL {
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")

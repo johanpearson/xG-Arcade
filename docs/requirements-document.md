@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.45"
+version: "0.46"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -361,6 +361,38 @@ below-threshold pair is re-queried, not skipped)
 **Test level:** Unit (`StaleClubAttributeCleanerTests.cs` — removes stale
 rows and leaves zero cached matches; scopes strictly to the named clubs and
 to `AttributeType == "club"`; safe to re-run)
+
+**REQ-112 – Player pool restricted to male, born within the last 100 years**
+> As a player, I want every candidate answer the grid could ever accept to
+> be a male footballer from a period I could plausibly recognize, so a
+> correct answer never turns out to be an unfamiliar 19th-century or
+> women's-football player I had no realistic way to reason my way to.
+
+- **Status: Implemented (Tier 0, S-038, ADR-0025).** Both `WikidataClient`
+  SPARQL query builders (`BuildCountryClubIntersectionQuery`,
+  `BuildClubClubIntersectionQuery`) require `?player wdt:P21 wd:Q6581097`
+  (P21 = sex or gender, Q6581097 = male) and `?player wdt:P569
+  ?dateOfBirth` with `FILTER(?dateOfBirth >= "<cutoff>"^^xsd:dateTime)`,
+  where `<cutoff>` is `TimeProvider.GetUtcNow().AddYears(-100)` computed at
+  query time — a rolling window, not a fixed year, so it never needs a
+  manual update as real time passes.
+- Given any Country×Club or Club×Club intersection query
+- When the query runs against Wikidata
+- Then only players who are recorded as male (P21 = Q6581097) and whose
+  date of birth (P569) is on or after 100 years before the query's own
+  current time are ever returned as candidates
+- And a player missing either P21 or P569 entirely is excluded, not
+  included by default — the filter triples are non-optional
+- **Data migration note (not itself a test-level acceptance criterion):**
+  because neither sex nor date of birth was ever recorded on already-cached
+  `Player`/`PlayerAttribute` rows, this couldn't be applied retroactively
+  to existing data — the entire player pool was purged
+  (`purge-player-pool` CLI verb, ADR-0025) and rebuilt from scratch via a
+  fresh `warm-player-cache` run once this filter shipped.
+
+**Test level:** Unit (`WikidataClientTests.cs` — sent SPARQL query contains
+the P21 male triple; sent query's date-of-birth cutoff matches an injected
+fixed "now" minus 100 years exactly, for both query builders)
 
 ---
 
