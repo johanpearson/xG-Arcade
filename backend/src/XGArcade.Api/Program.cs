@@ -144,6 +144,51 @@ if (args is ["clean-stale-club-attributes", ..])
     return;
 }
 
+// S-038 (ADR-0025): `dotnet run -- purge-player-pool "delete all player data"`
+// is a fourth CLI verb — deletes every Player row (and, via ON DELETE
+// CASCADE, every PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias row
+// with it) so the pool can be rebuilt from scratch entirely through the
+// male-only/born-1939-or-later SPARQL filters WikidataClient
+// now applies (REQ-112). A bulk, unscoped purge — unlike
+// clean-stale-club-attributes above, which only ever touches the named
+// clubs — needs its own, stronger safety gate: a required, exact
+// confirmation-phrase argument, the same extra-friction-for-a-destructive-
+// write pattern infra/scripts/promote-dev-to-prod.sh already uses
+// ("promote to prod") for its own bulk write to real player-facing data.
+// Run once, then trigger warm-player-cache.yml to repopulate the pool
+// under the new filters. Reference tables (CountryDefinition/
+// ClubDefinition/TrophyDefinition) and account/game-history tables (User/
+// League/Round/GridInstance/GridCell/Guess) are deliberately untouched —
+// Guess.PlayerAnswerId has no FK constraint on Player (see
+// XGArcadeDbContext.cs's OnModelCreating), so an old Guess whose answer was
+// one of the purged players keeps its already-computed IsCorrect/score, it
+// just can no longer display which player that answer was.
+if (args is ["purge-player-pool", ..])
+{
+    const string requiredConfirmationPhrase = "delete all player data";
+    var purgeConfirmationArg = args.Length > 1 ? args[1] : null;
+    if (purgeConfirmationArg != requiredConfirmationPhrase)
+        throw new InvalidOperationException(
+            $"purge-player-pool requires the exact confirmation phrase as its argument: `purge-player-pool \"{requiredConfirmationPhrase}\"`.");
+
+    var purgeConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var purgeConnectionString = purgeConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var purgeDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(purgeConnectionString)
+        .Options;
+
+    await using var purgeDbContext = new XGArcadeDbContext(purgeDbContextOptions);
+    var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
+
+    Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows).");
+    return;
+}
+
 // Single source of truth for WikidataClient's HttpClient config — shared by
 // the real AddHttpClient<IWikidataClient, WikidataClient> DI registration
 // below and the warm-player-cache CLI verb above (which can't use that DI

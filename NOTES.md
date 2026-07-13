@@ -647,3 +647,67 @@ Also added 11 further clubs (RB Leipzig, Bayer Leverkusen, Marseille,
 Lyon, Monaco, Lille, Lazio, Valencia, Real Sociedad, Newcastle United,
 West Ham United) with QIDs the user verified directly this time, not
 training-knowledge guesses — 21→32 clubs total.
+
+### 2026-07-13 — Player pool had no gender or era restriction; whole pool purged and rebuilt (S-038, ADR-0025)
+
+Separate follow-up the same day: the user flagged that the player pool
+sourced from Wikidata should be restricted to male footballers, and to a
+particular era — neither restriction existed before this. Unlike S-037's
+wrong-QID fix, this isn't a bug in existing code (the queries worked
+exactly as written), it's a scope decision about what the game should
+cover at all.
+
+Two things had to be made concrete: how to express "male" against
+Wikidata's actual data model (`P21` = sex or gender, `Q6581097` = male —
+there's no separate "male footballer" occupation item to filter on
+instead), and where the era cutoff sits. **First pass got the second one
+wrong**: implemented date of birth (`P569`) as a rolling "latest 100
+years" window — `TimeProvider.GetUtcNow().AddYears(-100)`, computed fresh
+on every query — before the user corrected course mid-review: the actual
+requirement is a **fixed** date, players born in 1939 or later, not a
+window that keeps sliding forward every year. Switched to a
+`private const string` cutoff literal on `WikidataClient` and removed the
+`TimeProvider` dependency entirely, since a fixed date needs no clock at
+all. Date of birth over a career/active-period filter was still the right
+call either way, since Wikidata's career-span data is far less
+consistently populated than date of birth and would silently exclude real
+in-scope players more often. Full reasoning, including alternatives
+considered, is in ADR-0025 (rewritten in place to describe the fixed-date
+decision, since this never shipped as the rolling version) — don't
+re-litigate the date-of-birth-vs-career-span choice, or reintroduce a
+rolling cutoff, without reading that first.
+
+**The existing cached pool couldn't be selectively fixed.** Neither sex
+nor date of birth was ever recorded on `Player`/`PlayerAttribute` rows, so
+there was no way to tell which already-cached players would pass the new
+filters without a live Wikidata re-check per player anyway — cheaper to
+just purge everything and let `warm-player-cache` re-fetch it all fresh
+under the new query shape. New `purge-player-pool "delete all player
+data"` CLI verb does the purge (`Player` row delete, cascading through
+`PlayerData`/`PlayerOverride`/`PlayerAttribute`/`PlayerAlias`) — gated
+behind an exact confirmation-phrase argument rather than a bare
+non-blank check, since this is a bulk, unscoped delete (much larger blast
+radius than S-037's per-club-name-scoped cleaner) — reused
+`infra/scripts/promote-dev-to-prod.sh`'s existing `"promote to prod"`
+confirmation-phrase pattern rather than inventing a new safety mechanism.
+
+**What this does NOT touch:** `CountryDefinition`/`ClubDefinition`/
+`TrophyDefinition` (reference tables), and `User`/`League`/`Round`/
+`GridInstance`/`GridCell`/`Guess` (account/game-history data) — the user
+explicitly scoped this to the player pool only. One consequence worth
+remembering: `Guess.PlayerAnswerId` has no FK constraint on `Player` at
+all (checked `XGArcadeDbContext.cs`'s `OnModelCreating` to confirm before
+proceeding — if it did have a `Restrict`/no-action FK, the purge would
+have failed outright with an FK violation the moment any purged player was
+someone's historical guess answer). So an old `Guess` whose answer was a
+since-purged player keeps its already-computed `IsCorrect`/score fine, it
+just can't show which player that answer was anymore if anyone ever looks
+back at that historical round.
+
+**Operational sequence, in order, once this ships:** (1) deploy the code
+change (new SPARQL filters), (2) trigger `purge-player-pool.yml` once with
+confirmation phrase `delete all player data`, (3) trigger
+`warm-player-cache.yml` to repopulate the pool under the new filters. Step
+2 before step 3, same reasoning as S-037's clean-then-warm ordering — the
+purge has to happen before the pool is fresh, or it would just delete the
+freshly-correct data too.

@@ -11,13 +11,24 @@ namespace XGArcade.DataSync.Wikidata;
 // from the REST clients elsewhere in DataSync.Clients (implementation-
 // document.md §6a). Injected via HttpClient with BaseAddress
 // https://query.wikidata.org/ (see Program.cs's AddHttpClient registration).
-public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeout = null, ILogger<WikidataClient>? logger = null) : IWikidataClient
+public partial class WikidataClient(
+    HttpClient httpClient,
+    TimeSpan? queryTimeout = null,
+    ILogger<WikidataClient>? logger = null) : IWikidataClient
 {
     // Optional param (like queryTimeout) so tests can construct a client
     // without wiring DI's logging; falls back to a real ILogger<T> in
     // production via the AddHttpClient<IWikidataClient, WikidataClient>
     // registration in Program.cs, which supplies one automatically.
     private readonly ILogger<WikidataClient> _logger = logger ?? NullLogger<WikidataClient>.Instance;
+
+    // ADR-0025: Tier 0's player pool is restricted to male footballers born
+    // in 1939 or later — Q6581097 is Wikidata's "male" item for P21 (sex or
+    // gender). A fixed date, not a rolling window relative to "now" — a
+    // deliberate, one-time product decision, not a moving "last N years"
+    // rule, so there is no clock/TimeProvider dependency involved.
+    private const string MaleWikidataQid = "Q6581097";
+    private const string DateOfBirthCutoff = "1939-01-01T00:00:00Z";
 
     // ADR-0011's original "e.g. 5-10s" was only an illustrative example;
     // the ADR's own evidence (WDQS queries observed taking 9-27s under
@@ -110,12 +121,17 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
     // result set IS the cell's complete answer key. Fetches skos:altLabel
     // in the same query so aliases cost nothing extra (REQ-208's alias
     // value, free). P106 = occupation (association football player),
-    // P27 = country of citizenship, P54 = member of sports team.
+    // P27 = country of citizenship, P54 = member of sports team, P21 = sex
+    // or gender, P569 = date of birth (ADR-0025's male-only/born-1939-
+    // or-later player pool restriction — REQ-112).
     private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P27 wd:{{countryQid}}.
           ?player wdt:P54 wd:{{clubQid}}.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
+          ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
           OPTIONAL {
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")
@@ -125,12 +141,16 @@ public partial class WikidataClient(HttpClient httpClient, TimeSpan? queryTimeou
         """;
 
     // S-030: "ever played for both clubs" — P54 checked twice instead of
-    // once against P27, same no-LIMIT/altLabel-in-one-query rules as above.
+    // once against P27, same no-LIMIT/altLabel-in-one-query/male-only/
+    // born-1939-or-later rules as above.
     private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P54 wd:{{clubAQid}}.
           ?player wdt:P54 wd:{{clubBQid}}.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
+          ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
           OPTIONAL {
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")

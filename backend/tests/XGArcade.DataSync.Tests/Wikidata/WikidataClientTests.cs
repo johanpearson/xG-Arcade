@@ -133,6 +133,35 @@ public class WikidataClientTests
     }
 
     [Test]
+    public async Task QueryCountryClubIntersectionAsync_SentQuery_FiltersToMaleOnly()
+    {
+        // ADR-0025/REQ-112: Q6581097 is Wikidata's "male" item for P21 (sex
+        // or gender).
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P21 wd:Q6581097"));
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_SentQuery_FiltersToDateOfBirthOnOrAfter1939()
+    {
+        // ADR-0025/REQ-112: a fixed date, not a rolling window — the sent
+        // cutoff is always 1939-01-01, regardless of when the query runs.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P569"));
+        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
+    }
+
+    [Test]
     public void QueryCountryClubIntersectionAsync_RejectsNonQidCountryValue()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
@@ -286,6 +315,31 @@ public class WikidataClientTests
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(Regex.Matches(sentQuery, "wdt:P54").Count, Is.EqualTo(2));
         Assert.That(sentQuery, Does.Not.Contain("P27"));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FiltersToMaleOnly()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P21 wd:Q6581097"));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FiltersToDateOfBirthOnOrAfter1939()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P569"));
+        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
     }
 
     [Test]

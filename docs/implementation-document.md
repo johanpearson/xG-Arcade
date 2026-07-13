@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.44"
+version: "0.45"
 status: draft
 last_updated: 2026-07-13
 owner: Johan
@@ -820,6 +820,31 @@ specific club name(s) just corrected — and strictly *before* the next
 `warm-player-cache` run, since running it after a fresh warm would delete
 the new, correct data too.
 
+**REQ-112 player pool restriction (S-038, ADR-0025):** the same
+"can't selectively fix already-cached data" problem, but for the whole
+pool rather than a few named clubs — neither sex nor date of birth was
+ever recorded on cached `Player`/`PlayerAttribute` rows, so there is no
+way to tell which existing rows would have passed the new male/born-1939-
+or-later filters and which wouldn't without a live Wikidata re-check per
+player anyway. A fourth CLI verb, `purge-player-pool "delete all player
+data"`, deletes every `Player` row (cascading, via `ON DELETE CASCADE`,
+through `PlayerData`/`PlayerOverride`/`PlayerAttribute`/`PlayerAlias`) —
+gated behind a required, exact confirmation-phrase argument rather than
+`clean-stale-club-attributes`'s bare "is this blank" check, since a
+bulk, unscoped delete triggered by a single GitHub Actions text input has
+a meaningfully larger blast radius than a per-club-name-scoped one (same
+`"promote to prod"`-style extra-friction pattern
+`infra/scripts/promote-dev-to-prod.sh` already uses for its own
+destructive write). Run once via `purge-player-pool.yml`, then a normal
+`warm-player-cache.yml` run repopulates the pool entirely under the new
+filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
+`TrophyDefinition`) and account/game-history tables (`User`/`League`/
+`Round`/`GridInstance`/`GridCell`/`Guess`) are untouched —
+`Guess.PlayerAnswerId` has no FK constraint on `Player` (see
+`XGArcadeDbContext.cs`'s `OnModelCreating`), so an old `Guess` whose
+answer was a since-purged player keeps its already-computed
+`IsCorrect`/score, it just can no longer display which player that was.
+
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
 missing combination typically means fetching a club's squad history (a
@@ -1019,18 +1044,22 @@ refresh to manage.
 API: a SPARQL graph query sent to one endpoint
 (`https://query.wikidata.org/sparql?query={SPARQL}`). Requires knowing
 Wikidata's property/entity ID vocabulary (e.g. `P106` = occupation,
-`P27` = country of citizenship, `P54` = member of sports team, `Q937857`
-= "association football player"). The `Q142`/`Q9617`-style IDs below
-come from `CountryDefinition`/`ClubDefinition`'s `WikidataQid` field
-(ADR-0012) — never hardcoded, never resolved fresh per query. A query
-answering this system's actual intersection use case (REQ-101 — "who
-satisfies both row and column categories") looks like:
+`P27` = country of citizenship, `P54` = member of sports team, `P21` = sex
+or gender, `P569` = date of birth, `Q937857` = "association football
+player", `Q6581097` = male). The `Q142`/`Q9617`-style IDs below come from
+`CountryDefinition`/`ClubDefinition`'s `WikidataQid` field (ADR-0012) —
+never hardcoded, never resolved fresh per query. A query answering this
+system's actual intersection use case (REQ-101 — "who satisfies both row
+and column categories") looks like:
 
 ```sparql
 SELECT ?player ?playerLabel WHERE {
   ?player wdt:P106 wd:Q937857.   # occupation: association football player
   ?player wdt:P27 wd:Q142.       # country of citizenship: e.g. France
   ?player wdt:P54 wd:Q9617.      # member of sports team: e.g. Arsenal F.C.
+  ?player wdt:P21 wd:Q6581097.   # sex or gender: male (REQ-112, ADR-0025)
+  ?player wdt:P569 ?dateOfBirth. # date of birth (REQ-112, ADR-0025)
+  FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime) # fixed cutoff, not rolling
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ```
@@ -1060,6 +1089,15 @@ Three rules that make this query correct, not just functional:
   no manual alias curation and no separate Tier 1 system needed.
 - **Upsert players by `WikidataQid`**, never insert per query — see the
   `Player` entity's dedup note in §5.
+- **Always filter to male (`P21`) and date of birth on or after
+  1939-01-01 (`P569`)** (REQ-112, ADR-0025) — a fixed literal on
+  `WikidataClient`, not a rolling window computed from the current time
+  (an earlier draft used a `TimeProvider`-driven rolling "latest 100
+  years" cutoff; the user corrected this to a fixed date, which also
+  removed the need for any clock dependency here). Neither property is
+  recorded on the persisted `Player`/`PlayerAttribute` rows — the filter
+  exists only at query time, so a player already outside these bounds is
+  simply never fetched in the first place, never fetched-then-excluded.
 
 Semantics note: the Country category means **citizenship (P27)**, not
 "capped for the national team" — a deliberate, player-visible rule
