@@ -1334,6 +1334,35 @@ nothing), sees an explicit irreversible-action warning before confirming,
 and is signed out and returned to the login/landing screen on success.
 Wrong-password and cancel paths leave the account untouched (Vitest,
 mocked fetch). *Deps:* S-025 (the endpoint this calls).
+**Built as:** matches the plan, no deviations. The header's existing nav is
+the "settings entry point" — a plain "Delete account" link next to
+"Leaderboard"/"Log out", not a general profile/settings page (none added).
+It opens `DeleteAccountScreen` (new SCREEN-05, `docs/design-document.md`
+§3, added in this same change per the plan above): an explicit,
+unambiguous irreversibility warning, then a current-password field
+re-verified server-side exactly as `AuthController.DeleteAccount` already
+enforces — a wrong password shows an inline error and deletes nothing, no
+bare confirmation checkbox. On success there's no account left to show
+anything else on, so the flow signs the user out and returns to the
+login/landing screen, same effect `App.tsx`'s existing `handleLogout`
+already produces. New `deleteAccount(accessToken, password)`
+(`frontend/src/lib/api.ts`) calls `DELETE /auth/account`, returning `void`
+on the 204 the endpoint sends on success; `DeleteAccountScreen`
+(`frontend/src/auth/`) is styled entirely from existing §2 tokens
+(`accent-red` for the warning and the destructive confirm button — both
+already pass the text-contrast floor as-is, no new token needed). `App.tsx`
+gained a `'delete-account'` `Screen` member; the screen's
+`onAccountDeleted` and `onAuthError` props both point at the existing
+`handleLogout`, since a successful deletion and an expired/invalid JWT
+both resolve to the same "sign out, land on `AuthScreen`" outcome.
+Distinguishing a wrong-password 401 (show inline error, keep the session)
+from a JWT-invalid 401 (sign out via `onAuthError`, same as every other
+authenticated screen) is done by checking `ApiError.title !== 'Incorrect
+password'` — `AuthController.DeleteAccount`'s own confirmation-failure
+response is the only 401 path that sets that specific title, so this needed
+no new response field. REQ-710's status heading (requalified to "Partially
+implemented" by this story's own scoping change, #49) is restored to
+"Implemented" now that the player-facing entry point exists.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 

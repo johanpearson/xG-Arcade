@@ -11,15 +11,19 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response)
 }
 
-// Shared by the REQ-303 cases below: a single fetch mock that answers every
-// endpoint App's authenticated tree can reach (health check, login, and the
-// current round), so logging in and then navigating doesn't need per-test
-// wiring beyond the login credentials.
-function stubAuthenticatedFetch() {
+// Shared by the REQ-303/REQ-710 cases below: a single fetch mock that answers
+// every endpoint App's authenticated tree can reach (health check, login, and
+// the current round), so logging in and then navigating doesn't need
+// per-test wiring beyond the login credentials. `extraRoutes` lets a test add
+// or override endpoints (e.g. /auth/account for the delete-account flow)
+// without re-implementing the base routing from scratch.
+function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Response>> = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn().mockImplementation((url: string) => {
       const path = String(url)
+      const extraRoute = Object.entries(extraRoutes).find(([suffix]) => path.endsWith(suffix))
+      if (extraRoute) return extraRoute[1]()
       if (path.endsWith('/health')) {
         return jsonResponse({ status: 'healthy' })
       }
@@ -132,7 +136,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  it('REQ-303: the nav only offers Leaderboard and Log out once authenticated', async () => {
+  it('REQ-303/REQ-710: the nav offers Leaderboard, Delete account, and Log out once authenticated', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -141,6 +145,51 @@ describe('App game-selection routing', () => {
     await screen.findByText('Choose a game')
 
     expect(screen.getByRole('button', { name: 'Leaderboard' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete account' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument()
+  })
+})
+
+// REQ-710 (S-039): wiring DeleteAccountScreen into App — the nav entry point,
+// and both onAccountDeleted/onAuthError routing back through the same
+// handleLogout() that clears the stored token and returns to AuthScreen.
+describe('App delete-account routing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+  })
+
+  it('REQ-710: clicking "Delete account" in the header navigates to the delete-account screen', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+
+    expect(
+      await screen.findByText('This permanently deletes your account. It cannot be undone.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
+  })
+
+  it('REQ-710: a successful deletion returns to the logged-out AuthScreen and clears the stored access token', async () => {
+    stubAuthenticatedFetch({ '/auth/account': () => jsonResponse(null, 204) })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    await screen.findByLabelText('Current password')
+
+    await user.type(screen.getByLabelText('Current password'), 'correct-password')
+    await user.click(screen.getByRole('button', { name: 'Delete my account permanently' }))
+
+    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument()
+    expect(window.localStorage.getItem('xg-arcade-access-token')).toBeNull()
   })
 })

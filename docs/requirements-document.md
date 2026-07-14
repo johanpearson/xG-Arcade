@@ -1677,9 +1677,7 @@ setup by S-010's Playwright suite
 
 ### 4.10 Account and data rights
 
-**REQ-710 – Account deletion** *(Status: Partially implemented — backend
-only, Tier 0, S-025; no player-facing entry point yet, see
-`docs/backlog.md` S-039)*
+**REQ-710 – Account deletion** *(Status: Implemented, Tier 0, S-025/S-039)*
 > As a user, I want to permanently delete my account, so I control my own
 > data (this is a legal right under GDPR for EU users, and good practice regardless).
 
@@ -1722,16 +1720,31 @@ non-transactional HTTP call, matching `implementation-document.md` §6.8's
 documented flow) — if it fails, local account data is already gone but the
 credential/email is not; surfaced to the caller as a `500` rather than
 swallowed, but no retry/saga exists yet (see ADR-0026's consequences).
-**Acknowledged gap, queued as `docs/backlog.md` S-039 (2026-07-14):** no
-frontend code calls this endpoint — S-025's own acceptance criteria was
-backend-only, so there is currently no way for a real player to reach this
-flow from the app itself. There is also no account/settings screen defined
-in `design-document.md`. S-039 is scoped narrowly to the delete-account
-flow only (no general profile/settings page), matching the endpoint's
-existing password-reverification and irreversibility requirements above.
+**Gap identified and closed same-day (`docs/backlog.md` S-039, 2026-07-14):**
+a scoping pass right after S-025 merged found that no frontend code called
+this endpoint — S-025's own acceptance criteria was backend-only, so there
+was no way for a real player to reach this flow from the app itself, and no
+account/settings screen existed in `design-document.md` either. S-039
+closed that gap, scoped narrowly to the delete-account flow only (no
+general profile/settings page) — see "Built as (S-039)" below for what was
+actually built.
+
+**Built as (S-039):** the frontend UI this REQ's Given/When/Then always
+implied but S-025 didn't build. A "Delete account" header link (the only
+entry point — no general profile/settings page exists in Tier 0) opens
+`DeleteAccountScreen` (SCREEN-05, `docs/design-document.md` §3): an
+explicit irreversibility warning, then the current-password field that is
+this REQ's confirmation step, re-verified server-side exactly as
+`AuthController.DeleteAccount` already enforced — no bare confirmation
+checkbox added on top of it. A wrong password shows an inline error and
+deletes nothing; any other 401 (an expired/invalid JWT) signs the user out
+the same way every other authenticated screen already does. On success the
+user is signed out and returned to the login/landing screen, since no
+account remains to show anything else on.
 
 **Test level:** Unit (anonymization logic specifically — verify no
-reversible link remains), API
+reversible link remains), API, UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
+`frontend/tests/unit/App.test.tsx`)
 
 **REQ-711 – Data export**
 > As a user, I want to export my data, so I have a copy and can verify what

@@ -115,3 +115,18 @@ export async function fetchLeaderboard(accessToken: string): Promise<Leaderboard
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LeaderboardResponse;
 }
+
+// REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
+// before deleting anything — a wrong password throws (401, title "Incorrect
+// password") rather than resolving. Success is 204 No Content, nothing to parse.
+export async function deleteAccount(accessToken: string, password: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/auth/account`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) await throwApiError(response);
+}

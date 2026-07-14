@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.14"
+version: "0.15"
 status: draft
-last_updated: 2026-07-12
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -407,6 +407,43 @@ clean, ordinary admin table rather than needing its own "un-dark" treatment.
 │ ...                                            │
 └─────────────────────────────────────────────┘
 ```
+
+### SCREEN-05: Delete account
+
+```
+┌───────────────────────────────┐
+│ Delete account                 │
+├───────────────────────────────┤
+│ This permanently deletes your  │
+│ account. It cannot be undone.  │
+│                                 │
+│ Current password                │
+│ [__________________]           │
+│                                 │
+│         [Cancel] [Delete my    │
+│                    account     │
+│                    permanently]│
+└───────────────────────────────┘
+```
+
+**S-039, REQ-710.** Reached only from a plain "Delete account" link in the
+header — deliberately not a general profile/settings page (none exists in
+Tier 0). No bare confirmation checkbox: the "current password" field is the
+confirmation step REQ-710 already requires server-side (`AuthController
+.DeleteAccount` re-verifies it against Supabase Auth before touching
+anything), so the UI can't offer a weaker path than the API already
+enforces. The warning line uses `accent-red` (text use, already passes the
+4.5:1 floor as-is per §2 — no new token needed) and is not color-only: it's
+a plain, explicit sentence, not a colored icon or border standing alone.
+"Delete my account permanently" (not just "Delete") states the destructive
+action plainly, per §5's "name the action" rule — no confirm-twice modal on
+top of the password step, since re-entering a password already is the
+confirmation. A wrong password shows an inline error (same `accent-red`
+error-text pattern the login/signup form already uses, see §7's open
+question on that screen's missing spec) and deletes nothing. On success
+there is no account left to show anything else on, so the flow signs the
+user out and lands back on the login/landing screen — no "deleted"
+confirmation screen, nothing to confirm to once signed out.
 
 ## 4. Responsive strategy
 

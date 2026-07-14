@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { AuthScreen } from './auth/AuthScreen';
+import { DeleteAccountScreen } from './auth/DeleteAccountScreen';
 import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
@@ -14,8 +15,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
-// before any game's grid — see docs/backlog.md S-021.
-type Screen = 'game-select' | 'grid' | 'leaderboard';
+// before any game's grid — see docs/backlog.md S-021. 'delete-account'
+// (S-039) is reachable only from the header, never a destination anything
+// else navigates to.
+type Screen = 'game-select' | 'grid' | 'leaderboard' | 'delete-account';
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
@@ -87,6 +90,17 @@ function App() {
             >
               Leaderboard
             </button>
+            {/* REQ-710 (S-039): the only entry point to account deletion —
+                deliberately a plain nav link, not a general settings page,
+                since delete-account is the only account action Tier 0 has. */}
+            <button
+              type="button"
+              className="app__nav-link"
+              aria-current={screen === 'delete-account' ? 'page' : undefined}
+              onClick={() => setScreen('delete-account')}
+            >
+              Delete account
+            </button>
             <button type="button" className="app__logout" onClick={handleLogout}>
               Log out
             </button>
@@ -103,8 +117,18 @@ function App() {
             <GameSelectScreen onSelectGame={() => setScreen('grid')} />
           ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
-          ) : (
+          ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
+          ) : (
+            // REQ-710: on success there's no account left to show anything
+            // else on, so deletion signs out and lands back on AuthScreen —
+            // the exact same effect handleLogout already produces.
+            <DeleteAccountScreen
+              accessToken={accessToken}
+              onAccountDeleted={handleLogout}
+              onCancel={() => setScreen('game-select')}
+              onAuthError={handleLogout}
+            />
           )
         ) : (
           <AuthScreen onAuthenticated={handleAuthenticated} />

@@ -182,6 +182,12 @@ public class AuthController(
         var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, cancellationToken);
         if (!confirmation.Success)
         {
+            // frontend/src/auth/DeleteAccountScreen.tsx string-matches this exact
+            // title to tell "wrong password" (show inline, session still valid)
+            // apart from any other 401 on this endpoint (expired/invalid JWT,
+            // which has no ProblemDetails body at all and logs the user out
+            // instead). If this title ever changes, update that check too —
+            // there's no shared machine-readable error code between the two yet.
             return Problem(
                 title: "Incorrect password",
                 detail: "Account deletion requires your current password to confirm.",
