@@ -15,7 +15,7 @@ name: generate-round
 
 on:
   schedule:
-    - cron: "0 6 * * *" everyday 
+    - cron: "0 6 * * *" # everyday 
   workflow_dispatch: {}
 
 jobs:
