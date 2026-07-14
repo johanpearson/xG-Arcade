@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.49"
+version: "0.50"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -568,38 +568,54 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   `CellState.tsx` was never updated to match. The value is a known constant
   (`ScoringRules.MaxPointsPerCell`), so this is a pure rendering fix, not a
   new calculation.
-- **Acknowledged gap, queued as `docs/backlog.md` S-040 (2026-07-14):**
-  direct product feedback (screenshots of the deployed app on a phone, and
-  separately on a wide/"desktop site" viewport) found two real problems.
-  (1) States 1 and 4 (the only two that show a player name) always render
-  the name at rest — on a narrow viewport, a long name plus badge/checkmark/
-  live text in one cell forces the row-header column (already capped at
-  `max-width: 88px` in `Grid.css`'s mobile breakpoint) to be squeezed far
-  below that cap by the browser's table auto-layout, which isn't actually
-  constrained by `max-width` without `table-layout: fixed`; combined with
-  `overflow-wrap: anywhere`, the header text then breaks mid-word — a
-  country name rendering one character per line, not a cosmetic wrapping
-  preference. (2) On a wide viewport, the grid reads as small and stuck
-  top-left within `.app`'s existing `max-width: 900px` cap, with a lot of
-  unused surrounding space — never actually art-directed for desktop; only
-  `design-document.md` SCREEN-01's mobile single-column mock was ever
-  built, not its documented desktop side-panel variant (see that section's
-  own new status note). S-040 addresses both by making states 1 and 4 show
-  only their checkmark/✕ + points at rest (name and %-breakdown text gated
-  behind a tap/hover/focus toggle) on every screen size, not mobile-only —
-  but the toggle itself is not the same change in both states. State 1
-  extends the existing S-019 `LiveMetaDisclosure` toggle (`CellState.tsx`)
-  to also gate the name — that toggle already exists and today only gates
-  the %/points/round-end text. State 4 gets a *new* toggle: its closed-round
-  branch currently renders the name and %-breakdown text unconditionally,
-  with no reveal mechanism at all, so this adds one, reusing the same
-  tap/hover/focus interaction pattern as state 1's toggle rather than a
-  second, differently-behaving pattern — not literally the same component
-  instance, since none exists there yet. This is expected to substantially
-  fix (1) as a side effect of shrinking typical cell content, verified
-  rather than assumed — plus targeted spacing/sizing polish for (2). The
-  SCREEN-01 desktop side-panel variant itself remains explicitly deferred to
-  a separate, future story, not folded into S-040.
+- **Built as (`docs/backlog.md` S-040, 2026-07-14):** direct product
+  feedback (screenshots of the deployed app on a phone, and separately on a
+  wide/"desktop site" viewport) found two real problems, both fixed in this
+  story. (1) States 1 and 4 (the only two that show a player name) rendered
+  the name unconditionally at rest — on a narrow viewport, a long name plus
+  badge/checkmark/live text in one cell forced the row-header column past
+  its intended 88px cap, and a country name could render one character per
+  line. (2) On a wide viewport, the grid read as small and stuck top-left
+  within `.app`'s `max-width: 900px` cap, never actually art-directed for
+  desktop; only `design-document.md` SCREEN-01's mobile single-column mock
+  was ever built, not its documented desktop side-panel variant (still
+  deferred to its own future story, not built here). Fix for (1): states 1
+  and 4 now show only their checkmark/✕ + points at rest, name and
+  %-breakdown text gated behind a tap/hover/focus toggle, on every screen
+  size, not mobile-only. State 1 extends the existing S-019 toggle
+  (`CellState.tsx`, renamed `LiveMetaDisclosure` -> `useRevealDisclosure` +
+  `RevealToggle` in this story so both states could share it) to also gate
+  the name; the live point estimate moved the opposite direction, from
+  revealed-only to always-visible at rest. State 4 gained the same toggle
+  from scratch — its closed-round branch previously had no reveal mechanism
+  at all. Shrinking typical cell content this way did **not** fully fix (1)
+  on its own — root-causing past the symptom found `Grid.css`'s
+  `.grid-table__row-header` `max-width: 88px` was never actually enforced,
+  because plain (browser-default) table auto-layout sizes a column from the
+  widest cell content anywhere in that column, not from the header's own
+  `max-width`; `overflow-wrap: anywhere` then broke the oversized header
+  text mid-word. Fixed with `table-layout: fixed` plus an explicit
+  `<colgroup>`/`<col>` (`Grid.tsx`/`Grid.css`, ≤480px breakpoint only), so
+  the row-header column's width is now genuinely sourced from its own
+  `<col>`, not any cell's content — plus stacking the flag/badge above the
+  header text (rather than beside it) so the name gets the header column's
+  full width to wrap on. A second, unrelated pre-existing CSS bug was found
+  and fixed along the way: `.cell-state__reveal-toggle`'s `font: inherit`
+  shorthand was silently resetting the toggle button's font-size to the
+  browser's ~16px default instead of `.cell-state__meta`'s intended
+  11px/10px — invisible while the button only ever held a dot and the word
+  "live," but exposed as bad text wrapping once this story made the live
+  point estimate always-visible at rest. Fix for (2): a new
+  `@media (min-width: 960px)` breakpoint widens `.app`'s `max-width` (900px
+  -> 1200px) and grid cell/header sizing (44px -> 64px touch targets, more
+  padding) — deliberately not the SCREEN-01 desktop side-panel variant,
+  which remains its own deferred story. `design-document.md` SCREEN-01a's
+  state 1 and state 4 mocks were updated to 0.17 before this code was
+  written, per the usual design-then-build discipline. Tests:
+  `CellState.test.tsx` gained 4 new REQ-204-named tests (both states'
+  at-rest/revealed content, plus two edge-case fallbacks — no live point
+  estimate yet, and state 4 with no `uniquePercent`/`finalPoints` at all)
+  and updated 3 pre-existing tests for the behavior change.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates

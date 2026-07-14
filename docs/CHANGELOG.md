@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — doc-sync pass on S-040's implementation:
+  `docs/requirements-document.md` (0.49 → 0.50, REQ-204's "Acknowledged
+  gap, queued as S-040" note replaced with a "Built as" note describing
+  what actually shipped, including two real bugs found and fixed along the
+  way that weren't in the original planned-gap note — the `table-layout:
+  fixed`/`<colgroup>` root-cause fix for the mobile header crush, and the
+  `.cell-state__reveal-toggle` `font: inherit` font-size cascade bug),
+  `docs/backlog.md` (S-040 entry gained a "Built as" note — same two bugs,
+  plus the `useRevealDisclosure`/`RevealToggle` rename and the chosen
+  `960px` desktop breakpoint), `docs/CHANGELOG.md` (this entry, plus the
+  missing `docs/design-document.md` 0.16 → 0.17 entry below — the mock
+  content update for SCREEN-01a states 1/4, done as part of implementing
+  S-040 per CLAUDE.md's design-before-code rule, flagged as missing a
+  CHANGELOG entry by a `code-reviewer` pass on the diff). Checked and found
+  accurate, no change needed: `docs/architecture-document.md` (this is a
+  frontend component-internal change — no component boundary, responsibility,
+  or data-flow change) and `docs/implementation-document.md` (§4's project
+  structure listing already just names `CellState` generically, no
+  now-stale internal detail like `LiveMetaDisclosure`'s old name). No new
+  ADR — the toggle-mechanism reuse and breakpoint choice are implementation
+  detail within an already-decided design (S-019's toggle pattern), not a
+  new structural decision. REQ-204.
+- 2026-07-14 — `docs/design-document.md` (0.16 → 0.17) — SCREEN-01a's state
+  1 and state 4 mocks updated to show the new at-rest/revealed content split
+  (name gated behind the reveal toggle in both states; state 1's live point
+  estimate moved to always-visible) as part of implementing S-040, per
+  CLAUDE.md's design-before-code rule — this entry was missed in the
+  original S-040 scoping/implementation pass and is added now by the
+  doc-sync entry above. REQ-204.
 - 2026-07-14 — `docs/requirements-document.md` (0.48 → 0.49),
   `docs/design-document.md` (0.15 → 0.16, also fixed a pre-existing stale
   in-body version header, "Version 0.5" → matching frontmatter),
