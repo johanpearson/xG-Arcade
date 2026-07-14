@@ -1,5 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
@@ -22,29 +21,14 @@ export interface CellStateProps {
   // up a live "closed round" flow that GET /rounds/current can't produce
   // today (S-011 scope).
   roundStatus: RoundStatus;
-  // REQ-204: live unique_percent (0-1), re-derived on every request. Only
-  // ever set when isCorrect — undefined/null means "not correct yet" or
-  // (state 4) "not wired to a live source yet," never fabricated. S-019:
-  // in state 1 the player name and this value's %-breakdown text are only
-  // rendered once the player reveals them (tap/long-press, or hover/focus
-  // on desktop) — see useRevealDisclosure/RevealToggle below. S-040: the
-  // same name-gating now also applies to state 4's correct-outcome branch,
-  // and this being non-null is what decides whether a toggle exists at all
-  // in either state (no toggle, name shown unconditionally, if it's null).
-  uniquePercent?: number | null;
-  // S-018 (REQ-204 extension): live, provisional point estimate for state 1
-  // only — same round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks
-  // at round close, computed live and re-derived on every request. S-040:
-  // now always-visible at rest (moved off the reveal toggle), and still
-  // repeated unchanged inside the revealed %-breakdown text — deliberate
-  // duplication, not a copy bug. Never reused for state 4's finalPoints,
-  // which is a separate, locked prop.
+  // S-018/REQ-204: live, provisional point estimate for state 1 only — same
+  // round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks at round
+  // close, computed live and re-derived on every request. S-041: this is
+  // now the *only* thing state 1 shows alongside the checkmark (no dot, no
+  // "live"/"~"/"estimated" wording, no percent) — see REQ-204's 2026-07-14
+  // status note. Never reused for state 4's finalPoints, which is a
+  // separate, locked prop.
   livePoints?: number | null;
-  // REQ-204's "updates until round closes on [date/time]" microcopy — only
-  // rendered alongside uniquePercent, since it describes that value's
-  // liveness, not the cell generally. Still gated behind reveal (S-019),
-  // unaffected by S-040.
-  roundEndTime?: string;
   // REQ-205/206: the locked, permanent score — only meaningful once
   // roundStatus is "closed". Not reachable via GET /rounds/current today
   // (that endpoint only ever returns an Active round, same S-011-scope gap
@@ -73,6 +57,13 @@ export interface CellStateProps {
   // intentionally left alone — fixing its equivalent first-correct-guess
   // gap is out of this story's scope.
   submittedThisSession?: boolean;
+  // REQ-212 (S-041): whether the guessed player's name/badge dock is
+  // currently shown. Owned by the caller (GridCell), not this component —
+  // the click/tap target that toggles it is the whole cell, which GridCell
+  // renders, not a control inside CellState. Only meaningful when
+  // isCorrect+locked (states 1/4); ignored otherwise, since states 2/3
+  // never show a name regardless (S-029).
+  revealed?: boolean;
 }
 
 interface CategoryRef {
@@ -80,27 +71,26 @@ interface CategoryRef {
   value: string;
 }
 
-// design-document.md §2: "Used only at guess-submit and round-close reveal,
-// nowhere else." Both are *transitions* observed while this component stays
-// mounted (the cell isn't remounted across a guess submission or a round
-// closing) — never on first mount already in that state, e.g. a page
-// reload showing a cell that was already correct/closed. Returns a token
-// that increments once per qualifying transition; 0 means "never
-// revealed," i.e. render the badges already docked, no animation.
-function useRevealToken(isCorrect: boolean, roundStatus: RoundStatus): number {
-  const prevRef = useRef({ isCorrect, roundStatus });
+// design-document.md §2 "signature element: badge dock": the row/column
+// badge slides in and settles beside the player name the moment it becomes
+// visible. S-041: that moment is now whenever `revealed` transitions from
+// false to true (a click/tap on the cell, REQ-212) — before this story it
+// was tied to a guess-submit/round-close transition instead, since the name
+// used to show automatically at one of those two points; now it never shows
+// until the player actively reveals it. Returns a token that increments on
+// every such transition (replaying the animation on every reveal, not just
+// the first) — 0 means "never revealed yet," i.e. render nothing/no
+// animation.
+function useRevealToken(revealed: boolean): number {
+  const prevRevealedRef = useRef(revealed);
   const [token, setToken] = useState(0);
 
   useEffect(() => {
-    const prev = prevRef.current;
-    const justAnsweredCorrectly = isCorrect && !prev.isCorrect && roundStatus === 'active';
-    const justClosedWhileCorrect =
-      isCorrect && prev.roundStatus === 'active' && roundStatus === 'closed';
-    if (justAnsweredCorrectly || justClosedWhileCorrect) {
+    if (revealed && !prevRevealedRef.current) {
       setToken((current) => current + 1);
     }
-    prevRef.current = { isCorrect, roundStatus };
-  }, [isCorrect, roundStatus]);
+    prevRevealedRef.current = revealed;
+  }, [revealed]);
 
   return token;
 }
@@ -143,30 +133,31 @@ function useShakeToken(attemptCount: number, isCorrect: boolean, submittedThisSe
 // cell (guess === null) is a simple guard clause in the caller (GridCell),
 // not a fifth case here — this component always assumes at least one
 // attempt was made.
+//
+// S-041 (REQ-204/212): states 1 (correct, round active) and 4 (correct,
+// round closed) are now a single rendering branch — both show only a
+// checkmark plus a points value at rest (state 1's live estimate, state 4's
+// locked FinalPoints), with no live/final distinction on the cell itself.
+// The player name/badge dock, gated behind `revealed` (owned by GridCell,
+// REQ-212), is the only thing that differs by interaction, not by state.
 export function CellState({
   playerName,
   isCorrect,
   attemptCount,
   locked,
   roundStatus,
-  uniquePercent,
   livePoints,
-  roundEndTime,
   finalPoints,
   rowCategoryType,
   rowCategoryValue,
   colCategoryType,
   colCategoryValue,
   submittedThisSession = false,
+  revealed = false,
 }: CellStateProps) {
   const name = playerName ?? 'Guess submitted';
-  const revealToken = useRevealToken(isCorrect, roundStatus);
+  const revealToken = useRevealToken(revealed);
   const shakeToken = useShakeToken(attemptCount, isCorrect, submittedThisSession);
-  // S-040: one shared disclosure per mounted cell — only ever consulted by
-  // whichever branch below actually has something to disclose (state 1, or
-  // state 4's correct-outcome half); called unconditionally here regardless,
-  // same "always call, conditionally use" pattern as the two hooks above.
-  const disclosure = useRevealDisclosure();
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -175,107 +166,18 @@ export function CellState({
         }
       : undefined;
 
-  // State 4: round closed — either prior outcome, now permanent. No "live"
-  // dot at all, regardless of correctness.
-  if (roundStatus === 'closed') {
-    // S-040: a toggle only exists once there's real data to disclose (same
-    // rule state 1 already followed) — without it, the name shows
-    // unconditionally, same as this branch's pre-S-040 behavior.
-    const hasFinalMeta = isCorrect && uniquePercent != null && finalPoints != null;
-    const revealName = isCorrect && (!hasFinalMeta || disclosure.revealed);
-    return (
-      // key={revealToken}: this same div also renders for a cell that was
-      // already correct+live (state 1) before closing — reusing that DOM
-      // node would carry over its already-played cell-state--reveal
-      // animation instead of restarting it for *this* transition, so a
-      // fresh reveal forces a real remount rather than a class toggle.
-      <div
-        key={revealToken}
-        className={`cell-state cell-state--final cell-state--${isCorrect ? 'correct' : 'incorrect'} ${
-          isCorrect && revealToken > 0 ? 'cell-state--reveal' : ''
-        }`}
-      >
-        <Row name={revealName ? name : undefined} correct={isCorrect} badges={revealName ? badges : undefined} />
-        {hasFinalMeta ? (
-          <RevealToggle
-            revealed={disclosure.revealed}
-            toggleHandlers={disclosure.toggleHandlers}
-            atRest={
-              <>
-                <span>{finalPoints} pts</span>
-                <span aria-hidden="true">·</span>
-                <span>final</span>
-              </>
-            }
-          >
-            <p className="cell-state__meta mono-figure">
-              {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too · {finalPoints} pts
-            </p>
-          </RevealToggle>
-        ) : (
-          <p className="cell-state__meta">final</p>
-        )}
-      </div>
-    );
-  }
-
-  // State 1: correct, round still active — locked from further guessing,
-  // but still "live" until round close (REQ-203/204). S-019: the live
-  // uniqueness/points/round-end text is disclosed on tap/long-press (or
-  // hover/focus on desktop) rather than always shown, to cut the clutter of
-  // every unresolved cell showing full live text at once. S-040: the same
-  // toggle now also gates the player name (and its badge dock, since the
-  // badge dock only makes sense docked beside a visible name) — the quiet
-  // green dot and "live" text stay the permanent at-rest indicator either
-  // way, joined now by the live point estimate (moved off the toggle,
-  // always-visible).
+  // States 1/4 (correct): identical structure, differing only in which
+  // points value is shown.
   if (isCorrect) {
-    const hasLiveMeta = uniquePercent != null;
-    const revealName = !hasLiveMeta || disclosure.revealed;
+    const points = roundStatus === 'closed' ? finalPoints : livePoints;
     return (
-      // key={revealToken}: forces a remount (not just a class toggle) so the
-      // slide-in/flash restarts on this specific guess-submit reveal, same
-      // reasoning as the closed-state branch below.
-      <div
-        key={revealToken}
-        className={`cell-state cell-state--live cell-state--correct ${
-          revealToken > 0 ? 'cell-state--reveal' : ''
-        }`}
-      >
-        <Row name={revealName ? name : undefined} correct badges={revealName ? badges : undefined} />
-        {hasLiveMeta ? (
-          <RevealToggle
-            revealed={disclosure.revealed}
-            toggleHandlers={disclosure.toggleHandlers}
-            atRest={
-              <>
-                <span className="cell-state__live-dot" aria-hidden="true" />
-                <span>live</span>
-                {livePoints != null && (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <span>{`~${livePoints} pts estimated`}</span>
-                  </>
-                )}
-              </>
-            }
-          >
-            <p className="cell-state__meta mono-figure">
-              {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too
-              {livePoints != null && ` · ~${livePoints} pts estimated`}
-            </p>
-            {roundEndTime && (
-              <p className="cell-state__meta cell-state__meta--muted">
-                updates until round closes on {formatDateTime(roundEndTime)}
-              </p>
-            )}
-          </RevealToggle>
-        ) : (
-          <p className="cell-state__meta">
-            <span className="cell-state__live-dot" aria-hidden="true" />
-            live
-          </p>
-        )}
+      // key={revealToken}: forces a remount (not just a class toggle) so
+      // the badge-dock slide-in restarts on every reveal, even a second
+      // reveal after the player closed and reopened it (same className
+      // string both times, which a mere re-render wouldn't restart).
+      <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
+        <Row name={revealed ? name : undefined} correct badges={revealed ? badges : undefined} />
+        {points != null && <p className="cell-state__meta mono-figure">{points} pts</p>}
       </div>
     );
   }
@@ -303,168 +205,22 @@ export function CellState({
     );
   }
 
-  // State 3: incorrect, no attempts remaining (round still active). REQ-205/
-  // 206 don't exist yet, so no "0 pts" line — same reasoning as state 1.
+  // State 3 (round active) / state 4's incorrect outcome (round closed):
+  // both locked with no attempts remaining. REQ-205/206 don't apply to an
+  // incorrect guess (ADR-0021's MaxPointsPerCell lock is a backend/
+  // scoring-only concern, not yet surfaced here — S-033, still unshipped),
+  // so no points line, just "no attempts left"/"final" depending on
+  // roundStatus, unaffected by S-041.
   return (
-    <div key={shakeToken} className={`cell-state cell-state--incorrect cell-state--locked ${shakeClassName}`}>
+    <div
+      key={shakeToken}
+      className={`cell-state cell-state--incorrect cell-state--locked ${
+        roundStatus === 'closed' ? 'cell-state--final' : ''
+      } ${shakeClassName}`}
+    >
       <Row correct={false} />
-      <p className="cell-state__meta">no attempts left</p>
+      <p className="cell-state__meta">{roundStatus === 'closed' ? 'final' : 'no attempts left'}</p>
     </div>
-  );
-}
-
-// REQ-204: uniquePercent arrives as a 0-1 fraction from the API, and is
-// framed here as its complement — "how many other correct guessers also
-// picked this answer" — rather than "how unique is this answer." Same
-// number, reworded: a player-feedback pass found "X% unique" confusing
-// once paired with ADR-0021's golf-style points (a *higher* uniqueness
-// percentage means *fewer* points, the opposite of what "unique" suggests).
-// "N% of others also guessed this" moves in the same direction as the point
-// value instead (more people guessing the same answer = more common = more
-// points, worse under golf scoring) — no formula changed, only the wording.
-function formatOthersGuessedPercent(uniquePercent: number): number {
-  return Math.round((1 - uniquePercent) * 100);
-}
-
-function formatDateTime(isoDateTime: string): string {
-  return new Date(isoDateTime).toLocaleString(undefined, {
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-// S-019 (REQ-204/SCREEN-01a redesign), extended by S-040 to also gate state
-// 1's player name and to add the equivalent toggle to state 4: content is
-// disclosed only on tap/long-press (a tap toggles it open/closed, since
-// touch has no hover) or hover/focus (the desktop-equivalent, transient peek
-// — open while hovering/focused, closes again on mouseleave/blur).
-// `aria-expanded` on the toggle and `aria-live="polite"` on the revealed
-// panel are what make the state change itself accessible to screen readers,
-// not just sighted users.
-//
-// Three independent flags combine via OR rather than one shared boolean: a
-// real mouse click fires a native `focus` event immediately before its
-// `click` event, so a single toggle driven off one merged value would reveal
-// (via focus) and then immediately hide again (via the click's own toggle)
-// within the same physical click. Separating click/hover/focus into their
-// own flags fixes that first-click case, but focus alone isn't quite right
-// either: a mouse click leaves the button focused afterward, and if that
-// lingering `focused` counted the same as a real keyboard tab, a *second*
-// click could never close the panel (its own toggle would flip `toggledOpen`
-// off, but `revealed` would stay true via `focused` regardless). `pointerDownRef`
-// distinguishes the two: a mousedown immediately before focus means this
-// focus is a side effect of a pointer click (already covered by `hovering`,
-// since the pointer has to be over the button to click it) and is not
-// counted; a focus with no preceding mousedown is a real keyboard tab, which
-// still peeks like hover does.
-//
-// `hoverSuppressed` fixes an analogous second bug on the mouse path: the
-// pointer is still resting over the button immediately after a click (it
-// never moved), so `hovering` stays true through the whole click and a
-// second click that flips `toggledOpen` back to false had no visible effect
-// — `revealed` stayed true via `hovering` regardless, so a mouse user could
-// never close the panel by clicking again, only by moving the mouse away.
-// When a click closes the panel while still hovering, hover's peek is
-// suppressed until the pointer actually leaves and re-enters, so the click
-// close reliably sticks. `keyboardSuppressed` is the identical fix for the
-// keyboard path: pressing Enter/Space to activate the toggle's own `onClick`
-// does not blur the button, so `keyboardFocused` stays true through a
-// keyboard-driven close too — without this, a keyboard/screen-reader user
-// could never close the panel via the toggle at all (only by tabbing away),
-// and pressing Enter an odd number of times before tabbing away would leave
-// `toggledOpen` stuck true with no way to notice or undo it without
-// revisiting the cell.
-function useRevealDisclosure(): {
-  revealed: boolean;
-  toggleHandlers: {
-    onClick: () => void;
-    onMouseDown: () => void;
-    onFocus: () => void;
-    onBlur: () => void;
-    onMouseEnter: () => void;
-    onMouseLeave: () => void;
-  };
-} {
-  const [toggledOpen, setToggledOpen] = useState(false);
-  const [hovering, setHovering] = useState(false);
-  const [hoverSuppressed, setHoverSuppressed] = useState(false);
-  const [keyboardFocused, setKeyboardFocused] = useState(false);
-  const [keyboardSuppressed, setKeyboardSuppressed] = useState(false);
-  const pointerDownRef = useRef(false);
-  const revealed =
-    toggledOpen || (hovering && !hoverSuppressed) || (keyboardFocused && !keyboardSuppressed);
-
-  return {
-    revealed,
-    toggleHandlers: {
-      onClick: () =>
-        setToggledOpen((current) => {
-          const next = !current;
-          if (!next) {
-            if (hovering) setHoverSuppressed(true);
-            if (keyboardFocused) setKeyboardSuppressed(true);
-          }
-          return next;
-        }),
-      onMouseDown: () => {
-        pointerDownRef.current = true;
-      },
-      onFocus: () => {
-        if (!pointerDownRef.current) setKeyboardFocused(true);
-        pointerDownRef.current = false;
-      },
-      onBlur: () => {
-        setKeyboardFocused(false);
-        setKeyboardSuppressed(false);
-        pointerDownRef.current = false;
-      },
-      onMouseEnter: () => setHovering(true),
-      onMouseLeave: () => {
-        setHovering(false);
-        setHoverSuppressed(false);
-      },
-    },
-  };
-}
-
-// S-040: the toggle markup shared by state 1 (live meta + name, extended
-// from S-019) and state 4's correct-outcome branch (new) — `atRest` is the
-// always-visible button content (never empty, satisfying REQ-204's "always
-// as text, never icon-only" rule), `children` is the on-demand panel.
-// Callers pass the same `revealed`/`toggleHandlers` pair they also use to
-// gate the player name/badge dock elsewhere in their own markup, so the name
-// and this panel open and close in lockstep.
-function RevealToggle({
-  revealed,
-  toggleHandlers,
-  atRest,
-  children,
-}: {
-  revealed: boolean;
-  toggleHandlers: ReturnType<typeof useRevealDisclosure>['toggleHandlers'];
-  atRest: ReactNode;
-  children: ReactNode;
-}) {
-  const panelId = useId();
-
-  return (
-    <>
-      <button
-        type="button"
-        className="cell-state__meta cell-state__reveal-toggle"
-        aria-expanded={revealed}
-        aria-controls={panelId}
-        {...toggleHandlers}
-      >
-        {atRest}
-      </button>
-      {revealed && (
-        <div id={panelId} aria-live="polite">
-          {children}
-        </div>
-      )}
-    </>
   );
 }
 

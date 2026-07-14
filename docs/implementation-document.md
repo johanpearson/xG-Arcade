@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.48"
+version: "0.49"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.41 · 2026-07-12
+Version 0.49 · 2026-07-14
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -237,7 +237,9 @@ misconfigured per-endpoint. See ADR-0006.
                                      no backend "list games" endpoint;
                                      Tier 0 only ever has one game)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
-                                     GuessInput, CategoryLabel (SCREEN-01/01a/02)
+                                     GuessInput, CategoryLabel,
+                                     ScoringExplainer (SCREEN-01/01a/02/06,
+                                     S-041)
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league only)
     /lib                          -> api.ts (typed fetch client), types.ts,

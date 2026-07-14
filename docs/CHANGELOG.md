@@ -13,6 +13,66 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — doc-sync pass on S-041's implementation:
+  `docs/requirements-document.md` (0.51 → 0.52, REQ-212 and REQ-213 status
+  changed from "Proposed" to "Implemented (Tier 0, S-041)" with "Built as"
+  notes describing what actually shipped — including two real fixes found
+  during implementation that weren't in the original acceptance criteria:
+  the `.cell-state__name` zero-width-on-narrow-cell CSS bug (a revealed
+  player name could shrink to invisible under flexbox's automatic
+  min-size-0 behavior, found via required manual browser verification, not
+  just tests) and `ScoringExplainer`'s missing focus-management/z-index
+  handling, caught by a `code-reviewer` pass that also found the design
+  doc's SCREEN-06 entry falsely claiming this already matched `GuessInput`'s
+  behavior), `docs/backlog.md` (S-041 entry gained a "Built as" note — same
+  two fixes, plus the `GridCell.tsx`/`CellState.tsx` state-ownership move
+  and final test counts), `docs/implementation-document.md` (0.48 → 0.49,
+  §4's `/grid` project-structure line gained `ScoringExplainer`, the one
+  genuinely new top-level component file this story added — matching how
+  the existing list already names `GridScreen`/`Grid`/`GridCell`/
+  `CellState`/`GuessInput`/`CategoryLabel` individually rather than
+  generically; also fixed a pre-existing, unrelated stale in-body version
+  header, "Version 0.41" → matching frontmatter's 0.48 at the time),
+  `docs/CHANGELOG.md` (this entry, plus the missing entry below for
+  `docs/requirements-document.md`'s 0.49 → 0.51, `docs/backlog.md`'s new
+  S-041 entry, and `docs/design-document.md`'s 0.17 → 0.18 update — all done
+  as part of implementing S-041 per `CLAUDE.md`'s design-before-code rule,
+  but never logged here, flagged as missing by a `code-reviewer` pass on the
+  diff, same gap S-040's own doc-sync pass caught previously). Checked and
+  found accurate, no change needed: `docs/architecture-document.md` (this
+  story is a frontend component-internal change — no component boundary,
+  responsibility, or data-flow change; CONT-01's "Web Frontend" row doesn't
+  enumerate individual React components or props, so neither the new
+  `ScoringExplainer` component nor the removed `roundEndTime` prop on
+  `Grid`/`GridCell` need a mention there) and `docs/design-document.md`
+  (SCREEN-01a's redesign and the new SCREEN-06 entry already matched what
+  shipped, including the focus-management correction the `code-reviewer`
+  pass required — verified against `ScoringExplainer.tsx`/`GridCell.tsx`/
+  `CellState.tsx` directly, not just that a CHANGELOG entry existed). No new
+  ADR — dropping the per-cell live/final distinction, moving to click-only
+  reveal, and adding a general explainer modal are UI/UX decisions within
+  `design-document.md`'s existing token/interaction conventions, not a new
+  component boundary or structural decision. REQ-204/212/213.
+- 2026-07-14 — `docs/requirements-document.md` (0.49 → 0.51),
+  `docs/design-document.md` (0.17 → 0.18), `docs/backlog.md` — S-041's own
+  scoping/implementation pass: REQ-204 amended with three of its acceptance
+  criteria marked `Superseded 2026-07-14` (kept for history, per this
+  document's ID-stability discipline) rather than rewritten — the
+  permanent live-dot/"live" text indicator, the S-019/S-040 tap-or-hover/
+  focus %-breakdown/round-end disclosure, and the "unmistakably
+  provisional" wording rule — replaced by two new requirements: REQ-212
+  (click/tap anywhere on a locked+correct cell toggles the guessed player's
+  name/badge dock, replacing the old in-cell toggle) and REQ-213 (a general
+  scoring/live-updates explainer, reachable from a new header `(ⓘ)` entry
+  point, replacing the per-cell %-breakdown/round-end text with content
+  that's the same regardless of which cells a player has attempted).
+  `design-document.md`'s SCREEN-01a states 1/4 mocks redesigned to show
+  only a checkmark + points value at rest (no dot, no "live"/"final" text,
+  no percent), and a new SCREEN-06 entry added for the explainer modal.
+  New backlog story **S-041** added, scoping all three changes together
+  since they replace each other. This entry was missed in the original
+  S-041 scoping/implementation pass and is added now by the doc-sync entry
+  above. REQ-204/212/213.
 - 2026-07-14 — doc-sync pass on S-040's implementation:
   `docs/requirements-document.md` (0.49 → 0.50, REQ-204's "Acknowledged
   gap, queued as S-040" note replaced with a "Built as" note describing

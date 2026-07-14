@@ -7,7 +7,6 @@ import './Grid.css';
 export interface GridProps {
   cells: CurrentRoundCell[];
   roundStatus: RoundStatus;
-  roundEndTime: string;
   // S-020: cellIds whose guess was submitted in this browser session — see
   // GridCell's own doc comment on why this (not a name) is what's tracked.
   submittedThisSessionCellIds: ReadonlySet<string>;
@@ -18,7 +17,7 @@ export interface GridProps {
 // headers and the (row, col) grid layout are derived here, not assumed to
 // be pre-grouped, and work for any N×N size (seeded rounds are sometimes
 // just one cell).
-export function Grid({ cells, roundStatus, roundEndTime, submittedThisSessionCellIds, onCellClick }: GridProps) {
+export function Grid({ cells, roundStatus, submittedThisSessionCellIds, onCellClick }: GridProps) {
   const rowHeaders = uniqueByAxis(cells, 'row');
   const colHeaders = uniqueByAxis(cells, 'col');
   const cellByPosition = new Map(cells.map((cell) => [positionKey(cell.row, cell.col), cell]));
@@ -71,7 +70,6 @@ export function Grid({ cells, roundStatus, roundEndTime, submittedThisSessionCel
                       <GridCell
                         cell={cell}
                         roundStatus={roundStatus}
-                        roundEndTime={roundEndTime}
                         submittedThisSession={submittedThisSessionCellIds.has(cell.cellId)}
                         onOpenGuess={onCellClick}
                       />

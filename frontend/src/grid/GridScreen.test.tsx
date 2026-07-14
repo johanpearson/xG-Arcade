@@ -73,7 +73,7 @@ describe('GridScreen', () => {
     await waitFor(() => expect(onAuthError).toHaveBeenCalled());
   });
 
-  it('REQ-201/203: opens the guess input, submits, and reflects the result in the cell', async () => {
+  it('REQ-201/203: opens the guess input, submits, and reflects the result in the cell — at rest, only the points value is shown; the name stays hidden until revealed (REQ-212)', async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (String(url).endsWith('/rounds/current')) {
@@ -114,9 +114,26 @@ describe('GridScreen', () => {
     await user.type(screen.getByLabelText('Player name'), 'thierry henry');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
 
-    await waitFor(() => expect(screen.getByText('Thierry Henry')).toBeInTheDocument());
-    expect(screen.getByText('live')).toBeInTheDocument();
+    // S-041/REQ-212: no name is shown at rest anymore — the cell becomes the
+    // reveal-toggle button (aria-expanded="false") and shows no points yet
+    // either (livePoints isn't in the submit response, only a subsequent
+    // GET /rounds/current would carry it — see GridScreen's own comment on
+    // why the submitted guess's livePoints/uniquePercent are null here).
+    const revealButton = await screen.findByRole('button', {
+      name: 'Show guessed player for France × Arsenal',
+    });
+    expect(revealButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Thierry Henry')).not.toBeInTheDocument();
+    expect(screen.queryByText(/live/i)).not.toBeInTheDocument();
     expect(screen.getByText('1/1 answered')).toBeInTheDocument();
+
+    // Clicking the cell reveals the guessed player's canonical name
+    // (REQ-212), and toggles the aria-label/aria-expanded accordingly.
+    await user.click(revealButton);
+    expect(screen.getByText('Thierry Henry')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Hide guessed player for France × Arsenal' }),
+    ).toHaveAttribute('aria-expanded', 'true');
   });
 
   // S-020: a cell's very first guess this session mounts CellState directly
@@ -291,5 +308,55 @@ describe('GridScreen', () => {
 
     await waitFor(() => expect(screen.getByText('1/2 answered')).toBeInTheDocument());
     expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
+  });
+
+  // REQ-213: the explainer's header entry point opens it, and opening it
+  // must not discard other in-progress state — specifically, an already-open
+  // GuessInput sheet (with typed-but-not-yet-submitted text) stays open and
+  // untouched alongside the explainer.
+  it('REQ-213: opening the explainer via the header (i) button does not discard an already-open, in-progress GuessInput sheet', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+    await user.click(cellButton);
+    await user.type(screen.getByLabelText('Player name'), 'thierry henry');
+
+    await user.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+    // The explainer is now open alongside the still-open, still-filled
+    // GuessInput sheet — neither was unmounted/reset by opening the other.
+    expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
+    expect(screen.getByRole('button', { name: 'Submit guess' })).toBeInTheDocument();
+
+    // Closing the explainer alone leaves the guess input untouched too.
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'How scoring works' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
   });
 });

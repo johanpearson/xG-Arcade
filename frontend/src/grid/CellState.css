@@ -1,11 +1,10 @@
 /* S-040: min-width: 0 on the three flex containers below overrides the
    browser default of sizing a flex item to fit its content unbroken (a
    flex item's automatic minimum width is its content's width unless told
-   otherwise) — without it, a narrow grid cell's live/final text (e.g.
-   "live · ~50 pts estimated", now visible at rest per this story) would
-   overflow horizontally into the next cell instead of wrapping, especially
-   once Grid.css's mobile breakpoint switches the table to table-layout:
-   fixed and cells can no longer grow to fit that text either. */
+   otherwise) — without it, a narrow grid cell's own text could overflow
+   horizontally into the next cell instead of wrapping, especially once
+   Grid.css's mobile breakpoint switches the table to table-layout: fixed
+   and cells can no longer grow to fit that text either. */
 .cell-state {
   display: flex;
   flex-direction: column;
@@ -19,24 +18,32 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
 }
 
+/* S-041: no longer `overflow: hidden` + `white-space: nowrap` + ellipsis —
+   in a narrow revealed cell (badges + name + checkmark all in one row,
+   flag/badge/checkmark are flex-shrink: 0 so they never yield space), an
+   ellipsis-truncated flex item's *automatic* minimum size is 0 (not its
+   content size, the way a plain overflow: visible item's would be), so the
+   name silently shrank to a literal zero-width sliver instead of actually
+   truncating — real bug, found visually (DOM had the full name; nothing
+   was rendered). Wrapping normally instead lets a long name drop to its
+   own line rather than disappear. */
 .cell-state__name {
   font-family: var(--font-body);
   font-weight: 500;
   color: var(--color-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:
    space-between) is what keeps the icon pinned to the right edge even when
-   it's the row's only child — states 1/4 now render the icon alone at rest
-   (name/badges gated behind the reveal toggle), and space-between alone
-   places a lone flex item at the start, not the end. */
+   it's the row's only child — states 1/4 render the icon alone at rest
+   (name/badges gated behind the `revealed` prop, REQ-212/S-041), and
+   space-between alone places a lone flex item at the start, not the end. */
 .cell-state__icon {
   flex-shrink: 0;
   font-size: 14px;
@@ -66,11 +73,11 @@
 }
 
 /* S-040: a grid cell's own content width at this breakpoint (~73px, once
-   the row-header column's fixed width and the touch-target floor leave
-   the rest to split across data columns) is narrow enough that "estimated"
-   alone was a couple of pixels short of fitting on its own wrapped line —
-   this nudges it under that width rather than leaving a near-miss orphan
-   like "estimate"/"d". */
+   the row-header column's fixed width and the touch-target floor leave the
+   rest to split across data columns) is narrow enough that the longest
+   `cell-state__meta` string ("no attempts left") can be a near-miss short
+   of fitting its own wrapped line at 11px — this nudges it under that
+   width rather than leaving an orphaned word/character on its own line. */
 @media (max-width: 480px) {
   .cell-state__meta {
     font-size: 10px;
@@ -89,75 +96,14 @@
   color: var(--color-text-muted);
 }
 
-/* REQ-204's "updates until round closes on [date/time]" line stays muted
-   even inside a correct (gold-tinted) cell — it's secondary microcopy, not
-   the live value itself. */
-.cell-state__meta--muted {
-  color: var(--color-text-muted);
-}
-
-/* S-019: the disclosure toggle re-uses .cell-state__meta's text styling
-   (same size/color/font as the plain "live" <p> it replaces) but as a real
-   <button> so it's focusable/clickable — reset to look identical at rest,
-   the global :focus-visible ring (index.css) is what shows it's interactive
-   once focused.
-
-   S-040 fix: this used to reset `font: inherit` — a shorthand that resets
-   *every* font sub-property, including font-size, to whatever the button's
-   own parent computes (nothing in that chain sets a font-size, so it fell
-   through to the browser's UA default, ~16px, not the 11px/10px
-   `.cell-state__meta` actually specifies). Same specificity as that rule,
-   later in the cascade, so it silently won — invisible while the button
-   only ever held a dot and the short word "live", but a real bug (this
-   button was never actually "identical" in size to the plain-<p> variants
-   the comment above describes) that this story's now always-visible point
-   estimate made obvious via awkward text wrapping. `.cell-state__meta`'s
-   own font-family/font-size/font-variant-numeric apply directly to this
-   element already (it's one of this class's own selectors) — nothing here
-   needs to re-declare or inherit them, only the actually-button-specific
-   resets below. */
-.cell-state__reveal-toggle {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: inherit;
-  cursor: pointer;
-}
-
-/* Small, quiet 4px dot with a slow opacity shift — design-document.md §3
-   ("not a heavy pulse"). Gated behind prefers-reduced-motion below. */
-.cell-state__live-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--color-accent-green);
-  display: inline-block;
-  animation: cell-state-live-pulse 2.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cell-state__live-dot {
-    animation: none;
-  }
-}
-
-@keyframes cell-state-live-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-
 /* design-document.md §2 "Signature element: badge dock" — the row/column
-   badge slides inward from either side and settles beside the revealed
-   name, on a correct guess or round-close reveal only (never elsewhere).
-   `.cell-state--reveal` is only applied for the render that corresponds to
-   one of those two trigger moments (see CellState.tsx's useRevealToken) —
-   absent otherwise, so the badges just sit already-docked with no motion. */
+   badge slides inward from either side and settles beside the player name
+   the moment it becomes visible. S-041: that moment is now a click/tap on
+   the cell (REQ-212) — `.cell-state--reveal` is applied whenever `revealed`
+   is true (see CellState.tsx's useRevealToken, keyed to the false->true
+   transition so a second reveal after hiding also replays the animation),
+   absent while hidden (nothing to animate, since badges aren't rendered at
+   all until revealed). */
 .cell-state__badge-dock {
   display: inline-flex;
   align-items: center;

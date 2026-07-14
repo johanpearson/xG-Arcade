@@ -14,29 +14,19 @@ const baseCell: Omit<CurrentRoundCell, 'guess'> = {
   colCategoryValue: 'Arsenal',
 };
 
-// S-019: GridCell renders a real <button> when a cell can still open the
-// guess-submit UI, and a plain <div role="group" aria-disabled="true">
-// once it can't (correct+live, or out of attempts) — the div branch exists
-// so CellState's own reveal-toggle button (state 1) is independently
-// focusable, rather than nested inside a disabled <button> (which would be
-// both unreachable by keyboard and invalid HTML). role="group" is what
-// keeps `aria-disabled` meaningful for anything that checks disabled state
-// the way a bare <div> alone would not (Playwright's toBeDisabled/
-// toBeEnabled, exercised in tests/e2e/play-grid.spec.ts, only honor
-// `aria-disabled` for ARIA roles in its disabled-eligible role list, which
-// "group" is on and a bare <div>'s implicit role is not).
+// S-041 (REQ-212): GridCell now renders one of three shapes. (a) canOpen —
+// unattempted or unlocked, a real enabled <button> that opens the guess UI
+// (unchanged). (b) isRevealable (locked+correct, states 1/4) — now ALSO a
+// real, enabled <button> (no longer a disabled div with a nested toggle),
+// whose click/tap toggles GridCell's own `revealed` state and exposes
+// aria-expanded. (c) locked+incorrect (state 3, or state 4's incorrect
+// outcome) — still the non-interactive <div role="group"
+// aria-disabled="true">, never a click target for reveal.
 describe('GridCell', () => {
   it('REQ-201: an unattempted cell renders a real, enabled button that opens the guess UI on click', async () => {
     const user = userEvent.setup();
     const onOpenGuess = vi.fn();
-    render(
-      <GridCell
-        cell={{ ...baseCell, guess: null }}
-        roundStatus="active"
-        roundEndTime="2026-07-11T18:00:00Z"
-        onOpenGuess={onOpenGuess}
-      />,
-    );
+    render(<GridCell cell={{ ...baseCell, guess: null }} roundStatus="active" onOpenGuess={onOpenGuess} />);
 
     const cell = screen.getByRole('button', { name: 'Guess France × Arsenal' });
     expect(cell).toBeEnabled();
@@ -55,12 +45,12 @@ describe('GridCell', () => {
             attemptCount: 1,
             locked: false,
             submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
             uniquePercent: null,
             livePoints: null,
           },
         }}
         roundStatus="active"
-        roundEndTime="2026-07-11T18:00:00Z"
         onOpenGuess={vi.fn()}
       />,
     );
@@ -69,7 +59,7 @@ describe('GridCell', () => {
     expect(screen.getByTestId('grid-cell-cell-1')).toBeEnabled();
   });
 
-  it('S-019: a correct+locked cell (state 1) renders a non-button container marked aria-disabled, not a disabled <button>, so its inner reveal-toggle stays keyboard-focusable', () => {
+  it('REQ-212: a locked+correct cell (state 1) renders a real, enabled button — not a disabled div — with aria-expanded="false" at rest and no name shown yet', () => {
     render(
       <GridCell
         cell={{
@@ -78,29 +68,127 @@ describe('GridCell', () => {
             isCorrect: true,
             attemptCount: 1,
             locked: true,
-            submittedName: 'Henry',
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
             uniquePercent: 0.12,
             livePoints: 12,
           },
         }}
         roundStatus="active"
-        roundEndTime="2026-07-11T18:00:00Z"
         onOpenGuess={vi.fn()}
       />,
     );
 
     const cell = screen.getByTestId('grid-cell-cell-1');
-    expect(cell.tagName).toBe('DIV');
-    expect(cell).toHaveAttribute('role', 'group');
-    expect(cell).toHaveAttribute('aria-disabled', 'true');
-
-    // The reveal-toggle (LiveMetaDisclosure) must still be a real, reachable
-    // button — not trapped inside a disabled ancestor.
-    const toggle = screen.getByRole('button', { name: /live/i });
-    expect(toggle).toBeEnabled();
+    expect(cell.tagName).toBe('BUTTON');
+    expect(cell).toBeEnabled();
+    expect(cell).toHaveAttribute('aria-expanded', 'false');
+    expect(cell).toHaveAttribute('aria-label', 'Show guessed player for France × Arsenal');
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
   });
 
-  it('REQ-210: an incorrect, out-of-attempts cell (state 3) also renders a non-button container marked aria-disabled', () => {
+  it('REQ-212: clicking a locked+correct cell reveals the guessed player name and badge dock, toggles aria-expanded to true, and updates the aria-label; a second click hides it again', async () => {
+    const user = userEvent.setup();
+    render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
+            uniquePercent: 0.12,
+            livePoints: 12,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+
+    await user.click(cell);
+    expect(cell).toHaveAttribute('aria-expanded', 'true');
+    expect(cell).toHaveAttribute('aria-label', 'Hide guessed player for France × Arsenal');
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+
+    await user.click(cell);
+    expect(cell).toHaveAttribute('aria-expanded', 'false');
+    expect(cell).toHaveAttribute('aria-label', 'Show guessed player for France × Arsenal');
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+  });
+
+  it('REQ-212: keyboard activation (Enter) of a locked+correct cell produces the same reveal toggle as a click', async () => {
+    const user = userEvent.setup();
+    render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
+            uniquePercent: 0.12,
+            livePoints: 12,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+    await user.tab();
+    expect(cell).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    expect(cell).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+
+    await user.keyboard('{Enter}');
+    expect(cell).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+  });
+
+  it('REQ-212: keyboard activation (Space) of a locked+correct cell produces the same reveal toggle as a click', async () => {
+    const user = userEvent.setup();
+    render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
+            uniquePercent: 0.12,
+            livePoints: 12,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+    await user.tab();
+    expect(cell).toHaveFocus();
+
+    await user.keyboard(' ');
+    expect(cell).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+  });
+
+  it('REQ-212: an incorrect, out-of-attempts cell (state 3) remains a non-interactive aria-disabled div, is never a click target for reveal, and exposes no aria-expanded/button role at all', async () => {
+    const user = userEvent.setup();
     render(
       <GridCell
         cell={{
@@ -110,12 +198,12 @@ describe('GridCell', () => {
             attemptCount: 2,
             locked: true,
             submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
             uniquePercent: null,
             livePoints: null,
           },
         }}
         roundStatus="active"
-        roundEndTime="2026-07-11T18:00:00Z"
         onOpenGuess={vi.fn()}
       />,
     );
@@ -124,5 +212,39 @@ describe('GridCell', () => {
     expect(cell.tagName).toBe('DIV');
     expect(cell).toHaveAttribute('role', 'group');
     expect(cell).toHaveAttribute('aria-disabled', 'true');
+    expect(cell).not.toHaveAttribute('aria-expanded');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+    // Clicking it (there is no button to click, but assert the whole
+    // element produces no reveal — no name ever appears for a wrong guess).
+    await user.click(cell);
+    expect(screen.queryByText('Wrong Guess')).not.toBeInTheDocument();
+  });
+
+  it('REQ-212: state 4\'s incorrect outcome (round closed, wrong guess) also stays a non-interactive aria-disabled div', () => {
+    render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: false,
+            attemptCount: 2,
+            locked: true,
+            submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
+            uniquePercent: null,
+            livePoints: null,
+          },
+        }}
+        roundStatus="closed"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+    expect(cell.tagName).toBe('DIV');
+    expect(cell).toHaveAttribute('role', 'group');
+    expect(cell).toHaveAttribute('aria-disabled', 'true');
+    expect(cell).not.toHaveAttribute('aria-expanded');
   });
 });

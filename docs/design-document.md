@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.17"
+version: "0.18"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.16 · 2026-07-14
+Version 0.18 · 2026-07-14
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -128,15 +128,22 @@ always in the mono face with tabular figures.
 - Hairline dividers, not shadows, separate sections — kept from v0.1,
   still correct for a clean direction.
 
-**Signature element: badge dock.** When a guess is confirmed, the row's
+**Signature element: badge dock.** When a player clicks/taps a locked,
+correct cell to reveal the guessed player (REQ-212, SCREEN-01a), the row's
 flag/badge and the column's badge slide inward from either side and settle
-next to the revealed player name — a small, literal "match" animation tied
-directly to the game's actual mechanic (combining two categories), not a
-borrowed broadcast trope. This replaces v0.1's split-flap animation, which
-was a retro-broadcast flourish that didn't fit a clean, light direction.
-Used only at guess-submit and round-close reveal, nowhere else. Respects
-`prefers-reduced-motion`: badges appear already docked, no slide, with a
-brief background color flash (green→gold) instead.
+next to the now-visible player name — a small, literal "match" animation
+tied directly to the game's actual mechanic (combining two categories), not
+a borrowed broadcast trope. This replaces v0.1's split-flap animation,
+which was a retro-broadcast flourish that didn't fit a clean, light
+direction. **S-041 note:** before that story, this animated at guess-submit
+and round-close instead, since the name was shown automatically at one of
+those two moments; now that the name is never shown until the player
+actively reveals it, the animation moved to that reveal moment instead
+(replaying on every reveal, not just the first) — same animation, same
+visual meaning ("badges settle beside a newly-visible name"), just tied to
+the new trigger that's actually meaningful under S-041's interaction model.
+Respects `prefers-reduced-motion`: badges appear already docked, no slide,
+with a brief background color flash (green→gold) instead.
 
 **Rejected-guess cue (S-020).** When a submitted guess is rejected, the
 cell gives a literal, immediate "no match" cue: a brief lateral shake
@@ -155,7 +162,7 @@ on a page load that shows a cell already incorrect. Respects
 ```
 Mobile (single column)                Desktop (grid + side panel)
 ┌─────────────────────────┐           ┌───────────────────────────────────┐
-│ Round #14      ⏱ 1d 4h  │           │ Round #14      ⏱ 1d 4h  [Leagues▾]│
+│ Round #14  ⏱ 1d 4h  (ⓘ) │           │ Round #14  ⏱ 1d 4h  (ⓘ) [Leagues▾]│
 ├─────────────────────────┤           ├───────────────────┬───────────────┤
 │      [AFC] [MIL] [BAY]  │           │                    │  Your progress │
 │ 🇫🇷 │ Henry│  +  │  +  │           │   3x3 / NxN grid   │  2/9 answered  │
@@ -171,7 +178,17 @@ estimated" wording as a single cell's own live point value (REQ-204/S-018)
 — it's the sum of whatever per-cell live estimates are already known, not a
 promise of the locked total the leaderboard shows once the round closes.
 Only shown once at least one cell's live point value is known (never a
-fabricated "0" while nothing has been correctly guessed yet).
+fabricated "0" while nothing has been correctly guessed yet). This is a
+running-total display, distinct from SCREEN-01a's per-cell value — S-041
+only simplified the latter; this line's "~N pts estimated" wording is
+unchanged.
+
+**S-041 addition:** the `(ⓘ)` entry point next to the round timer opens
+SCREEN-06, the general scoring/live-updates explainer (REQ-213) — see that
+section for content and interaction. It replaces the per-cell disclosure
+SCREEN-01a used to carry (see that section's own S-041 note) as the one
+place a player learns what a live vs. locked point value means, instead of
+that explanation being repeated, cell by cell, across the grid.
 
 - Row headers: flag + country name when the row category is a nationality;
   a club badge + club name when the row category is a club (REQ-107 means
@@ -180,12 +197,11 @@ fabricated "0" while nothing has been correctly guessed yet).
   Column headers follow the same rule for whichever axis they represent.
 - An empty cell shows a faint "+" with no imagery — imagery only appears
   once a cell has an answer, so an unanswered grid doesn't feel cluttered.
-- A live cell: player name, small green dot (not a heavy pulse — a quiet
-  4px dot with a slow, subtle opacity shift), live `unique_percent` in mono
-  numerals plus a "~N pts estimated" live point estimate (REQ-204, S-018),
-  "updates until round closes" microcopy (REQ-204).
-- A locked cell: gold checkmark (correct) or red cross (incorrect), no
-  motion, `FinalPoints` shown (REQ-205).
+- A correct cell (live or locked): checkmark plus a points value only — see
+  SCREEN-01a's S-041 note for the full redesign; no per-cell live/final
+  distinction exists anymore.
+- An incorrect cell: red cross, attempts-left text (or "no attempts left"
+  once locked) — SCREEN-01a states 2/3, unaffected by S-041.
 - Desktop's side panel is additive only — mobile gets the same information
   stacked below the grid.
 
@@ -211,80 +227,47 @@ still live until round close):
 ```
 At rest (default):
 ┌─────────────────────────┐
-│                    ✓ live │   ← gold check (correct) + small green dot
-│  ~88 pts estimated        │      (still live) — no name until revealed
+│                     ✓     │   ← gold checkmark — no dot, no "live" text,
+│  12 pts                   │     no name until clicked/tapped
 └─────────────────────────┘
 
-Revealed (tap/long-press, or hover/focus on desktop):
+Revealed (click/tap the cell — toggles closed again on a second click/tap):
 ┌─────────────────────────┐
-│  Henry             ✓ live │
-│  ~88 pts estimated        │   ← unchanged at-rest line, stays visible
-│  88% of others guessed   │      "correct" and "final" are different
-│  this too · ~88 pts      │      moments (REQ-203) — the dot signals
-│  estimated                │      "still live" at rest either way
-│  updates until 18:00 Fri  │
+│  Henry                ✓   │
+│  12 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
 ```
 
-**S-040 redesign (supersedes this section's original always-shown-name
-mock):** direct product feedback (a phone screenshot showing a crushed
-row-header, root-caused to a wide cell — full name + badges + checkmark +
-"live" text — squeezing its row's header column) found that showing the
-name unconditionally, on top of S-019's already-disclosed live text, still
-left every unresolved cell wider than it needed to be. State 1 now shows
-only the checkmark, live dot, "live," and the live point estimate at
-rest, on every screen size, not mobile-only; the player name (and its
-badge dock, since the badge dock only ever makes sense docked beside a
-visible name — design-document.md §2's "settles beside the revealed
-name") moves behind the same S-019 tap/long-press/hover/focus toggle that
-already gated the %/round-end text, rather than adding a second
-interaction pattern. The live point estimate itself moves the other
-direction — from revealed-only to always-visible at rest — since without
-a name, "✓ live" alone gave no sense of where a cell stood. It also
-still appears, unchanged, as part of the revealed %-breakdown line; this
-is deliberate duplication (the same value in two places), not a copy bug.
-When no live values exist yet (`uniquePercent` not returned), the toggle
-itself doesn't render at all (nothing to disclose) — the name shows
-unconditionally in that case, same fallback S-019 already had.
+**S-041 redesign (supersedes S-040's mock above):** further direct product
+feedback found the live/final distinction S-040 preserved (a pulsing dot,
+the word "live," the "~N pts estimated" qualifier, and the S-019 tap/hover/
+focus toggle revealing a %-breakdown + round-end-time line) was itself
+unnecessary noise — a player doesn't need any of that per cell to know
+their score, just the number. The dot, "live" text, "~"/"estimated"
+wording, and the whole %-breakdown/round-end disclosure are gone. At rest:
+checkmark plus the live point estimate, full stop — identical in structure
+to state 4 below (see that state's own note). A player cannot tell from
+the cell alone whether the shown value could still change before round
+close; that's now explained once, generally, by SCREEN-06's explainer
+(REQ-213), not repeated per cell. What the %-breakdown disclosure used to
+gate (the player name + badge dock) is now gated by a **click/tap
+anywhere on the cell** instead — replacing S-019's three-way click/hover/
+focus toggle on a small in-cell button with one interaction, the same on
+every device (REQ-212). `aria-expanded` on the cell itself still reflects
+open/closed state, so keyboard/screen-reader access is unchanged in kind,
+just simpler in mechanism. When no live point value exists yet (a guess
+just submitted, value not back from the server), the cell shows the
+checkmark with no points line at all — the name still isn't shown until
+clicked, same click/tap interaction either way (there is no longer a
+"nothing to disclose, so skip the toggle" fallback S-019/S-040 needed,
+since the click target is the whole cell rather than a button next to
+optional live text).
 
-**S-029 wording fix (supersedes this section's original "X% unique"
-copy):** a direct player-feedback pass found "X% unique" confusing once
-paired with ADR-0021's golf-style points — a *higher* uniqueness
-percentage meant *fewer* points, the opposite of what "unique" suggests on
-its own, so the mock above used to need its own explanatory paragraph just
-to justify why 88 pts went with "12% unique." The frontend now shows the
-same number reframed as its complement, "N% of others guessed this too"
-(N = `round((1 - uniqueScore) * 100)`), so the percentage and the point
-value now move in the *same* direction — more people guessing Henry reads
-as "common," which scores worse (closer to `MaxPointsPerCell`) under golf
-rules, matching the "lowest total wins" framing in SCREEN-03 directly
-instead of needing a footnote to reconcile it. No formula changed — only
-the wording.
-
-**S-019 redesign:** the uniqueness %/point-estimate/round-end line is no
-longer always visible — every unresolved cell showing its full live text at
-once was cluttered at real grid sizes. It's now disclosed only on tap/
-long-press (a tap toggles it open/closed, since touch has no hover) or the
-desktop equivalent, hover/focus (transient — closes again on mouseleave/
-blur). The green live-dot plus the word "live" stay the permanent at-rest
-indicator regardless — that part never hides, satisfying REQ-204's "always
-as text, never icon-only" rule for what's visible before any interaction.
-The disclosed text itself is unchanged from before this story: this changes
-*when* it renders, not what it says or whether it exists. The toggle is a
-real focusable control (`aria-expanded` reflects open/closed state,
-`aria-live="polite"` on the revealed panel) so keyboard and screen-reader
-users have the same access as a mouse/touch user — never a hover-only or
-touch-only affordance.
-
-The point value (S-018, REQ-204 extension) is computed live via
-`ScoringRules.PointsFromUniqueScore` — the exact same shared method
-REQ-205's `ScoreLockingService` calls to lock `FinalPoints` at round close,
-not a second, independently-written formula — but "~" plus the word
-"estimated" are both always present, deliberately
-different wording from state 4's plain "X% unique · Y pts", so this never
-reads as a preview or promise of the locked score. It moves in lockstep
-with the % line above it (both are re-derived from the same live read) and
-disappears/reappears together with it, never shown alone.
+**Superseded by S-041 (kept for history):** the S-040 mock's dot/"live"
+text/always-visible "~N pts estimated" qualifier, and the S-019/S-029/S-040
+tap-or-hover/focus toggle revealing "N% of others guessed this too · ~N pts
+estimated" plus "updates until round closes on [date/time]." None of that
+content is shown per cell anymore — see SCREEN-06.
 
 **2. Incorrect, one attempt remaining:**
 
@@ -328,42 +311,38 @@ possible score and must never be free just for guessing wrong.
 Prior outcome: correct (at rest)      Prior outcome: incorrect
 ┌─────────────────────────┐           ┌─────────────────────────┐
 │                     ✓     │           │                     ✕    │
-│  88 pts · final           │           │  final                   │
+│  88 pts                   │           │  final                   │
 └─────────────────────────┘           └─────────────────────────┘
-   ↑ gold checkmark, static, no "live"    ← no name here either,
-     dot — name hidden until revealed       same S-029 rule as states 2/3
+   ↑ gold checkmark — identical           ← no name here either,
+     structure to state 1 at rest           same S-029 rule as states 2/3
 
-Prior outcome: correct (revealed — tap/long-press, or hover/focus)
+Prior outcome: correct (revealed — click/tap the cell)
 ┌─────────────────────────┐
-│  Henry               ✓    │
-│  88 pts · final           │   ← unchanged at-rest line, stays visible
-│  88% of others guessed    │
-│  this too · 88 pts        │
+│  Henry                ✓   │
+│  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
 ```
 
-**S-040 redesign (supersedes this section's original always-shown-name
-mock):** the correct-outcome half of state 4 had **no reveal toggle at
-all** until this story — it always showed the name and, once
-`uniquePercent`/`finalPoints` were both available, the %-breakdown line,
-unconditionally. It now reuses the exact same toggle mechanism S-019 built
-for state 1 (and S-040 just extended to also gate state 1's name) rather
-than inventing a second interaction pattern: at rest, only the checkmark,
-`FinalPoints`, and "final" show; tapping/hovering/focusing reveals the
-name (and its badge dock, same reasoning as state 1) alongside the
-existing %-breakdown line, unchanged wording. As with state 1, this is
-only possible once both `uniquePercent` and `finalPoints` are present —
-when either is missing the toggle doesn't render and the name shows
-unconditionally, matching state 1's fallback and this state's own
-pre-S-040 behavior. The incorrect-outcome half of state 4 is unaffected —
-it already showed no name (S-029) and gains no toggle, since there's
-nothing correctness-related to disclose.
+**S-041 redesign (supersedes S-040's mock above):** same redesign as state
+1 above, applied here too — no more dot/"live"/"final" text distinguishing
+a closed cell from a still-live one (a player can't tell which from the
+cell alone, by design; see SCREEN-06), and no more %-breakdown disclosure.
+At rest: checkmark plus `FinalPoints`, identical in structure to state 1's
+checkmark-plus-live-estimate — the two states differ only in *which*
+points value is shown, not in how it's displayed. Click/tap anywhere on
+the cell reveals the guessed player's name and badge dock, same single
+interaction as state 1 (REQ-212), replacing S-040's reveal toggle (which
+itself had replaced no toggle at all, before that). The incorrect-outcome
+half of state 4 is unaffected by any of this — it already showed no name
+(S-029) and still isn't a click target, since there's nothing to reveal.
 
-"Live," "final," "attempt(s) left," and "no attempts left" always appear as
-text, never color/icon-only (REQ-204, accessibility). State 1 vs. state 4
-is the one place two "positive" indicators (check + dot, or check alone)
-need to stay visually distinguishable at a glance — the dot's presence is
-what signals "still updating," not the checkmark, which appears in both.
+"Attempt(s) left" and "no attempts left" still always appear as text, never
+color/icon-only (REQ-204, accessibility) — that part of the original
+accessibility rule survives S-041 unchanged, it's specifically the
+live/final *distinction* that's gone, not the "never icon-only" principle
+generally. State 1 and state 4 are now deliberately *not* visually
+distinguishable at rest — see SCREEN-06 for where that distinction is
+explained instead.
 
 ### SCREEN-02: Guess input
 
@@ -503,6 +482,54 @@ there is no account left to show anything else on, so the flow signs the
 user out and lands back on the login/landing screen — no "deleted"
 confirmation screen, nothing to confirm to once signed out.
 
+### SCREEN-06: Scoring/live-updates explainer
+
+```
+┌───────────────────────────────┐
+│ How scoring works          [×]│
+├───────────────────────────────┤
+│ A correct cell shows a live    │
+│ estimate that can still change │
+│ until the round closes.        │
+│                                 │
+│ Once the round closes, that    │
+│ value is locked and won't      │
+│ change again.                  │
+│                                 │
+│ xG Arcade scores like golf —   │
+│ lower is better. An answer     │
+│ fewer other players also       │
+│ guessed scores better than a   │
+│ common one.                    │
+└───────────────────────────────┘
+```
+
+**S-041, REQ-213.** Opened from the `(ⓘ)` entry point in SCREEN-01's
+header, next to the round timer — a modal (`role="dialog"`,
+`aria-modal="true"`), structurally the same backdrop-plus-card pattern
+SCREEN-02's `GuessInput` already established (backdrop click closes it).
+This modal goes further on two points `GuessInput` doesn't (yet — a known,
+separate gap, not part of this story): Escape also closes it, and closing
+it (by any method) returns focus to the `(ⓘ)` button that opened it,
+rather than leaving keyboard/screen-reader focus stranded on a
+now-invisible element. Deliberately not a full route/screen: it's a short,
+general explanation, never gated behind having attempted any cell, and
+reachable at any time an active round is showing. Content is general to the
+mechanic, never cell-specific (no "your cell scored 12 pts" — that number
+already lives on the cell itself); the three paragraphs above are the
+minimum required content (REQ-213): what a live estimate means and that it
+can change, what a locked/final value means once the round closes, and —
+in general terms, no exact formula — the golf-style/fewer-others-guessed
+framing already established in SCREEN-03 (ADR-0021). Opening it must not
+discard any in-progress state elsewhere on the screen (e.g. a filled-but-
+not-yet-submitted guess in an open `GuessInput` sheet) — it's an overlay on
+top of the grid screen, not a navigation away from it.
+
+This is where SCREEN-01a's now-removed per-cell disclosure content (the
+%-breakdown line, "updates until round closes on [date/time]") effectively
+moved — see that section's S-041 note — except reworded to be general
+rather than tied to one cell's specific numbers.
+
 ## 4. Responsive strategy
 
 Unchanged from v0.1 — built "equally both" from the start:
@@ -538,7 +565,10 @@ Unchanged from v0.1:
 - Flags and badges are always paired with a text label — never the sole
   identifier for a category, both for accessibility and because emoji flag
   rendering varies across platforms/fonts.
-- Live/final and correct/incorrect are never color-only signals.
+- Correct/incorrect and attempts-remaining are never color-only signals
+  (points/attempt-count values and "no attempts left" are always real text).
+  Live vs. final is no longer a distinction the cell itself makes at all as
+  of S-041 — see SCREEN-01a and SCREEN-06.
 - Visible keyboard focus state using `accent-green` as the focus ring color.
 - `prefers-reduced-motion` disables the badge-dock slide (§2), replacing it
   with an instant state change plus a brief color flash.
