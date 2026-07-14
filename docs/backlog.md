@@ -1428,6 +1428,43 @@ longer reads as cramped/stuck top-left with excess unused space around it.
 *Deps:* S-019 (the toggle mechanism this extends), S-033 (state 3's
 point-value fix, so every locked state is consistent about showing points
 at rest).
+**Built as:** matches the plan for the name-gating behavior in both states,
+plus one deviation the acceptance criteria's own "verify, don't assume"
+clause anticipated: shrinking cell content did **not**, on its own, fix the
+mobile header crush. Root-causing past the symptom found the real bug —
+`Grid.css`'s `.grid-table__row-header` `max-width: 88px` was never actually
+enforced under the browser's default `table-layout: auto`, which sizes a
+column from the *widest cell content anywhere in that column* (a live/
+correct cell's name + badges + checkmark + "live" text), not from the
+header's own `max-width`; `overflow-wrap: anywhere` then broke the
+oversized header text mid-word regardless of how narrow the header's own
+content was. Fixed with `table-layout: fixed` plus an explicit
+`<colgroup>`/`<col>` (`Grid.tsx`, ≤480px breakpoint in `Grid.css`), which
+makes the row-header column's width genuinely sourced from its own `<col>`
+element rather than any cell's content — plus stacking the flag/badge above
+the header text, rather than beside it (`Grid.css`), so the name gets the
+full column width to wrap on rather than sharing it with the glyph. A
+second, unrelated pre-existing CSS bug was found and fixed along the way,
+only visible because of this story's own change: `.cell-state__reveal-toggle`
+(`CellState.css`) reset `font: inherit`, a shorthand that also silently
+resets `font-size` to the browser's ~16px default rather than
+`.cell-state__meta`'s intended 11px/10px — harmless while the button only
+ever held a dot and the word "live," but produced bad text wrapping once
+state 1's live point estimate became always-visible at rest. State 1's
+toggle was renamed in place (`LiveMetaDisclosure` → `useRevealDisclosure` +
+`RevealToggle`, `CellState.tsx`) so state 4 could reuse the same hook/markup
+rather than duplicating it. Desktop breakpoint chosen: `@media (min-width:
+960px)` — widens `.app`'s `max-width` (900px → 1200px, `App.css`) and grid
+cell/header sizing (44px → 64px touch targets, more padding, `Grid.css`/
+`GridScreen.css`); still explicitly not the SCREEN-01 side-panel variant.
+`design-document.md` SCREEN-01a's state 1/state 4 mocks were updated (0.16 →
+0.17) before the component code changed, per the plan's own design-first
+requirement. Tests: `CellState.test.tsx` gained the two REQ204-named tests
+the acceptance criteria specified, plus two more covering edge cases found
+during review (no live point estimate yet in state 1; state 4 with neither
+`uniquePercent` nor `finalPoints` present) — all 88 frontend tests pass,
+`tsc -b --noEmit` clean. A `code-reviewer` pass on the diff found no other
+issues.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 

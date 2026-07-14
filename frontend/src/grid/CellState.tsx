@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
@@ -24,20 +25,25 @@ export interface CellStateProps {
   // REQ-204: live unique_percent (0-1), re-derived on every request. Only
   // ever set when isCorrect — undefined/null means "not correct yet" or
   // (state 4) "not wired to a live source yet," never fabricated. S-019:
-  // in state 1 this and the two fields below are only rendered once the
-  // player reveals them (tap/long-press, or hover/focus on desktop) — see
-  // LiveMetaDisclosure below; the text itself is unchanged, only when it
-  // renders.
+  // in state 1 the player name and this value's %-breakdown text are only
+  // rendered once the player reveals them (tap/long-press, or hover/focus
+  // on desktop) — see useRevealDisclosure/RevealToggle below. S-040: the
+  // same name-gating now also applies to state 4's correct-outcome branch,
+  // and this being non-null is what decides whether a toggle exists at all
+  // in either state (no toggle, name shown unconditionally, if it's null).
   uniquePercent?: number | null;
   // S-018 (REQ-204 extension): live, provisional point estimate for state 1
   // only — same round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks
-  // at round close, computed live and re-derived on every request. Rendered
-  // with wording that marks it an estimate that can still change; never
-  // reused for state 4's finalPoints, which is a separate, locked prop.
+  // at round close, computed live and re-derived on every request. S-040:
+  // now always-visible at rest (moved off the reveal toggle), and still
+  // repeated unchanged inside the revealed %-breakdown text — deliberate
+  // duplication, not a copy bug. Never reused for state 4's finalPoints,
+  // which is a separate, locked prop.
   livePoints?: number | null;
   // REQ-204's "updates until round closes on [date/time]" microcopy — only
   // rendered alongside uniquePercent, since it describes that value's
-  // liveness, not the cell generally.
+  // liveness, not the cell generally. Still gated behind reveal (S-019),
+  // unaffected by S-040.
   roundEndTime?: string;
   // REQ-205/206: the locked, permanent score — only meaningful once
   // roundStatus is "closed". Not reachable via GET /rounds/current today
@@ -156,6 +162,11 @@ export function CellState({
   const name = playerName ?? 'Guess submitted';
   const revealToken = useRevealToken(isCorrect, roundStatus);
   const shakeToken = useShakeToken(attemptCount, isCorrect, submittedThisSession);
+  // S-040: one shared disclosure per mounted cell — only ever consulted by
+  // whichever branch below actually has something to disclose (state 1, or
+  // state 4's correct-outcome half); called unconditionally here regardless,
+  // same "always call, conditionally use" pattern as the two hooks above.
+  const disclosure = useRevealDisclosure();
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -167,6 +178,11 @@ export function CellState({
   // State 4: round closed — either prior outcome, now permanent. No "live"
   // dot at all, regardless of correctness.
   if (roundStatus === 'closed') {
+    // S-040: a toggle only exists once there's real data to disclose (same
+    // rule state 1 already followed) — without it, the name shows
+    // unconditionally, same as this branch's pre-S-040 behavior.
+    const hasFinalMeta = isCorrect && uniquePercent != null && finalPoints != null;
+    const revealName = isCorrect && (!hasFinalMeta || disclosure.revealed);
     return (
       // key={revealToken}: this same div also renders for a cell that was
       // already correct+live (state 1) before closing — reusing that DOM
@@ -179,13 +195,26 @@ export function CellState({
           isCorrect && revealToken > 0 ? 'cell-state--reveal' : ''
         }`}
       >
-        <Row name={name} correct={isCorrect} badges={isCorrect ? badges : undefined} />
-        {isCorrect && uniquePercent != null && finalPoints != null && (
-          <p className="cell-state__meta">
-            {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too · {finalPoints} pts
-          </p>
+        <Row name={revealName ? name : undefined} correct={isCorrect} badges={revealName ? badges : undefined} />
+        {hasFinalMeta ? (
+          <RevealToggle
+            revealed={disclosure.revealed}
+            toggleHandlers={disclosure.toggleHandlers}
+            atRest={
+              <>
+                <span>{finalPoints} pts</span>
+                <span aria-hidden="true">·</span>
+                <span>final</span>
+              </>
+            }
+          >
+            <p className="cell-state__meta mono-figure">
+              {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too · {finalPoints} pts
+            </p>
+          </RevealToggle>
+        ) : (
+          <p className="cell-state__meta">final</p>
         )}
-        <p className="cell-state__meta">final</p>
       </div>
     );
   }
@@ -194,9 +223,15 @@ export function CellState({
   // but still "live" until round close (REQ-203/204). S-019: the live
   // uniqueness/points/round-end text is disclosed on tap/long-press (or
   // hover/focus on desktop) rather than always shown, to cut the clutter of
-  // every unresolved cell showing full live text at once — the quiet green
-  // dot stays the permanent at-rest "still live" indicator either way.
+  // every unresolved cell showing full live text at once. S-040: the same
+  // toggle now also gates the player name (and its badge dock, since the
+  // badge dock only makes sense docked beside a visible name) — the quiet
+  // green dot and "live" text stay the permanent at-rest indicator either
+  // way, joined now by the live point estimate (moved off the toggle,
+  // always-visible).
   if (isCorrect) {
+    const hasLiveMeta = uniquePercent != null;
+    const revealName = !hasLiveMeta || disclosure.revealed;
     return (
       // key={revealToken}: forces a remount (not just a class toggle) so the
       // slide-in/flash restarts on this specific guess-submit reveal, same
@@ -207,9 +242,34 @@ export function CellState({
           revealToken > 0 ? 'cell-state--reveal' : ''
         }`}
       >
-        <Row name={name} correct badges={badges} />
-        {uniquePercent != null ? (
-          <LiveMetaDisclosure uniquePercent={uniquePercent} livePoints={livePoints} roundEndTime={roundEndTime} />
+        <Row name={revealName ? name : undefined} correct badges={revealName ? badges : undefined} />
+        {hasLiveMeta ? (
+          <RevealToggle
+            revealed={disclosure.revealed}
+            toggleHandlers={disclosure.toggleHandlers}
+            atRest={
+              <>
+                <span className="cell-state__live-dot" aria-hidden="true" />
+                <span>live</span>
+                {livePoints != null && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{`~${livePoints} pts estimated`}</span>
+                  </>
+                )}
+              </>
+            }
+          >
+            <p className="cell-state__meta mono-figure">
+              {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too
+              {livePoints != null && ` · ~${livePoints} pts estimated`}
+            </p>
+            {roundEndTime && (
+              <p className="cell-state__meta cell-state__meta--muted">
+                updates until round closes on {formatDateTime(roundEndTime)}
+              </p>
+            )}
+          </RevealToggle>
         ) : (
           <p className="cell-state__meta">
             <span className="cell-state__live-dot" aria-hidden="true" />
@@ -274,16 +334,14 @@ function formatDateTime(isoDateTime: string): string {
   });
 }
 
-// S-019 (REQ-204/SCREEN-01a redesign): the live uniqueness %/points/round-end
-// text is disclosed only on tap/long-press (a tap toggles it open/closed,
-// since touch has no hover) or hover/focus (the desktop-equivalent, transient
-// peek — open while hovering/focused, closes again on mouseleave/blur). The
-// quiet green live-dot and "live" text stay permanently visible either way,
-// satisfying REQ-204's "always as text, never icon-only" rule for the
-// at-rest state; the disclosed text is the same text as before, just not
-// always rendered. `aria-expanded` on the toggle and `aria-live="polite"` on
-// the revealed panel are what make the state change itself accessible to
-// screen readers, not just sighted users.
+// S-019 (REQ-204/SCREEN-01a redesign), extended by S-040 to also gate state
+// 1's player name and to add the equivalent toggle to state 4: content is
+// disclosed only on tap/long-press (a tap toggles it open/closed, since
+// touch has no hover) or hover/focus (the desktop-equivalent, transient peek
+// — open while hovering/focused, closes again on mouseleave/blur).
+// `aria-expanded` on the toggle and `aria-live="polite"` on the revealed
+// panel are what make the state change itself accessible to screen readers,
+// not just sighted users.
 //
 // Three independent flags combine via OR rather than one shared boolean: a
 // real mouse click fires a native `focus` event immediately before its
@@ -317,15 +375,17 @@ function formatDateTime(isoDateTime: string): string {
 // and pressing Enter an odd number of times before tabbing away would leave
 // `toggledOpen` stuck true with no way to notice or undo it without
 // revisiting the cell.
-function LiveMetaDisclosure({
-  uniquePercent,
-  livePoints,
-  roundEndTime,
-}: {
-  uniquePercent: number;
-  livePoints?: number | null;
-  roundEndTime?: string;
-}) {
+function useRevealDisclosure(): {
+  revealed: boolean;
+  toggleHandlers: {
+    onClick: () => void;
+    onMouseDown: () => void;
+    onFocus: () => void;
+    onBlur: () => void;
+    onMouseEnter: () => void;
+    onMouseLeave: () => void;
+  };
+} {
   const [toggledOpen, setToggledOpen] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [hoverSuppressed, setHoverSuppressed] = useState(false);
@@ -334,6 +394,58 @@ function LiveMetaDisclosure({
   const pointerDownRef = useRef(false);
   const revealed =
     toggledOpen || (hovering && !hoverSuppressed) || (keyboardFocused && !keyboardSuppressed);
+
+  return {
+    revealed,
+    toggleHandlers: {
+      onClick: () =>
+        setToggledOpen((current) => {
+          const next = !current;
+          if (!next) {
+            if (hovering) setHoverSuppressed(true);
+            if (keyboardFocused) setKeyboardSuppressed(true);
+          }
+          return next;
+        }),
+      onMouseDown: () => {
+        pointerDownRef.current = true;
+      },
+      onFocus: () => {
+        if (!pointerDownRef.current) setKeyboardFocused(true);
+        pointerDownRef.current = false;
+      },
+      onBlur: () => {
+        setKeyboardFocused(false);
+        setKeyboardSuppressed(false);
+        pointerDownRef.current = false;
+      },
+      onMouseEnter: () => setHovering(true),
+      onMouseLeave: () => {
+        setHovering(false);
+        setHoverSuppressed(false);
+      },
+    },
+  };
+}
+
+// S-040: the toggle markup shared by state 1 (live meta + name, extended
+// from S-019) and state 4's correct-outcome branch (new) — `atRest` is the
+// always-visible button content (never empty, satisfying REQ-204's "always
+// as text, never icon-only" rule), `children` is the on-demand panel.
+// Callers pass the same `revealed`/`toggleHandlers` pair they also use to
+// gate the player name/badge dock elsewhere in their own markup, so the name
+// and this panel open and close in lockstep.
+function RevealToggle({
+  revealed,
+  toggleHandlers,
+  atRest,
+  children,
+}: {
+  revealed: boolean;
+  toggleHandlers: ReturnType<typeof useRevealDisclosure>['toggleHandlers'];
+  atRest: ReactNode;
+  children: ReactNode;
+}) {
   const panelId = useId();
 
   return (
@@ -343,48 +455,13 @@ function LiveMetaDisclosure({
         className="cell-state__meta cell-state__reveal-toggle"
         aria-expanded={revealed}
         aria-controls={panelId}
-        onClick={() =>
-          setToggledOpen((current) => {
-            const next = !current;
-            if (!next) {
-              if (hovering) setHoverSuppressed(true);
-              if (keyboardFocused) setKeyboardSuppressed(true);
-            }
-            return next;
-          })
-        }
-        onMouseDown={() => {
-          pointerDownRef.current = true;
-        }}
-        onFocus={() => {
-          if (!pointerDownRef.current) setKeyboardFocused(true);
-          pointerDownRef.current = false;
-        }}
-        onBlur={() => {
-          setKeyboardFocused(false);
-          setKeyboardSuppressed(false);
-          pointerDownRef.current = false;
-        }}
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => {
-          setHovering(false);
-          setHoverSuppressed(false);
-        }}
+        {...toggleHandlers}
       >
-        <span className="cell-state__live-dot" aria-hidden="true" />
-        live
+        {atRest}
       </button>
       {revealed && (
         <div id={panelId} aria-live="polite">
-          <p className="cell-state__meta mono-figure">
-            {formatOthersGuessedPercent(uniquePercent)}% of others guessed this too
-            {livePoints != null && ` · ~${livePoints} pts estimated`}
-          </p>
-          {roundEndTime && (
-            <p className="cell-state__meta cell-state__meta--muted">
-              updates until round closes on {formatDateTime(roundEndTime)}
-            </p>
-          )}
+          {children}
         </div>
       )}
     </>

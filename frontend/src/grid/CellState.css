@@ -1,8 +1,17 @@
+/* S-040: min-width: 0 on the three flex containers below overrides the
+   browser default of sizing a flex item to fit its content unbroken (a
+   flex item's automatic minimum width is its content's width unless told
+   otherwise) — without it, a narrow grid cell's live/final text (e.g.
+   "live · ~50 pts estimated", now visible at rest per this story) would
+   overflow horizontally into the next cell instead of wrapping, especially
+   once Grid.css's mobile breakpoint switches the table to table-layout:
+   fixed and cells can no longer grow to fit that text either. */
 .cell-state {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   width: 100%;
+  min-width: 0;
   text-align: left;
 }
 
@@ -11,6 +20,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .cell-state__name {
@@ -22,10 +32,16 @@
   white-space: nowrap;
 }
 
+/* S-040: margin-left: auto (not just the row's justify-content:
+   space-between) is what keeps the icon pinned to the right edge even when
+   it's the row's only child — states 1/4 now render the icon alone at rest
+   (name/badges gated behind the reveal toggle), and space-between alone
+   places a lone flex item at the start, not the end. */
 .cell-state__icon {
   flex-shrink: 0;
   font-size: 14px;
   line-height: 1;
+  margin-left: auto;
 }
 
 .cell-state__icon--correct {
@@ -39,11 +55,26 @@
 .cell-state__meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--color-text-muted);
+}
+
+/* S-040: a grid cell's own content width at this breakpoint (~73px, once
+   the row-header column's fixed width and the touch-target floor leave
+   the rest to split across data columns) is narrow enough that "estimated"
+   alone was a couple of pixels short of fitting on its own wrapped line —
+   this nudges it under that width rather than leaving a near-miss orphan
+   like "estimate"/"d". */
+@media (max-width: 480px) {
+  .cell-state__meta {
+    font-size: 10px;
+  }
 }
 
 .cell-state--correct .cell-state__meta {
@@ -69,13 +100,27 @@
    (same size/color/font as the plain "live" <p> it replaces) but as a real
    <button> so it's focusable/clickable — reset to look identical at rest,
    the global :focus-visible ring (index.css) is what shows it's interactive
-   once focused. */
+   once focused.
+
+   S-040 fix: this used to reset `font: inherit` — a shorthand that resets
+   *every* font sub-property, including font-size, to whatever the button's
+   own parent computes (nothing in that chain sets a font-size, so it fell
+   through to the browser's UA default, ~16px, not the 11px/10px
+   `.cell-state__meta` actually specifies). Same specificity as that rule,
+   later in the cascade, so it silently won — invisible while the button
+   only ever held a dot and the short word "live", but a real bug (this
+   button was never actually "identical" in size to the plain-<p> variants
+   the comment above describes) that this story's now always-visible point
+   estimate made obvious via awkward text wrapping. `.cell-state__meta`'s
+   own font-family/font-size/font-variant-numeric apply directly to this
+   element already (it's one of this class's own selectors) — nothing here
+   needs to re-declare or inherit them, only the actually-button-specific
+   resets below. */
 .cell-state__reveal-toggle {
   background: none;
   border: none;
   padding: 0;
   margin: 0;
-  font: inherit;
   color: inherit;
   cursor: pointer;
 }

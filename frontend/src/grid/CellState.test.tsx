@@ -94,9 +94,8 @@ describe('CellState', () => {
         livePoints={12}
       />,
     );
-    // S-019: the live half of this comparison is behind the reveal toggle;
-    // the closed/final half below never uses the toggle at all (state 4 has
-    // no disclosure — see REQ-205/206).
+    // S-019/S-040: both halves of this comparison are behind a reveal toggle
+    // now (state 4 gained one in S-040 — it had none before).
     fireEvent.click(screen.getByRole('button', { name: /live/i }));
     const liveText = screen.getByText('88% of others guessed this too · ~12 pts estimated');
     expect(liveContainer.querySelector('.cell-state--live')).toBeInTheDocument();
@@ -113,6 +112,7 @@ describe('CellState', () => {
         finalPoints={88}
       />,
     );
+    fireEvent.click(screen.getByRole('button', { name: /final/i }));
     const closedText = screen.getByText('88% of others guessed this too · 88 pts');
     expect(closedContainer.querySelector('.cell-state--final')).toBeInTheDocument();
     expect(closedContainer.querySelector('.cell-state--live')).not.toBeInTheDocument();
@@ -173,7 +173,7 @@ describe('CellState', () => {
     expect(screen.getByText('final')).toBeInTheDocument();
   });
 
-  it('REQ-205/206: round closed with a locked score shows "X% unique · Y pts" alongside "final"', () => {
+  it('REQ-205/206: round closed with a locked score shows "X% unique · Y pts" alongside "final" once revealed (S-040 toggle)', () => {
     render(
       <CellState
         playerName="Henry"
@@ -186,8 +186,9 @@ describe('CellState', () => {
       />,
     );
 
-    expect(screen.getByText('88% of others guessed this too · 88 pts')).toBeInTheDocument();
     expect(screen.getByText('final')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /final/i }));
+    expect(screen.getByText('88% of others guessed this too · 88 pts')).toBeInTheDocument();
   });
 
   it('REQ-210: falls back to a non-fabricated label when no player name is known client-side', () => {
@@ -208,7 +209,7 @@ describe('CellState', () => {
 // (aria-expanded on the toggle, aria-live on the revealed panel) rather
 // than only working for a mouse.
 describe('CellState live meta disclosure (S-019)', () => {
-  it('REQ-204: on initial render the live uniqueness/points/round-end text is not in the document, but the permanent "live" label and dot are', () => {
+  it('REQ-204: on initial render the %/round-end text is not in the document, but the permanent "live" label/dot and the live point estimate are (S-040: estimate moved off the toggle)', () => {
     render(
       <CellState
         playerName="Henry"
@@ -222,14 +223,15 @@ describe('CellState live meta disclosure (S-019)', () => {
       />,
     );
 
-    // At-rest indicator: always present, unaffected by S-019.
+    // At-rest indicator: always present, unaffected by S-019/S-040.
     expect(screen.getByText('live')).toBeInTheDocument();
     expect(document.querySelector('.cell-state__live-dot')).toBeInTheDocument();
+    // S-040: the live point estimate is now always-visible at rest too.
+    expect(screen.getByText('~12 pts estimated')).toBeInTheDocument();
 
     // Disclosed detail: not yet revealed, so genuinely absent from the DOM
     // (not just visually hidden) until the player interacts.
     expect(screen.queryByText(/of others guessed this too/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
     expect(screen.queryByText(/updates until round closes on/)).not.toBeInTheDocument();
   });
 
@@ -473,6 +475,133 @@ describe('CellState live meta disclosure (S-019)', () => {
     await user.tab();
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('88% of others guessed this too')).toBeInTheDocument();
+  });
+});
+
+// S-040 (REQ-204 extension): S-019's toggle previously only gated the
+// %/round-end/percent-breakdown text — the player name (and its badge dock)
+// always rendered unconditionally in states 1 and 4. This story extends the
+// same toggle to also gate the name, and adds the toggle to state 4 in the
+// first place (it had none before). These tests cover both acceptance
+// criteria directly: at-rest content is name-free, and each disclosure
+// trigger (tap/hover/focus) reveals the name alongside the pre-existing text.
+describe('CellState name gating (S-040)', () => {
+  it('REQ-204: state 1 at rest shows no player name, only the live dot/"live" text and the live point estimate; tapping/hovering/focusing reveals the name alongside the existing %/round-end text', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+        livePoints={12}
+        roundEndTime="2026-07-11T18:00:00Z"
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    // At rest: name and badge dock are gone, only the permanent live
+    // indicator plus the now-always-visible point estimate remain.
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-col')).not.toBeInTheDocument();
+    expect(screen.getByText('live')).toBeInTheDocument();
+    expect(document.querySelector('.cell-state__live-dot')).toBeInTheDocument();
+    expect(screen.getByText('~12 pts estimated')).toBeInTheDocument();
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+
+    // Tapping (click) reveals the name/badges alongside the unchanged
+    // %/round-end text.
+    fireEvent.click(toggle);
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too · ~12 pts estimated')).toBeInTheDocument();
+    expect(screen.getByText(/updates until round closes on/)).toBeInTheDocument();
+
+    // Close it again (second click) before testing the other two triggers,
+    // same as the plain-toggle tests above.
+    fireEvent.click(toggle);
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+
+    // Hovering reveals the name too.
+    fireEvent.mouseEnter(toggle);
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    fireEvent.mouseLeave(toggle);
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+
+    // Focusing (keyboard equivalent) reveals the name too.
+    fireEvent.focus(toggle);
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    fireEvent.blur(toggle);
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: state 4 at rest shows no player name, only the checkmark/FinalPoints/"final"; tapping reveals the name alongside the existing %-breakdown text (new toggle behavior — state 4 had none before S-040)', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="closed"
+        uniquePercent={0.12}
+        finalPoints={88}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+      />,
+    );
+
+    // At rest: no name, no badge dock — just the checkmark plus the
+    // now-present toggle's "88 pts" / "final" content.
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('badge-dock-col')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__icon--correct')).toBeInTheDocument();
+    expect(screen.getByText('88 pts')).toBeInTheDocument();
+    expect(screen.getByText('final')).toBeInTheDocument();
+
+    // Tapping reveals the name/badges alongside the unchanged %-breakdown
+    // text.
+    fireEvent.click(screen.getByRole('button', { name: /final/i }));
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
+    expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
+    expect(screen.getByText('88% of others guessed this too · 88 pts')).toBeInTheDocument();
+  });
+
+  it('REQ-204: state 4 with no uniquePercent/finalPoints (S-011 scope gap) has no toggle at all and shows the name unconditionally, same fallback as state 1', () => {
+    render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="closed" />,
+    );
+
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByText('final')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /final/i })).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: state 1 with a live uniqueness value but no live point estimate shows only "live" at rest, with no trailing pts text', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    expect(toggle).toHaveTextContent('live');
+    expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
   });
 });
 

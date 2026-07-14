@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.16"
+version: "0.17"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -211,18 +211,41 @@ still live until round close):
 ```
 At rest (default):
 ┌─────────────────────────┐
-│  Henry            ✓ live │   ← gold check (correct) + small green dot
-└─────────────────────────┘      (still live) — nothing else shown
+│                    ✓ live │   ← gold check (correct) + small green dot
+│  ~88 pts estimated        │      (still live) — no name until revealed
+└─────────────────────────┘
 
 Revealed (tap/long-press, or hover/focus on desktop):
 ┌─────────────────────────┐
-│  Henry            ✓ live │
+│  Henry             ✓ live │
+│  ~88 pts estimated        │   ← unchanged at-rest line, stays visible
 │  88% of others guessed   │      "correct" and "final" are different
 │  this too · ~88 pts      │      moments (REQ-203) — the dot signals
 │  estimated                │      "still live" at rest either way
 │  updates until 18:00 Fri  │
 └─────────────────────────┘
 ```
+
+**S-040 redesign (supersedes this section's original always-shown-name
+mock):** direct product feedback (a phone screenshot showing a crushed
+row-header, root-caused to a wide cell — full name + badges + checkmark +
+"live" text — squeezing its row's header column) found that showing the
+name unconditionally, on top of S-019's already-disclosed live text, still
+left every unresolved cell wider than it needed to be. State 1 now shows
+only the checkmark, live dot, "live," and the live point estimate at
+rest, on every screen size, not mobile-only; the player name (and its
+badge dock, since the badge dock only ever makes sense docked beside a
+visible name — design-document.md §2's "settles beside the revealed
+name") moves behind the same S-019 tap/long-press/hover/focus toggle that
+already gated the %/round-end text, rather than adding a second
+interaction pattern. The live point estimate itself moves the other
+direction — from revealed-only to always-visible at rest — since without
+a name, "✓ live" alone gave no sense of where a cell stood. It also
+still appears, unchanged, as part of the revealed %-breakdown line; this
+is deliberate duplication (the same value in two places), not a copy bug.
+When no live values exist yet (`uniquePercent` not returned), the toggle
+itself doesn't render at all (nothing to disclose) — the name shows
+unconditionally in that case, same fallback S-019 already had.
 
 **S-029 wording fix (supersedes this section's original "X% unique"
 copy):** a direct player-feedback pass found "X% unique" confusing once
@@ -302,15 +325,39 @@ possible score and must never be free just for guessing wrong.
 **4. Round closed** (either prior state, now permanent):
 
 ```
-Prior outcome: correct                Prior outcome: incorrect
+Prior outcome: correct (at rest)      Prior outcome: incorrect
 ┌─────────────────────────┐           ┌─────────────────────────┐
-│  Henry              ✓    │           │                     ✕    │
-│  88% of others guessed   │           │  final                   │
-│  this too · 88 pts       │           └─────────────────────────┘
-│  final                   │             ← no name here either,
-└─────────────────────────┘               same S-029 rule as states 2/3
-   ↑ gold checkmark, static, no "live" dot at all
+│                     ✓     │           │                     ✕    │
+│  88 pts · final           │           │  final                   │
+└─────────────────────────┘           └─────────────────────────┘
+   ↑ gold checkmark, static, no "live"    ← no name here either,
+     dot — name hidden until revealed       same S-029 rule as states 2/3
+
+Prior outcome: correct (revealed — tap/long-press, or hover/focus)
+┌─────────────────────────┐
+│  Henry               ✓    │
+│  88 pts · final           │   ← unchanged at-rest line, stays visible
+│  88% of others guessed    │
+│  this too · 88 pts        │
+└─────────────────────────┘
 ```
+
+**S-040 redesign (supersedes this section's original always-shown-name
+mock):** the correct-outcome half of state 4 had **no reveal toggle at
+all** until this story — it always showed the name and, once
+`uniquePercent`/`finalPoints` were both available, the %-breakdown line,
+unconditionally. It now reuses the exact same toggle mechanism S-019 built
+for state 1 (and S-040 just extended to also gate state 1's name) rather
+than inventing a second interaction pattern: at rest, only the checkmark,
+`FinalPoints`, and "final" show; tapping/hovering/focusing reveals the
+name (and its badge dock, same reasoning as state 1) alongside the
+existing %-breakdown line, unchanged wording. As with state 1, this is
+only possible once both `uniquePercent` and `finalPoints` are present —
+when either is missing the toggle doesn't render and the name shows
+unconditionally, matching state 1's fallback and this state's own
+pre-S-040 behavior. The incorrect-outcome half of state 4 is unaffected —
+it already showed no name (S-029) and gains no toggle, since there's
+nothing correctness-related to disclose.
 
 "Live," "final," "attempt(s) left," and "no attempts left" always appear as
 text, never color/icon-only (REQ-204, accessibility). State 1 vs. state 4
