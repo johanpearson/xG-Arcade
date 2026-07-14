@@ -54,8 +54,32 @@
    wrap onto two lines and shrink their floor instead, so the common Tier 0
    case fits without scrolling; .grid-scroll's horizontal-scroll fallback
    still applies for anything that's still too wide (a larger grid, or a
-   still-longer name) — the floor-plus-scroll design itself is unchanged. */
+   still-longer name) — the floor-plus-scroll design itself is unchanged.
+
+   S-040: `.grid-table__row-header`'s `max-width` alone (below) is NOT
+   enough to actually cap the column under the browser's default
+   `table-layout: auto` — auto layout sizes every column from the *widest*
+   cell content anywhere in that column (a live/correct cell's name + badges
+   + checkmark + "live" text, in this row's data cells, not the header
+   itself), so a wide cell in a row still squeezed that row's header column
+   well past 88px, and `overflow-wrap: anywhere` then broke the header text
+   mid-word — a country name rendering one character per line. `table-layout:
+   fixed` plus the explicit `<colgroup>` `<col>` in Grid.tsx is what actually
+   enforces it: fixed layout takes the row-header column's width from that
+   `<col>`, not from any cell's content, so `.grid-table__row-header-col`'s
+   width below is now the real source of truth for this column at this
+   breakpoint (the `max-width` on `.grid-table__row-header` itself becomes
+   redundant once fixed layout applies but is left in place as a
+   self-documenting floor, harmless either way). */
 @media (max-width: 480px) {
+  .grid-table {
+    table-layout: fixed;
+  }
+
+  .grid-table__row-header-col {
+    width: 88px;
+  }
+
   .grid-table__col-header {
     min-width: 60px;
     padding: var(--space-1) var(--space-2);
@@ -67,9 +91,18 @@
     white-space: normal;
   }
 
+  /* Stacking the flag/badge above the name (rather than beside it) gives
+     the name the header column's *full* content width instead of sharing
+     it with the glyph — at 88px/60px column widths that's the difference
+     between "United"/"Kingdom" wrapping on real word boundaries and being
+     squeezed narrow enough that even a single word doesn't fit, which is
+     what was still forcing a mid-word break (e.g. "Kingdo"/"m") even after
+     table-layout: fixed capped the column itself. */
   .grid-table__col-header .category-label,
   .grid-table__row-header .category-label {
+    flex-direction: column;
     align-items: flex-start;
+    gap: 2px;
   }
 
   .grid-table__col-header .category-label__name,
@@ -86,6 +119,25 @@
   height: var(--touch-target-min);
 }
 
+/* S-040 desktop polish: the 44px touch-target floor (design-document.md
+   §4) is a minimum, not a target size — at real desktop width the grid
+   still rendered at that same mobile-tight size, part of why it read as a
+   mobile layout simply stretched onto a wide screen. Cells (and their
+   headers, to stay proportional) get more breathing room here; the touch
+   target floor itself is unchanged, still enforced below 960px. */
+@media (min-width: 960px) {
+  .grid-table__cell {
+    padding: var(--space-2);
+    min-width: 64px;
+    height: 64px;
+  }
+
+  .grid-table__col-header,
+  .grid-table__row-header {
+    padding: var(--space-3) var(--space-4);
+  }
+}
+
 .grid-cell {
   width: 100%;
   height: 100%;
@@ -99,6 +151,17 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* S-040: same fixed-width squeeze as the row/col headers above, applied to
+   a data cell's own content — less padding here leaves more room for the
+   always-visible live/final text to wrap on real word boundaries instead
+   of mid-word. (Placed after the base .grid-cell rule above, not inside
+   the earlier ≤480px block, so it actually wins the cascade against it.) */
+@media (max-width: 480px) {
+  .grid-cell {
+    padding: var(--space-1);
+  }
 }
 
 /* S-019: a locked cell is now a plain container, not a <button disabled> —

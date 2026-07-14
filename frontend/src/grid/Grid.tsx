@@ -26,6 +26,19 @@ export function Grid({ cells, roundStatus, roundEndTime, submittedThisSessionCel
   return (
     <div className="grid-scroll">
       <table className="grid-table">
+        {/* S-040: explicit <col> widths are what actually let the ≤480px
+            breakpoint's table-layout: fixed enforce the row-header column's
+            width cap — a plain CSS max-width on .grid-table__row-header
+            alone is not enough, since the browser's column-width algorithm
+            reads it from the *first row's* cell in that column (the empty
+            corner cell in <thead>), not from the row-header cells that
+            actually live in <tbody> (Grid.css). */}
+        <colgroup>
+          <col className="grid-table__row-header-col" />
+          {colHeaders.map((col) => (
+            <col key={`colgroup-${col.col}`} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             <th className="grid-table__corner" aria-hidden="true" />

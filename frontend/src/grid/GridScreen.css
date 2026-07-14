@@ -6,6 +6,16 @@
   padding: var(--space-4);
 }
 
+/* S-040 desktop polish: roomier spacing once there's real width to spend it
+   on — same layout, not the SCREEN-01 side-panel variant (that stays out of
+   scope, deferred to its own future story). */
+@media (min-width: 960px) {
+  .grid-screen {
+    gap: var(--space-6);
+    padding: var(--space-6);
+  }
+}
+
 .grid-screen__header {
   display: flex;
   align-items: baseline;

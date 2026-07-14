@@ -7,6 +7,19 @@
   margin: 0 auto;
 }
 
+/* S-040: the 900px cap above was never art-directed past mobile — on a
+   genuinely wide ("desktop site") viewport, direct product feedback found
+   the single-column layout (still the only variant built; SCREEN-01's
+   desktop side-panel variant remains its own deferred story, not built
+   here) reads as small with a lot of unused space either side. Widening the
+   cap gives the existing layout more room to breathe at that width without
+   changing its structure. */
+@media (min-width: 960px) {
+  .app {
+    max-width: 1200px;
+  }
+}
+
 .app__header {
   display: flex;
   align-items: center;
