@@ -28,6 +28,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `User.Id`, not a JWT) so S-026's admin-triggered deletion can reuse it.
   New `DELETE /auth/account` endpoint, confirmation-gated by re-verifying
   the caller's password against Supabase Auth.
+- 2026-07-14 — doc-sync pass on S-025's REQ-710 work:
+  `docs/architecture-document.md` (§6.8's flow diagram corrected from
+  `DELETE /account` to the actual built route `DELETE /auth/account`),
+  `docs/implementation-document.md` (0.46 → 0.47, new §6a entry
+  documenting `SupabaseAuthClient.DeleteUserAsync`'s
+  `DELETE {Supabase:Url}/auth/v1/admin/users/{id}` call and its
+  `Supabase:ServiceRoleKey` header override — this REST call shape wasn't
+  previously catalogued alongside signup/login's), `docs/coding-guidelines.md`
+  (0.2 → 0.3, new EF Core guideline: load-then-`SaveChangesAsync` through
+  the change tracker rather than `ExecuteUpdateAsync`/`ExecuteDeleteAsync`
+  for repository writes, since the InMemory test provider can't translate
+  the latter — generalizes the pattern S-025's three new repository
+  methods established). `docs/legal/privacy-policy-draft.md` was checked
+  against what was actually built and found already accurate (its
+  deletion/rights language predates this story and already described this
+  exact behavior) — no change made. REQ-710, ADR-0026.
 - 2026-07-13 — `docs/requirements-document.md` (0.45 → 0.46, new REQ-112),
   `docs/implementation-document.md` (0.44 → 0.45), `docs/backlog.md` (new
   S-038), new

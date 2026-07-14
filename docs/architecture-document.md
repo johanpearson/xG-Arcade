@@ -727,7 +727,7 @@ Sync job → Production database: read the same game-data allowlist
 **6.8 Account deletion flow** (realizes REQ-710)
 
 ```
-User → Web Frontend → Backend API: DELETE /account (with confirmation)
+User → Web Frontend → Backend API: DELETE /auth/account (with confirmation)
   → Core.Users (COMP-01): anonymize all Guess rows belonging to this user
     (sever the UserId link — do not delete the rows, since other players'
     uniqueness scores and leaderboard history depend on the total guess count)

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.46"
+version: "0.47"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -1173,6 +1173,14 @@ publishable client key by Supabase's own design, not a secret in the same
 sense as the database connection string or JWT signing secret). This is
 the backend-mediated signup/login decision — see ADR-0013 — rather than
 the frontend calling Supabase Auth's JS client directly.
+
+**Supabase Auth admin call (identity deletion), added S-025** —
+`SupabaseAuthClient.DeleteUserAsync` calls `DELETE {Supabase:Url}/auth/v1/admin/users/{id}`,
+the one call site in this system using `Supabase:ServiceRoleKey` instead of
+`Supabase:AnonKey` (set as a per-request header override, not on the shared
+`HttpClient`, so the anon key configured as this client's default is never
+sent on this specific request) — see ADR-0026 for why this needed a new,
+genuinely privileged secret rather than reusing the anon key above.
 
 ## 7. Testing strategy
 

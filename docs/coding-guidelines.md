@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.2"
+version: "0.3"
 status: draft
-last_updated: 2026-07-12
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -48,6 +48,14 @@ update_when:
   `DbContext`, not directly from controllers. This is what makes
   boundary rules like COMP-06's "only path to PlayerData" actually
   enforceable in code, not just in documentation.
+- **EF Core writes: load-then-`SaveChangesAsync` through the change
+  tracker, not `ExecuteUpdateAsync`/`ExecuteDeleteAsync`.** The latter
+  translate to bulk SQL that EF Core's InMemory provider (used throughout
+  this codebase's unit tests, §7) cannot translate, so they'd fail only in
+  tests, not in production — a trap that's easy to miss in review. Established
+  by S-025's `IUserRepository.DeleteAsync`/`IGuessRepository.AnonymizeByUserIdAsync`/
+  `ILeagueRepository.RemoveMembershipsByUserIdAsync`; follow the same pattern
+  for any future bulk-style repository write.
 - **DTOs at the API boundary, domain entities internally.** Controllers
   accept/return DTOs; domain entities (the ones in
   `implementation-document.md`'s data model) never get serialized directly
