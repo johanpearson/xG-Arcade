@@ -131,7 +131,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
   // left it incomplete. A correct guess without livePoints yet (submitted
   // this instant, GET /rounds/current not yet re-fetched) is still
   // genuinely unknown and stays excluded, same as before.
-  const totalLivePoints = state.round.cells.reduce((sum, cell) => {
+  const totalKnownPoints = state.round.cells.reduce((sum, cell) => {
     if (!cell.guess) return sum;
     if (cell.guess.isCorrect) return cell.guess.livePoints != null ? sum + cell.guess.livePoints : sum;
     return cell.guess.locked ? sum + MAX_POINTS_PER_CELL : sum;
@@ -162,7 +162,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
             {answeredCount}/{state.round.cells.length} answered
           </p>
           {anyPointsKnown && (
-            <p className="grid-screen__total mono-figure">~{totalLivePoints} pts estimated</p>
+            <p className="grid-screen__total mono-figure">~{totalKnownPoints} pts estimated</p>
           )}
         </div>
       </div>

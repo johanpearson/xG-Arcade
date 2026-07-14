@@ -228,6 +228,14 @@ export function CellState({
         {roundStatus === 'closed' ? (
           'final'
         ) : (
+          // Separate spans (not one interpolated string) deliberately
+          // matches state 4's earlier "{finalPoints} pts · final" pattern
+          // rather than state 2's simpler single-string "N attempt(s)
+          // left": this line is longer, and CellState.css's narrow-
+          // breakpoint tuning (a prior story, S-040, had to fix a real
+          // mid-word-break bug here) relies on `.cell-state__meta` being
+          // able to wrap between independent nodes, not just within one
+          // long run of text.
           <>
             <span>no attempts left</span>
             <span aria-hidden="true">·</span>
