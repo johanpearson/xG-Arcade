@@ -454,6 +454,29 @@ public class AuthEndpointTests
     }
 
     [Test]
+    public async Task REQ710_DeleteAccount_SupabaseDeleteFails_Returns500AndLocalDataIsAlreadyGone()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId);
+        _fakeAuthClient.DeleteUserResult = _ => false;
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        // Documented, deliberate ordering (AccountDeletionService's own doc
+        // comment) — the local writes already committed before the Supabase
+        // call ran, so the local User row is gone even though the overall
+        // request reports failure.
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remainingUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remainingUser, Is.Null);
+    }
+
+    [Test]
     public async Task REQ710_DeleteAccount_Unauthenticated_Returns401()
     {
         var client = _factory.CreateClient();

@@ -48,9 +48,10 @@ public interface IGuessRepository
     // REQ-710: severs every one of this user's Guess rows from them
     // (UserId = NULL) without deleting the rows themselves — other players'
     // historical uniqueness scores and leaderboard totals depend on the
-    // total guess count staying intact. A bulk update rather than a
-    // load-then-save loop, since a long-lived account can have far more
-    // guesses than are worth materializing into memory just to null one
-    // column on each.
+    // total guess count staying intact. Implemented as a load-then-save
+    // through the change tracker, not ExecuteUpdateAsync — see
+    // GuessRepository's own doc comment for why (this codebase's tests run
+    // against EF Core's InMemory provider, which doesn't support
+    // translating that call).
     Task AnonymizeByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }

@@ -736,6 +736,19 @@ User → Web Frontend → Backend API: DELETE /account (with confirmation)
   → Email becomes available for a new registration
 ```
 
+**Built as (S-025):** the "Core.Users" step above is slightly compressed —
+`IAccountDeletionService` (COMP-01) also makes an explicit call into
+`ILeagueRepository` (COMP-02) to remove the user's `LeagueMembership` rows,
+between the `Guess` anonymize step and the `User` row delete (§5's COMP-01
+status note has the precise sequence and reasoning). Attributed to
+"Core.Users" here only for brevity, same as this diagram already
+compresses several other cross-component calls elsewhere in this document.
+`NotificationPreference` deletion is a no-op — that table doesn't exist yet
+in Tier 0 (Resend/notification preferences are Tier 1, `MVP-SCOPE.md`).
+Deleting the Supabase Auth identity needed a new `Supabase:ServiceRoleKey`
+secret, since the anon key the rest of this flow's Supabase Auth calls use
+can't call the Admin API — see ADR-0026.
+
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
 ```
@@ -841,6 +854,8 @@ new ADR that references the old one.
 | ADR-0022 | Round closing runs inside the round-generation scheduled job, not a second cron | Accepted |
 | ADR-0023 | Grid generation gets its own wall-clock deadline (`MaxDuration`), separate from `MaxAttempts` | Accepted |
 | ADR-0024 | Player cache warming runs as a CLI verb, never an HTTP endpoint or background task | Accepted |
+| ADR-0025 | Player pool restricted to male footballers born in 1939 or later | Accepted |
+| ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 
 ## 11. Glossary
 
