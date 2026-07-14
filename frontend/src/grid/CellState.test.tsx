@@ -576,6 +576,33 @@ describe('CellState name gating (S-040)', () => {
     expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
     expect(screen.getByText('88% of others guessed this too · 88 pts')).toBeInTheDocument();
   });
+
+  it('REQ-204: state 4 with no uniquePercent/finalPoints (S-011 scope gap) has no toggle at all and shows the name unconditionally, same fallback as state 1', () => {
+    render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="closed" />,
+    );
+
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByText('final')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /final/i })).not.toBeInTheDocument();
+  });
+
+  it('REQ-204: state 1 with a live uniqueness value but no live point estimate shows only "live" at rest, with no trailing pts text', () => {
+    render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        uniquePercent={0.12}
+      />,
+    );
+
+    const toggle = screen.getByRole('button', { name: /live/i });
+    expect(toggle).toHaveTextContent('live');
+    expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
+  });
 });
 
 // S-015 (SCREEN-01a / design-document.md §2's "signature element: badge
