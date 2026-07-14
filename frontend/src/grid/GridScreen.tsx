@@ -3,6 +3,7 @@ import { ApiError, describeError, fetchCurrentRound, submitGuess } from '../lib/
 import type { CurrentRoundCell, CurrentRoundResponse } from '../lib/types';
 import { Grid } from './Grid';
 import { GuessInput } from './GuessInput';
+import { ScoringExplainer } from './ScoringExplainer';
 import './GridScreen.css';
 
 export interface GridScreenProps {
@@ -26,6 +27,11 @@ const ROUND_STATUS = 'active' as const;
 export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [activeCell, setActiveCell] = useState<CurrentRoundCell | null>(null);
+  // REQ-213 (S-041): independent of activeCell/GuessInput on purpose — an
+  // open guess-input sheet must stay untouched if the player also opens
+  // this, and vice versa (see SCREEN-06's "doesn't discard in-progress
+  // state" requirement).
+  const [explainerOpen, setExplainerOpen] = useState(false);
   // S-020: cellIds whose guess was submitted in this browser session — see
   // GridCell's own doc comment. GET /rounds/current already returns a
   // correct guess's canonical resolvedPlayerName directly (no client-side
@@ -127,7 +133,20 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
   return (
     <div className="grid-screen">
       <div className="grid-screen__header">
-        <h2>Current round</h2>
+        <div className="grid-screen__title-row">
+          <h2>Current round</h2>
+          {/* REQ-213 (S-041): opens SCREEN-06's general scoring/live-updates
+              explainer — reachable at any time an active round is shown,
+              not gated behind attempting any particular cell. */}
+          <button
+            type="button"
+            className="grid-screen__info-toggle"
+            onClick={() => setExplainerOpen(true)}
+            aria-label="How scoring works"
+          >
+            ⓘ
+          </button>
+        </div>
         <div className="grid-screen__header-stats">
           <p className="grid-screen__progress mono-figure">
             {answeredCount}/{state.round.cells.length} answered
@@ -140,7 +159,6 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       <Grid
         cells={state.round.cells}
         roundStatus={ROUND_STATUS}
-        roundEndTime={state.round.endTime}
         submittedThisSessionCellIds={submittedThisSessionCellIds}
         onCellClick={setActiveCell}
       />
@@ -151,6 +169,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
           onClose={() => setActiveCell(null)}
         />
       )}
+      {explainerOpen && <ScoringExplainer onClose={() => setExplainerOpen(false)} />}
     </div>
   );
 }

@@ -242,21 +242,35 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // REQ-210: a correct answer locks the cell immediately, even though
     // only 1 of the 2 attempts was used for a wrong guess before it.
     await expect(page.getByRole('dialog')).not.toBeVisible()
+    // S-041 (REQ-204): a locked+correct cell shows only a checkmark plus a
+    // points value at rest — no name, no "live"/"final" text of any kind —
+    // until the player clicks/taps the cell to reveal it (REQ-212). Unlike
+    // a locked+incorrect cell, it stays a real, enabled button rather than
+    // aria-disabled, since that click is exactly what reveals the name.
+    await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
+    await expect(cell).toBeEnabled()
+
+    // REQ-212: clicking the cell reveals the guessed player's name.
+    await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).toBeVisible()
-    await expect(cell.getByText('live')).toBeVisible()
-    await expect(cell).toBeDisabled()
 
     // S-015 (design-document.md §2's "signature element: badge dock"): once
-    // the correct guess is live, the row/column category badges are docked
-    // beside the revealed name. Only presence/visibility is asserted here —
-    // CellState.test.tsx's constructed-props tests cover the reveal-trigger
-    // *logic* (when cell-state--reveal is/isn't applied); the CSS keyframes
-    // themselves (slide-in vs. the prefers-reduced-motion flash) are
-    // keyframe-only concerns neither suite asserts on, since driving an
-    // in-flight CSS animation here would be brittle/flaky and jsdom doesn't
-    // run real animations — verified visually against the design mock instead.
+    // the name is revealed, the row/column category badges are docked
+    // beside it — S-041 moved this animation's trigger from guess-submit to
+    // the reveal click above, since the name no longer shows automatically.
+    // Only presence/visibility is asserted here — CellState.test.tsx's
+    // constructed-props tests cover the reveal-trigger *logic* (when
+    // cell-state--reveal is/isn't applied); the CSS keyframes themselves
+    // (slide-in vs. the prefers-reduced-motion flash) are keyframe-only
+    // concerns neither suite asserts on, since driving an in-flight CSS
+    // animation here would be brittle/flaky and jsdom doesn't run real
+    // animations — verified visually against the design mock instead.
     await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
     await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
+
+    // Clicking again hides the name/badges (a toggle, not a one-way reveal).
+    await cell.click()
+    await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
   })
 
   // REQ-210's other lock path: locking after both attempts are used without
