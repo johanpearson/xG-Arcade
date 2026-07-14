@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.48"
+version: "0.49"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.48 · 2026-07-14
+Version 0.49 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -568,6 +568,38 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   `CellState.tsx` was never updated to match. The value is a known constant
   (`ScoringRules.MaxPointsPerCell`), so this is a pure rendering fix, not a
   new calculation.
+- **Acknowledged gap, queued as `docs/backlog.md` S-040 (2026-07-14):**
+  direct product feedback (screenshots of the deployed app on a phone, and
+  separately on a wide/"desktop site" viewport) found two real problems.
+  (1) States 1 and 4 (the only two that show a player name) always render
+  the name at rest — on a narrow viewport, a long name plus badge/checkmark/
+  live text in one cell forces the row-header column (already capped at
+  `max-width: 88px` in `Grid.css`'s mobile breakpoint) to be squeezed far
+  below that cap by the browser's table auto-layout, which isn't actually
+  constrained by `max-width` without `table-layout: fixed`; combined with
+  `overflow-wrap: anywhere`, the header text then breaks mid-word — a
+  country name rendering one character per line, not a cosmetic wrapping
+  preference. (2) On a wide viewport, the grid reads as small and stuck
+  top-left within `.app`'s existing `max-width: 900px` cap, with a lot of
+  unused surrounding space — never actually art-directed for desktop; only
+  `design-document.md` SCREEN-01's mobile single-column mock was ever
+  built, not its documented desktop side-panel variant (see that section's
+  own new status note). S-040 addresses both by making states 1 and 4 show
+  only their checkmark/✕ + points at rest (name and %-breakdown text gated
+  behind a tap/hover/focus toggle) on every screen size, not mobile-only —
+  but the toggle itself is not the same change in both states. State 1
+  extends the existing S-019 `LiveMetaDisclosure` toggle (`CellState.tsx`)
+  to also gate the name — that toggle already exists and today only gates
+  the %/points/round-end text. State 4 gets a *new* toggle: its closed-round
+  branch currently renders the name and %-breakdown text unconditionally,
+  with no reveal mechanism at all, so this adds one, reusing the same
+  tap/hover/focus interaction pattern as state 1's toggle rather than a
+  second, differently-behaving pattern — not literally the same component
+  instance, since none exists there yet. This is expected to substantially
+  fix (1) as a side effect of shrinking typical cell content, verified
+  rather than assumed — plus targeted spacing/sizing polish for (2). The
+  SCREEN-01 desktop side-panel variant itself remains explicitly deferred to
+  a separate, future story, not folded into S-040.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates

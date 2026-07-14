@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — `docs/requirements-document.md` (0.48 → 0.49),
+  `docs/design-document.md` (0.15 → 0.16, also fixed a pre-existing stale
+  in-body version header, "Version 0.5" → matching frontmatter),
+  `docs/backlog.md` — scoped a real gap found from direct product feedback
+  (two screenshots: the deployed app on a phone, and on a wide/"desktop
+  site" viewport). Root-caused before scoping (not assumed): the mobile
+  header-crush bug (a country name rendering one character per line) traces
+  to `Grid.css`'s row-header `max-width` not being enforced by the table's
+  browser auto-layout, so a wide cell (full player name + badge + checkmark
+  + live text) in the same row squeezes the header column, and
+  `overflow-wrap: anywhere` then breaks mid-word. The desktop layout issue
+  traces to `.app`'s `max-width: 900px` cap never actually being art-
+  directed past mobile — and, separately, confirmed `design-document.md`
+  SCREEN-01's documented desktop side-panel variant was never actually
+  built, only the single-column mock. New story **S-040**: redesigns
+  SCREEN-01a states 1 and 4 (the only two showing a player name) to show
+  only checkmark/✕ + points at rest on every screen size, name gated behind
+  S-019's existing tap/hover/focus toggle (extended, not duplicated);
+  polishes desktop spacing/sizing; explicitly defers the side-panel variant
+  to its own future story. REQ-204 gained a status note pointing to S-040;
+  SCREEN-01 gained a status note recording the side-panel gap. REQ-204.
+
 - 2026-07-14 — doc-sync pass on S-039's REQ-710 UI work: `docs/architecture-document.md`
   (0.32 → 0.33, CONT-01/Web Frontend row description was missing auth/account
   screens entirely — a pre-existing gap predating this story, since AuthScreen
