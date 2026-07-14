@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.51"
+version: "0.52"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.51 · 2026-07-14
+Version 0.52 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -992,12 +992,30 @@ match with no attribute data and budget exhausted → fails closed), API
 > solved, so I can confirm or recall my own answer without it being
 > permanently on display.
 
-- **Status: Proposed (2026-07-14).** Replaces the small in-cell reveal
-  toggle `CellState.tsx` used before this date (see REQ-204's 2026-07-14
-  status note) — the toggle's target was a narrow sub-element inside the
-  cell; this requirement makes the whole cell the interactive target, and
-  narrows the trigger from tap-or-hover/focus to click/tap only, on every
-  device.
+- **Status: Implemented (Tier 0, S-041, 2026-07-14).** Replaces the small
+  in-cell reveal toggle `CellState.tsx` used before this date (see REQ-204's
+  2026-07-14 status note) — the toggle's target was a narrow sub-element
+  inside the cell; this requirement makes the whole cell the interactive
+  target, and narrows the trigger from tap-or-hover/focus to click/tap only,
+  on every device.
+- **Built as (`docs/backlog.md` S-041):** `GridCell.tsx` now owns a
+  `revealed` boolean (`useState`, defaulting false) and renders a
+  locked+correct cell (`isRevealable`) as a real, focusable `<button>`
+  whose `onClick` toggles it and whose `aria-expanded` reflects it —
+  replacing the old non-interactive `<div role="group">` that pattern used
+  before this story, since `CellState.tsx` no longer owns a control of its
+  own to avoid nesting inside. `CellState.tsx` takes `revealed` as a plain
+  prop and no longer owns any toggle state itself. One real bug found via
+  required manual browser verification, not just tests: `.cell-state__name`
+  used `overflow: hidden`/`text-overflow: ellipsis`/`white-space: nowrap`,
+  which gives a flex item an *automatic* minimum size of 0 once its
+  `flex-shrink: 0` siblings (flag, club badge, checkmark) refuse to yield
+  space — in a narrow revealed cell, the entire layout deficit landed on
+  the name, silently shrinking it to zero width even though it was present
+  and correct in the DOM. Fixed by wrapping normally instead
+  (`overflow-wrap: anywhere`, matching `.cell-state__meta`'s existing
+  pattern) so a long name drops to its own line rather than disappearing
+  (`CellState.css`).
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
   (correct, round closed)
@@ -1030,10 +1048,31 @@ reveals a name)
 > work, so I understand what a point value on a cell means without that
 > explanation being repeated on every cell.
 
-- **Status: Proposed (2026-07-14).** Replaces the per-cell %-breakdown/
-  round-end disclosure text REQ-204 carried before this date (see REQ-204's
-  2026-07-14 status note) — that explanatory content now lives in one
-  general place instead of being repeated, cell by cell, across the grid.
+- **Status: Implemented (Tier 0, S-041, 2026-07-14).** Replaces the
+  per-cell %-breakdown/round-end disclosure text REQ-204 carried before this
+  date (see REQ-204's 2026-07-14 status note) — that explanatory content now
+  lives in one general place instead of being repeated, cell by cell,
+  across the grid.
+- **Built as (`docs/backlog.md` S-041):** the header's `(ⓘ)` button
+  (`GridScreen.tsx`, next to the round/timer indicator) opens
+  `ScoringExplainer.tsx`, a modal (`role="dialog"`, `aria-modal="true"`)
+  covering the three required content points verbatim (live estimate can
+  change; locked/final value doesn't change after round close; golf-style,
+  fewer-others-guessed-scores-better framing, no exact formula). Its open
+  state (`explainerOpen`) is tracked independently of `GuessInput`'s
+  `activeCell` state in `GridScreen.tsx`, so opening one never discards the
+  other. A `code-reviewer` pass on this story's diff found the
+  `design-document.md` SCREEN-06 entry, as first written, falsely claimed
+  the explainer "returns focus to the entry point on close" as something
+  `GuessInput` already did — neither modal actually did that at the time.
+  Fixed by implementing real focus management in `ScoringExplainer.tsx`
+  (moves focus to its close button on mount via `useEffect`, restores the
+  previously-focused element on unmount) and correcting the doc to describe
+  `GuessInput`'s actual, unchanged behavior instead of a false comparison —
+  see `design-document.md` SCREEN-06's current wording. The same pass also
+  gave the explainer's backdrop an explicit `z-index: 20` (above
+  `GuessInput`'s `z-index: 10`) rather than relying on DOM order for correct
+  stacking when both are open at once.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")

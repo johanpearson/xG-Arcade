@@ -1528,6 +1528,38 @@ Manual/visual verification at a narrow and wide viewport that the
 simplified cells and new explainer both read cleanly, not just that tests
 pass. *Deps:* S-040 (the toggle/mechanism this replaces), S-019 (ditto,
 transitively).
+**Built as:** matches the plan for all three changes, plus two real bugs
+found and fixed along the way, neither anticipated in the acceptance
+criteria. (1) Manual browser verification of REQ-212's reveal (required by
+this story, not just tests passing) found a revealed player name could
+collapse to zero visible width in a narrow cell: `.cell-state__name`'s
+`overflow: hidden`/`text-overflow: ellipsis`/`white-space: nowrap` gives a
+flex item an *automatic* minimum size of 0, and its `flex-shrink: 0`
+siblings (flag, club badge, checkmark) never yield space — so once
+revealed content overflowed a narrow cell's line, the entire deficit landed
+on the name, rendering it invisible even though it was correct in the DOM.
+Fixed by wrapping normally instead (`overflow-wrap: anywhere`, matching
+`.cell-state__meta`'s existing pattern; `CellState.css`). (2) A
+`code-reviewer` pass on this story's diff found `design-document.md`
+SCREEN-06's entry, as first written, falsely claimed the explainer "returns
+focus to the entry point on close" as something `GuessInput` already did —
+neither modal actually did, at the time. Fixed by implementing real focus
+management in `ScoringExplainer.tsx` (moves focus to its close button on
+mount, restores the previously-focused element on unmount) and correcting
+the doc to describe `GuessInput`'s actual, unchanged behavior instead of a
+false comparison, plus giving the explainer's backdrop an explicit
+`z-index: 20` (above `GuessInput`'s `z-index: 10`) rather than relying on
+DOM order for correct stacking when both are open at once. Mechanically,
+`GridCell.tsx` now owns `revealed` state and renders a locked+correct cell
+as a real `<button>` (replacing the old non-interactive
+`<div role="group">`), since `CellState.tsx` no longer owns a toggle of its
+own to nest one inside. Tests: `CellState.test.tsx`, `GridCell.test.tsx`,
+`GridScreen.test.tsx` rewritten/extended; new `ScoringExplainer.test.tsx`
+added. 85/85 Vitest tests pass, `tsc -b --noEmit` clean.
+`frontend/tests/e2e/play-grid.spec.ts` had two assertions updated by hand
+to match the new at-rest cell content but was logic-reviewed only, not
+executed (no live backend available in this environment) — a known gap,
+not a passing confirmation, until it's run against a real deployment.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
