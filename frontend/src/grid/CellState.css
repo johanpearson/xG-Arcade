@@ -92,10 +92,6 @@
   color: var(--color-accent-red);
 }
 
-.cell-state--final .cell-state__meta {
-  color: var(--color-text-muted);
-}
-
 /* design-document.md §2 "Signature element: badge dock" — the row/column
    badge slides inward from either side and settles beside the player name
    the moment it becomes visible. S-041: that moment is now a click/tap on

@@ -16,7 +16,7 @@ describe('ScoringExplainer', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 
-  it('REQ-213: contains text covering all three required content points — a live estimate can change until round close, a locked/final value does not change after that, and xG Arcade is scored like golf (lower is better, less-commonly-guessed answers score better)', () => {
+  it('REQ-213: contains text covering all three original content points — a live estimate can change until round close, a locked/final value does not change after that, and xG Arcade is scored like golf (lower is better, less-commonly-guessed answers score better)', () => {
     render(<ScoringExplainer onClose={vi.fn()} />);
 
     const dialog = screen.getByRole('dialog');
@@ -35,6 +35,29 @@ describe('ScoringExplainer', () => {
     // Never cell-specific — no raw numbers/percentages tied to any
     // particular guess.
     expect(dialog.textContent).not.toMatch(/\d+%/);
+  });
+
+  // 2026-07-14 addition (REQ-213), requested directly by a player: three
+  // more required content points, alongside the original three above.
+  it('REQ-213: contains text covering the three added content points — attempts per cell, wrong-guess/unanswered-cell max-score parity, and the player-pool restriction', () => {
+    render(<ScoringExplainer onClose={vi.fn()} />);
+
+    const dialog = screen.getByRole('dialog');
+
+    // Attempt count (MAX_ATTEMPTS_PER_CELL).
+    expect(dialog.textContent).toMatch(/2 attempts per cell/i);
+
+    // Wrong guess and an unanswered cell both lock at the same maximum
+    // score (MAX_POINTS_PER_CELL) — the explainer must connect the two,
+    // not just state one of them.
+    expect(dialog.textContent).toMatch(/wrong guess/i);
+    expect(dialog.textContent).toMatch(/maximum score/i);
+    expect(dialog.textContent).toMatch(/100 pts/i);
+    expect(dialog.textContent).toMatch(/not guessing at all/i);
+
+    // Player-pool restriction (REQ-112/ADR-0025).
+    expect(dialog.textContent).toMatch(/male/i);
+    expect(dialog.textContent).toMatch(/born in 1939 or later/i);
   });
 
   it('REQ-213: clicking the backdrop calls onClose', async () => {

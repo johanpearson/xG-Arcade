@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.18"
+version: "0.19"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.18 · 2026-07-14
+Version 0.19 · 2026-07-14
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -200,8 +200,12 @@ that explanation being repeated, cell by cell, across the grid.
 - A correct cell (live or locked): checkmark plus a points value only — see
   SCREEN-01a's S-041 note for the full redesign; no per-cell live/final
   distinction exists anymore.
-- An incorrect cell: red cross, attempts-left text (or "no attempts left"
-  once locked) — SCREEN-01a states 2/3, unaffected by S-041.
+- An incorrect cell with an attempt remaining: red cross, "N attempt(s)
+  left" text (SCREEN-01a state 2, unaffected by S-041).
+- An incorrect, locked cell (out of attempts, or the round closed):
+  red cross plus a points value only — see SCREEN-01a state 3's S-033
+  note; no "no attempts left"/"final" qualifier text, matching a correct
+  cell's own "checkmark plus points, nothing else" structure above.
 - Desktop's side panel is additive only — mobile gets the same information
   stacked below the grid.
 
@@ -294,12 +298,29 @@ incorrect states rather than partially fixed.
 ```
 ┌─────────────────────────┐
 │                     ✕      │   ← no name shown, same as state 2
-│  no attempts left ·       │   ← guaranteed worst score (ADR-0021), stated
-│  100 pts                  │      plainly, not implied
-└─────────────────────────┘
-      ↑ same rejected-guess cue plays here too, on the guess that used up
-        the last attempt
+│  100 pts                  │   ← guaranteed worst score (ADR-0021) —
+└─────────────────────────┘      same minimal structure as a correct
+      ↑ same rejected-guess cue     cell, no extra qualifier text
+        plays here too, on the
+        guess that used up the
+        last attempt
 ```
+
+**Simplified (2026-07-14), reported directly by a player:** this state
+used to also spell out "no attempts left" alongside the points ("no
+attempts left · 100 pts") — once the points value itself was added
+(S-033), that qualifier read as redundant: the points alone already say
+"this cell is done," the same way a correct cell's points say so without
+needing to add "correct" in words. Dropped in favor of matching a correct
+cell's own minimal "✕/✓ + points, nothing else" structure exactly. This
+also now applies uniformly to state 4's incorrect outcome below (round
+closed) — both render identically ("✕ 100 pts"), since `MaxPointsPerCell`
+is the same guaranteed value regardless of *when* the cell locked, and a
+player can't (and per REQ-204 shouldn't need to) tell from the cell alone
+whether the round itself is still active or already closed; see SCREEN-06
+for where that's explained generally instead. State 2 (an attempt still
+remains) is unaffected — "N attempt(s) left" stays, since that's genuinely
+actionable information, not a redundant status label.
 
 **ADR-0021:** an incorrect/exhausted cell locks at `MaxPointsPerCell` (100
 by default), not 0 — xG Arcade is scored like golf, so 0 is the *best*
@@ -311,10 +332,13 @@ possible score and must never be free just for guessing wrong.
 Prior outcome: correct (at rest)      Prior outcome: incorrect
 ┌─────────────────────────┐           ┌─────────────────────────┐
 │                     ✓     │           │                     ✕    │
-│  88 pts                   │           │  final                   │
+│  88 pts                   │           │  100 pts                 │
 └─────────────────────────┘           └─────────────────────────┘
    ↑ gold checkmark — identical           ← no name here either,
-     structure to state 1 at rest           same S-029 rule as states 2/3
+     structure to state 1 at rest           same S-029 rule as states
+                                             2/3; points value is the
+                                             same MaxPointsPerCell state
+                                             3 shows, per today's fix
 
 Prior outcome: correct (revealed — click/tap the cell)
 ┌─────────────────────────┐
@@ -333,16 +357,22 @@ points value is shown, not in how it's displayed. Click/tap anywhere on
 the cell reveals the guessed player's name and badge dock, same single
 interaction as state 1 (REQ-212), replacing S-040's reveal toggle (which
 itself had replaced no toggle at all, before that). The incorrect-outcome
-half of state 4 is unaffected by any of this — it already showed no name
-(S-029) and still isn't a click target, since there's nothing to reveal.
+half of state 4 is unaffected by the reveal/name change specifically — it
+already showed no name (S-029) and still isn't a click target, since
+there's nothing to reveal — but its points display was simplified
+alongside state 3's (see that state's own 2026-07-14 note): both now show
+"✕ 100 pts" with no "no attempts left"/"final" qualifier, using the
+frontend's own `MAX_POINTS_PER_CELL` constant directly rather than a
+`FinalPoints` value plumbed from the API — the incorrect-lock value is the
+same guaranteed constant regardless of whether the cell locked mid-round
+or the round closed around it, so there's nothing round-status-specific
+left to compute or wait on here.
 
-"Attempt(s) left" and "no attempts left" still always appear as text, never
-color/icon-only (REQ-204, accessibility) — that part of the original
-accessibility rule survives S-041 unchanged, it's specifically the
-live/final *distinction* that's gone, not the "never icon-only" principle
-generally. State 1 and state 4 are now deliberately *not* visually
-distinguishable at rest — see SCREEN-06 for where that distinction is
-explained instead.
+"Attempt(s) left" still always appears as text, never color/icon-only
+(REQ-204, accessibility) for state 2, the one state that still has
+actionable text to show. State 1 and state 4 (and, as of today, state 3)
+are deliberately *not* visually distinguishable by round status at
+rest — see SCREEN-06 for where that distinction is explained instead.
 
 ### SCREEN-02: Guess input
 
@@ -488,6 +518,8 @@ confirmation screen, nothing to confirm to once signed out.
 ┌───────────────────────────────┐
 │ How scoring works          [×]│
 ├───────────────────────────────┤
+│ You get 2 attempts per cell.   │
+│                                 │
 │ A correct cell shows a live    │
 │ estimate that can still change │
 │ until the round closes.        │
@@ -496,11 +528,22 @@ confirmation screen, nothing to confirm to once signed out.
 │ value is locked and won't      │
 │ change again.                  │
 │                                 │
+│ A wrong guess (after both      │
+│ attempts) locks in the maximum │
+│ score for that cell — the same │
+│ maximum score you'd get by not │
+│ guessing at all once the round │
+│ closes.                        │
+│                                 │
 │ xG Arcade scores like golf —   │
 │ lower is better. An answer     │
 │ fewer other players also       │
 │ guessed scores better than a   │
 │ common one.                    │
+│                                 │
+│ Answers are footballers who    │
+│ are male and born in 1939 or   │
+│ later.                         │
 └───────────────────────────────┘
 ```
 
@@ -516,14 +559,29 @@ now-invisible element. Deliberately not a full route/screen: it's a short,
 general explanation, never gated behind having attempted any cell, and
 reachable at any time an active round is showing. Content is general to the
 mechanic, never cell-specific (no "your cell scored 12 pts" — that number
-already lives on the cell itself); the three paragraphs above are the
-minimum required content (REQ-213): what a live estimate means and that it
-can change, what a locked/final value means once the round closes, and —
-in general terms, no exact formula — the golf-style/fewer-others-guessed
-framing already established in SCREEN-03 (ADR-0021). Opening it must not
-discard any in-progress state elsewhere on the screen (e.g. a filled-but-
-not-yet-submitted guess in an open `GuessInput` sheet) — it's an overlay on
-top of the grid screen, not a navigation away from it.
+already lives on the cell itself).
+
+**Content expanded (2026-07-14), requested directly by a player:** the
+original three paragraphs (what a live estimate means and that it can
+change, what a locked/final value means once the round closes, and — in
+general terms, no exact formula — the golf-style/fewer-others-guessed
+framing already established in SCREEN-03, ADR-0021) are still required,
+joined by three more:
+- The attempt count (`MAX_ATTEMPTS_PER_CELL`, 2) — a player asked directly
+  whether this was documented anywhere, and it wasn't, despite being
+  fundamental to how a guess even works (REQ-210).
+- That a wrong guess locking at the maximum score (ADR-0021, already true
+  and already shown per-cell as of today's SCREEN-01a fix) is the *same*
+  maximum score an unanswered cell locks at once the round closes
+  (`ScoreLockingService.MaterializeUnansweredCellsAsync`, S-028/ADR-0021)
+  — the two were previously each documented in isolation (one per-cell,
+  one only in `requirements-document.md`) with nothing connecting them for
+  a player reading the explainer.
+- The player-pool restriction (REQ-112/ADR-0025: male footballers born
+  1939 or later only) — previously undocumented anywhere player-facing at
+  all; without it, a technically-correct-but-out-of-scope name being
+  rejected as "wrong" would look like a bug rather than an intentional
+  scope boundary.
 
 This is where SCREEN-01a's now-removed per-cell disclosure content (the
 %-breakdown line, "updates until round closes on [date/time]") effectively
@@ -557,8 +615,13 @@ Unchanged from v0.1:
 - Errors state what happened and what to do, without apologizing.
 - Empty states are invitations: "You're not in any custom leagues yet" +
   a "Create league" button.
-- The live/final distinction is a voice rule as much as visual — always
-  say "live" or "final."
+- ~~The live/final distinction is a voice rule as much as visual — always
+  say "live" or "final."~~ **Removed (2026-07-14, doc-sync miss from
+  S-041):** S-041 already dropped this distinction from the cell entirely
+  (no more "live"/"final" text anywhere in SCREEN-01a) — this bullet
+  should have been removed in that story's own doc-sync pass and wasn't,
+  caught only now while fixing state 3/4's "no attempts left" wording for
+  the same reason.
 
 ## 6. Accessibility and quality floor
 
@@ -566,9 +629,12 @@ Unchanged from v0.1:
   identifier for a category, both for accessibility and because emoji flag
   rendering varies across platforms/fonts.
 - Correct/incorrect and attempts-remaining are never color-only signals
-  (points/attempt-count values and "no attempts left" are always real text).
-  Live vs. final is no longer a distinction the cell itself makes at all as
-  of S-041 — see SCREEN-01a and SCREEN-06.
+  (points values and attempt-count text are always real text, never
+  icon/color alone). Live vs. final is no longer a distinction the cell
+  itself makes at all as of S-041 — see SCREEN-01a and SCREEN-06. "No
+  attempts left" as a distinct text label is also gone as of 2026-07-14
+  (SCREEN-01a state 3's note) — a locked-incorrect cell's points value
+  alone now carries that meaning, same as a correct cell's points alone.
 - Visible keyboard focus state using `accent-green` as the focus ring color.
 - `prefers-reduced-motion` disables the badge-dock slide (§2), replacing it
   with an instant state change plus a brief color flash.

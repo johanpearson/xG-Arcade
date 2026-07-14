@@ -206,43 +206,22 @@ export function CellState({
     );
   }
 
-  // State 3 (round active) / state 4's incorrect outcome (round closed):
-  // both locked with no attempts remaining. S-033: state 3 now shows
-  // MaxPointsPerCell alongside "no attempts left" — ADR-0021's golf scoring
-  // guarantees an incorrect/exhausted cell locks at that value (the worst
-  // possible score, never 0, which is reserved for the best possible
-  // correct guess), so it's a known constant, not a live computation, safe
-  // to show immediately rather than waiting on REQ-205's actual lock.
-  // State 4's incorrect outcome is unaffected — round-closed data isn't
-  // reachable via GET /rounds/current yet (S-011 scope gap), so there's no
-  // live path to exercise a "final" points value there today either.
+  // State 3 (round active, no attempts left) / state 4's incorrect outcome
+  // (round closed): both locked, both guaranteed to score MaxPointsPerCell
+  // (ADR-0021's golf-scoring worst case, never 0 — 0 is reserved for the
+  // best possible correct guess). Same minimal "✕ + points" structure the
+  // correct branch above uses, no "no attempts left"/"final" qualifier —
+  // simplified same-day from an earlier version that kept the qualifier,
+  // per direct feedback that the points value alone already says "this
+  // cell is done," same as a correct cell needs no "correct" label
+  // alongside its own points. roundStatus no longer affects this branch's
+  // output at all: the incorrect-lock value is the same known constant
+  // regardless of *when* the cell locked, so there's nothing left here
+  // that depends on whether the round itself is still active or closed.
   return (
-    <div
-      key={shakeToken}
-      className={`cell-state cell-state--incorrect cell-state--locked ${
-        roundStatus === 'closed' ? 'cell-state--final' : ''
-      } ${shakeClassName}`}
-    >
+    <div key={shakeToken} className={`cell-state cell-state--incorrect ${shakeClassName}`}>
       <Row correct={false} />
-      <p className="cell-state__meta">
-        {roundStatus === 'closed' ? (
-          'final'
-        ) : (
-          // Separate spans (not one interpolated string) deliberately
-          // matches state 4's earlier "{finalPoints} pts · final" pattern
-          // rather than state 2's simpler single-string "N attempt(s)
-          // left": this line is longer, and CellState.css's narrow-
-          // breakpoint tuning (a prior story, S-040, had to fix a real
-          // mid-word-break bug here) relies on `.cell-state__meta` being
-          // able to wrap between independent nodes, not just within one
-          // long run of text.
-          <>
-            <span>no attempts left</span>
-            <span aria-hidden="true">·</span>
-            <span>{MAX_POINTS_PER_CELL} pts</span>
-          </>
-        )}
-      </p>
+      <p className="cell-state__meta mono-figure">{MAX_POINTS_PER_CELL} pts</p>
     </div>
   );
 }

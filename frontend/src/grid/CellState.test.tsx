@@ -44,16 +44,19 @@ describe('CellState', () => {
     expect(screen.getByText('✕')).toBeInTheDocument();
   });
 
-  // S-033 (REQ-204): a locked-incorrect cell is guaranteed to lock at
-  // MaxPointsPerCell (ADR-0021's golf-scoring worst case, not 0) — a known
-  // constant, not a live computation, so it's shown immediately rather than
-  // waiting on REQ-205's actual round-close lock.
-  it('REQ-210 state 3: incorrect with no attempts left is locked, says so in text, and shows the guaranteed MaxPointsPerCell value', () => {
+  // S-033 (REQ-204), simplified same-day per direct feedback: a
+  // locked-incorrect cell is guaranteed to lock at MaxPointsPerCell
+  // (ADR-0021's golf-scoring worst case, not 0) — a known constant, not a
+  // live computation, so it's shown immediately rather than waiting on
+  // REQ-205's actual round-close lock. No "no attempts left" qualifier —
+  // same minimal "✕ + points" structure a correct cell uses.
+  it('REQ-210 state 3: incorrect with no attempts left is locked and shows the guaranteed MaxPointsPerCell value, nothing else', () => {
     render(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />);
 
-    expect(screen.getByText('no attempts left')).toBeInTheDocument();
+    expect(screen.getByText('✕')).toBeInTheDocument();
     expect(screen.getByText('100 pts')).toBeInTheDocument();
     expect(screen.queryByText('Ronaldinho')).not.toBeInTheDocument();
+    expect(screen.queryByText(/no attempts left/i)).not.toBeInTheDocument();
   });
 
   it('REQ-210 state 4: round closed, correct outcome, shows only a checkmark and the locked FinalPoints — no "final" wording on a correct cell', () => {
@@ -66,12 +69,19 @@ describe('CellState', () => {
     expect(screen.queryByText(/live/i)).not.toBeInTheDocument();
   });
 
-  it('REQ-210 state 4: round closed, incorrect outcome, is locked and says "final" in text, no fabricated points', () => {
+  // Brought in line with state 3 the same day: state 4's incorrect outcome
+  // now shows the same guaranteed MaxPointsPerCell value too, using the
+  // frontend's own known constant rather than a FinalPoints value that
+  // would need to come from the API (which, per the S-011 scope gap, this
+  // state can't reach live yet anyway) — no "final" wording, same as
+  // state 3 dropped "no attempts left".
+  it('REQ-210 state 4: round closed, incorrect outcome, is locked and shows the guaranteed MaxPointsPerCell value, nothing else', () => {
     render(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="closed" />);
 
-    expect(screen.getByText('final')).toBeInTheDocument();
     expect(screen.getByText('✕')).toBeInTheDocument();
-    expect(screen.queryByText(/\d+\s*pts/i)).not.toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+    expect(screen.queryByText('Ronaldinho')).not.toBeInTheDocument();
+    expect(screen.queryByText(/final/i)).not.toBeInTheDocument();
   });
 
   it('REQ-204: state 1 and state 4 render identically in structure at rest given equivalent points — checkmark + points, no live indicator of any kind, no percent', () => {
@@ -442,8 +452,7 @@ describe('CellState shake-and-flash reveal (S-020)', () => {
 
     rerender(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />);
 
-    expect(screen.getByText('no attempts left')).toBeInTheDocument();
-    expect(container.querySelector('.cell-state--locked')).toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
     expect(container.querySelector('.cell-state--shake')).toBeInTheDocument();
   });
 
