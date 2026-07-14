@@ -44,11 +44,16 @@ describe('CellState', () => {
     expect(screen.getByText('✕')).toBeInTheDocument();
   });
 
-  it('REQ-210 state 3: incorrect with no attempts left is locked and says so in text, no fabricated points', () => {
+  // S-033 (REQ-204): a locked-incorrect cell is guaranteed to lock at
+  // MaxPointsPerCell (ADR-0021's golf-scoring worst case, not 0) — a known
+  // constant, not a live computation, so it's shown immediately rather than
+  // waiting on REQ-205's actual round-close lock.
+  it('REQ-210 state 3: incorrect with no attempts left is locked, says so in text, and shows the guaranteed MaxPointsPerCell value', () => {
     render(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />);
 
     expect(screen.getByText('no attempts left')).toBeInTheDocument();
-    expect(screen.queryByText(/\d+\s*pts/i)).not.toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+    expect(screen.queryByText('Ronaldinho')).not.toBeInTheDocument();
   });
 
   it('REQ-210 state 4: round closed, correct outcome, shows only a checkmark and the locked FinalPoints — no "final" wording on a correct cell', () => {

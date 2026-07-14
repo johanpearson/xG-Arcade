@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.52"
+version: "0.53"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.52 · 2026-07-14
+Version 0.53 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -560,14 +560,27 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   unchanged API fields, this is a frontend display-wording fix only, applied
   everywhere this value is shown (state 1's live disclosure and state 4's
   locked "final" text).
-- **Acknowledged gap, queued as `docs/backlog.md` S-033 (2026-07-12):**
-  SCREEN-01a's state 3 ("Incorrect, no attempts remaining" — both guesses
-  wrong, cell locked) does not render a point value at all, unlike every
-  other locked state. `design-document.md` SCREEN-01a's mock already shows
-  "no attempts left · 100 pts" (corrected during S-028/ADR-0021);
-  `CellState.tsx` was never updated to match. The value is a known constant
-  (`ScoringRules.MaxPointsPerCell`), so this is a pure rendering fix, not a
-  new calculation.
+- **Built as (`docs/backlog.md` S-033, 2026-07-14):** SCREEN-01a's state 3
+  ("Incorrect, no attempts remaining" — both guesses wrong, cell locked)
+  used to render no point value at all, unlike every other locked state —
+  flagged as an acknowledged gap on 2026-07-12, fixed here. Reported
+  directly by a player looking at the deployed app: a locked-incorrect
+  cell visibly showed nothing where a point value belonged, and the
+  header's running total (REQ-206) silently excluded it too, so a wrong,
+  locked-out guess looked like it counted for nothing rather than the
+  guaranteed worst-case score ADR-0021 actually locks it at.
+  `CellState.tsx`'s state-3 branch now renders "no attempts left ·
+  {MaxPointsPerCell} pts", matching `design-document.md` SCREEN-01a's mock
+  (which already showed this, corrected during S-028/ADR-0021 — only the
+  component was never updated to match). The value is a known constant
+  (a new frontend-side `MAX_POINTS_PER_CELL` in `lib/scoringRules.ts`,
+  mirroring `ScoringRules.MaxPointsPerCell` the same way
+  `MAX_ATTEMPTS_PER_CELL` already mirrors its backend counterpart — display
+  only, never enforcement), so this is a pure rendering fix, not a new
+  calculation. State 4's incorrect outcome is intentionally unchanged —
+  round-closed data still isn't reachable via `GET /rounds/current` (S-011
+  scope gap), so there's no live path to exercise a "final" points value
+  there yet either. See REQ-206 for the matching running-total fix.
 - **Built as (`docs/backlog.md` S-040, 2026-07-14):** direct product
   feedback (screenshots of the deployed app on a phone, and separately on a
   wide/"desktop site" viewport) found two real problems, both fixed in this
@@ -786,7 +799,20 @@ indicator of any kind, no percent)
   (`GET /rounds/current` only ever returns an Active round), so there is
   still nowhere to show one closed round's final total distinctly from the
   leaderboard's all-time running total. Not a regression — revisit once/if
-  a past-round-detail view exists. **S-028 correction (ADR-0021):** "unanswered cells count as 0 points" was true
+  a past-round-detail view exists. **Bugfix (2026-07-14), reported directly
+  by a player:** the S-029 live total above only ever summed correctly-
+  guessed cells' `LivePoints`, silently excluding any locked-incorrect cell
+  entirely — so a wrong, no-attempts-left guess contributed nothing to the
+  displayed total, reading as if it scored 0 (the *best* possible score
+  under ADR-0021's golf model) rather than the guaranteed worst-case
+  `MaxPointsPerCell` it's actually locked at. `GridScreen.tsx`'s total now
+  also adds `MaxPointsPerCell` (`lib/scoringRules.ts`) for each cell whose
+  guess is `locked && !isCorrect` — matching the same value SCREEN-01a's
+  state 3 now displays per-cell (see REQ-204's matching S-033 fix above).
+  A correct guess still awaiting its `LivePoints` (submitted this instant,
+  not yet re-fetched) remains genuinely excluded, unchanged — only a
+  guess whose outcome is already fully known (correct-with-a-value, or
+  locked-incorrect) contributes. **S-028 correction (ADR-0021):** "unanswered cells count as 0 points" was true
   under the higher-is-better model (0 was the worst score, matching "no
   credit"); under lowest-wins, 0 is the *best* score, so leaving unanswered
   cells at 0 would make skipping a cell entirely optimal. `ScoreLockingService

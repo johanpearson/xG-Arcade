@@ -309,6 +309,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // guess, same as the single-wrong-guess case above.
     await expect(cell.getByText('Wrong Guess Number Two')).not.toBeVisible()
     await expect(cell.getByText('no attempts left')).toBeVisible()
+    // S-033 bugfix: a locked-incorrect cell shows the guaranteed
+    // MaxPointsPerCell value (100), never a fabricated/omitted one —
+    // ADR-0021's golf scoring locks a wrong guess at the worst case, not 0.
+    await expect(cell.getByText('100 pts')).toBeVisible()
     await expect(cell).toBeDisabled()
 
     // S-020: the rejected-guess cue also fires on the guess that uses up

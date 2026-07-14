@@ -310,6 +310,115 @@ describe('GridScreen', () => {
     expect(screen.queryByText(/pts estimated/)).not.toBeInTheDocument();
   });
 
+  // S-033 bugfix (REQ-206): a locked-incorrect cell is guaranteed to lock at
+  // MaxPointsPerCell (ADR-0021) — the running total must include that known
+  // constant, not silently omit it and understate the total (the previous
+  // version only ever summed correct guesses' livePoints, so a wrong,
+  // locked-out guess contributed nothing at all).
+  it('REQ-206: a locked-incorrect cell contributes MaxPointsPerCell to the running total, even with no correct guesses yet', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: {
+                isCorrect: false,
+                attemptCount: 2,
+                locked: true,
+                submittedName: 'wrong guess',
+                resolvedPlayerName: null,
+                uniquePercent: null,
+                livePoints: null,
+              },
+            },
+            {
+              cellId: 'cell-2',
+              row: 0,
+              col: 1,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Chelsea',
+              guess: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('~100 pts estimated')).toBeInTheDocument());
+  });
+
+  it('REQ-206: sums both a correct guess’s livePoints and a locked-incorrect guess’s MaxPointsPerCell together', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: {
+                isCorrect: true,
+                attemptCount: 1,
+                locked: true,
+                submittedName: 'thierry henry',
+                resolvedPlayerName: 'Thierry Henry',
+                uniquePercent: 40,
+                livePoints: 40,
+              },
+            },
+            {
+              cellId: 'cell-2',
+              row: 0,
+              col: 1,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Chelsea',
+              guess: {
+                isCorrect: false,
+                attemptCount: 2,
+                locked: true,
+                submittedName: 'wrong guess',
+                resolvedPlayerName: null,
+                uniquePercent: null,
+                livePoints: null,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('~140 pts estimated')).toBeInTheDocument());
+  });
+
   // REQ-213: the explainer's header entry point opens it, and opening it
   // must not discard other in-progress state — specifically, an already-open
   // GuessInput sheet (with typed-but-not-yet-submitted text) stays open and

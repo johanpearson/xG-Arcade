@@ -890,6 +890,26 @@ state renders the point value alongside "no attempts left," matching
 `design-document.md`'s existing mock; visually verified against a locked-
 incorrect cell. *Deps:* none — `CellState.tsx` and `MaxPointsPerCell` both
 already exist.
+**Built as (2026-07-14):** reported directly by a player on the deployed
+app (screenshot: a locked-incorrect Barcelona × Marseille cell showing no
+point value, and the header's running total reading "~0 pts estimated"
+despite the wrong guess) — the exact gap this story already described,
+finally implemented, plus one connected bug this story's own scope didn't
+originally cover. Added `frontend/src/lib/scoringRules.ts` exporting
+`MAX_POINTS_PER_CELL = 100`, mirroring `ScoringRules.MaxPointsPerCell` the
+same way `guessRules.ts`'s `MAX_ATTEMPTS_PER_CELL` already mirrors its
+backend counterpart — display only, never enforcement. `CellState.tsx`'s
+state-3 branch now renders "no attempts left · 100 pts". Also fixed, same
+root cause: `GridScreen.tsx`'s REQ-206 running total only ever summed
+correct guesses' `LivePoints`, silently excluding locked-incorrect cells
+entirely, so a wrong guess looked like it contributed nothing (reading as
+the *best* possible score under golf rules) instead of the guaranteed
+`MaxPointsPerCell` worst case — now included in the same sum. State 4's
+incorrect outcome intentionally left alone (still no live path to reach
+it, S-011 scope gap). Tests: 2 new REQ204/REQ206-named Vitest tests, 1
+existing test updated for the new expected behavior — 87 frontend tests
+pass, `tsc -b --noEmit` clean, visually verified against the exact
+reported scenario.
 
 **S-034 · Paginate the global leaderboard endpoint (REQ-607)**
 Closes the gap an architecture-reviewer pass flagged during S-011 and

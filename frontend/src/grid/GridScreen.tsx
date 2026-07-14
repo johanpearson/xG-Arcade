@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError, fetchCurrentRound, submitGuess } from '../lib/api';
 import type { CurrentRoundCell, CurrentRoundResponse } from '../lib/types';
+import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { Grid } from './Grid';
 import { GuessInput } from './GuessInput';
 import { ScoringExplainer } from './ScoringExplainer';
@@ -120,14 +121,23 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
   // picks it up. Same "~N pts estimated" wording REQ-204/S-018 already
   // established for a single cell's live point value — this is that same
   // provisional value, just summed, never a promise of the locked total
-  // REQ-205 computes at round close. Only counts cells whose livePoints is
-  // already known (never fabricates a number for one that isn't yet).
-  const totalLivePoints = state.round.cells.reduce(
-    (sum, cell) => (cell.guess?.isCorrect && cell.guess.livePoints != null ? sum + cell.guess.livePoints : sum),
-    0,
-  );
-  const anyLivePointsKnown = state.round.cells.some(
-    (cell) => cell.guess?.isCorrect && cell.guess.livePoints != null,
+  // REQ-205 computes at round close.
+  //
+  // S-033 bugfix: a locked-incorrect cell (guess.locked && !isCorrect) is
+  // guaranteed to lock at MaxPointsPerCell (ADR-0021's golf-scoring worst
+  // case) — that's a known constant, not something still waiting on a live
+  // computation the way a correct guess's livePoints is, so omitting it
+  // from this total (as the previous version did) understated it, not just
+  // left it incomplete. A correct guess without livePoints yet (submitted
+  // this instant, GET /rounds/current not yet re-fetched) is still
+  // genuinely unknown and stays excluded, same as before.
+  const totalLivePoints = state.round.cells.reduce((sum, cell) => {
+    if (!cell.guess) return sum;
+    if (cell.guess.isCorrect) return cell.guess.livePoints != null ? sum + cell.guess.livePoints : sum;
+    return cell.guess.locked ? sum + MAX_POINTS_PER_CELL : sum;
+  }, 0);
+  const anyPointsKnown = state.round.cells.some(
+    (cell) => cell.guess != null && (cell.guess.isCorrect ? cell.guess.livePoints != null : cell.guess.locked),
   );
 
   return (
@@ -151,7 +161,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
           <p className="grid-screen__progress mono-figure">
             {answeredCount}/{state.round.cells.length} answered
           </p>
-          {anyLivePointsKnown && (
+          {anyPointsKnown && (
             <p className="grid-screen__total mono-figure">~{totalLivePoints} pts estimated</p>
           )}
         </div>

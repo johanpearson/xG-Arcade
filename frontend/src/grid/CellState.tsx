@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
+import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
 
@@ -206,11 +207,15 @@ export function CellState({
   }
 
   // State 3 (round active) / state 4's incorrect outcome (round closed):
-  // both locked with no attempts remaining. REQ-205/206 don't apply to an
-  // incorrect guess (ADR-0021's MaxPointsPerCell lock is a backend/
-  // scoring-only concern, not yet surfaced here — S-033, still unshipped),
-  // so no points line, just "no attempts left"/"final" depending on
-  // roundStatus, unaffected by S-041.
+  // both locked with no attempts remaining. S-033: state 3 now shows
+  // MaxPointsPerCell alongside "no attempts left" — ADR-0021's golf scoring
+  // guarantees an incorrect/exhausted cell locks at that value (the worst
+  // possible score, never 0, which is reserved for the best possible
+  // correct guess), so it's a known constant, not a live computation, safe
+  // to show immediately rather than waiting on REQ-205's actual lock.
+  // State 4's incorrect outcome is unaffected — round-closed data isn't
+  // reachable via GET /rounds/current yet (S-011 scope gap), so there's no
+  // live path to exercise a "final" points value there today either.
   return (
     <div
       key={shakeToken}
@@ -219,7 +224,17 @@ export function CellState({
       } ${shakeClassName}`}
     >
       <Row correct={false} />
-      <p className="cell-state__meta">{roundStatus === 'closed' ? 'final' : 'no attempts left'}</p>
+      <p className="cell-state__meta">
+        {roundStatus === 'closed' ? (
+          'final'
+        ) : (
+          <>
+            <span>no attempts left</span>
+            <span aria-hidden="true">·</span>
+            <span>{MAX_POINTS_PER_CELL} pts</span>
+          </>
+        )}
+      </p>
     </div>
   );
 }
