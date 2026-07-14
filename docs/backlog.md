@@ -890,6 +890,40 @@ state renders the point value alongside "no attempts left," matching
 `design-document.md`'s existing mock; visually verified against a locked-
 incorrect cell. *Deps:* none — `CellState.tsx` and `MaxPointsPerCell` both
 already exist.
+**Built as (2026-07-14):** reported directly by a player on the deployed
+app (screenshot: a locked-incorrect Barcelona × Marseille cell showing no
+point value, and the header's running total reading "~0 pts estimated"
+despite the wrong guess) — the exact gap this story already described,
+finally implemented, plus one connected bug this story's own scope didn't
+originally cover. Added `frontend/src/lib/scoringRules.ts` exporting
+`MAX_POINTS_PER_CELL = 100`, mirroring `ScoringRules.MaxPointsPerCell` the
+same way `guessRules.ts`'s `MAX_ATTEMPTS_PER_CELL` already mirrors its
+backend counterpart — display only, never enforcement. Also fixed, same
+root cause: `GridScreen.tsx`'s REQ-206 running total only ever summed
+correct guesses' `LivePoints`, silently excluding locked-incorrect cells
+entirely, so a wrong guess looked like it contributed nothing (reading as
+the *best* possible score under golf rules) instead of the guaranteed
+`MaxPointsPerCell` worst case — now included in the same sum.
+**Simplified further, same feedback round:** the first version rendered
+"no attempts left · 100 pts"; direct follow-up feedback judged the
+qualifier redundant once the points value itself said "this cell is
+done" — dropped in favor of `CellState.tsx`'s state-3 branch matching a
+correct cell's own minimal "✕/✓ + points" structure exactly (just
+"100 pts"). State 4's incorrect outcome, previously left alone, was
+brought in line the same way instead of staying inconsistent once both
+states used the same frontend-known constant rather than needing a
+`FinalPoints` value from the API (still no live path to exercise it,
+S-011 scope gap — but nothing stops the styling from matching regardless).
+The same feedback also asked for REQ-213's explainer (SCREEN-06) to state
+the attempt count, that a wrong guess and an unanswered cell lock at the
+same maximum score, and the player-pool restriction (REQ-112/ADR-0025,
+male footballers born 1939+) — none of which were previously documented
+anywhere player-facing; added as three more paragraphs, see REQ-213.
+Tests: CellState/GridScreen/ScoringExplainer Vitest suites updated/
+extended (88 frontend tests pass, `tsc -b --noEmit` clean), one E2E
+assertion updated by hand (no live backend in this environment to run it
+against). Visually verified against the exact reported scenario at a real
+narrow viewport, both the simplified cell and the expanded explainer.
 
 **S-034 · Paginate the global leaderboard endpoint (REQ-607)**
 Closes the gap an architecture-reviewer pass flagged during S-011 and

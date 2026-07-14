@@ -13,6 +13,34 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — `docs/requirements-document.md` (0.53 → 0.54),
+  `docs/design-document.md` (0.18 → 0.19), `docs/backlog.md` — same
+  feedback round as the S-033/REQ-206 fix below, two follow-up requests.
+  (1) SCREEN-01a state 3's "no attempts left · 100 pts" simplified to just
+  "100 pts", matching a correct cell's own minimal "✕/✓ + points"
+  structure exactly — the qualifier text read as redundant once the
+  points value itself said "this cell is done." State 4's incorrect
+  outcome brought in line the same way. (2) SCREEN-06's explainer (REQ-213)
+  gained three more required content points, none previously documented
+  anywhere player-facing: the attempt count, that a wrong guess and an
+  unanswered cell lock at the same maximum score (previously each only
+  documented in isolation), and the player-pool restriction (REQ-112/
+  ADR-0025, male footballers born 1939 or later). Also fixed a stale
+  `docs/design-document.md` §5 "Copy and voice" bullet left over from
+  S-041's own doc-sync pass (still told writers to say "live"/"final,"
+  a distinction that story had already removed from the cell entirely).
+  REQ-204/213.
+- 2026-07-14 — `docs/requirements-document.md` (0.52 → 0.53),
+  `docs/backlog.md`, `docs/implementation-document.md` (0.49 → 0.50) —
+  implemented S-033 (finally) and fixed a connected REQ-206 bug, both
+  reported directly by a player on the deployed app: a locked-incorrect
+  cell showed no point value at all, and the header's running total
+  silently excluded it too, so a wrong guess read as scoring 0 (the best
+  possible score under ADR-0021's golf model) instead of the guaranteed
+  `MaxPointsPerCell` worst case it actually locks at. New
+  `frontend/src/lib/scoringRules.ts` (`MAX_POINTS_PER_CELL`), used by both
+  `CellState.tsx`'s state-3 branch and `GridScreen.tsx`'s running-total
+  sum. REQ-204/206.
 - 2026-07-14 — doc-sync pass on S-041's implementation:
   `docs/requirements-document.md` (0.51 → 0.52, REQ-212 and REQ-213 status
   changed from "Proposed" to "Implemented (Tier 0, S-041)" with "Built as"

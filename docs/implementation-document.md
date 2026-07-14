@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.49"
+version: "0.50"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.49 · 2026-07-14
+Version 0.50 · 2026-07-14
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -243,7 +243,9 @@ misconfigured per-endpoint. See ADR-0006.
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league only)
     /lib                          -> api.ts (typed fetch client), types.ts,
-                                     categoryDisplay.ts, guessRules.ts
+                                     categoryDisplay.ts, guessRules.ts,
+                                     scoringRules.ts (MAX_POINTS_PER_CELL,
+                                     added 2026-07-14 bugfix)
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests

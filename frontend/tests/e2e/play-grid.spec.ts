@@ -278,7 +278,7 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
   // path above. Uses its own freshly seeded cell/round (via seedFreshRound,
   // which force-closes the previous test's round first) rather than reusing
   // any state from the test above.
-  test('REQ-210: two wrong guesses in a row lock the cell as "no attempts left"', async ({
+  test('REQ-210: two wrong guesses in a row lock the cell, showing the guaranteed MaxPointsPerCell value', async ({
     page,
     request,
   }) => {
@@ -308,7 +308,14 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // Frontend name-display fix (S-029): no name shown for an incorrect
     // guess, same as the single-wrong-guess case above.
     await expect(cell.getByText('Wrong Guess Number Two')).not.toBeVisible()
-    await expect(cell.getByText('no attempts left')).toBeVisible()
+    // S-033 bugfix, simplified same-day per direct feedback: a
+    // locked-incorrect cell shows only a checkmark-equivalent (✕) plus the
+    // guaranteed MaxPointsPerCell value (100) — no "no attempts left"
+    // qualifier text, same minimal "✕ + points" structure a correct cell
+    // uses. ADR-0021's golf scoring locks a wrong guess at the worst case,
+    // not 0.
+    await expect(cell.getByText('100 pts')).toBeVisible()
+    await expect(cell.getByText('no attempts left')).not.toBeVisible()
     await expect(cell).toBeDisabled()
 
     // S-020: the rejected-guess cue also fires on the guess that uses up

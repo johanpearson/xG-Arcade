@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
+import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { CategoryGlyph } from './CategoryLabel';
 import './CellState.css';
 
@@ -205,21 +206,22 @@ export function CellState({
     );
   }
 
-  // State 3 (round active) / state 4's incorrect outcome (round closed):
-  // both locked with no attempts remaining. REQ-205/206 don't apply to an
-  // incorrect guess (ADR-0021's MaxPointsPerCell lock is a backend/
-  // scoring-only concern, not yet surfaced here — S-033, still unshipped),
-  // so no points line, just "no attempts left"/"final" depending on
-  // roundStatus, unaffected by S-041.
+  // State 3 (round active, no attempts left) / state 4's incorrect outcome
+  // (round closed): both locked, both guaranteed to score MaxPointsPerCell
+  // (ADR-0021's golf-scoring worst case, never 0 — 0 is reserved for the
+  // best possible correct guess). Same minimal "✕ + points" structure the
+  // correct branch above uses, no "no attempts left"/"final" qualifier —
+  // simplified same-day from an earlier version that kept the qualifier,
+  // per direct feedback that the points value alone already says "this
+  // cell is done," same as a correct cell needs no "correct" label
+  // alongside its own points. roundStatus no longer affects this branch's
+  // output at all: the incorrect-lock value is the same known constant
+  // regardless of *when* the cell locked, so there's nothing left here
+  // that depends on whether the round itself is still active or closed.
   return (
-    <div
-      key={shakeToken}
-      className={`cell-state cell-state--incorrect cell-state--locked ${
-        roundStatus === 'closed' ? 'cell-state--final' : ''
-      } ${shakeClassName}`}
-    >
+    <div key={shakeToken} className={`cell-state cell-state--incorrect ${shakeClassName}`}>
       <Row correct={false} />
-      <p className="cell-state__meta">{roundStatus === 'closed' ? 'final' : 'no attempts left'}</p>
+      <p className="cell-state__meta mono-figure">{MAX_POINTS_PER_CELL} pts</p>
     </div>
   );
 }

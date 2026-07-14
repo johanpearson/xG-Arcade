@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react';
+import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
+import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import './ScoringExplainer.css';
 
 export interface ScoringExplainerProps {
@@ -13,6 +15,14 @@ export interface ScoringExplainerProps {
 // cell's specific numbers — REQ-213 requires no cell-specific numbers here,
 // so the content stays valid regardless of which cells the player has
 // attempted.
+//
+// Content expanded 2026-07-14, requested directly by a player in the same
+// message that reported the SCREEN-01a locked-incorrect-cell bug (see
+// CellState.tsx/S-033): attempts count, the wrong-guess/unanswered-cell
+// max-score rule (ADR-0021/S-028 — previously each only documented in
+// isolation, nothing connecting them for a player reading this), and the
+// player-pool restriction (REQ-112/ADR-0025), none of which were
+// previously stated anywhere player-facing at all.
 export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -58,6 +68,7 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
             ×
           </button>
         </div>
+        <p className="scoring-explainer__text">You get {MAX_ATTEMPTS_PER_CELL} attempts per cell.</p>
         <p className="scoring-explainer__text">
           A correct cell shows a live estimate that can still change until the round closes.
         </p>
@@ -65,8 +76,16 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
           Once the round closes, that value is locked and won't change again.
         </p>
         <p className="scoring-explainer__text">
+          A wrong guess (after all {MAX_ATTEMPTS_PER_CELL} attempts) locks in the maximum score (
+          {MAX_POINTS_PER_CELL} pts) for that cell — the same maximum score you'd get by not guessing at
+          all once the round closes.
+        </p>
+        <p className="scoring-explainer__text">
           xG Arcade is scored like golf — lower is better. An answer fewer other players also
           guessed scores better than a common one.
+        </p>
+        <p className="scoring-explainer__text">
+          Answers are footballers who are male and born in 1939 or later.
         </p>
       </div>
     </div>

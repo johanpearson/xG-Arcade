@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.52"
+version: "0.54"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.52 · 2026-07-14
+Version 0.54 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -560,14 +560,34 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   unchanged API fields, this is a frontend display-wording fix only, applied
   everywhere this value is shown (state 1's live disclosure and state 4's
   locked "final" text).
-- **Acknowledged gap, queued as `docs/backlog.md` S-033 (2026-07-12):**
-  SCREEN-01a's state 3 ("Incorrect, no attempts remaining" — both guesses
-  wrong, cell locked) does not render a point value at all, unlike every
-  other locked state. `design-document.md` SCREEN-01a's mock already shows
-  "no attempts left · 100 pts" (corrected during S-028/ADR-0021);
-  `CellState.tsx` was never updated to match. The value is a known constant
-  (`ScoringRules.MaxPointsPerCell`), so this is a pure rendering fix, not a
-  new calculation.
+- **Built as (`docs/backlog.md` S-033, 2026-07-14):** SCREEN-01a's state 3
+  ("Incorrect, no attempts remaining" — both guesses wrong, cell locked)
+  used to render no point value at all, unlike every other locked state —
+  flagged as an acknowledged gap on 2026-07-12, fixed here. Reported
+  directly by a player looking at the deployed app: a locked-incorrect
+  cell visibly showed nothing where a point value belonged, and the
+  header's running total (REQ-206) silently excluded it too, so a wrong,
+  locked-out guess looked like it counted for nothing rather than the
+  guaranteed worst-case score ADR-0021 actually locks it at.
+  `CellState.tsx`'s state-3 branch now renders `{MaxPointsPerCell} pts` —
+  a new frontend-side `MAX_POINTS_PER_CELL` in `lib/scoringRules.ts`,
+  mirroring `ScoringRules.MaxPointsPerCell` the same way
+  `MAX_ATTEMPTS_PER_CELL` already mirrors its backend counterpart, display
+  only, never enforcement. **Simplified same-day, same feedback round:**
+  the first version also kept "no attempts left" alongside the points
+  ("no attempts left · 100 pts", matching `design-document.md`'s
+  then-current mock); direct follow-up feedback judged that qualifier
+  redundant once the points value itself communicated "this cell is
+  done," the same way a correct cell needs no "correct" label alongside
+  its own points — dropped in favor of the identical minimal "✕/✓ +
+  points" structure a correct cell already uses. State 4's incorrect
+  outcome was brought in line the same way (also just `{MaxPointsPerCell}
+  pts`, no "final") — round-closed data still isn't reachable via
+  `GET /rounds/current` today (S-011 scope gap) so this can't be exercised
+  live yet, but it costs nothing to keep it consistent with state 3 now
+  that both use the same frontend-known constant rather than a
+  `FinalPoints` value that would need to come from the API. See REQ-206
+  for the matching running-total fix.
 - **Built as (`docs/backlog.md` S-040, 2026-07-14):** direct product
   feedback (screenshots of the deployed app on a phone, and separately on a
   wide/"desktop site" viewport) found two real problems, both fixed in this
@@ -786,7 +806,20 @@ indicator of any kind, no percent)
   (`GET /rounds/current` only ever returns an Active round), so there is
   still nowhere to show one closed round's final total distinctly from the
   leaderboard's all-time running total. Not a regression — revisit once/if
-  a past-round-detail view exists. **S-028 correction (ADR-0021):** "unanswered cells count as 0 points" was true
+  a past-round-detail view exists. **Bugfix (2026-07-14), reported directly
+  by a player:** the S-029 live total above only ever summed correctly-
+  guessed cells' `LivePoints`, silently excluding any locked-incorrect cell
+  entirely — so a wrong, no-attempts-left guess contributed nothing to the
+  displayed total, reading as if it scored 0 (the *best* possible score
+  under ADR-0021's golf model) rather than the guaranteed worst-case
+  `MaxPointsPerCell` it's actually locked at. `GridScreen.tsx`'s total now
+  also adds `MaxPointsPerCell` (`lib/scoringRules.ts`) for each cell whose
+  guess is `locked && !isCorrect` — matching the same value SCREEN-01a's
+  state 3 now displays per-cell (see REQ-204's matching S-033 fix above).
+  A correct guess still awaiting its `LivePoints` (submitted this instant,
+  not yet re-fetched) remains genuinely excluded, unchanged — only a
+  guess whose outcome is already fully known (correct-with-a-value, or
+  locked-incorrect) contributes. **S-028 correction (ADR-0021):** "unanswered cells count as 0 points" was true
   under the higher-is-better model (0 was the worst score, matching "no
   credit"); under lowest-wins, 0 is the *best* score, so leaving unanswered
   cells at 0 would make skipping a cell entirely optimal. `ScoreLockingService
@@ -1073,6 +1106,12 @@ reveals a name)
   gave the explainer's backdrop an explicit `z-index: 20` (above
   `GuessInput`'s `z-index: 10`) rather than relying on DOM order for correct
   stacking when both are open at once.
+- **Content expanded (2026-07-14), requested directly by a player:** three
+  more required content points added, alongside the original three (see
+  acceptance criteria below for all six). Landed in the same iteration as
+  a connected SCREEN-01a fix — see REQ-204's matching 2026-07-14 note —
+  since a player asked "is wrong = max points, same as not guessing at
+  all?" in the same message that reported the per-cell display bug.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -1089,6 +1128,18 @@ reveals a name)
   - in general terms, not the exact formula, that an answer fewer other
     players also guessed scores better, and that xG Arcade is scored like
     golf overall — lower is better (ADR-0021)
+  - **(2026-07-14 addition)** the number of attempts allowed per cell
+    (`MAX_ATTEMPTS_PER_CELL`, REQ-210)
+  - **(2026-07-14 addition)** that a wrong guess (attempts exhausted) locks
+    a cell at the maximum score, and that this is the *same* maximum score
+    an unanswered cell locks at once the round closes — the two are the
+    same rule (ADR-0021, S-028's unanswered-cell materialization), not two
+    separate ones, and the explainer must connect them rather than only
+    stating one
+  - **(2026-07-14 addition)** the player-pool restriction: only male
+    footballers born in 1939 or later are ever used as answers (REQ-112,
+    ADR-0025) — stated plainly so a rejected-but-technically-correct name
+    reads as an intentional scope boundary, not a bug
 - And the explainer is reachable from the grid screen at any time an active
   round is shown — not gated behind having attempted any particular cell,
   and not a one-time first-visit-only prompt
@@ -1097,7 +1148,7 @@ reveals a name)
   valid regardless of which cells, or how many, the player has attempted
 
 **Test level:** UI (explainer opens from the header entry point and closes
-without losing in-progress state; contains text covering all three required
+without losing in-progress state; contains text covering all six required
 content points — presence checks against required concepts, not exact
 wording)
 
