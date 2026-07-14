@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.31"
+version: "0.32"
 status: draft
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -238,6 +238,23 @@ choose themselves. The migration adding the index also had to resolve any
 pre-existing collision in already-seeded data before creating it; see
 ADR-0019 for that one-time silent-rename strategy and its explicit revisit
 trigger once real users exist.
+
+**COMP-01 status (S-025):** `IAccountDeletionService`/`AccountDeletionService`
+(`XGArcade.Core.Auth`) implements REQ-710 as reusable service logic, built
+deliberately so `docs/backlog.md` S-026's admin-triggered deletion can call
+it too, rather than growing a second implementation — it identifies its
+target by local `User.Id`, never a JWT or password, so both a self-service
+caller (resolves its own id first) and an admin caller (already has the
+target id) can use it identically; any caller-specific confirmation step
+stays in the calling endpoint. It reaches across component boundaries the
+same way `AuthController.Signup` already does (`ILeagueRepository` directly,
+per COMP-02) to remove `LeagueMembership` rows, plus `IGuessRepository`
+(COMP-04) to anonymize `Guess` rows and `ISupabaseAuthClient` to delete the
+Supabase Auth identity. `ISupabaseAuthClient.DeleteUserAsync` needed a new,
+genuinely privileged secret (`Supabase:ServiceRoleKey`) that the existing
+anon-keyed signup/login calls don't use — see ADR-0026 for why this didn't
+need a second `HttpClient`/component boundary change, just one new
+per-request header override and one new DI-supplied value.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never

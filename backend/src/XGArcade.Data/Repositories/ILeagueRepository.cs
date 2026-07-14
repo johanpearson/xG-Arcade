@@ -22,4 +22,12 @@ public interface ILeagueRepository
     // REQ-404's leaderboard population: every user id currently a member of
     // this league.
     Task<IReadOnlyList<Guid>> GetMemberUserIdsAsync(Guid leagueId, CancellationToken cancellationToken = default);
+
+    // REQ-710: removes every league membership for a user being deleted —
+    // called by AccountDeletionService (Core.Auth/COMP-01) before the User
+    // row itself is removed, the same cross-component repository call
+    // AuthController.Signup already makes into ILeagueRepository directly.
+    // implementation-document.md §6.8 documents this as an explicit delete
+    // step, not something left to a DB-level cascade.
+    Task RemoveMembershipsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }

@@ -114,7 +114,11 @@ reference to know if you're ready:
   the frontend calling Supabase itself; `ci.yml`'s local E2E stack doesn't
   need any of these, since it runs with `Auth__Mode=local-e2e` instead, see
   `docs/backlog.md` S-004; JWT validation needs no separate secret at all —
-  it derives from `DEV_SUPABASE_URL` alone, ADR-0017); `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`,
+  it derives from `DEV_SUPABASE_URL` alone, ADR-0017); `DEV_SUPABASE_SERVICE_ROLE_KEY`
+  (added S-025/ADR-0026 — a genuinely privileged credential, unlike the anon
+  key, used only by REQ-710's self-service account deletion to remove the
+  Supabase Auth identity; also unneeded by `ci.yml`'s local E2E stack for the
+  same `Auth__Mode=local-e2e` reason); `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN`,
   `DEV_BACKEND_HOSTNAME`, and `DEV_FRONTEND_HOSTNAME` filled in after the
   first deploy — the last of these is also what `deploy.yml` feeds to the
   backend as its CORS-allowed origin, so the frontend can't actually reach

@@ -145,6 +145,7 @@ Prod-specific:
 | `PROD_DATABASE_CONNECTION_STRING` | Production Supabase Postgres connection string — also used by `backup-database.yml` and as the "prod" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml`. Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form (see `NOTES.md`) |
 | `PROD_SUPABASE_URL` | The production Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming JWTs against this project's JWKS endpoint (ADR-0017); no separate secret needed for that |
 | `PROD_SUPABASE_ANON_KEY` | The production Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret, but still **required**: `Program.cs` throws at startup if `Supabase:AnonKey` is unconfigured, and an empty value also fails Azure's Container App secret validation at deploy time |
+| `PROD_SUPABASE_SERVICE_ROLE_KEY` (REQ-710, ADR-0026) | The production Supabase project's `service_role` key (Settings → API) — a genuinely privileged credential (bypasses Row Level Security), used only by the backend's account-deletion call to Supabase's Admin API (`DELETE /auth/v1/admin/users/{id}`). Unlike the anon key above, this **is** a true secret: never expose it to the frontend. `Program.cs` throws at startup if `Supabase:ServiceRoleKey` is unconfigured |
 | `PROD_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the prod Static Web App resource |
 | `PROD_BACKEND_HOSTNAME` | Used by `sync-players.yml`/`generate-round.yml` to call scheduled internal endpoints on production |
 
@@ -156,6 +157,7 @@ Dev-specific:
 | `DEV_DATABASE_CONNECTION_STRING` | Dev Supabase Postgres connection string — used by `deploy.yml`'s `migrate-and-seed-database` job (S-005) to apply migrations and seed Tier 0 reference data on every push to `main`; also the "dev" side of `sync-prod-to-dev.yml`/`promote-dev-to-prod.yml`. Must be the **.NET/ADO.NET keyword=value format** (`Host=...;Port=5432;Database=postgres;Username=...;Password=...;SSL Mode=Require;Trust Server Certificate=true`), not the **URI** form (`postgresql://...`) Supabase's dashboard shows by default — Npgsql can't parse the URI form and fails with `ArgumentException: Format of the initialization string does not conform to specification` (see `NOTES.md`) |
 | `DEV_SUPABASE_URL` | The dev Supabase project's URL (Settings → API) — the backend calls its Auth REST API to mediate signup/login (ADR-0013), and validates incoming JWTs against this project's JWKS endpoint (ADR-0017); no separate secret needed for that. `ci.yml`'s local E2E stack doesn't need this at all — it runs with `Auth__Mode=local-e2e`, which swaps in a fake auth client instead (see S-004, `docs/backlog.md`) |
 | `DEV_SUPABASE_ANON_KEY` | The dev Supabase project's anon/publishable key (Settings → API) — publishable by Supabase's own design, not a true secret, but still **required**: `Program.cs` throws at startup if `Supabase:AnonKey` is unconfigured, and an empty value also fails Azure's Container App secret validation in `deploy.yml`'s `deploy-infra` job (`ContainerAppSecretInvalid`) before the app is ever deployed |
+| `DEV_SUPABASE_SERVICE_ROLE_KEY` (REQ-710, ADR-0026) | The dev Supabase project's `service_role` key (Settings → API) — a genuinely privileged credential (bypasses Row Level Security), used only by the backend's account-deletion call to Supabase's Admin API (`DELETE /auth/v1/admin/users/{id}`). Unlike `DEV_SUPABASE_ANON_KEY`, this **is** a true secret: never expose it to the frontend, never log it. `Program.cs` throws at startup if `Supabase:ServiceRoleKey` is unconfigured. `ci.yml`'s local E2E stack doesn't need this at all — same `Auth__Mode=local-e2e` carve-out as `DEV_SUPABASE_URL` above |
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the dev Static Web App resource |
 | `DEV_BACKEND_HOSTNAME` | Used by `generate-round.yml` to call scheduled internal endpoints; also by Tier 1's `ci.yml` for the test-data reset call and E2E test target |
 | `DEV_FRONTEND_HOSTNAME` | Fed to `deploy.yml` as the backend's CORS-allowed origin (S-002) — the one real cross-environment coupling in an otherwise one-way deploy. Also used by Tier 1's `ci.yml` for the E2E test target |
@@ -221,6 +223,7 @@ az deployment group create \
                databaseConnectionString="<dev-supabase-connection-string>" \
                supabaseUrl="<dev-supabase-url>" \
                supabaseAnonKey="<dev-supabase-anon-key>" \
+               supabaseServiceRoleKey="<dev-supabase-service-role-key>" \
                internalJobToken="<internal-job-token>"
 ```
 
@@ -258,6 +261,7 @@ az deployment group create \
                databaseConnectionString="<prod-supabase-connection-string>" \
                supabaseUrl="<prod-supabase-url>" \
                supabaseAnonKey="<prod-supabase-anon-key>" \
+               supabaseServiceRoleKey="<prod-supabase-service-role-key>" \
                internalJobToken="<internal-job-token>"
 ```
 

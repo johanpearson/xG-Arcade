@@ -58,6 +58,14 @@ which is exactly what ADR-0006 needs (dev + prod).
      There's no separate "JWT secret" to copy — JWT validation fetches
      Supabase's public signing keys from its JWKS endpoint automatically
      from the Project URL alone (ADR-0017)
+   - **`service_role` key** (Settings → API, same page as the anon key —
+     labeled `service_role`/`secret`) — save it too, as
+     `DEV_SUPABASE_SERVICE_ROLE_KEY`. Unlike the anon key above, **this one
+     is a true secret** (bypasses Row Level Security entirely) — REQ-710's
+     self-service account deletion (ADR-0026) uses it to call Supabase's
+     Admin API and delete the underlying identity; never put it anywhere a
+     frontend bundle could read it. Also required at startup
+     (`Supabase:ServiceRoleKey`, `Program.cs`)
 4. Don't touch Auth/SMTP settings yet — that needs Resend first (step 3)
 
 ## 3. Resend (email)
@@ -152,7 +160,7 @@ specific is prefixed `PROD_` or `DEV_`, nothing else):
 |---|---|
 | `DEV_AZURE_RESOURCE_GROUP` | Step 5 (`xg-arcade-dev-rg`) |
 | `DEV_DATABASE_CONNECTION_STRING` | Step 2, your one Supabase project |
-| `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY` | Step 2, your one Supabase project (Settings → API) |
+| `DEV_SUPABASE_URL` / `DEV_SUPABASE_ANON_KEY` / `DEV_SUPABASE_SERVICE_ROLE_KEY` | Step 2, your one Supabase project (Settings → API) |
 | `DEV_AZURE_STATIC_WEB_APPS_API_TOKEN` | Comes from step 7, add it after |
 | `DEV_BACKEND_HOSTNAME` / `DEV_FRONTEND_HOSTNAME` | Comes from step 7, add it after |
 
@@ -162,7 +170,7 @@ specific is prefixed `PROD_` or `DEV_`, nothing else):
 |---|---|
 | `PROD_AZURE_RESOURCE_GROUP` | `xg-arcade-prod-rg`, created at Tier 1 |
 | `PROD_DATABASE_CONNECTION_STRING` | A second Supabase project, created at Tier 1 |
-| `PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY` | Same second Supabase project (Settings → API) |
+| `PROD_SUPABASE_URL` / `PROD_SUPABASE_ANON_KEY` / `PROD_SUPABASE_SERVICE_ROLE_KEY` | Same second Supabase project (Settings → API) |
 | `PROD_AZURE_STATIC_WEB_APPS_API_TOKEN` | From the prod deploy, once it exists |
 | `PROD_BACKEND_HOSTNAME` | From the prod deploy, once it exists |
 
@@ -181,7 +189,8 @@ az deployment group create \
                registryPassword="<a-github-PAT-with-read:packages>" \
                databaseConnectionString="<dev-supabase-connection-string>" \
                supabaseUrl="<dev-supabase-url>" \
-               supabaseAnonKey="<dev-supabase-anon-key>"
+               supabaseAnonKey="<dev-supabase-anon-key>" \
+               supabaseServiceRoleKey="<dev-supabase-service-role-key>"
 ```
 
 (JWT validation needs no separate secret parameter — it derives from
@@ -207,7 +216,8 @@ az deployment group create \
                registryPassword="<a-github-PAT-with-read:packages>" \
                databaseConnectionString="<prod-supabase-connection-string>" \
                supabaseUrl="<prod-supabase-url>" \
-               supabaseAnonKey="<prod-supabase-anon-key>"
+               supabaseAnonKey="<prod-supabase-anon-key>" \
+               supabaseServiceRoleKey="<prod-supabase-service-role-key>"
 ```
 
 This won't fully succeed until `backend/Dockerfile` actually exists and an

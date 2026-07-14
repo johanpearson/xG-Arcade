@@ -16,6 +16,7 @@ public class AuthController(
     ISupabaseAuthClient authClient,
     IUserRepository userRepository,
     ILeagueRepository leagueRepository,
+    IAccountDeletionService accountDeletionService,
     ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("signup")]
@@ -152,6 +153,52 @@ public class AuthController(
         }
 
         return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed));
+    }
+
+    // REQ-710: self-service account deletion. Irreversible, so the request
+    // must re-prove the caller still holds the account's own credentials —
+    // re-verified against Supabase Auth via the same SignInWithPasswordAsync
+    // call Login uses, rather than a bare confirmation flag — before any
+    // data is touched. The actual anonymize/delete logic lives in
+    // IAccountDeletionService, not here, so S-026's admin-triggered deletion
+    // (docs/backlog.md) can call the identical path with its own,
+    // admin-authorized confirmation instead of a second implementation.
+    [Authorize]
+    [HttpDelete("account")]
+    public async Task<IActionResult> DeleteAccount([FromBody] DeleteAccountRequest request, CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, cancellationToken);
+        if (!confirmation.Success)
+        {
+            return Problem(
+                title: "Incorrect password",
+                detail: "Account deletion requires your current password to confirm.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        var result = await accountDeletionService.DeleteAccountAsync(user.Id, cancellationToken);
+        if (!result.Success)
+        {
+            logger.LogError("Account deletion failed for user {UserId}: {ErrorMessage}", user.Id, result.ErrorMessage);
+            return Problem(
+                title: "Account deletion failed",
+                detail: result.ErrorMessage,
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        return NoContent();
     }
 
     // Shared by both places REQ-701's uniqueness rule can reject a signup —

@@ -39,6 +39,10 @@ param supabaseJwksPath string = '/auth/v1/.well-known/jwks.json'
 param supabaseAnonKey string
 
 @secure()
+@description('Supabase service_role API key (REQ-710, ADR-0026) — see modules/backend-container-app.bicep for guidance.')
+param supabaseServiceRoleKey string
+
+@secure()
 @description('Shared bearer token authorizing calls to /internal/* endpoints. See modules/backend-container-app.bicep for guidance.')
 param internalJobToken string
 
@@ -74,6 +78,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseUrl: supabaseUrl
     supabaseJwksPath: supabaseJwksPath
     supabaseAnonKey: supabaseAnonKey
+    supabaseServiceRoleKey: supabaseServiceRoleKey
     internalJobToken: internalJobToken
     corsAllowedOrigin: corsAllowedOrigin
     adminUserIds: adminUserIds

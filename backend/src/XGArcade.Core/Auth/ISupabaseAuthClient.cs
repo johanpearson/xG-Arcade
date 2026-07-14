@@ -8,6 +8,13 @@ public interface ISupabaseAuthClient
     Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default);
 
     Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default);
+
+    // REQ-710: permanently removes the identity/credential from Supabase
+    // Auth, so the caller can no longer log in and the email becomes
+    // available for a new signup. Unlike SignUp/SignIn above, this calls
+    // Supabase's Admin API and requires the service_role key, never the
+    // anon key (see SupabaseAuthClient's own doc comment).
+    Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default);
 }
 
 public record SupabaseAuthResult

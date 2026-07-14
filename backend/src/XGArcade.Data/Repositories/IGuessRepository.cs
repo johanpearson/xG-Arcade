@@ -44,4 +44,13 @@ public interface IGuessRepository
     Task AddRangeAsync(IReadOnlyCollection<Guess> guesses, CancellationToken cancellationToken = default);
 
     Task UpdateAsync(Guess guess, CancellationToken cancellationToken = default);
+
+    // REQ-710: severs every one of this user's Guess rows from them
+    // (UserId = NULL) without deleting the rows themselves — other players'
+    // historical uniqueness scores and leaderboard totals depend on the
+    // total guess count staying intact. A bulk update rather than a
+    // load-then-save loop, since a long-lived account can have far more
+    // guesses than are worth materializing into memory just to null one
+    // column on each.
+    Task AnonymizeByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 }

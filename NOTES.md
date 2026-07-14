@@ -27,6 +27,23 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-14 — EF Core's InMemory provider doesn't support ExecuteUpdate/ExecuteDelete (S-025)
+Every repository test in this codebase runs against EF Core's InMemory
+provider (`Microsoft.EntityFrameworkCore.InMemory`), which does not support
+translating `ExecuteUpdateAsync`/`ExecuteDeleteAsync` — those only work
+against a real relational provider (Npgsql/Postgres in this repo's case).
+S-038's `purge-player-pool` CLI verb already used `Players.ExecuteDeleteAsync()`
+but has zero test coverage, so this never surfaced before. S-025's new
+`AnonymizeByUserIdAsync`/`RemoveMembershipsByUserIdAsync`/`User.DeleteAsync`
+repository methods needed real unit test coverage (REQ-710), so they're all
+written the ordinary load-then-`SaveChangesAsync` way through the change
+tracker instead — same pattern every other repository method in this
+codebase already uses. **If a future story wants a genuine bulk
+Execute*Async for a large table** (justified performance reason, not just
+convenience), it'll need either a real-Postgres-backed test (this repo has
+none currently — see S-013's note on no Docker daemon in this sandbox) or
+to accept that path stays untested, same as `purge-player-pool` today.
+
 ### 2026-07-09 — Microsoft.AspNetCore.OpenApi dropped from XGArcade.Api (S-001)
 The default `dotnet new webapi` template pulls in `Microsoft.AspNetCore.OpenApi`
 10.0.9, which transitively depends on `Microsoft.OpenApi` 2.0.0 — flagged by

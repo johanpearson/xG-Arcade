@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — `docs/requirements-document.md` (0.46 → 0.47, REQ-710 marked
+  Implemented), `docs/architecture-document.md` (0.31 → 0.32, new COMP-01
+  status note), `docs/implementation-document.md` (0.45 → 0.46, §6.8 "Built
+  as" note), `docs/backlog.md` (S-025 "Built as" note), new
+  `docs/decisions/0026-service-role-key-for-account-deletion.md`,
+  `MVP-SCOPE.md`/`infra/README.md`/`SETUP.md` (new
+  `DEV_SUPABASE_SERVICE_ROLE_KEY`/`PROD_SUPABASE_SERVICE_ROLE_KEY` secrets)
+  — S-025: self-service account deletion (REQ-710). New
+  `IAccountDeletionService` (`XGArcade.Core.Auth`) anonymizes `Guess` rows,
+  removes `LeagueMembership` rows, deletes the local `User` row, then
+  deletes the Supabase Auth identity via a new `Supabase:ServiceRoleKey`
+  secret (ADR-0026) — built as reusable service logic (identified by local
+  `User.Id`, not a JWT) so S-026's admin-triggered deletion can reuse it.
+  New `DELETE /auth/account` endpoint, confirmation-gated by re-verifying
+  the caller's password against Supabase Auth.
 - 2026-07-13 — `docs/requirements-document.md` (0.45 → 0.46, new REQ-112),
   `docs/implementation-document.md` (0.44 → 0.45), `docs/backlog.md` (new
   S-038), new

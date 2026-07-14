@@ -16,3 +16,10 @@ public record LoginRequest(string Email, string Password);
 public record LoginResponse(string AccessToken, string? RefreshToken);
 
 public record MeResponse(Guid Id, string Email, string DisplayName, bool EmailConfirmed);
+
+// REQ-710: the confirmation step an irreversible self-service deletion
+// requires — the caller's current password, re-verified against Supabase
+// Auth before anything is deleted (AuthController.DeleteAccount), rather
+// than a bare confirmation flag a client could set without the user
+// actually re-affirming intent.
+public record DeleteAccountRequest(string Password);

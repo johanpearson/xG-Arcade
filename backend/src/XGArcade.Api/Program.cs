@@ -234,6 +234,10 @@ builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+// REQ-710: reusable anonymize/delete logic — AuthController's self-service
+// DeleteAccount endpoint and (per docs/backlog.md S-026) a future
+// admin-triggered endpoint both call this, never a second implementation.
+builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 
 // COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)
 // and the global-leaderboard read path. ILeaderboardService also depends on
@@ -308,6 +312,18 @@ else
         ?? throw new InvalidOperationException("Supabase:Url is not configured.");
     var supabaseAnonKey = builder.Configuration["Supabase:AnonKey"]
         ?? throw new InvalidOperationException("Supabase:AnonKey is not configured.");
+    // REQ-710/ADR-0026: a separate, more-privileged key — never the anon key
+    // above — required only for SupabaseAuthClient.DeleteUserAsync's call to
+    // Supabase's Admin API. Registered as its own tiny DI type
+    // (SupabaseServiceRoleKey) so it flows into SupabaseAuthClient's
+    // constructor via the same AddHttpClient<,> typed-client activation as
+    // httpClient itself — see that class's doc comment for why this call
+    // doesn't get a second HttpClient. ci.yml's local E2E stack
+    // (useLocalE2EAuth above) never constructs a SupabaseAuthClient at all,
+    // so it never needs this registered.
+    var supabaseServiceRoleKey = builder.Configuration["Supabase:ServiceRoleKey"]
+        ?? throw new InvalidOperationException("Supabase:ServiceRoleKey is not configured.");
+    builder.Services.AddSingleton(new SupabaseServiceRoleKey(supabaseServiceRoleKey));
 
     builder.Services.AddHttpClient<ISupabaseAuthClient, SupabaseAuthClient>(client =>
     {

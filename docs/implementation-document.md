@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.45"
+version: "0.46"
 status: draft
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1016,6 +1016,23 @@ on account deletion request (after confirmation):
 No background job is needed for this at MVP scale — it's a single
 transaction. Revisit only if the volume of related rows ever makes this
 slow enough to need async processing.
+
+**Built as (S-025):** matches this pseudocode with one scoping note and one
+deliberate ordering choice. `DELETE FROM NotificationPreference` is a no-op
+in Tier 0 — that table doesn't exist yet (notification preferences are
+Tier 1, `MVP-SCOPE.md`) — not a step silently skipped, just nothing to do
+yet. The Supabase Auth identity deletion is genuinely the *last* step and a
+separate, non-transactional HTTP call (not folded into "a single
+transaction" the way the local `Guess`/`LeagueMembership`/`User` writes
+are) — `AccountDeletionService` (`XGArcade.Core.Auth`) surfaces a failure
+here to its caller rather than swallowing it, but there's no retry/saga if
+it fails after the local writes already committed; see ADR-0026's
+consequences for the accepted trade-off. `IUserRepository`/`IGuessRepository`/
+`ILeagueRepository`'s new methods (`DeleteAsync`, `AnonymizeByUserIdAsync`,
+`RemoveMembershipsByUserIdAsync`) all load-then-`SaveChangesAsync` through
+the EF Core change tracker rather than `ExecuteDeleteAsync`/
+`ExecuteUpdateAsync` — this codebase's tests run against EF Core's InMemory
+provider (§7), which doesn't support translating those bulk operations.
 
 ## 6a. External API shapes (reference)
 

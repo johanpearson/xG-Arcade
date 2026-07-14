@@ -39,6 +39,10 @@ param supabaseJwksPath string = '/auth/v1/.well-known/jwks.json'
 param supabaseAnonKey string
 
 @secure()
+@description('Supabase project service_role API key (REQ-710, ADR-0026) — a genuinely privileged credential (bypasses Row Level Security entirely), used only by SupabaseAuthClient.DeleteUserAsync\'s call to Supabase\'s Admin API to delete a user\'s identity on account deletion. Unlike supabaseAnonKey above, this is a true secret: never send it to the frontend, never log it.')
+param supabaseServiceRoleKey string
+
+@secure()
 @description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, sync-players.yml) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
 param internalJobToken string
 
@@ -85,6 +89,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           value: supabaseAnonKey
         }
         {
+          name: 'supabase-service-role-key'
+          value: supabaseServiceRoleKey
+        }
+        {
           name: 'internal-job-token'
           value: internalJobToken
         }
@@ -111,6 +119,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Supabase__AnonKey'
               secretRef: 'supabase-anon-key'
+            }
+            {
+              name: 'Supabase__ServiceRoleKey'
+              secretRef: 'supabase-service-role-key'
             }
             {
               name: 'Cors__AllowedOrigins'
