@@ -106,6 +106,28 @@ describe('CellState', () => {
     );
   });
 
+  // Same parity check as above, for the incorrect-locked branch (state 3
+  // vs. state 4's incorrect outcome) — both are guaranteed to score
+  // MaxPointsPerCell regardless of when the cell locked, so their markup
+  // should be identical too, not just individually correct.
+  it('REQ-204: state 3 and state 4\'s incorrect outcome render identically in structure — checkmark + MaxPointsPerCell, no qualifier text of any kind', () => {
+    const { container: activeContainer } = render(
+      <CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />,
+    );
+    const { container: closedContainer } = render(
+      <CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="closed" />,
+    );
+
+    for (const container of [activeContainer, closedContainer]) {
+      expect(container.querySelector('.cell-state__icon--incorrect')).toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/no attempts left|final/i);
+    }
+
+    expect(activeContainer.querySelector('.cell-state__meta')?.textContent).toBe(
+      closedContainer.querySelector('.cell-state__meta')?.textContent,
+    );
+  });
+
   it('REQ-210: falls back to a non-fabricated label when no player name is known client-side, once revealed', () => {
     render(<CellState isCorrect attemptCount={1} locked roundStatus="active" revealed />);
 

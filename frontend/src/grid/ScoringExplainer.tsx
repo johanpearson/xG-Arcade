@@ -76,8 +76,9 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
           Once the round closes, that value is locked and won't change again.
         </p>
         <p className="scoring-explainer__text">
-          A wrong guess (after both attempts) locks in the maximum score ({MAX_POINTS_PER_CELL} pts) for
-          that cell — the same maximum score you'd get by not guessing at all once the round closes.
+          A wrong guess (after all {MAX_ATTEMPTS_PER_CELL} attempts) locks in the maximum score (
+          {MAX_POINTS_PER_CELL} pts) for that cell — the same maximum score you'd get by not guessing at
+          all once the round closes.
         </p>
         <p className="scoring-explainer__text">
           xG Arcade is scored like golf — lower is better. An answer fewer other players also

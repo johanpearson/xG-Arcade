@@ -72,18 +72,6 @@
   color: var(--color-text-muted);
 }
 
-/* S-040: a grid cell's own content width at this breakpoint (~73px, once
-   the row-header column's fixed width and the touch-target floor leave the
-   rest to split across data columns) is narrow enough that the longest
-   `cell-state__meta` string ("no attempts left") can be a near-miss short
-   of fitting its own wrapped line at 11px — this nudges it under that
-   width rather than leaving an orphaned word/character on its own line. */
-@media (max-width: 480px) {
-  .cell-state__meta {
-    font-size: 10px;
-  }
-}
-
 .cell-state--correct .cell-state__meta {
   color: var(--color-accent-gold-text);
 }
