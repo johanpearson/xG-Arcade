@@ -24,7 +24,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   general profile/settings page) — REQ-710 status note added pointing to
   it. This is a scoping gap in how S-025 was originally written, not
   anything S-025's implementation did wrong (it matched its acceptance
-  criteria exactly). REQ-710.
+  criteria exactly). A `requirements-writer` review pass on this change
+  found the REQ-710 heading itself still overclaimed: `Status: Implemented`
+  was no longer accurate once this gap is documented (a GDPR-driven legal
+  right that no real user can currently invoke isn't a minor edge-case gap)
+  — requalified to `Status: Partially implemented — backend only ...; no
+  player-facing entry point yet, see docs/backlog.md S-039`, matching this
+  doc's existing "Partially implemented" precedent (e.g. REQ-208/REQ-209).
+  REQ-710.
 - 2026-07-14 — `docs/requirements-document.md` (0.46 → 0.47, REQ-710 marked
   Implemented), `docs/architecture-document.md` (0.31 → 0.32, new COMP-01
   status note), `docs/implementation-document.md` (0.45 → 0.46, §6.8 "Built

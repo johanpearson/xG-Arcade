@@ -1677,7 +1677,9 @@ setup by S-010's Playwright suite
 
 ### 4.10 Account and data rights
 
-**REQ-710 – Account deletion** *(Status: Implemented, Tier 0, S-025)*
+**REQ-710 – Account deletion** *(Status: Partially implemented — backend
+only, Tier 0, S-025; no player-facing entry point yet, see
+`docs/backlog.md` S-039)*
 > As a user, I want to permanently delete my account, so I control my own
 > data (this is a legal right under GDPR for EU users, and good practice regardless).
 
