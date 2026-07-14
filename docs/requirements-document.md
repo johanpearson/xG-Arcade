@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.50"
+version: "0.51"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.49 · 2026-07-14
+Version 0.51 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -616,6 +616,25 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   at-rest/revealed content, plus two edge-case fallbacks — no live point
   estimate yet, and state 4 with no `uniquePercent`/`finalPoints` at all)
   and updated 3 pre-existing tests for the behavior change.
+- **Redesigned (2026-07-14), building on S-040:** product feedback judged
+  the "live"/"final" distinction itself unnecessary noise — a player
+  doesn't need a dot, the word "live," or a "~"/"estimated" qualifier to
+  know a cell is correct; they need the point value, full stop. States 1
+  and 4 now render identically in structure at rest: a checkmark plus a
+  **points** value only (state 1's live estimate or state 4's locked
+  `FinalPoints`, never both, never a percent). This supersedes three of
+  this requirement's acceptance criteria below, kept (not deleted) and
+  explicitly marked **Superseded 2026-07-14** rather than silently
+  rewritten, per this document's ID-stability discipline — the
+  "always as text, never icon-only" at-rest indicator, the S-019/S-040
+  tap-or-hover/focus disclosure of the %-breakdown and round-end-time
+  text, and the "unmistakably provisional" wording requirement. The
+  %-breakdown/round-end content that disclosure used to hold does not
+  reappear anywhere per-cell — it moves to a new, general explainer
+  (REQ-213). What a locked+correct cell now discloses on click/tap instead
+  is the guessed player's name, which is a new, separate requirement
+  (REQ-212) — no longer part of what REQ-204 itself governs, since it's
+  not about the live/final point value at all.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -630,29 +649,54 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   multiple fitting players (see `MVP-SCOPE.md`), the stored `PlayerId` is
   chosen deterministically (lowest Id among fits) so identical guesses by
   different players always group as the same answer for uniqueness
-- And the cell is permanently, visually marked as "live" at rest — a small
-  pulsing green dot plus the text "live," both always present regardless of
-  whether the detail below is currently disclosed (REQ-204's "always as
-  text, never icon-only" rule applies to this at-rest indicator too)
-- And (S-019) the uniqueness percentage plus "updates until the round
-  closes on [date/time]" text is disclosed only on tap/long-press (toggles
+- **Superseded 2026-07-14 (kept for history, no longer current behavior):**
+  "the cell is permanently, visually marked as 'live' at rest — a small
+  pulsing green dot plus the text 'live,' both always present regardless of
+  whether the detail below is currently disclosed (REQ-204's 'always as
+  text, never icon-only' rule applies to this at-rest indicator too)." No
+  dot, no word "live," anywhere on the cell as of 2026-07-14 — see the
+  current-behavior bullets below.
+- **Superseded 2026-07-14 (kept for history, no longer current behavior):**
+  "(S-019) the uniqueness percentage plus 'updates until the round closes
+  on [date/time]' text is disclosed only on tap/long-press (toggles
   open/closed) or, on desktop, hover/focus (transient) — never shown for
   every unresolved cell at once by default — but is still always real text
   once revealed, never an icon standing in for it, and the toggle itself is
   a focusable control exposing `aria-expanded`/`aria-live` so a keyboard or
-  screen-reader user has the same access as a mouse/touch user
-- And the value MAY change between page loads before the round closes
-- And (S-018) a live, provisional point estimate is shown alongside the
-  uniqueness percentage (subject to the same S-019 disclosure interaction),
-  computed via `ScoringRules.PointsFromUniqueScore`
-  — the same shared method REQ-205 calls to lock `FinalPoints` at round
-  close, never a second, independently-written formula
-- And that estimate is worded so it is unmistakably provisional (e.g. "~N
-  pts estimated"), visually and textually distinct from REQ-205's locked
-  "Y pts" — it must never read as a preview or promise of the final score
+  screen-reader user has the same access as a mouse/touch user." This
+  per-cell disclosure (and its hover/focus peek) no longer exists at all —
+  see REQ-212 (click/tap now reveals the guessed player's name instead) and
+  REQ-213 (the %-breakdown/round-end explanation now lives in a general
+  explainer, not per cell).
+- And the value MAY change between page loads before the round closes —
+  still true and still worth surfacing, now covered by REQ-213's explainer
+  rather than per-cell microcopy
+- And (S-018) a live, provisional point estimate is computed via
+  `ScoringRules.PointsFromUniqueScore` — the same shared method REQ-205
+  calls to lock `FinalPoints` at round close, never a second,
+  independently-written formula
+- **Superseded 2026-07-14 (kept for history, no longer current behavior):**
+  "that estimate is worded so it is unmistakably provisional (e.g. '~N pts
+  estimated'), visually and textually distinct from REQ-205's locked 'Y
+  pts' — it must never read as a preview or promise of the final score."
+- **Current behavior (2026-07-14):** at rest, a locked+correct cell shows
+  only a checkmark plus a **points** value — state 1 (correct, round still
+  active) shows the live point estimate above, state 4 (correct, round
+  closed) shows `FinalPoints` (REQ-205) — never a percent, never both
+  values, and with no dot, icon, "~", or "estimated"/"final" qualifier
+  distinguishing one from the other on the cell itself. A player cannot
+  tell, from the cell alone, whether a shown point value is still live or
+  already locked — that distinction is explained generally, once, via
+  REQ-213, not repeated per cell
+- And no per-cell disclosure of the %-breakdown or round-end time exists in
+  either state — clicking/tapping a locked+correct cell instead reveals the
+  guessed player's name (REQ-212); this requirement (REQ-204) governs only
+  the live/locked point *value* and its calculation, not the name-reveal
+  interaction
 
-**Test level:** Unit (calculation logic), API, UI (visual "live" indicator is
-present, updates on refresh)
+**Test level:** Unit (calculation logic), API, UI (state 1 and state 4 at
+rest render identically in structure — checkmark + points, no live
+indicator of any kind, no percent)
 
 **REQ-205 – Score locking at round close**
 > As a player, I want my final score to be fixed once the round closes, so I
@@ -942,6 +986,81 @@ an extra attempt), API
 no live call; match with existing attribute data → no live call needed;
 match with no attribute data and budget available → live call + persist;
 match with no attribute data and budget exhausted → fails closed), API
+
+**REQ-212 – Click/tap reveals the guessed player name on a locked, correct cell**
+> As a player, I want to see which player I answered for a cell I've already
+> solved, so I can confirm or recall my own answer without it being
+> permanently on display.
+
+- **Status: Proposed (2026-07-14).** Replaces the small in-cell reveal
+  toggle `CellState.tsx` used before this date (see REQ-204's 2026-07-14
+  status note) — the toggle's target was a narrow sub-element inside the
+  cell; this requirement makes the whole cell the interactive target, and
+  narrows the trigger from tap-or-hover/focus to click/tap only, on every
+  device.
+- Given a cell that is locked (REQ-210) and the player's own guess for it
+  was correct — i.e. state 1 (correct, round still active) or state 4
+  (correct, round closed)
+- When the player clicks or taps anywhere on the cell
+- Then the guessed player's canonical name (`ResolvedPlayerName`, REQ-303)
+  and its badge dock (the row and column category glyphs) are revealed
+- And clicking/tapping the cell again while revealed hides the name and
+  badge dock again — a single toggle, not a one-way reveal
+- And this click/tap is the only interaction that reveals or hides the
+  name — there is no separate hover-only or focus-only peek distinct from
+  it, and behavior is identical on desktop (mouse), touch, and keyboard
+  (activating the cell via keyboard, e.g. Enter/Space when it holds focus,
+  produces the same toggle a click/tap would); the cell exposes
+  `aria-expanded` reflecting its current revealed/hidden state so a
+  keyboard or screen-reader user has the same access as a mouse/touch user
+- And a locked cell whose guess was incorrect (state 2/3) is never a click
+  target for this interaction — it remains non-interactive, and continues
+  to show no player name at all, ever, regardless of click/tap (unchanged
+  from REQ-303/S-029)
+- And an unlocked or unattempted cell is unaffected — this requirement only
+  applies once a cell is both locked and correct
+
+**Test level:** Unit/UI (click/tap reveals then hides on a locked+correct
+cell; keyboard activation produces the same toggle; `aria-expanded`
+reflects state; a locked+incorrect cell is not a click target and never
+reveals a name)
+
+**REQ-213 – Scoring and live-updates explainer**
+> As a player, I want a general explanation of how scoring and live updates
+> work, so I understand what a point value on a cell means without that
+> explanation being repeated on every cell.
+
+- **Status: Proposed (2026-07-14).** Replaces the per-cell %-breakdown/
+  round-end disclosure text REQ-204 carried before this date (see REQ-204's
+  2026-07-14 status note) — that explanatory content now lives in one
+  general place instead of being repeated, cell by cell, across the grid.
+- Given the grid screen (SCREEN-01) is displayed with an active round
+- When the player activates the explainer entry point in the screen's
+  header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
+- Then an explainer opens — its exact presentation (modal, expandable
+  panel, or similar) is a `design-document.md` decision, not specified
+  here — and can be dismissed, returning the player to the grid screen
+  without discarding any in-progress state (e.g. a filled-but-not-yet-
+  submitted guess)
+- And the explainer's content states, at minimum:
+  - what the live point estimate shown on a still-active correct cell
+    means, and that it can still change before the round closes (REQ-204)
+  - what the locked/final point value shown on a cell means once the round
+    closes, and that it does not change after that (REQ-205)
+  - in general terms, not the exact formula, that an answer fewer other
+    players also guessed scores better, and that xG Arcade is scored like
+    golf overall — lower is better (ADR-0021)
+- And the explainer is reachable from the grid screen at any time an active
+  round is shown — not gated behind having attempted any particular cell,
+  and not a one-time first-visit-only prompt
+- And the explainer's content is general to the scoring/live-update
+  mechanic — it never includes cell-specific numbers, since it must remain
+  valid regardless of which cells, or how many, the player has attempted
+
+**Test level:** UI (explainer opens from the header entry point and closes
+without losing in-progress state; contains text covering all three required
+content points — presence checks against required concepts, not exact
+wording)
 
 ---
 
