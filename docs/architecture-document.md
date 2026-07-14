@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.32"
+version: "0.33"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -113,7 +113,7 @@ writing code, not just how to write the code itself (that's
 
 | ID | Container | Responsibility | Tech |
 |---|---|---|---|
-| CONT-01 | Web Frontend | Renders grid, guess input, leaderboards, admin review UI | TypeScript / React, hosted on Azure Static Web Apps |
+| CONT-01 | Web Frontend | Renders grid, guess input, leaderboards, auth/account screens (login, signup, delete-account), admin review UI | TypeScript / React, hosted on Azure Static Web Apps |
 | CONT-02 | Backend API | Business logic, request handling, scoring, orchestration | C# / ASP.NET Core, containerized, hosted on Azure Container Apps |
 | CONT-03 | Database | Persists users, leagues, rounds, guesses, player data, overrides | PostgreSQL (Supabase); Supabase Auth also used for identity |
 | CONT-04 | Sync Worker | Scheduled job that refreshes player data from external sources | C# console job, containerized, triggered by GitHub Actions |

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.47"
+version: "0.48"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -228,7 +228,9 @@ misconfigured per-endpoint. See ADR-0006.
                                    their component (*.test.tsx under /src),
                                    per docs/coding-guidelines.md, not kept in
                                    a separate /tests/unit tree.
-    /auth                        -> AuthScreen (login/signup, REQ-701)
+    /auth                        -> AuthScreen (login/signup, REQ-701),
+                                     DeleteAccountScreen (SCREEN-05, REQ-710,
+                                     S-039)
     /games                        -> GameSelectScreen (REQ-303's S-021 UX
                                      addition: post-login/post-signup landing
                                      screen, one static tile for xG Grid —

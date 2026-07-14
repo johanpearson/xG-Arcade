@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — doc-sync pass on S-039's REQ-710 UI work: `docs/architecture-document.md`
+  (0.32 → 0.33, CONT-01/Web Frontend row description was missing auth/account
+  screens entirely — a pre-existing gap predating this story, since AuthScreen
+  was never listed there either; fixed now rather than left to compound,
+  since it's a one-line accuracy correction, not a boundary/responsibility
+  change), `docs/implementation-document.md` (0.47 → 0.48, §4 project
+  structure's `/auth` entry now also lists `DeleteAccountScreen`). Checked
+  and found already accurate/complete, no change made:
+  `docs/requirements-document.md` (REQ-710's S-039 "Built as" note and Test
+  level line), `docs/design-document.md` (SCREEN-05), `docs/backlog.md`
+  (S-039 entry), `docs/legal/privacy-policy-draft.md` (deletion language
+  already matches; note its "export... directly from your account settings"
+  sentence is aspirational — REQ-711/data export has no "Built as" note and
+  isn't implemented at all yet, and there's no general "account settings"
+  screen, only the single "Delete account" header link — but this predates
+  S-039 and wasn't touched by this story's diff, so left for a separate
+  pass). No new ADR — this story added a frontend UI for an
+  already-decided/implemented backend behavior (S-025/ADR-0026), no new
+  architecturally-significant choice. REQ-710.
+- 2026-07-14 — `docs/requirements-document.md` (REQ-710 status restored to
+  "Implemented, Tier 0, S-025/S-039" now that the gap #49 flagged is closed;
+  "Built as" note gained a S-039 frontend addendum, test level now includes
+  UI), `docs/design-document.md` (0.14 → 0.15, new SCREEN-05: Delete
+  account), `docs/backlog.md` (S-039's "Built as" note added to the story
+  #49 scoped) — S-039: delete-account UI (REQ-710). S-025 built `DELETE
+  /auth/account` with no frontend; this closes that gap. New
+  `deleteAccount()` (`frontend/src/lib/api.ts`) and `DeleteAccountScreen`
+  (`frontend/src/auth/`), reached only via a "Delete account" header link
+  (no general profile/settings page). Re-enters and re-verifies the current
+  password server-side (no bare confirmation checkbox), shows an explicit
+  irreversibility warning, and on success signs the user out and returns to
+  the login/landing screen via the existing `handleLogout`. A wrong-password
+  401 (`ProblemDetails.title === "Incorrect password"`) shows inline and
+  changes nothing; any other 401 is treated as an expired/invalid JWT, same
+  as every other authenticated screen.
 - 2026-07-14 — `docs/requirements-document.md` (0.47 → 0.48, also fixed a
   pre-existing stale in-body version header, 0.42 → 0.48), `docs/backlog.md`
   — scoped a real gap found right after S-025 merged: `DELETE /auth/account`
@@ -31,7 +66,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   — requalified to `Status: Partially implemented — backend only ...; no
   player-facing entry point yet, see docs/backlog.md S-039`, matching this
   doc's existing "Partially implemented" precedent (e.g. REQ-208/REQ-209).
-  REQ-710.
+  REQ-710. (Superseded same day by the two entries above once S-039 itself
+  was built.)
 - 2026-07-14 — `docs/requirements-document.md` (0.46 → 0.47, REQ-710 marked
   Implemented), `docs/architecture-document.md` (0.31 → 0.32, new COMP-01
   status note), `docs/implementation-document.md` (0.45 → 0.46, §6.8 "Built
