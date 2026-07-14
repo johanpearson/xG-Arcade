@@ -77,4 +77,37 @@ describe('ScoringExplainer', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // design-document.md SCREEN-06: unlike GuessInput, this modal moves focus
+  // in on open and returns it to whatever triggered it on close, rather
+  // than leaving keyboard/screen-reader focus stranded on a now-invisible
+  // element (a real gap found by a code-reviewer pass on this story's own
+  // diff, which had claimed this already matched GuessInput's behavior when
+  // it didn't).
+  it('REQ-213: mounting moves focus into the dialog, and unmounting (as GridScreen does on close) restores focus to whatever was focused before it mounted', () => {
+    function Harness({ open }: { open: boolean }) {
+      return (
+        <div>
+          <button type="button">How scoring works</button>
+          {open && <ScoringExplainer onClose={vi.fn()} />}
+        </div>
+      );
+    }
+    const { rerender } = render(<Harness open={false} />);
+    const openButton = screen.getByRole('button', { name: 'How scoring works' });
+    openButton.focus();
+    expect(openButton).toHaveFocus();
+
+    rerender(<Harness open />);
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+
+    // jsdom's own post-detach focus target (document.body) isn't a
+    // reliable thing to assert on across environments — what actually
+    // matters, and what ScoringExplainer's cleanup effect is responsible
+    // for, is that it explicitly calls .focus() on the originally-focused
+    // element.
+    const restoreFocusSpy = vi.spyOn(openButton, 'focus');
+    rerender(<Harness open={false} />);
+    expect(restoreFocusSpy).toHaveBeenCalled();
+  });
 });

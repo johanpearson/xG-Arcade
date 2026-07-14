@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import './ScoringExplainer.css';
 
 export interface ScoringExplainerProps {
@@ -14,6 +14,8 @@ export interface ScoringExplainerProps {
 // so the content stays valid regardless of which cells the player has
 // attempted.
 export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose();
@@ -21,6 +23,19 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  // A modal (unlike GuessInput, which doesn't do this yet — a known,
+  // separate gap out of this story's scope) moves focus in on open and
+  // returns it to whatever triggered it (the header's (ⓘ) button) on
+  // close, rather than leaving a keyboard/screen-reader user's focus
+  // stranded on a now-invisible element.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus();
+    };
+  }, []);
 
   return (
     <div className="scoring-explainer-backdrop" onClick={onClose}>
@@ -34,6 +49,7 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
         <div className="scoring-explainer__header">
           <h3>How scoring works</h3>
           <button
+            ref={closeButtonRef}
             type="button"
             className="scoring-explainer__close"
             onClick={onClose}

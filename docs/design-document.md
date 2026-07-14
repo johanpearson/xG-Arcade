@@ -506,9 +506,13 @@ confirmation screen, nothing to confirm to once signed out.
 
 **S-041, REQ-213.** Opened from the `(ⓘ)` entry point in SCREEN-01's
 header, next to the round timer — a modal (`role="dialog"`,
-`aria-modal="true"`), same pattern SCREEN-02's `GuessInput` already
-established (backdrop click or `[×]`/Escape closes it, focus returns to the
-entry point on close). Deliberately not a full route/screen: it's a short,
+`aria-modal="true"`), structurally the same backdrop-plus-card pattern
+SCREEN-02's `GuessInput` already established (backdrop click closes it).
+This modal goes further on two points `GuessInput` doesn't (yet — a known,
+separate gap, not part of this story): Escape also closes it, and closing
+it (by any method) returns focus to the `(ⓘ)` button that opened it,
+rather than leaving keyboard/screen-reader focus stranded on a
+now-invisible element. Deliberately not a full route/screen: it's a short,
 general explanation, never gated behind having attempted any cell, and
 reachable at any time an active round is showing. Content is general to the
 mechanic, never cell-specific (no "your cell scored 12 pts" — that number
