@@ -20,4 +20,21 @@ public interface IUserRepository
     // REQ-404's leaderboard: resolves every member's DisplayName in one
     // query rather than one round-trip per row.
     Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);
+
+    // REQ-710: AccountDeletionService's entry point — looks up the row by
+    // local User.Id (not AuthProviderUserId) so both the self-service path
+    // (resolves its own id from the caller's JWT first) and S-026's
+    // admin-triggered path (already has the target id from the route) can
+    // call the same reusable service.
+    Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // REQ-710: permanently removes the local profile row. Callers must
+    // anonymize this user's Guess rows (AnonymizeByUserIdAsync) and remove
+    // their LeagueMembership rows (ILeagueRepository.RemoveMembershipsByUserIdAsync)
+    // *before* calling this — nothing here cascades those on its own. (A
+    // real Postgres FK would cascade LeagueMembership automatically, but
+    // this codebase's tests run against EF Core's InMemory provider, which
+    // doesn't enforce that constraint — see AccountDeletionService, which
+    // does both explicitly rather than relying on it.)
+    Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }

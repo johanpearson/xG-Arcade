@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.31"
+version: "0.32"
 status: draft
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -238,6 +238,23 @@ choose themselves. The migration adding the index also had to resolve any
 pre-existing collision in already-seeded data before creating it; see
 ADR-0019 for that one-time silent-rename strategy and its explicit revisit
 trigger once real users exist.
+
+**COMP-01 status (S-025):** `IAccountDeletionService`/`AccountDeletionService`
+(`XGArcade.Core.Auth`) implements REQ-710 as reusable service logic, built
+deliberately so `docs/backlog.md` S-026's admin-triggered deletion can call
+it too, rather than growing a second implementation — it identifies its
+target by local `User.Id`, never a JWT or password, so both a self-service
+caller (resolves its own id first) and an admin caller (already has the
+target id) can use it identically; any caller-specific confirmation step
+stays in the calling endpoint. It reaches across component boundaries the
+same way `AuthController.Signup` already does (`ILeagueRepository` directly,
+per COMP-02) to remove `LeagueMembership` rows, plus `IGuessRepository`
+(COMP-04) to anonymize `Guess` rows and `ISupabaseAuthClient` to delete the
+Supabase Auth identity. `ISupabaseAuthClient.DeleteUserAsync` needed a new,
+genuinely privileged secret (`Supabase:ServiceRoleKey`) that the existing
+anon-keyed signup/login calls don't use — see ADR-0026 for why this didn't
+need a second `HttpClient`/component boundary change, just one new
+per-request header override and one new DI-supplied value.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -710,7 +727,7 @@ Sync job → Production database: read the same game-data allowlist
 **6.8 Account deletion flow** (realizes REQ-710)
 
 ```
-User → Web Frontend → Backend API: DELETE /account (with confirmation)
+User → Web Frontend → Backend API: DELETE /auth/account (with confirmation)
   → Core.Users (COMP-01): anonymize all Guess rows belonging to this user
     (sever the UserId link — do not delete the rows, since other players'
     uniqueness scores and leaderboard history depend on the total guess count)
@@ -718,6 +735,19 @@ User → Web Frontend → Backend API: DELETE /account (with confirmation)
   → Auth provider (Supabase Auth): delete the credential/identity
   → Email becomes available for a new registration
 ```
+
+**Built as (S-025):** the "Core.Users" step above is slightly compressed —
+`IAccountDeletionService` (COMP-01) also makes an explicit call into
+`ILeagueRepository` (COMP-02) to remove the user's `LeagueMembership` rows,
+between the `Guess` anonymize step and the `User` row delete (§5's COMP-01
+status note has the precise sequence and reasoning). Attributed to
+"Core.Users" here only for brevity, same as this diagram already
+compresses several other cross-component calls elsewhere in this document.
+`NotificationPreference` deletion is a no-op — that table doesn't exist yet
+in Tier 0 (Resend/notification preferences are Tier 1, `MVP-SCOPE.md`).
+Deleting the Supabase Auth identity needed a new `Supabase:ServiceRoleKey`
+secret, since the anon key the rest of this flow's Supabase Auth calls use
+can't call the Admin API — see ADR-0026.
 
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
@@ -824,6 +854,8 @@ new ADR that references the old one.
 | ADR-0022 | Round closing runs inside the round-generation scheduled job, not a second cron | Accepted |
 | ADR-0023 | Grid generation gets its own wall-clock deadline (`MaxDuration`), separate from `MaxAttempts` | Accepted |
 | ADR-0024 | Player cache warming runs as a CLI verb, never an HTTP endpoint or background task | Accepted |
+| ADR-0025 | Player pool restricted to male footballers born in 1939 or later | Accepted |
+| ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 
 ## 11. Glossary
 

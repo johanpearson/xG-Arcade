@@ -685,6 +685,33 @@ from a `Guess` back to the deleted user. REQ710-named test (API): deletion
 requires the confirmation step, deletes/anonymizes exactly the rows REQ-710
 specifies, and a subsequent login attempt with the same credentials fails.
 *Deps:* S-004 (auth), S-009 (Guess exists to anonymize).
+**Built as:** `DELETE /auth/account` (`AuthController.DeleteAccount`,
+`[Authorize]`), confirmation-gated by re-verifying the caller's current
+password against Supabase Auth (`SignInWithPasswordAsync`, same call
+`Login` uses) rather than a bare confirmation flag — a 401 on a wrong
+password, before anything is touched. The reusable anonymize/delete logic
+is new `IAccountDeletionService`/`AccountDeletionService`
+(`XGArcade.Core.Auth`), deliberately identified by local `User.Id` (not a
+JWT or password) so S-026's admin-triggered deletion can call the same path
+rather than a second implementation, per this story's own watch-out. Order:
+anonymize `Guess` rows (`IGuessRepository.AnonymizeByUserIdAsync`) → remove
+`LeagueMembership` rows (new `ILeagueRepository.RemoveMembershipsByUserIdAsync`
+— explicit, not left to a DB cascade, since this codebase's tests run
+against EF Core's InMemory provider which doesn't enforce real Postgres FK
+cascades) → delete the local `User` row (new `IUserRepository.DeleteAsync`)
+→ delete the Supabase Auth identity last (new
+`ISupabaseAuthClient.DeleteUserAsync`). `NotificationPreference` deletion is
+a no-op: that table doesn't exist yet in Tier 0 (Resend/notification
+preferences are Tier 1, `MVP-SCOPE.md`). Deleting the Supabase identity
+needed a new, genuinely privileged secret (`Supabase:ServiceRoleKey` —
+Supabase's Admin API rejects the existing anon key) — new
+`docs/decisions/0026-service-role-key-for-account-deletion.md` covers why,
+threaded through `infra/bicep`, `deploy.yml`, `infra/README.md`, `SETUP.md`,
+and `MVP-SCOPE.md`'s precondition list in the same change, same precedent
+ADR-0013 set. All new repository writes (`AnonymizeByUserIdAsync`,
+`RemoveMembershipsByUserIdAsync`, `DeleteAsync`) go through the EF Core
+change tracker (load-then-`SaveChangesAsync`), not `ExecuteUpdateAsync`/
+`ExecuteDeleteAsync`, for the same InMemory-provider-compatibility reason.
 
 **S-026 · Admin UI page + round control + user deletion (REQ-504/505/506)**
 Builds the actual admin page S-012 deliberately deferred (REQ-501/502/503's

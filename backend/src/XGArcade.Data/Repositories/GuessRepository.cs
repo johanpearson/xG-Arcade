@@ -65,4 +65,20 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
         dbContext.Guesses.Update(guess);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    // Load-then-save rather than ExecuteUpdateAsync: this codebase's tests
+    // run against EF Core's InMemory provider (docs/coding-guidelines.md),
+    // which doesn't support translating bulk ExecuteUpdate/ExecuteDelete
+    // calls — same reason every other write in this repository already
+    // goes through the change tracker instead.
+    public async Task AnonymizeByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var guesses = await dbContext.Guesses.Where(g => g.UserId == userId).ToListAsync(cancellationToken);
+        foreach (var guess in guesses)
+        {
+            guess.UserId = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

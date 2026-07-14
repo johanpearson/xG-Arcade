@@ -106,6 +106,7 @@ jobs:
                          databaseConnectionString="${{ secrets.DEV_DATABASE_CONNECTION_STRING }}" \
                          supabaseUrl="${{ secrets.DEV_SUPABASE_URL }}" \
                          supabaseAnonKey="${{ secrets.DEV_SUPABASE_ANON_KEY }}" \
+                         supabaseServiceRoleKey="${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}" \
                          internalJobToken="${{ secrets.INTERNAL_JOB_TOKEN }}" \
                          corsAllowedOrigin="$CORS_ORIGIN" \
                          adminUserIds="${{ secrets.DEV_ADMIN_USER_IDS }}"

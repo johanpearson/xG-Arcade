@@ -367,6 +367,159 @@ public class AuthEndpointTests
         Assert.That(body.EmailConfirmed, Is.True);
     }
 
+    // REQ-710: self-service account deletion (S-025). Seeds a user directly
+    // into the in-memory DB (same pattern as ProtectedEndpoint_Get tests
+    // above) and mints its own JWT via LocalE2EAuth.MintToken for the
+    // [Authorize]-protected DELETE /auth/account endpoint.
+    private async Task<User> SeedDeletableUserAsync(Guid authProviderUserId, string email = "deletable-user@example.com", string? displayName = null)
+    {
+        using var seedScope = _factory.Services.CreateScope();
+        var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = authProviderUserId,
+            Email = email,
+            DisplayName = displayName ?? $"Player-{Guid.NewGuid():N}",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+        return user;
+    }
+
+    private async Task SeedGuessAsync(Guid userId)
+    {
+        using var seedScope = _factory.Services.CreateScope();
+        var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = Guid.NewGuid(),
+            UserId = userId,
+            CellId = Guid.NewGuid(),
+            SubmittedName = "Someone",
+            IsCorrect = true,
+            AttemptCount = 1,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccount_CorrectPassword_ReturnsNoContentAndCallsSupabaseDelete()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId);
+        // Default FakeSupabaseAuthClient.SignInResult already succeeds — the
+        // confirmation step (AuthController.DeleteAccount's re-verification
+        // via SignInWithPasswordAsync) passes without any per-test override.
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.EqualTo(authProviderUserId));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remainingUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remainingUser, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccount_WrongPassword_Returns401AndDoesNotDeleteAnything()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId);
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials" };
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-wrong-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        // The important assertion: nothing was touched — deletion never even
+        // reached IAccountDeletionService, let alone Supabase.
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remainingUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remainingUser, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccount_SupabaseDeleteFails_Returns500AndLocalDataIsAlreadyGone()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId);
+        _fakeAuthClient.DeleteUserResult = _ => false;
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        // Documented, deliberate ordering (AccountDeletionService's own doc
+        // comment) — the local writes already committed before the Supabase
+        // call ran, so the local User row is gone even though the overall
+        // request reports failure.
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remainingUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remainingUser, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccount_Unauthenticated_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.SendAsync(BuildDeleteRequest("irrelevant-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ710_DeleteAccount_AnonymizesCallersGuessesButNotOtherUsersGuesses()
+    {
+        var deletedUserAuthProviderId = Guid.NewGuid();
+        var deletedUser = await SeedDeletableUserAsync(deletedUserAuthProviderId, email: "deleted-user@example.com");
+        var otherUser = await SeedDeletableUserAsync(Guid.NewGuid(), email: "other-user@example.com");
+        await SeedGuessAsync(deletedUser.Id);
+        await SeedGuessAsync(otherUser.Id);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(deletedUserAuthProviderId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guesses = await assertDbContext.Guesses.AsNoTracking().ToListAsync();
+        Assert.That(guesses, Has.Count.EqualTo(2));
+        // The other user's guess is untouched — still linked to them, not
+        // anonymized as a side effect of someone else's deletion.
+        Assert.That(guesses.Count(g => g.UserId == otherUser.Id), Is.EqualTo(1));
+        Assert.That(guesses.Count(g => g.UserId == null), Is.EqualTo(1));
+        Assert.That(guesses.Count(g => g.UserId == deletedUser.Id), Is.EqualTo(0));
+    }
+
+    private static HttpRequestMessage BuildDeleteRequest(string password) =>
+        new(HttpMethod.Delete, "/auth/account")
+        {
+            Content = JsonContent.Create(new DeleteAccountRequest(password)),
+        };
+
     // Test double for ISupabaseAuthClient (COMP-01's only path to the auth
     // provider — see ADR-0013): never makes a real HTTP call, and exposes
     // SignUpCalled so REQ701's checkbox test can assert Supabase is never
@@ -389,5 +542,15 @@ public class AuthEndpointTests
 
         public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
             Task.FromResult(SignInResult(email, password));
+
+        public Guid? DeleteUserCalledWith { get; private set; }
+
+        public Func<Guid, bool> DeleteUserResult { get; set; } = _ => true;
+
+        public Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default)
+        {
+            DeleteUserCalledWith = authProviderUserId;
+            return Task.FromResult(DeleteUserResult(authProviderUserId));
+        }
     }
 }

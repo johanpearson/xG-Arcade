@@ -58,6 +58,14 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
         Task.FromResult(Authenticate(email));
 
+    // REQ-710: no real Supabase project exists in this mode (see class doc
+    // comment above) — nothing to call, so this always "succeeds," letting
+    // ci.yml's local E2E stack exercise the rest of account deletion
+    // (anonymization, User/LeagueMembership removal) without a live
+    // service_role key.
+    public Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(true);
+
     private static SupabaseAuthResult Authenticate(string email)
     {
         var authProviderUserId = DeterministicGuid(email);

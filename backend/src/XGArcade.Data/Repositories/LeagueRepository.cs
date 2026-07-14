@@ -46,4 +46,14 @@ public class LeagueRepository(XGArcadeDbContext dbContext) : ILeagueRepository
             .Where(m => m.LeagueId == leagueId)
             .Select(m => m.UserId)
             .ToListAsync(cancellationToken);
+
+    public async Task RemoveMembershipsByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var memberships = await dbContext.LeagueMemberships.Where(m => m.UserId == userId).ToListAsync(cancellationToken);
+        if (memberships.Count == 0)
+            return;
+
+        dbContext.LeagueMemberships.RemoveRange(memberships);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

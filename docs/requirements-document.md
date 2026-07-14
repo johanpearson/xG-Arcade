@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.46"
+version: "0.47"
 status: draft
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1677,7 +1677,7 @@ setup by S-010's Playwright suite
 
 ### 4.10 Account and data rights
 
-**REQ-710 – Account deletion**
+**REQ-710 – Account deletion** *(Status: Implemented, Tier 0, S-025)*
 > As a user, I want to permanently delete my account, so I control my own
 > data (this is a legal right under GDPR for EU users, and good practice regardless).
 
@@ -1694,6 +1694,32 @@ setup by S-010's Playwright suite
   and their guesses)
 - And the user can no longer log in, and their email becomes available for
   a new account to register with
+
+**Built as (S-025):** `DELETE /auth/account` (`AuthController.DeleteAccount`),
+`[Authorize]`-protected. The "confirmation step" is the caller re-submitting
+their current password, re-verified against Supabase Auth
+(`ISupabaseAuthClient.SignInWithPasswordAsync`, the same call `Login` uses)
+before anything is touched — a 401 on a wrong password, not a bare
+confirmation flag a client could set without the user re-affirming intent.
+The actual anonymize/delete logic is `IAccountDeletionService`/
+`AccountDeletionService` (`XGArcade.Core.Auth`), built as reusable service
+logic — identified by local `User.Id`, not a JWT/password — specifically so
+`docs/backlog.md` S-026's admin-triggered deletion can call the identical
+path rather than a second implementation. Order: anonymize `Guess` rows
+(`IGuessRepository.AnonymizeByUserIdAsync`) → remove `LeagueMembership` rows
+(`ILeagueRepository.RemoveMembershipsByUserIdAsync`) → delete the local
+`User` row → delete the Supabase Auth identity last
+(`ISupabaseAuthClient.DeleteUserAsync`, ADR-0026 — requires a new
+`Supabase:ServiceRoleKey` secret, since the anon key Supabase Auth calls
+otherwise use can't call the Admin API). **`NotificationPreference` is a
+no-op**, not an oversight: no such table exists yet in Tier 0 (Resend/
+notification preferences are Tier 1, `MVP-SCOPE.md`) — nothing to delete
+until it's built. **Acknowledged gap:** the Supabase Auth deletion call is
+not part of the same transaction as the local writes (it's a separate,
+non-transactional HTTP call, matching `implementation-document.md` §6.8's
+documented flow) — if it fails, local account data is already gone but the
+credential/email is not; surfaced to the caller as a `500` rather than
+swallowed, but no retry/saga exists yet (see ADR-0026's consequences).
 
 **Test level:** Unit (anonymization logic specifically — verify no
 reversible link remains), API
