@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-14 — `docs/requirements-document.md` (0.47 → 0.48, also fixed a
+  pre-existing stale in-body version header, 0.42 → 0.48), `docs/backlog.md`
+  — scoped a real gap found right after S-025 merged: `DELETE /auth/account`
+  is fully implemented and tested, but no frontend code anywhere calls it —
+  S-025's own acceptance criteria was backend-only, so self-service account
+  deletion currently has no way for a real player to reach it, and there's
+  no account/settings screen defined in `design-document.md` either. New
+  story **S-039**, deliberately scoped narrow (delete-account flow only, no
+  general profile/settings page) — REQ-710 status note added pointing to
+  it. This is a scoping gap in how S-025 was originally written, not
+  anything S-025's implementation did wrong (it matched its acceptance
+  criteria exactly). REQ-710.
 - 2026-07-14 — `docs/requirements-document.md` (0.46 → 0.47, REQ-710 marked
   Implemented), `docs/architecture-document.md` (0.31 → 0.32, new COMP-01
   status note), `docs/implementation-document.md` (0.45 → 0.46, §6.8 "Built

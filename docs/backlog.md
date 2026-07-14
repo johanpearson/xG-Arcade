@@ -1308,6 +1308,33 @@ change — same COMP-06/COMP-07 responsibility, just a stricter query);
 `docs/implementation-document.md` §6a's sample SPARQL query and rules list
 updated, plus a new §6 paragraph on the `purge-player-pool` CLI verb.
 
+**S-039 · Account/settings page — delete-account UI only (REQ-710)**
+Scope gap found while implementing S-025: `DELETE /auth/account` exists and
+is fully tested, but no frontend code was ever written to call it — S-025's
+own acceptance criteria was backend-only (unit + API tests), so
+"self-service" account deletion currently has no way for a real player to
+actually trigger it. There is also no `SCREEN-xx` for an account/settings
+page anywhere in `design-document.md`. Deliberately scoped narrow: this
+story is the delete-account flow only, not a general profile/settings page
+(no display-name editing, no future notification-preference UI) — avoids
+building speculative UI ahead of an actual need, same discipline
+`MVP-SCOPE.md` applies elsewhere. No separate SCREEN-05 design pass first;
+define the layout (a simple settings entry point + password-confirmation
+dialog + an explicit irreversibility warning, matching what
+`AuthController.DeleteAccount` already requires) inline within this story,
+using only tokens already defined in `design-document.md` §2, and add the
+resulting mock to that doc as part of this same change — same pattern
+S-016/S-017/S-018 used for additions too small to warrant a dedicated
+design session.
+*Accept:* REQ710-named UI test: an authenticated player can reach the
+delete-account flow from the app's existing navigation, is required to
+re-enter their current password (matching the API's existing
+re-verification requirement — a wrong password shows an error and deletes
+nothing), sees an explicit irreversible-action warning before confirming,
+and is signed out and returned to the login/landing screen on success.
+Wrong-password and cancel paths leave the account untouched (Vitest,
+mocked fetch). *Deps:* S-025 (the endpoint this calls).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

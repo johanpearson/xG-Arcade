@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.47"
+version: "0.48"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.42 · 2026-07-12
+Version 0.48 · 2026-07-14
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -1720,6 +1720,13 @@ non-transactional HTTP call, matching `implementation-document.md` §6.8's
 documented flow) — if it fails, local account data is already gone but the
 credential/email is not; surfaced to the caller as a `500` rather than
 swallowed, but no retry/saga exists yet (see ADR-0026's consequences).
+**Acknowledged gap, queued as `docs/backlog.md` S-039 (2026-07-14):** no
+frontend code calls this endpoint — S-025's own acceptance criteria was
+backend-only, so there is currently no way for a real player to reach this
+flow from the app itself. There is also no account/settings screen defined
+in `design-document.md`. S-039 is scoped narrowly to the delete-account
+flow only (no general profile/settings page), matching the endpoint's
+existing password-reverification and irreversibility requirements above.
 
 **Test level:** Unit (anonymization logic specifically — verify no
 reversible link remains), API
