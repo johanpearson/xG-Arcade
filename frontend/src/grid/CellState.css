@@ -18,17 +18,25 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
 }
 
+/* S-041: no longer `overflow: hidden` + `white-space: nowrap` + ellipsis —
+   in a narrow revealed cell (badges + name + checkmark all in one row,
+   flag/badge/checkmark are flex-shrink: 0 so they never yield space), an
+   ellipsis-truncated flex item's *automatic* minimum size is 0 (not its
+   content size, the way a plain overflow: visible item's would be), so the
+   name silently shrank to a literal zero-width sliver instead of actually
+   truncating — real bug, found visually (DOM had the full name; nothing
+   was rendered). Wrapping normally instead lets a long name drop to its
+   own line rather than disappear. */
 .cell-state__name {
   font-family: var(--font-body);
   font-weight: 500;
   color: var(--color-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:
