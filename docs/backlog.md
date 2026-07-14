@@ -1364,6 +1364,71 @@ no new response field. REQ-710's status heading (requalified to "Partially
 implemented" by this story's own scoping change, #49) is restored to
 "Implemented" now that the player-facing entry point exists.
 
+**S-040 · Collapse cell content to icon+points at rest; fix mobile header crush; polish desktop grid layout (REQ-204, SCREEN-01/01a)**
+Direct product feedback from two screenshots (deployed app on a phone, and
+on a wide/"desktop site" viewport) found two real problems, both traced to
+actual code before scoping this story — see REQ-204's status note and
+SCREEN-01's new status note in `design-document.md` for the full diagnosis.
+(1) **Mobile header crush:** `Grid.css`'s `.grid-table__row-header`
+`max-width: 88px` mobile cap isn't actually enforced, since the table uses
+browser auto-layout — a wide cell (full player name + badge + checkmark +
+"live" text) in the same row squeezes the header column far below that cap,
+and `overflow-wrap: anywhere` then breaks mid-word, rendering a country
+name one character per line. (2) **Desktop layout:** the grid reads as
+small and stuck top-left within `.app`'s existing `max-width: 900px` cap,
+with a lot of unused surrounding space — never actually art-directed past
+mobile.
+
+This story fixes the root cause behind (1), not just the symptom: redesign
+SCREEN-01a states 1 and 4 (the only two states that show a player name) to
+show only their checkmark/✕ + points at rest, on every screen size, not
+mobile-only — extends S-019's existing tap/hover/focus toggle
+(`LiveMetaDisclosure`) to also gate the name, rather than adding a second
+interaction pattern. State 1 (correct, round active): at rest, show the
+live dot + "live" + the live point estimate (moves from revealed-only to
+always-visible); reveal shows the name alongside the existing %/round-end
+text (unchanged wording, just now paired with the name). State 4 (round
+closed, correct outcome): currently has **no reveal toggle at all** — add
+one, reusing the same mechanism as state 1; at rest shows ✓ + `FinalPoints`
++ "final"; revealed shows the name + the existing %-breakdown text. State 2
+(incorrect, one attempt remaining) already shows no name and no points,
+and stays that way — it isn't locked, so no point value applies there,
+today or after S-033. State 3 (incorrect, no attempts remaining) already
+shows no name and, once S-033 ships, will also show points at rest. Both
+states are unaffected by this story — no change needed. Shrinking typical
+cell
+content this way is expected to substantially fix (1) as a side effect,
+but this must be verified against a real narrow viewport as part of this
+story's acceptance criteria, not assumed; if header crushing still occurs,
+`grid-table` needs `table-layout: fixed` (or an equivalent explicit
+column-width strategy) so header `max-width`/`min-width` is actually
+respected regardless of other cells' content.
+
+Also polishes (2): spacing/cell-sizing adjustments so the existing
+single-column layout doesn't look like a mobile layout simply stretched
+onto a wide screen. **Explicitly out of scope:** `design-document.md`
+SCREEN-01's desktop side-panel variant (grid + a "your progress" panel)
+was never built and remains a known, separately-tracked gap — deferred to
+its own future story, not folded into this one.
+
+`design-document.md` SCREEN-01/01a must be updated to reflect the new
+at-rest/revealed content split for states 1 and 4 *before* implementation
+(per `CLAUDE.md`'s rule against undocumented UI changes) — same "design it,
+then build it" discipline S-019/S-020 followed, not a follow-up cleanup.
+*Accept:* REQ204-named test: state 1 at rest shows no player name, only the
+live dot/"live" text and the live point estimate; tapping/hovering/
+focusing reveals the name alongside the existing %/round-end text.
+REQ204-named test: state 4 at rest shows no player name, only the
+checkmark/`FinalPoints`/"final"; tapping reveals the name alongside the
+existing %-breakdown text (new toggle behavior — state 4 has none today).
+Manual/visual verification against a real narrow (≤480px) viewport: row/
+column header text wraps onto readable words/phrases, never single
+characters. Manual/visual verification on a wide viewport: the grid no
+longer reads as cramped/stuck top-left with excess unused space around it.
+*Deps:* S-019 (the toggle mechanism this extends), S-033 (state 3's
+point-value fix, so every locked state is consistent about showing points
+at rest).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

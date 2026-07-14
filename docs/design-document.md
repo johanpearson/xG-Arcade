@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.15"
+version: "0.16"
 status: draft
 last_updated: 2026-07-14
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.5 · 2026-07-05
+Version 0.16 · 2026-07-14
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -188,6 +188,17 @@ fabricated "0" while nothing has been correctly guessed yet).
   motion, `FinalPoints` shown (REQ-205).
 - Desktop's side panel is additive only — mobile gets the same information
   stacked below the grid.
+
+**Status note (2026-07-14):** only the mobile single-column layout above
+has actually been built — the desktop side-panel variant shown in the mock
+was never implemented; every viewport currently gets the single-column
+layout, stretched to `.app`'s `max-width: 900px` cap. Direct product
+feedback found this reads as small/stuck-top-left with unused space around
+it on a genuinely wide viewport, since the layout was never art-directed
+past that cap. `docs/backlog.md` S-040 polishes the single-column layout's
+own spacing/sizing at wide viewports; the side-panel variant itself remains
+explicitly deferred to a separate, not-yet-scoped future story, not
+silently dropped.
 
 ### SCREEN-01a: Cell states (component, appears within cells)
 
