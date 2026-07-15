@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1" />
     <!-- S-008: RoundGenerationServiceTests/RoundCloseServiceTests follow this
          repo's no-mocking-framework pattern (docs/coding-guidelines.md) —
          real, InMemory-backed RoundRepository, same setup
