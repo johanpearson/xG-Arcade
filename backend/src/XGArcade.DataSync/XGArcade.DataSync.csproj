@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
   </ItemGroup>
