@@ -96,14 +96,20 @@ was made, it needs an ADR.
 - **Branch naming**: `feature/req-###-short-description` or
   `fix/short-description` — descriptive enough that the branch list is
   useful without opening each one.
-- **PR descriptions** should state: which REQ(s) it implements or changes,
-  whether `docs/` were updated to match (or explicitly why not), and
-  whether tests were added. A PR that changes behavior without touching
-  any doc is a signal to double back, not something to wave through.
+- **PR descriptions** follow `.github/pull_request_template.md`: Summary,
+  Why, How (only if non-obvious), Agents involved (optional — one line per
+  agent, only when it adds real signal), Testing & docs. Keep each section
+  tight — this file doubles as release-notes material later, so it should
+  read fine standalone, without the diff open next to it. State which
+  REQ(s) the PR implements or changes, whether `docs/` were updated to
+  match (or explicitly why not), and whether tests were added. A PR that
+  changes behavior without touching any doc is a signal to double back,
+  not something to wave through.
 - Claude Code's native git/PR capabilities handle the actual git operations
-  — there's no dedicated subagent for this, since wrapping a built-in
-  capability in a persona would add a layer without adding value. These
-  conventions are what keep it consistent with everything else here.
+  — there's no dedicated subagent for this (including for writing the PR
+  description itself), since wrapping a built-in capability in a persona
+  would add a layer without adding value. The template is what keeps PRs
+  consistent, not an agent.
 
 ## Conventions
 
