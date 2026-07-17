@@ -943,6 +943,40 @@ existing REQ401/404-named tests updated for the now-paginated response
 shape; `LeaderboardScreen.tsx` updated to consume pages (load-more or
 equivalent — no new SCREEN-xx design needed, this is existing SCREEN-03
 behavior catching up to a real data shape). *Deps:* S-011.
+**Built as:** matches the plan closely. Backend: `cursor`/`pageSize` query
+params (default `pageSize` 50, max 100; `cursor` defaults to 0, last-seen
+global rank), a negative `cursor` or an out-of-range `pageSize` → 400,
+an out-of-range-but-valid `cursor` (stale, from a since-shrunk league) →
+empty page rather than an error. `LeaderboardEntry`/`LeaderboardRowResponse`
+gained an explicit `Rank` field (1-based, global, not page-local) since the
+frontend previously derived rank from array index, which breaks once a
+page can start mid-list. `LeaderboardService` still composes the full
+membership list and ranks/slices in memory rather than pushing `ORDER
+BY`/`LIMIT` to the database — an accepted MVP-scale tradeoff (bounds the
+response, not the query), matching `implementation-document.md` §6's own
+note that the cursor-shaped contract, not the storage strategy, is what
+must not need to change later. Tests: `LeaderboardServiceTests.cs`
+(Core-level, REQ401/404 updated + new REQ607 cases) and new
+`LeaderboardEndpointTests.cs` (API-level: query-param validation 400s,
+boundary values `pageSize`=1/100, response-shape/cursor round-trip).
+Frontend: `LeaderboardScreen.tsx` gained a "Load more" button appending
+subsequent pages and a pinned "you" footer for when the requesting user's
+row is off the currently-loaded page(s); the existing 15s poll now
+refreshes only page 1. One bug found and fixed during the quality gate,
+not part of the original spec: a player whose rank crosses the
+page-1/page-2 boundary between poll ticks could appear twice (once in the
+fresh page-1 response, once still in the stale trailing rows from an
+earlier "Load more") — fixed by de-duplicating the stale trailing rows
+against the fresh page-1 response's user IDs before merging. Tests:
+`LeaderboardScreen.test.tsx` extended (load-more behavior, poll-only-
+refreshes-page-1, the you-footer, and the page-1-reorder dedup regression).
+Full backend suite run (`dotnet test`, SDK installed mid-session per
+`NOTES.md`'s documented fix — the first sandbox session to actually verify
+this, not just hand-trace it): 328/328 passed across all five backend test
+projects, no regressions. Frontend suite (`npm run test`, `tsc -b`, lint)
+also passes clean (96/96 tests). Architecture-reviewer pass: no boundary/
+data-flow change, no ADR needed — the pagination shape was already fully
+pre-specified in `implementation-document.md` §6 before this story.
 
 **S-028 · Golf-style (lowest-wins) scoring model (REQ-203/204/205/206/401/404, ADR-0021)**
 Direct product feedback, immediately after S-022 shipped: the requested

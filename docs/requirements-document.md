@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.56"
+version: "0.57"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -1443,7 +1443,7 @@ case covers the game-selection step added in S-021)
 > so I can track my ranking.
 
 - **Status: Partially implemented (Tier 0, S-011; sort direction corrected
-  S-028/ADR-0021).** `GET
+  S-028/ADR-0021; paginated S-034).** `GET
   /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`)
   → `ILeaderboardService`/`LeaderboardService` (`XGArcade.Core.Leagues`)
   implements exactly this ranking (members' `SUM(FinalPoints ?? 0)`,
@@ -1452,10 +1452,12 @@ case covers the game-selection step added in S-021)
   by display name) for the global league only — custom leagues (REQ-402/403)
   don't exist yet, so there is exactly one leaderboard to read today;
   SCREEN-03's frontend (`LeaderboardScreen.tsx`) shows only the Global list,
-  no tab switcher.
-  **Known gap:** the response is unbounded (every member in one payload) —
-  see REQ-607's own status note for why this is an acknowledged, deliberate
-  Tier 0 gap rather than an oversight.
+  with a "Load more" control and a pinned "you" footer for when the
+  requesting user's row is off the currently-loaded page(s), no tab
+  switcher.
+  **Pagination (S-034):** the response is now bounded via `cursor`/
+  `pageSize` — see REQ-607's own status note for the shape. This closes
+  the gap previously noted here.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -1496,12 +1498,12 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 - Calendar-aligned vs. rolling windows → **calendar-aligned**, decided above
 - Timezone for boundary evaluation → **UTC**, decided above
 - Whether an unlocked round ever contributes → **no**, decided above
-- Performance: REQ-607's existing pagination gap (leaderboard responses are
-  currently unbounded) gets worse with four more query shapes to index for —
-  **not resolved as a product decision, still an implementation-time
-  requirement**: S-027's acceptance criteria requires a REQ-607-aligned
-  indexing plan as part of implementing this REQ, not just "add a `WHERE`
-  clause"
+- Performance: REQ-607's pagination is now implemented (S-034), but this
+  REQ still adds four more query shapes (round/week/month/year windows) on
+  top of the existing all-time one — **not resolved as a product
+  decision, still an implementation-time requirement**: S-027's acceptance
+  criteria requires a REQ-607-aligned indexing plan as part of implementing
+  this REQ, not just "add a `WHERE` clause"
 
 **Test level:** Unit, API, UI
 
@@ -1853,19 +1855,25 @@ its own explicit opt-in separate from this one, not be folded into it.
 
 **REQ-607 – Performance baseline**
 
-- **Status: Partially implemented (Tier 0, S-011).** The pagination clause
-  immediately below is a real, currently-unmet gap, not tiered out anywhere
-  else: `GET /leagues/global/leaderboard`
-  (`XGArcade.Api.Leagues.LeaderboardEndpoints`) returns every member of the
-  global league in one unbounded response, no cursor/pageSize. Flagged by
-  an architecture-reviewer pass during S-011 and deliberately left
-  unfixed for this pass — pagination itself is out of scope. **Queued as
-  `docs/backlog.md` S-034 (2026-07-12)**, ahead of the original "membership
-  grows large" trigger actually firing — decided proactively rather than
-  waited on, since the shape was already fully specified (see
-  `implementation-document.md` §6's "Leaderboard pagination" pseudocode)
-  and cheap to build now. The other two bullets below are unaffected by
-  this note.
+- **Status: Implemented (Tier 0, S-034, 2026-07-17).** The pagination
+  clause immediately below, previously a real, unmet gap (flagged by an
+  architecture-reviewer pass during S-011 and deliberately left unfixed at
+  the time), is now closed: `GET /leagues/global/leaderboard`
+  (`XGArcade.Api.Leagues.LeaderboardEndpoints` →
+  `ILeaderboardService`/`LeaderboardService`, `XGArcade.Core.Leagues`)
+  takes optional `cursor`/`pageSize` query params (default `pageSize` 50,
+  max 100, `cursor` defaults to 0, negative `cursor` or an out-of-range
+  `pageSize` → 400) and returns a bounded page — `Rows` (each with an
+  explicit, global 1-based `Rank`, not a page-local index),
+  `RequestingUserRow` (always populated, even when the caller's own rank
+  falls outside the current page), `NextCursor`, and `HasMore`. Matches
+  `implementation-document.md` §6's cursor-shaped contract; the underlying
+  implementation still composes the full member list in memory and slices
+  it there rather than doing DB-level `ORDER BY`/`LIMIT` — an explicit,
+  already-documented MVP-scale tradeoff, not a new gap (see that section's
+  "Built as (S-034)" note). SCREEN-03's frontend (`LeaderboardScreen.tsx`)
+  consumes this via a "Load more" button and a pinned "you" footer. The
+  other two bullets below are unaffected by this note.
 - Leaderboard queries (REQ-404) must be paginated; the API must never
   return an entire league's membership in one unbounded response
 - Guess correctness/uniqueness lookups (REQ-203, REQ-204) must use indexed

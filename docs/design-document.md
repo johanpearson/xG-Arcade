@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.19"
+version: "0.20"
 status: draft
-last_updated: 2026-07-14
+last_updated: 2026-07-17
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -443,12 +443,24 @@ be handled cleanly rather than silently guessing on the player's behalf.
 │ 1  Sam         120 pts         │
 │ 2  You         138 pts   ← you │
 │ 3  Alex        142 pts         │
+├───────────────────────────────┤
+│         [ Load more ]          │
 └───────────────────────────────┘
 ```
 
 Unchanged from v0.1 structurally — tabs for Global vs. custom leagues, the
 user's row always visually distinct. Recolored: the user's row uses
 `surface-sunken` instead of a dark raised surface.
+
+**Pagination (REQ-607, S-034):** a "Load more" control below the list
+fetches and appends the next page — outline-fill button (`surface-card`
+background, `border-hairline`, `accent-green-text` label), not a second
+green CTA. When the requesting user's row isn't among the currently
+loaded page(s), a pinned "you" row renders below the list (same
+`surface-sunken`/"you"-tag treatment as an in-list row, sticky to the
+viewport bottom) so their standing is always visible without loading
+further pages. No new tokens — both reuse the existing surface/border/
+accent set above.
 
 **ADR-0021 addition:** xG Arcade is scored like golf — lowest total wins,
 the opposite of the natural "higher number = better" assumption most

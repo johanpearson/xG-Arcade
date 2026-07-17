@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.34"
+version: "0.35"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -612,8 +612,11 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
       per-round ScoreCalculator in memory (see ScoreCalculator's own doc
       comment on why these two call sites intentionally reimplement the
       same formula at different scopes)
-  → sorted ascending by total (ADR-0021: lowest wins), response never
-    paginated yet (REQ-607's acknowledged Tier 0 gap)
+  → sorted ascending by total (ADR-0021: lowest wins), then ranked and
+    sliced into a `cursor`/`pageSize`-bounded page in memory (REQ-607,
+    S-034) — the SUM above is still database-side, but ranking/pagination
+    is not; see implementation-document.md §6 for why this is an accepted
+    MVP-scale tradeoff, not a boundary change
 ```
 
 Custom leagues (REQ-402/403 — create/join via invite code) are not built;
