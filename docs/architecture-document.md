@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.35"
+version: "0.36"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -136,7 +136,7 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
-| COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5 | `XGArcade.Data` |
+| COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5. **Built S-032:** `PlayerNameIndex` entity + `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` live in `XGArcade.Data`; the bulk Wikidata importer (`PlayerNameIndexImporter`) lives in `XGArcade.DataSync` instead, alongside `WikidataLookupService` — `XGArcade.Data` has no project reference to `XGArcade.DataSync`, so a class needing both `IWikidataClient` and `IPlayerNameIndexRepository` can't live in `XGArcade.Data` | `XGArcade.Data` |
 
 **"Maps to" column note (ADR-0014):** for COMP-01, COMP-03, COMP-04, and
 COMP-05 specifically, this column names where each component's
@@ -453,8 +453,25 @@ it via `ScoringRules.PointsFromUniqueScore`), and `RoundCloseService`
 Several lines below do not match Tier 0's actual implementation, all
 deliberate per `MVP-SCOPE.md`, not bugs:
 
-- The `Data.PlayerNameIndex`/autocomplete leg does not exist at all — no
-  COMP-10, no frontend. Nothing about that is checked or exercised.
+- **The `Data.PlayerNameIndex`/autocomplete leg is now built (S-032,
+  ADR-0007, pulled forward from Tier 1 by deliberate choice).** COMP-10
+  exists: `PlayerNameIndex` (keyed on `PlayerId`, `HasIndex(NormalizedName)`),
+  `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` (a repository
+  deliberately separate from COMP-06's `IPlayerStoreRepository` — never
+  merged, per boundary rule 5), and `GET /players/autocomplete?query=&limit=`
+  (`XGArcade.Api.Players.PlayerAutocompleteEndpoints`, bearer-token
+  authenticated). Populated by `PlayerNameIndexImporter`
+  (`XGArcade.DataSync.Wikidata` — not `XGArcade.Data/Seeding`, despite
+  living alongside `ReferenceDataSeeder`/`StaleClubAttributeCleaner`
+  conceptually: `XGArcade.Data` has no project reference to
+  `XGArcade.DataSync`, only the reverse, so a class needing both
+  `IWikidataClient` and `IPlayerNameIndexRepository` must live in
+  `XGArcade.DataSync`, same as the existing `WikidataLookupService`), run via
+  the `import-player-name-index` CLI verb (ADR-0024), workflow_dispatch-only,
+  no schedule yet. This is REQ-207's suggestion-list data path only — REQ-208's
+  alias/fuzzy-matching for guess *scoring* and REQ-209's disambiguation UI
+  remain not built, so REQ-211's live-lookup trigger (below) still does not
+  consult `PlayerNameIndex`.
 - **"Core.Rounds: validate round is active, guess-change policy" is
   attributed to the wrong component in this diagram** even in what Tier 0
   built: it is `GuessSubmissionService` (COMP-04, not COMP-03) that reads
@@ -498,12 +515,15 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   pairings are handled; any other pairing (e.g. a future Trophy cell) fails
   closed rather than throwing. This differs from the diagram's full shape in
   one deliberate way: the trigger is "cached data didn't resolve this
-  guess," not "guess matched a `Data.PlayerNameIndex` candidate" —
-  `PlayerNameIndex`/COMP-10 (REQ-207) is still not built, and ADR-0018
-  explains why Tier 0 doesn't need it as a prerequisite here (Wikidata has
-  no scarce daily budget to protect, unlike API-Football). There is still
-  no API-Football fallback leg or `ExternalApiUsage` budget-gating for this
-  call site, same as REQ-103's status.
+  guess," not "guess matched a `Data.PlayerNameIndex` candidate" — even
+  though `PlayerNameIndex`/COMP-10 (REQ-207) is now built (S-032), REQ-211's
+  guess-time live-lookup trigger does not consult it yet (that wiring is
+  REQ-208/209's still-deferred candidate-resolution step, not this story's
+  scope), and ADR-0018 explains why Tier 0 doesn't need it as a prerequisite
+  here (Wikidata has no scarce daily budget to protect, unlike
+  API-Football). There is still no API-Football fallback leg or
+  `ExternalApiUsage` budget-gating for this call site, same as REQ-103's
+  status.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011, extended S-018)** — `GET /rounds/current` computes
   `UniquePercent` on every request via `UniquenessCalculator.Calculate`,

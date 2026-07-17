@@ -26,14 +26,17 @@ GAME_DATA_TABLES=(
   "public.\"PlayerData\""
   "public.\"PlayerOverrides\""
   "public.\"PlayerAttributes\""
-  "public.\"PlayerNameIndex\""
+  "public.\"PlayerNameIndexEntries\""
   "public.\"PlayerAliases\""
   "public.\"TrophyDefinitions\""
   "public.\"ClubCrest\""
   "public.\"GridTemplates\""
 )
-# Note: "PlayerNameIndex" and "ClubCrest" are placeholders for tables that
-# don't exist yet (S-032, Tier 2 respectively) — their real DbSet/table
-# names aren't confirmed until those entities are actually built. Every
+# Note: S-032 built PlayerNameIndex (COMP-10, ADR-0007) — corrected here from
+# the earlier placeholder entry "PlayerNameIndex" to the real table name,
+# "PlayerNameIndexEntries" (XGArcadeDbContext's DbSet<PlayerNameIndex>
+# property name, EF Core's default table-naming convention). "ClubCrest" is
+# still a placeholder for a table that doesn't exist yet (Tier 2) — its real
+# DbSet/table name isn't confirmed until that entity is actually built. Every
 # other entry above is verified directly against XGArcadeDbContext.cs's
-# DbSet<T> property names (EF Core's default table-naming convention).
+# DbSet<T> property names.

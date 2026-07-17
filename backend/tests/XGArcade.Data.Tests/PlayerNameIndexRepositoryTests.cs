@@ -46,7 +46,7 @@ public class PlayerNameIndexRepositoryTests
     {
         await _repository.UpsertManyAsync([BuildEntry("Thierry Henry"), BuildEntry("Theo Hernandez"), BuildEntry("Lionel Messi")]);
 
-        var results = await _repository.SearchByPrefixAsync("the", 10);
+        var results = await _repository.SearchByPrefixAsync("th", 10);
 
         Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Thierry Henry", "Theo Hernandez" }));
     }

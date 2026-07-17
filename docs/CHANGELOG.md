@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/requirements-document.md` (0.57 → 0.58: REQ-207's
+  status note rewritten from "Proposed, queued as S-032" to "Implemented
+  (S-032)", describing the shipped `GET /players/autocomplete` contract),
+  `docs/architecture-document.md` (0.35 → 0.36: COMP-10's row and the
+  guess-submission flow diagram's Tier 0 status notes both updated —
+  `PlayerNameIndex`/`IPlayerNameIndexRepository` now exist, and
+  `PlayerNameIndexImporter` is noted living in `XGArcade.DataSync` rather
+  than `XGArcade.Data/Seeding`, forced by the existing one-way
+  `XGArcade.DataSync` → `XGArcade.Data` project-reference direction),
+  `docs/implementation-document.md` (0.52 → 0.53: `PlayerNameIndex`'s
+  entity sketch gains a note on the deterministic-hash `PlayerId`
+  derivation in place of a `WikidataQid` column; §5's required-indexes
+  table row and §6a both updated with the new paginated bulk-import
+  query's shape), `docs/backlog.md` (S-032 entry gains a "Built as" note,
+  including the two deviations forced by the project-reference graph),
+  `infra/scripts/lib/game-data-tables.sh` (corrected the `PlayerNameIndex`
+  placeholder entry to the real EF Core table name,
+  `PlayerNameIndexEntries`, now that the table exists — no other allowlist
+  entry touched, per ADR-0009), by `backend-implementer` — closes
+  REQ-207/ADR-0007's `PlayerNameIndex` gap (S-032, pulled forward from
+  Tier 1): a new `PlayerNameIndex` table/repository (COMP-10, structurally
+  separate from COMP-06's `IPlayerStoreRepository`), a bulk, paginated
+  Wikidata importer (`PlayerNameIndexImporter`, the
+  `import-player-name-index` CLI verb/workflow per ADR-0024), and
+  `GET /players/autocomplete?query=&limit=` (bearer-token authenticated).
+  Backend suite: 361/361 passed across all five projects (`dotnet` SDK
+  freshly installed in this sandbox via `apt-get install
+  dotnet-sdk-10.0`); a real EF Core migration (`AddPlayerNameIndex`) was
+  generated via `dotnet ef migrations add`, not hand-written.
 - 2026-07-17 — `docs/design-document.md` (0.20 → 0.21) — S-032: added a
   frontend implementation note under SCREEN-02 for the shipped autocomplete
   suggestion list (`GuessInput.tsx`) — neutral-tokens-only styling (no
