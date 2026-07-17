@@ -135,7 +135,7 @@ public partial class WikidataClient(
     // this club" into "currently plays for this club" for exactly those
     // players (e.g. Sandro Tonali x AC Milan), leaving the persisted
     // answer key incomplete and correct guesses scored incorrect
-    // (REQ-107's ever-played-for semantics, REQ-101/REQ-203's correctness
+    // (REQ-113's ever-played-for semantics, REQ-101/REQ-203's correctness
     // contract). Both grid generation and REQ-211's guess-time live
     // lookup route through these two builders, so the statement path
     // covers both. P106/P27/P21/P569 stay truthy on purpose: for those,
