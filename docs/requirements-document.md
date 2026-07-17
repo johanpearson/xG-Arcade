@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.55"
+version: "0.56"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.55 · 2026-07-17
+Version 0.56 · 2026-07-17
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -1240,26 +1240,44 @@ wording)
 > As an admin, I want to configure how often new rounds are created (e.g.
 > twice per week), so play frequency can be adjusted without a code change.
 
-- **Status: Partially implemented (Tier 0, S-008).** The "one round ahead"
+- **Status: Partially implemented (Tier 0, S-008; round-duration
+  configurability added 2026-07-17, ADR-0027).** The "one round ahead"
   rule itself is fully built: `RoundGenerationService`
   (`XGArcade.Core.Rounds`) skips generation if an upcoming/not-yet-started
   round already exists for the `GameKey`, otherwise resolves the owning
   `IGameModule` (via the new `IGameModuleResolver`), generates its instance,
   and chains the new round's `StartTime` from the previous round's
   `EndTime` — exactly the acceptance criteria below. `generate-round.yml`'s
-  cron (Tue+Fri 06:00 UTC) triggers this via the bearer-token-protected
+  cron (now daily, `0 6 * * *`) triggers this via the bearer-token-protected
   `POST /internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`),
   registered in every environment since this is a legitimate scheduled job
-  (CONT-05), not a test-data endpoint. What's not built: "configured...so
-  play frequency can be adjusted without a code change" — the schedule
-  lives in `generate-round.yml`'s cron expression, and `RoundSchedulingOptions`
-  (`GameKey`/`RoundDuration`/`AllowGuessChange`/`GridSize`) is a plain C#
-  object with hardcoded defaults registered in `Program.cs` (same
-  non-appsettings-bound pattern as `Games.XGGrid`'s `GridGenerationOptions`),
-  not an admin-facing configuration surface — changing frequency today means
-  editing both files together (the cron and `RoundDuration`, which must stay
-  coupled — see `RoundSchedulingOptions`' own doc comment and NOTES.md), a
-  code change either way. `GridSize`'s find-or-create-a-`GridTemplate`-by-size
+  (CONT-05), not a test-data endpoint. "configured...so play frequency can
+  be adjusted without a code change" is now also built, within a Tier 0
+  scope: `RoundSchedulingOptions.RoundDuration`'s default is read from
+  `RoundScheduling:RoundDurationHours` (`appsettings.json` ships `48`; the
+  deployed Container App can override it via the
+  `RoundScheduling__RoundDurationHours` env var, wired through
+  `infra/bicep`, with no code change or redeploy), and
+  `POST /internal/generate-round` additionally accepts an optional
+  `roundDurationHours` query parameter for a one-off override of a single
+  generation call only (validated `>= 24`, never mutates the shared
+  `RoundSchedulingOptions` singleton), exposed via `generate-round.yml`'s
+  `workflow_dispatch` input. The old requirement that `RoundDuration` and
+  the cron cadence be hand-matched against each other is gone: the cron is
+  now daily, giving a constant 24h max gap between firings, and
+  `RoundGenerationService`'s existing idempotency check makes the daily
+  firing a no-op until the current round actually ends — so any
+  `RoundDuration >= 24h` (including the 48h default) is safe by
+  construction rather than needing hand-verification every time either
+  value changes. See ADR-0027 for the full reasoning, including why a
+  cron cadence that fires exactly every N days was rejected. What's
+  **still not built**, relative to this requirement's full long-term
+  acceptance criteria below: an admin-facing configuration surface — "a
+  cron expression configured in the system" still means editing
+  `appsettings.json`/an env var (a config change, not a code change, but
+  still not an in-app admin control) and, for the cron cadence itself,
+  editing `generate-round.yml`. That remains Tier 1/2 scope
+  (`MVP-SCOPE.md`). `GridSize`'s find-or-create-a-`GridTemplate`-by-size
   shortcut is the same Tier 0 gap already noted on REQ-102, reused via the
   new shared `GridTemplateResolver` helper. The rest of this requirement's
   acceptance criteria are recorded below as the full/long-term definition.

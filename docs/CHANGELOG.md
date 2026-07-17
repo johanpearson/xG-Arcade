@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/requirements-document.md` (0.55 → 0.56: REQ-301's
+  Status block rewritten — configurable round duration is now built, not a
+  gap), `docs/architecture-document.md` (0.33 → 0.34: ADR index gains
+  ADR-0027), `NOTES.md` (new 2026-07-17 entry superseding the 2026-07-10
+  Tue+Fri-cadence derivation with the new daily-cron/24h-safety-margin
+  reasoning), by `doc-sync` — closes REQ-301's "configured...so play
+  frequency can be adjusted without a code change" gap:
+  `RoundSchedulingOptions.RoundDuration`'s default is now read from
+  `RoundScheduling:RoundDurationHours` config (default 48h, overridable via
+  the deployed Container App's `RoundScheduling__RoundDurationHours` env
+  var with no redeploy), `POST /internal/generate-round` accepts an
+  optional `roundDurationHours` query parameter (floor 24h) for a one-off
+  override, and `generate-round.yml`'s cron moved from Tue+Fri to daily
+  (`0 6 * * *`) with a `workflow_dispatch` input plumbed through — the old
+  hand-matched `RoundDuration`/cron-gap coupling is replaced by the
+  structural invariant `RoundDuration >= 24h` (the daily cron's constant
+  max gap). See ADR-0027 for full reasoning, including why a `*/2`
+  day-of-month cron was rejected. `docs/backlog.md` checked (S-008): no
+  stale cadence references found, no change needed.
 - 2026-07-17 — `docs/requirements-document.md` (0.54 → 0.55, by
   `requirements-writer`: new **REQ-113** "club membership means ever
   played for," **REQ-111** extended with all-clubs mode),
