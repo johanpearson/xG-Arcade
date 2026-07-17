@@ -239,4 +239,50 @@ public class LeaderboardEndpointTests
         var allUserIdsAcrossPages = firstPage.Rows.Concat(secondPage.Rows).Select(r => r.UserId).ToList();
         Assert.That(allUserIdsAcrossPages, Is.EquivalentTo(seededUserIds), "no overlap or gap across the two pages");
     }
+
+    // ---- REQ-607: pageSize boundary values (min=1, max=MaxPageSize=100) are accepted ----
+    // The parameterized bad-request test above pins the invalid boundary
+    // (0 and 101 rejected); these pin the valid boundary (1 and 100
+    // accepted) precisely, rather than leaving "somewhere between 0/101 and
+    // 1/100" unproven.
+
+    [Test]
+    public async Task REQ607_LeaderboardGet_PageSizeOne_ReturnsOkWithExactlyOneRowAndHasMoreTrue()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var firstUserId = await SeedMemberAsync(authProviderUserId, "Member0");
+        await SeedLockedGuessAsync(firstUserId, 0);
+        var secondUserId = await SeedMemberAsync(Guid.NewGuid(), "Member1");
+        await SeedLockedGuessAsync(secondUserId, 10);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard?pageSize=1");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Rows, Has.Count.EqualTo(1), "REQ-607: pageSize=1 is the documented minimum and must be honored exactly");
+        Assert.That(body.HasMore, Is.True, "a 2-member league with pageSize=1 must report a further page");
+        Assert.That(body.NextCursor, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ607_LeaderboardGet_PageSizeMax_ReturnsOkWithAllMembersAndHasMoreFalse()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var firstUserId = await SeedMemberAsync(authProviderUserId, "Member0");
+        await SeedLockedGuessAsync(firstUserId, 0);
+        var secondUserId = await SeedMemberAsync(Guid.NewGuid(), "Member1");
+        await SeedLockedGuessAsync(secondUserId, 10);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard?pageSize=100");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Rows, Has.Count.EqualTo(2), "REQ-607: pageSize=100 is the documented maximum and must be accepted, not rejected");
+        Assert.That(body.HasMore, Is.False, "membership is well under 100, so all rows fit on one page");
+        Assert.That(body.NextCursor, Is.Null);
+    }
 }
