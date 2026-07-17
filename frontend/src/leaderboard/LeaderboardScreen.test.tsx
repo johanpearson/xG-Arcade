@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LeaderboardScreen } from './LeaderboardScreen';
 
@@ -8,6 +8,14 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     json: () => Promise.resolve(body),
   } as Response);
+}
+
+// Local helper for the REQ-607 pagination tests below — just cuts down on
+// repeating the same four-field row literal; not shared across files, so
+// kept local per the file's existing "one local helper" convention rather
+// than promoted to shared test infra.
+function row(rank: number, userId: string, displayName: string, totalPoints: number, isRequestingUser = false) {
+  return { rank, userId, displayName, totalPoints, isRequestingUser };
 }
 
 // REQ-401/404 (SCREEN-03's Tier 0 slice: the global league only).
@@ -158,5 +166,211 @@ describe('LeaderboardScreen', () => {
     expect(screen.queryByText(/unreachable|error/i)).not.toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  it('REQ-607: shows a "Load more" button when hasMore is true, and clicking it fetches the next page via the previous nextCursor and appends the new rows below the existing ones', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(2, 'user-2', 'Blair', 20)],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    const loadMoreButton = screen.getByRole('button', { name: 'Load more' });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+    // Appended below, not replacing — both rows present, in order.
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Alex');
+    expect(rows[1]).toHaveTextContent('Blair');
+
+    // The second fetch call must have passed the first response's
+    // nextCursor (50) as the cursor query param.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondCallUrl = String(fetchMock.mock.calls[1][0]);
+    expect(secondCallUrl).toContain('cursor=50');
+
+    // "Load more" is gone now that hasMore is false on the loaded page.
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-607: does not show a "Load more" button when hasMore is false', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10)],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-607: a failed "Load more" click shows an inline error without clearing the already-rendered rows, and the button becomes re-clickable', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response),
+      )
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(2, 'user-2', 'Blair', 20)],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    const loadMoreButton = screen.getByRole('button', { name: 'Load more' });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() =>
+      expect(document.querySelector('.leaderboard-screen__load-more-error')).not.toBeNull(),
+    );
+    // The already-rendered row must survive the failure.
+    expect(screen.getByText('Alex')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+    // Button is re-clickable, not stuck disabled.
+    const buttonAfterFailure = screen.getByRole('button', { name: 'Load more' });
+    expect(buttonAfterFailure).not.toBeDisabled();
+
+    fireEvent.click(buttonAfterFailure);
+    await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+    expect(document.querySelector('.leaderboard-screen__load-more-error')).toBeNull();
+  });
+
+  it('REQ-607: the 15s poll only ever refreshes page 1 — a second page loaded via "Load more" survives the next poll tick', async () => {
+    const fetchMock = vi
+      .fn()
+      // Initial mount load — page 1.
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      )
+      // "Load more" click — page 2.
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(2, 'user-2', 'Blair', 20)],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
+      )
+      // The 15s poll tick — page 1 only, with an updated total to prove a
+      // refresh actually happened.
+      .mockImplementation(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 99)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('10 pts')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // Page 1's row was refreshed by the poll...
+    await waitFor(() => expect(screen.getByText('99 pts')).toBeInTheDocument());
+    // ...and page 2's row, which the poll never re-fetches, must still be
+    // present — not dropped by the page-1-only poll response.
+    expect(screen.getByText('Blair')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+
+    vi.useRealTimers();
+  });
+
+  it('REQ-607: shows the pinned "you" footer when the requesting user\'s row is not among the currently loaded rows', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10)],
+          requestingUserRow: row(47, 'user-99', 'Player One', 900, true),
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    const footer = document.querySelector('.leaderboard-screen__you-footer');
+    expect(footer).not.toBeNull();
+    expect(footer).toHaveTextContent('Player One');
+    expect(footer).toHaveTextContent('900 pts');
+    expect(footer).toHaveTextContent('you');
+  });
+
+  it('REQ-607: does not duplicate the "you" footer when the requesting user\'s row is already visible among the loaded rows', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10), row(2, 'user-2', 'Player One', 20, true)],
+          requestingUserRow: row(2, 'user-2', 'Player One', 20, true),
+          nextCursor: null,
+          hasMore: false,
+        }),
+      ),
+    );
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    expect(document.querySelector('.leaderboard-screen__you-footer')).toBeNull();
+    // Still exactly one "Player One" row (in the list, not duplicated below it).
+    expect(screen.getAllByText('Player One')).toHaveLength(1);
   });
 });
