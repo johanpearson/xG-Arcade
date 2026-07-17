@@ -37,7 +37,7 @@ jobs:
       - run: dotnet test backend/XGArcade.sln --no-build --configuration Release --logger "trx"
       - name: Publish backend test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: Backend test results
           path: "backend/**/TestResults/*.trx"
@@ -63,7 +63,7 @@ jobs:
       - run: npm run test
       - name: Publish frontend unit test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: Frontend unit test results
           path: "frontend/test-results/vitest-junit.xml"
@@ -145,7 +145,7 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8080
       - name: Publish E2E test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: E2E test results
           path: "frontend/test-results/e2e-junit.xml"
