@@ -124,11 +124,31 @@ public partial class WikidataClient(
     // P27 = country of citizenship, P54 = member of sports team, P21 = sex
     // or gender, P569 = date of birth (ADR-0025's male-only/born-1939-
     // or-later player pool restriction — REQ-112).
+    //
+    // P54 deliberately uses the full statement path (p:P54/ps:P54,
+    // excluding only deprecated rank), NOT the truthy wdt:P54 shortcut the
+    // other properties use — do not "simplify" it back. Wikidata's truthy
+    // wdt: graph contains only best-rank statements: the moment any P54
+    // statement on a player is marked preferred rank (editors routinely
+    // mark the *current* club preferred), every normal-rank historical
+    // club silently vanishes from wdt:P54. That turned "ever played for
+    // this club" into "currently plays for this club" for exactly those
+    // players (e.g. Sandro Tonali x AC Milan), leaving the persisted
+    // answer key incomplete and correct guesses scored incorrect
+    // (REQ-107's ever-played-for semantics, REQ-101/REQ-203's correctness
+    // contract). Both grid generation and REQ-211's guess-time live
+    // lookup route through these two builders, so the statement path
+    // covers both. P106/P27/P21/P569 stay truthy on purpose: for those,
+    // best-rank semantics match product intent (current citizenship, the
+    // best-supported date of birth) and the preferred-rank trap doesn't
+    // change the answer to the question being asked.
     private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P27 wd:{{countryQid}}.
-          ?player wdt:P54 wd:{{clubQid}}.
+          ?player p:P54 ?clubStatement.
+          ?clubStatement ps:P54 wd:{{clubQid}}.
+          MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
           ?player wdt:P569 ?dateOfBirth.
           FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
@@ -142,12 +162,20 @@ public partial class WikidataClient(
 
     // S-030: "ever played for both clubs" — P54 checked twice instead of
     // once against P27, same no-LIMIT/altLabel-in-one-query/male-only/
-    // born-1939-or-later rules as above.
+    // born-1939-or-later rules as above, and the same
+    // full-statement-path-not-truthy P54 rule (see the comment on
+    // BuildCountryClubIntersectionQuery for why wdt:P54 is wrong here).
+    // Two distinct statement variables, one per club — a single shared
+    // variable could never bind (one statement can't point at two clubs).
     private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
         SELECT ?player ?playerLabel ?alias WHERE {
           ?player wdt:P106 wd:Q937857.
-          ?player wdt:P54 wd:{{clubAQid}}.
-          ?player wdt:P54 wd:{{clubBQid}}.
+          ?player p:P54 ?clubAStatement.
+          ?clubAStatement ps:P54 wd:{{clubAQid}}.
+          MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
+          ?player p:P54 ?clubBStatement.
+          ?clubBStatement ps:P54 wd:{{clubBQid}}.
+          MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
           ?player wdt:P569 ?dateOfBirth.
           FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)

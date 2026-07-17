@@ -162,6 +162,29 @@ public class WikidataClientTests
     }
 
     [Test]
+    public async Task REQ107_QueryCountryClubIntersectionAsync_SentQuery_MatchesClubViaFullStatementPathExcludingOnlyDeprecatedRank()
+    {
+        // "Ever played for this club" (REQ-107 semantics; REQ-101/REQ-203's
+        // correctness contract): the truthy wdt:P54 shortcut silently drops
+        // every normal-rank historical club the moment a player's current
+        // club is marked preferred rank, so the club match must go through
+        // the full statement path (p:P54/ps:P54), excluding only deprecated
+        // rank — see BuildCountryClubIntersectionQuery's own comment for
+        // the Sandro Tonali x AC Milan incident this pins down.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubStatement ps:P54 wd:{ClubQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+            "truthy wdt:P54 is best-rank-only — reintroducing it silently reduces 'ever played for' to 'currently plays for' whenever a current club is preferred rank");
+    }
+
+    [Test]
     public void QueryCountryClubIntersectionAsync_RejectsNonQidCountryValue()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
@@ -300,20 +323,33 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task QueryClubClubIntersectionAsync_SentQuery_ChecksP54TwiceAndNeverP27()
+    public async Task REQ107_QueryClubClubIntersectionAsync_SentQuery_ChecksP54StatementPathTwiceWithDistinctVariablesAndNeverP27()
     {
         // S-030: Club x Club's query shape checks "member of sports team"
         // (P54) against both clubs, unlike Country x Club's P27+P54 —
         // asserted explicitly since a copy-paste of the country/club query
         // builder that forgot to swap P27 for a second P54 would otherwise
         // silently produce a Country-shaped query for a Club x Club cell.
+        // Both checks must use the full statement path (p:P54/ps:P54,
+        // deprecated rank excluded), never truthy wdt:P54 — see the
+        // country/club statement-path test above — and each club needs its
+        // OWN statement variable: one shared variable could never bind,
+        // since a single P54 statement can't point at two clubs.
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
 
         await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
-        Assert.That(Regex.Matches(sentQuery, "wdt:P54").Count, Is.EqualTo(2));
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubAStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubAStatement ps:P54 wd:{ClubAQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubBStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubBStatement ps:P54 wd:{ClubBQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(Regex.Matches(sentQuery, Regex.Escape("ps:P54")).Count, Is.EqualTo(2));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+            "truthy wdt:P54 is best-rank-only — reintroducing it silently reduces 'ever played for' to 'currently plays for' whenever a current club is preferred rank");
         Assert.That(sentQuery, Does.Not.Contain("P27"));
     }
 

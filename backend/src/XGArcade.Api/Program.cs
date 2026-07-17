@@ -110,6 +110,14 @@ if (args is ["warm-player-cache"])
 // GitHub Actions workflow_dispatch text input intact without any shell
 // word-splitting/quoting risk.
 //
+// The literal argument `--all-clubs` (instead of a name list) resolves the
+// club names from the ClubDefinition reference table at runtime — for
+// recoveries that invalidate every seeded club at once (like the truthy
+// wdt:P54 query bug; see StaleClubAttributeCleaner.CleanAllSeededClubsAsync),
+// where hand-typing ~32 names is exactly the typo surface that silently
+// leaves a misspelled club stale. Still the same manual, workflow_dispatch-
+// only friction as the named mode — never wired into migrate-and-seed.
+//
 // Matched on the verb alone (not the full ["...", var arg] shape) so a
 // malformed invocation — the names argument missing or blank, e.g. an empty
 // workflow_dispatch text field — fails loudly via the explicit throw below
@@ -121,10 +129,8 @@ if (args is ["clean-stale-club-attributes", ..])
     var cleanClubNamesArg = args.Length > 1 ? args[1] : null;
     if (string.IsNullOrWhiteSpace(cleanClubNamesArg))
         throw new InvalidOperationException(
-            "clean-stale-club-attributes requires a comma-separated club names argument, e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"`.");
-
-    var cleanClubNames = cleanClubNamesArg
-        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            "clean-stale-club-attributes requires a comma-separated club names argument (or the literal `--all-clubs`), " +
+            "e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"` or `clean-stale-club-attributes --all-clubs`.");
 
     var cleanConfig = new ConfigurationBuilder()
         .AddEnvironmentVariables()
@@ -138,7 +144,34 @@ if (args is ["clean-stale-club-attributes", ..])
         .Options;
 
     await using var cleanDbContext = new XGArcadeDbContext(cleanDbContextOptions);
-    var (removedAttributeCount, removedDataCount) = await StaleClubAttributeCleaner.CleanAsync(cleanDbContext, cleanClubNames);
+
+    int removedAttributeCount;
+    int removedDataCount;
+    IReadOnlyList<string> cleanClubNames;
+    if (cleanClubNamesArg.Trim() == "--all-clubs")
+    {
+        (removedAttributeCount, removedDataCount, cleanClubNames) =
+            await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(cleanDbContext);
+    }
+    else
+    {
+        cleanClubNames = cleanClubNamesArg
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // A mistyped flag (e.g. `--all-club`) would otherwise fall through
+        // to the named mode, match no club, and print a plausible-looking
+        // "removed 0 rows" success — the exact silent-typo failure mode the
+        // `--all-clubs` mode exists to close. No seeded club name starts
+        // with `--`, so this can never reject a real club list.
+        var flagLikeName = cleanClubNames.FirstOrDefault(name => name.StartsWith("--", StringComparison.Ordinal));
+        if (flagLikeName is not null)
+            throw new InvalidOperationException(
+                $"clean-stale-club-attributes got '{flagLikeName}', which looks like a mistyped flag — " +
+                "the only supported flag is the exact literal `--all-clubs`.");
+
+        (removedAttributeCount, removedDataCount) =
+            await StaleClubAttributeCleaner.CleanAsync(cleanDbContext, cleanClubNames);
+    }
 
     Console.WriteLine($"clean-stale-club-attributes: removed {removedAttributeCount} PlayerAttribute row(s) and {removedDataCount} PlayerData row(s) for: {string.Join(", ", cleanClubNames)}.");
     return;

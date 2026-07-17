@@ -3,9 +3,13 @@ using Microsoft.EntityFrameworkCore;
 namespace XGArcade.Data.Seeding;
 
 // S-037: manually-triggered, one-off maintenance tool (Program.cs's
-// `clean-stale-club-attributes` CLI verb) for recovering from a wrong
+// `clean-stale-club-attributes` CLI verb) for recovering from club data
+// fetched while something upstream was wrong — originally a wrong
 // Wikidata QID in ReferenceDataSeeder.cs discovered only after real
-// PlayerAttribute/PlayerData rows were already fetched under it. A wrong
+// PlayerAttribute/PlayerData rows were already fetched under it; later
+// also the recovery path for club rows fetched under WikidataClient's
+// truthy wdt:P54 query, which silently omitted historical clubs (see
+// CleanAllSeededClubsAsync below). A wrong
 // club QID is silent and hard to detect: WikidataClient's SPARQL queries
 // have no way to know a QID doesn't actually correspond to the intended
 // club — if it happens to be some *other* real Wikidata entity that also
@@ -61,5 +65,47 @@ public static class StaleClubAttributeCleaner
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (staleAttributes.Count, stalePlayerData.Count);
+    }
+
+    // All-clubs mode (the CLI verb's `--all-clubs` argument): resolves the
+    // club-name list from the ClubDefinition reference table at runtime
+    // instead of requiring the operator to hand-type every seeded club
+    // name. Added for the wdt:P54 truthy-query incident (the preferred-
+    // rank bug fixed in WikidataClient's query builders — see the comment
+    // on BuildCountryClubIntersectionQuery): every club row ever fetched
+    // under the truthy query is suspect-incomplete for ALL seeded clubs, and
+    // a hand-typed ~32-name list is exactly the typo surface where one
+    // misspelled club silently stays stale (CleanAsync can't tell a typo
+    // from a club with nothing to clean — both remove zero rows). Same
+    // manual, deliberate-friction character as the named mode: still a
+    // one-off CLI verb run before the next warm-player-cache pass, still
+    // never wired into migrate-and-seed.
+    //
+    // Returns the resolved names alongside the counts so the CLI summary
+    // can show exactly which clubs were swept — an operator should be able
+    // to eyeball that the resolved list matches the seeded reference data.
+    public static async Task<(int PlayerAttributeCount, int PlayerDataCount, IReadOnlyList<string> ClubNames)> CleanAllSeededClubsAsync(
+        XGArcadeDbContext dbContext,
+        CancellationToken cancellationToken = default)
+    {
+        var clubNames = await dbContext.ClubDefinitions
+            .Select(c => c.Name)
+            .ToListAsync(cancellationToken);
+
+        // Zero seeded clubs means the premise of this mode ("the reference
+        // table knows the club list") doesn't hold — almost certainly a
+        // wrong connection string or a never-seeded database, not a real
+        // "nothing to clean" case. Fail loudly, same as the verb's own
+        // malformed-invocation handling in Program.cs, rather than
+        // printing a plausible-looking "removed 0 rows" success.
+        if (clubNames.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "clean-stale-club-attributes --all-clubs found no ClubDefinition rows to resolve club names from — " +
+                "is this the right database, and has migrate-and-seed run against it?");
+        }
+
+        var (playerAttributeCount, playerDataCount) = await CleanAsync(dbContext, clubNames, cancellationToken);
+        return (playerAttributeCount, playerDataCount, clubNames);
     }
 }
