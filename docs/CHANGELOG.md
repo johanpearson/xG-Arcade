@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — new `docs/ai/agent-migration-plan.md`, `CLAUDE.md`
+  (agent/command tables, document map row, conventions line),
+  `.claude/README.md` (rewritten for the new organization),
+  `docs/coding-guidelines.md` (0.3 → 0.4, "For AI agents" note now names
+  `quality-architect` as its enforcement point and owner) — agent
+  ecosystem redesign into an explicit engineering organization. The main
+  session is formalized as the **orchestrator** (new `/orchestrate`
+  command: intake → scope check → decomposition → delegation → quality
+  gate → docs → done-validation; deliberately a main-session protocol,
+  not a subagent, since subagents can't delegate to subagents — same
+  reasoning as the existing no-git-persona decision). `code-reviewer`
+  retired and merged into a new **`quality-architect`** agent that keeps
+  every review duty verbatim and additionally owns the three previously
+  orphaned responsibilities: deliberate refactoring (code-reviewer was
+  explicitly forbidden from it, and nobody else held it), test
+  architecture (fake/fixture/builder strategy, flaky/slow tests, the
+  E2E-drift trap S-029 hit), and quality gates (new `/quality-gate`
+  command — fixed review order, fails closed, "deferred to CI" is an
+  explicit status). New **`backend-implementer`** delivery agent codifies
+  backend knowledge previously living only in NOTES.md/CHANGELOG history
+  (InMemory-provider `ExecuteUpdate/DeleteAsync` trap, request-scoped
+  `DbContext` concurrency trap, CLI-verb-not-endpoint job pattern per
+  ADR-0022/0024, no-`dotnet`-SDK/no-Docker/no-wikidata.org sandbox
+  constraints and their report-honestly precedents). `test-writer`,
+  `ui-implementer`, `architecture-reviewer` got small boundary-clarifying
+  edits; `doc-sync`, `requirements-writer`, `game-scaffolder` and all
+  four existing commands unchanged. Full inventory, keep/merge/retire
+  rationale, knowledge-transfer matrix, and the after ownership matrix
+  (every responsibility → exactly one owner) are in the new plan doc;
+  historical "`code-reviewer` pass" mentions in backlog/requirements/
+  design docs deliberately left as accurate history. No REQ/ADR — process
+  and tooling only, no product behavior or architecture change.
 - 2026-07-14 — `docs/requirements-document.md` (0.53 → 0.54),
   `docs/design-document.md` (0.18 → 0.19), `docs/backlog.md` — same
   feedback round as the S-033/REQ-206 fix below, two follow-up requests.
