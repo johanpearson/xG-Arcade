@@ -27,10 +27,27 @@ public static class InternalRoundEndpoints
             IRoundGenerationService roundGenerationService,
             RoundSchedulingOptions options,
             ILogger<RoundGenerationLogCategory> logger,
+            double? roundDurationHours,
             CancellationToken cancellationToken) =>
         {
             if (!IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
+
+            // Optional per-call override (e.g. generate-round.yml's
+            // workflow_dispatch input) — takes precedence over
+            // RoundSchedulingOptions.RoundDuration for this one generation
+            // call only, never mutating the shared singleton. This is a
+            // system boundary (bearer-token-gated, but still an external
+            // caller), so it's validated here rather than trusted.
+            if (roundDurationHours is <= 0)
+            {
+                return Results.Problem(
+                    title: "Invalid roundDurationHours",
+                    detail: "roundDurationHours must be greater than zero.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var roundDurationOverride = roundDurationHours is { } hours ? TimeSpan.FromHours(hours) : (TimeSpan?)null;
 
             try
             {
@@ -44,7 +61,7 @@ public static class InternalRoundEndpoints
                     gridInstanceRepository, options.GridSize, cancellationToken);
 
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
-                    new RoundConfig { TemplateId = template.Id }, cancellationToken);
+                    new RoundConfig { TemplateId = template.Id }, roundDurationOverride, cancellationToken);
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.GameKey, round.StartTime, round.EndTime));
             }

@@ -1,20 +1,28 @@
 namespace XGArcade.Core.Rounds;
 
 // REQ-301's "configured... so play frequency can be adjusted without a code
-// change" — Tier 0 configures this via a plain C# default (same pattern as
-// Games.XGGrid's GridGenerationOptions, not appsettings-bound), registered
-// once in Program.cs. generate-round.yml's cron controls how often the
-// scheduler job actually runs; RoundDuration controls how long each
-// generated Round then stays active.
+// change" — RoundDuration's default value is now appsettings-bound
+// (RoundScheduling:RoundDurationHours, read in Program.cs, same pattern as
+// Internal:JobToken), while this options object itself stays a plain
+// singleton (still just GameKey/RoundDuration/AllowGuessChange/GridSize) —
+// only how RoundDuration's value is sourced changed, not this type's shape.
+// generate-round.yml's cron controls how often the scheduler job actually
+// runs; RoundDuration controls how long each generated Round then stays
+// active. /internal/generate-round also accepts a per-call
+// roundDurationHours override (see InternalRoundEndpoints.cs) for a one-off
+// workflow_dispatch — that override never touches this singleton.
 //
-// These two ARE coupled, despite generation being framed as an idempotency
-// check rather than a counter: RoundDuration must be at least as long as
-// the LONGEST gap between two consecutive cron firings, or a round can
-// fully close before the next scheduled run ever generates its successor —
-// exactly the "dead app" gap REQ-301 exists to prevent, just caused by
-// misconfiguration instead of a failure. See Program.cs's registration of
-// this options object for the worked example against generate-round.yml's
-// actual cron, and NOTES.md for the full derivation.
+// generate-round.yml's cron is now daily (0 6 * * *), not coupled to this
+// value the way the old Tue/Fri cadence was: RoundGenerationService's own
+// idempotency check (GetLatestByGameKeyAsync + "upcoming round already
+// exists" early return) makes a daily firing a no-op on days when the
+// current round hasn't ended yet, so a new round is actually generated
+// roughly every RoundDuration (chain-driven via EndTime, not cron-driven),
+// while the cron's own max gap is a constant 24h — a comfortable, constant
+// safety margin under any RoundDuration >= 24h, unlike the old exact-gap
+// equality this needed hand-verifying against every time either value
+// changed. See generate-round.yml's header and NOTES.md for the full
+// derivation.
 public class RoundSchedulingOptions
 {
     public required string GameKey { get; set; }

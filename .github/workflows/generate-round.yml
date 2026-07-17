@@ -4,19 +4,41 @@ name: generate-round
 # S-008 (docs/backlog.md): Core.Rounds' RoundGenerationService now backs
 # /internal/generate-round, so this cron is enabled.
 #
-# This cron's cadence and XGArcade.Api/Program.cs's RoundSchedulingOptions.
-# RoundDuration are coupled, not independent settings — RoundDuration must
-# be at least as long as the longest gap between two consecutive firings
-# below (Tue+Fri weekly: Fri->Tue is 4 days, the longer of the two
-# alternating gaps), or a round can fully close before the next scheduled
-# run ever generates its successor, recreating the exact "dead app" gap
-# REQ-301 exists to prevent — just via misconfiguration instead of a
-# failure. See NOTES.md for the full derivation. Change the two together.
+# Cadence: daily (06:00 UTC), deliberately NOT coupled to
+# XGArcade.Api/Program.cs's RoundScheduling:RoundDurationHours default (48h)
+# the way the old Tue/Fri cadence was to RoundSchedulingOptions.RoundDuration.
+# A `*/2` day-of-month cron was considered instead (to literally fire "every
+# 2 days") but rejected: cron's day-of-month field resets every calendar
+# month, so `*/2` produces an irregular 1-day gap at some month boundaries
+# and an exact 48h gap at others — the latter has zero safety margin against
+# a 48h RoundDuration if GitHub Actions' cron scheduler fires even slightly
+# late (a known, documented behavior of GH Actions scheduled workflows).
+# Daily instead relies on RoundGenerationService's own idempotency skip (an
+# upcoming, not-yet-started round already exists -> no-op) to no-op on days
+# when the current round hasn't ended yet, so a new round is actually
+# generated roughly every RoundDurationHours (chain-driven via EndTime, not
+# cron-driven), while this cron's own max gap is a constant 24h — a
+# comfortable, constant safety margin under any RoundDurationHours >= 24,
+# rather than an exact-equality edge case that needed re-verifying by hand
+# every time either value changed. See NOTES.md for the full derivation.
+#
+# workflow_dispatch accepts an optional round_duration_hours input for a
+# one-off manual override (passed through as /internal/generate-round's
+# roundDurationHours query param) — this does NOT change the configured
+# default and does NOT require touching this cron; only a *lasting* change
+# to the default needs RoundScheduling:RoundDurationHours (or the deployed
+# Container App's RoundScheduling__RoundDurationHours env var) changed
+# instead.
 
 on:
   schedule:
-    - cron: "0 6 * * 2,5" # Tue+Fri 06:00 UTC
-  workflow_dispatch: {}
+    - cron: "0 6 * * *" # daily 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      round_duration_hours:
+        description: "One-off RoundDuration override (hours) for this generation call only. Leave blank to use the configured default."
+        type: string
+        required: false
 
 jobs:
   generate-round:
@@ -24,8 +46,13 @@ jobs:
     steps:
       - name: Trigger round generation
         run: |
+          url="https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round"
+          if [ -n "${{ inputs.round_duration_hours }}" ]; then
+            url="${url}?roundDurationHours=${{ inputs.round_duration_hours }}"
+          fi
+
           http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
-            "https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round" \
+            "$url" \
             -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
 
           echo "Response body:"

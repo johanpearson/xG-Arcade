@@ -223,7 +223,7 @@ public class RoundEndpointTests
 
     private sealed class ThrowingRoundGenerationService : IRoundGenerationService
     {
-        public Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, CancellationToken cancellationToken = default)
+        public Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("simulated DB failure");
     }
 

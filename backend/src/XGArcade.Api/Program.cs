@@ -304,17 +304,22 @@ builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 // below — DI resolves the dependency graph regardless of registration
 // order, so the forward reference here is fine.
 builder.Services.AddSingleton(TimeProvider.System);
-// RoundDuration must be at least as long as the longest gap between two
-// consecutive generate-round.yml cron firings (Tue+Fri weekly: Fri->Tue is
-// 4 days, the longer of its two alternating gaps), or a round can close
-// before the next scheduled run generates its successor — see
+// RoundDuration's default is now appsettings-bound (same pattern as
+// Internal:JobToken below) rather than hardcoded — REQ-301's "play
+// frequency can be adjusted without a code change": change
+// RoundScheduling:RoundDurationHours (or the deployed Container App's
+// RoundScheduling__RoundDurationHours env var) instead of editing this
+// file. generate-round.yml's cron is daily and, thanks to
+// RoundGenerationService's own idempotency check, only actually generates a
+// new round roughly every RoundDuration — it no longer needs hand-matching
+// against this value the way the old Tue/Fri cadence did. See
 // RoundSchedulingOptions' own doc comment and NOTES.md for the full
-// derivation. Change this together with generate-round.yml's cron, never
-// independently.
+// derivation.
+var roundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:RoundDurationHours") ?? 48;
 builder.Services.AddSingleton(new RoundSchedulingOptions
 {
     GameKey = GridGameModule.XGGridGameKey,
-    RoundDuration = TimeSpan.FromDays(4),
+    RoundDuration = TimeSpan.FromHours(roundDurationHours),
 });
 builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
