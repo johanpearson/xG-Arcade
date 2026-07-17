@@ -39,11 +39,22 @@ public static class InternalRoundEndpoints
             // call only, never mutating the shared singleton. This is a
             // system boundary (bearer-token-gated, but still an external
             // caller), so it's validated here rather than trusted.
-            if (roundDurationHours is <= 0)
+            //
+            // Floor is 24, not 0: ADR-0027's safety invariant is
+            // `RoundDuration >= generate-round.yml`'s cron's max gap between
+            // firings, which is a constant 24h now that the cron is daily.
+            // A shorter override would let a round close before the next
+            // scheduled run generates its successor — REQ-301's "dead app"
+            // failure mode, reproduced via this override instead of the
+            // cron/duration coupling ADR-0027 fixed. If generate-round.yml's
+            // cron cadence ever changes, this floor must be re-derived by
+            // hand the same way (see ADR-0027's "For AI agents" section and
+            // NOTES.md's 2026-07-10 entry) — don't just bump the number.
+            if (roundDurationHours is < 24)
             {
                 return Results.Problem(
                     title: "Invalid roundDurationHours",
-                    detail: "roundDurationHours must be greater than zero.",
+                    detail: "roundDurationHours must be at least 24 (the daily cron's maximum gap — see ADR-0027) to avoid a round closing before the next scheduled run can generate its successor.",
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
