@@ -773,6 +773,37 @@ masquerade as a club name that "removed 0 rows" successfully.
 can't-tell-old-from-new reasoning as S-037/S-038, nothing in the
 persisted rows records which query shape fetched them.
 
+### 2026-07-17 — `RoundDuration`/cron coupling replaced: daily cron + idempotency skip instead of hand-matching an exact gap (REQ-301, ADR-0027)
+The 2026-07-10 entry above documented why `RoundDuration` had to be `>=`
+the *longest* gap between `generate-round.yml`'s Tue+Fri cron firings (4
+days) — a coupling that needed hand re-verification every time either
+value changed. That specific pairing is gone: `RoundDuration` is now
+config-bound (`RoundScheduling:RoundDurationHours`, default 48) instead of
+hardcoded, so it needed a cadence that stays safe across config changes,
+not just one hand-verified pair of numbers. The obvious next attempt — a
+`*/2` day-of-month cron to fire exactly every 2 days, matching a 48h
+`RoundDuration` — was rejected: cron's day-of-month field resets every
+calendar month, so `*/2` actually produces an irregular ~1-day gap at some
+month boundaries and an *exact* 48h gap at others, and an exact-equality
+gap against an exact-equality duration has zero margin if GitHub Actions'
+scheduler fires even slightly late (documented, real behavior, not
+hypothetical). Went with a daily cron instead (`0 6 * * *`, constant 24h
+max gap) left deliberately *uncoupled* from `RoundDuration`:
+`RoundGenerationService`'s existing idempotency skip (no-op if an
+upcoming/not-yet-started round already exists) makes the daily firing a
+no-op on every day the current round hasn't ended, so real generation
+still happens roughly every `RoundDuration` (chain-driven off each round's
+fixed `EndTime`), while the cron's own worst case is a constant 24h
+regardless of calendar month. The new invariant is simply
+`RoundDuration >= 24h` — true by construction for the 48h default and for
+any future config value at or above that floor, not something to
+re-verify by hand per change. This **supersedes the specific Tue+Fri
+pairing** the 2026-07-10 entry derived, not the general principle that
+cron cadence and round duration need *some* verified relationship — that
+principle still holds, it's just satisfied structurally now instead of by
+a hand-checked exact match. Full reasoning and the alternatives table:
+ADR-0027.
+
 **Open item, needs manual live-Wikidata verification** (sandbox can't
 reach `wikidata.org`): the same investigation surfaced a Tonali
 "Tottenham" attribution in cached data. Could be a genuine post-2026

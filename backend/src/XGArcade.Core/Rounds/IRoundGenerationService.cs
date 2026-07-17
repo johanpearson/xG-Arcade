@@ -10,5 +10,12 @@ public interface IRoundGenerationService
     // the caller (currently XGArcade.Api's internal endpoint) resolves it
     // ahead of time via the owning game module's own repository, the same
     // way S-007's /internal/grid/generate already does.
-    Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, CancellationToken cancellationToken = default);
+    //
+    // roundDurationOverride is deliberately a parameter here, not a field on
+    // RoundConfig: RoundConfig is opaque/game-owned (ADR-0003), while round
+    // duration is a Core.Rounds scheduling concern. When supplied, it wins
+    // over RoundSchedulingOptions.RoundDuration for this one generation call
+    // only — it never mutates the shared singleton, so it has no effect on
+    // any other round.
+    Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default);
 }

@@ -55,6 +55,9 @@ param adminUserIds string = ''
 @description('Minimum backend replica count. See modules/backend-container-app.bicep for guidance.')
 param minReplicas int = 0
 
+@description('Default RoundSchedulingOptions.RoundDuration in hours (REQ-301, ADR-0027). See modules/backend-container-app.bicep for guidance.')
+param roundDurationHours int = 48
+
 module containerAppsEnvironment 'modules/container-apps-environment.bicep' = {
   name: 'containerAppsEnvironment'
   params: {
@@ -83,6 +86,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     corsAllowedOrigin: corsAllowedOrigin
     adminUserIds: adminUserIds
     minReplicas: minReplicas
+    roundDurationHours: roundDurationHours
   }
 }
 

@@ -27,10 +27,38 @@ public static class InternalRoundEndpoints
             IRoundGenerationService roundGenerationService,
             RoundSchedulingOptions options,
             ILogger<RoundGenerationLogCategory> logger,
+            double? roundDurationHours,
             CancellationToken cancellationToken) =>
         {
             if (!IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
+
+            // Optional per-call override (e.g. generate-round.yml's
+            // workflow_dispatch input) — takes precedence over
+            // RoundSchedulingOptions.RoundDuration for this one generation
+            // call only, never mutating the shared singleton. This is a
+            // system boundary (bearer-token-gated, but still an external
+            // caller), so it's validated here rather than trusted.
+            //
+            // Floor is 24, not 0: ADR-0027's safety invariant is
+            // `RoundDuration >= generate-round.yml`'s cron's max gap between
+            // firings, which is a constant 24h now that the cron is daily.
+            // A shorter override would let a round close before the next
+            // scheduled run generates its successor — REQ-301's "dead app"
+            // failure mode, reproduced via this override instead of the
+            // cron/duration coupling ADR-0027 fixed. If generate-round.yml's
+            // cron cadence ever changes, this floor must be re-derived by
+            // hand the same way (see ADR-0027's "For AI agents" section and
+            // NOTES.md's 2026-07-10 entry) — don't just bump the number.
+            if (roundDurationHours is < 24)
+            {
+                return Results.Problem(
+                    title: "Invalid roundDurationHours",
+                    detail: "roundDurationHours must be at least 24 (the daily cron's maximum gap — see ADR-0027) to avoid a round closing before the next scheduled run can generate its successor.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var roundDurationOverride = roundDurationHours is { } hours ? TimeSpan.FromHours(hours) : (TimeSpan?)null;
 
             try
             {
@@ -44,7 +72,7 @@ public static class InternalRoundEndpoints
                     gridInstanceRepository, options.GridSize, cancellationToken);
 
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
-                    new RoundConfig { TemplateId = template.Id }, cancellationToken);
+                    new RoundConfig { TemplateId = template.Id }, roundDurationOverride, cancellationToken);
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.GameKey, round.StartTime, round.EndTime));
             }
