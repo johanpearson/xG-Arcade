@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.3"
+version: "0.4"
 status: draft
-last_updated: 2026-07-14
+last_updated: 2026-07-17
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -15,10 +15,11 @@ update_when:
 
 # Coding Guidelines
 
-> **For AI agents:** `code-reviewer` checks against this document
-> specifically. If you're about to write code and something here
-> contradicts what you were about to do, follow this document — if you
-> think the guideline itself is wrong, say so explicitly rather than
+> **For AI agents:** `quality-architect` checks against this document
+> specifically, and owns its evolution (a recurring review comment should
+> become a guideline here). If you're about to write code and something
+> here contradicts what you were about to do, follow this document — if
+> you think the guideline itself is wrong, say so explicitly rather than
 > silently working around it.
 
 ## General principles
