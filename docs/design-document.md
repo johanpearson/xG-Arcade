@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.20"
+version: "0.21"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -403,6 +403,36 @@ from v0.1, recolored for the light theme:
   won't turn out to be correct for this specific cell. That's intentional,
   not a bug to fix visually; nothing in this screen should imply a
   suggested name is already known to be right.
+
+**S-032 implementation note:** shipped without the photo/silhouette avatar
+described above — the `PlayerNameIndex`-backed contract this story builds
+against (ADR-0007) carries `name`/`birthYear`/`nationality` only, no photo
+field, so each suggestion row instead shows the name plus an optional
+`nationality · birthYear` caption line in `text-muted` for disambiguation.
+Avatar support stays an open item if/when the index gains a photo field.
+Judgment calls made without an existing spec to follow, recorded here
+rather than left as unreviewed implementation-only detail:
+- Suggestions list uses only neutral tokens — `surface-card` background,
+  `border-hairline` dividers, `text-primary`/`text-muted` for name/caption,
+  and `surface-sunken` (the same "recessed" token already used for an
+  untouched input, not a live/correct accent) for the keyboard-highlighted
+  row. Deliberately no `accent-green`/`accent-gold` anywhere in this list —
+  either would visually suggest a name is "probably right," undermining
+  REQ-207's own point.
+- Selecting a suggestion (click, or Enter on the keyboard-highlighted row)
+  fills the text field only — never auto-submits — so the player always
+  takes an explicit, separate "Submit guess" action regardless of how the
+  name got into the field.
+- Debounced at 275ms after the last keystroke, once the trimmed query
+  reaches 2 characters; a failed suggestions fetch is swallowed
+  client-side (shows no suggestions, never blocks or errors the guess
+  form) since autocomplete is a nice-to-have, not required to submit.
+- Standard combobox/listbox ARIA pattern (`role="combobox"` on the input,
+  `role="listbox"`/`role="option"` on the suggestion list, with
+  `aria-activedescendant` tracking the arrow-key-highlighted option) —
+  arrow keys move through suggestions, Enter picks the highlighted one
+  (or falls through to the form's normal submit if nothing is
+  highlighted), Escape dismisses the list without clearing typed text.
 
 ### SCREEN-02a: Disambiguation prompt
 

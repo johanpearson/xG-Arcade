@@ -187,6 +187,128 @@ public partial class WikidataClient(
         }
         """;
 
+    public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolPageAsync(
+        int offset, int pageSize, CancellationToken cancellationToken = default)
+    {
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset), offset, "offset must not be negative.");
+        if (pageSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(pageSize), pageSize, "pageSize must be positive.");
+
+        var query = BuildPlayerPoolPageQuery(offset, pageSize);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParseNameIndexBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            // Timeout on a single page — treated as an empty page, same
+            // "never throws" contract as the intersection queries. The
+            // importer's own doc comment covers why it can't fully
+            // distinguish this from "no more pages" and what it does about it.
+            _logger.LogWarning(
+                "Wikidata player-pool page query timed out at offset {Offset}; treating as empty page.", offset);
+            return [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            _logger.LogWarning(ex,
+                "Wikidata player-pool page query failed at offset {Offset}; treating as empty page.", offset);
+            return [];
+        }
+    }
+
+    // S-032/ADR-0007: broad "association football player" pool query, no
+    // country/club filter — unlike the two intersection queries above, this
+    // DOES page (inner SELECT DISTINCT ?player ... LIMIT/OFFSET) because the
+    // unfiltered result set is far larger than WDQS can safely return in one
+    // request. The outer query re-joins ?player against birth date/
+    // citizenship/image so a player with more than one P27 citizenship or
+    // P18 image produces more than one result row for the same ?player —
+    // ParseNameIndexBindings groups by qid the same way ParseBindings above
+    // groups aliases, taking the first non-null value seen for each. Same
+    // male-only/born-1939-or-later filter as the intersection queries
+    // (ADR-0025/REQ-112) for player-pool consistency. Deliberately no P54
+    // (club) — that's PlayerAttribute's job, not this index's (ADR-0007).
+    private static string BuildPlayerPoolPageQuery(int offset, int pageSize) => $$"""
+        SELECT ?player ?playerLabel ?birthYear ?countryLabel ?image WHERE {
+          {
+            SELECT DISTINCT ?player WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P21 wd:{{MaleWikidataQid}}.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
+            }
+            ORDER BY ?player
+            LIMIT {{pageSize}}
+            OFFSET {{offset}}
+          }
+          ?player wdt:P569 ?dateOfBirth.
+          BIND(YEAR(?dateOfBirth) AS ?birthYear)
+          OPTIONAL { ?player wdt:P27 ?country. }
+          OPTIONAL { ?player wdt:P18 ?image. }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+        }
+        """;
+
+    private static IReadOnlyList<WikidataNameIndexEntry> ParseNameIndexBindings(SparqlResponse? response)
+    {
+        if (response?.Results?.Bindings is null)
+            return [];
+
+        var byQid = new Dictionary<string, (string FullName, int? BirthYear, string? Nationality, string? PhotoUrl)>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+
+            var qid = playerValue.Value.Split('/').Last();
+
+            if (!byQid.TryGetValue(qid, out var entry))
+            {
+                var label = binding.TryGetValue("playerLabel", out var labelValue) ? labelValue.Value : qid;
+                int? birthYear = binding.TryGetValue("birthYear", out var birthYearValue)
+                    && int.TryParse(birthYearValue.Value, out var parsedBirthYear)
+                        ? parsedBirthYear
+                        : null;
+                entry = (label, birthYear, null, null);
+            }
+
+            // A player with more than one citizenship/image produces more
+            // than one binding row — keep the first non-null value seen for
+            // each, rather than overwriting with a later (possibly blank)
+            // one.
+            if (entry.Nationality is null && binding.TryGetValue("countryLabel", out var countryValue)
+                && !string.IsNullOrWhiteSpace(countryValue.Value))
+                entry.Nationality = countryValue.Value;
+
+            if (entry.PhotoUrl is null && binding.TryGetValue("image", out var imageValue)
+                && !string.IsNullOrWhiteSpace(imageValue.Value))
+                entry.PhotoUrl = imageValue.Value;
+
+            byQid[qid] = entry;
+        }
+
+        return byQid
+            .Select(kv => new WikidataNameIndexEntry(kv.Key, kv.Value.FullName, kv.Value.BirthYear, kv.Value.Nationality, kv.Value.PhotoUrl))
+            .ToList();
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/design-document.md` (0.20 → 0.21) — S-032: added a
+  frontend implementation note under SCREEN-02 for the shipped autocomplete
+  suggestion list (`GuessInput.tsx`) — neutral-tokens-only styling (no
+  accent-green/accent-gold, per REQ-207/ADR-0007's "suggestion ≠
+  correctness" boundary), the select-fills-but-never-auto-submits
+  behavior, the 275ms/2-character debounce, and the standard
+  combobox/listbox ARIA pattern used for keyboard nav — none of which had
+  an existing spec to follow. Flagged that the photo/silhouette avatar
+  SCREEN-02 already described isn't shippable yet since the
+  `PlayerNameIndex` contract this story builds against has no photo field.
 - 2026-07-17 — `docs/requirements-document.md` (0.56 → 0.57: REQ-607's
   status note rewritten from "Partially implemented... currently-unmet
   gap" to "Implemented (S-034)" describing the shipped `cursor`/`pageSize`

@@ -395,4 +395,177 @@ public class WikidataClientTests
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryClubClubIntersectionAsync(ClubAQid, "Barcelona"));
     }
+
+    // ---- QueryPlayerPoolPageAsync (S-032/ADR-0007/REQ-207) -----------------
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_SentQuery_ContainsLimitAndOffset()
+    {
+        // Unlike the two intersection queries above (which never LIMIT —
+        // see those tests' own comments), this bulk-import query MUST page:
+        // the unfiltered "association football player" pool is far larger
+        // than WDQS can safely return in one request.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolPageAsync(offset: 10000, pageSize: 5000);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("LIMIT 5000"));
+        Assert.That(sentQuery, Does.Contain("OFFSET 10000"));
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_SentQuery_FiltersToMaleOnlyAndBornOnOrAfter1939()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P21 wd:Q6581097"));
+        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_SentQuery_QueriesBroadOccupationWithNoClubOrCountryFilter()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
+        // PlayerNameIndex is not the place for club (P54) data — that's
+        // PlayerAttribute's job (ADR-0007) — and this query has no club/
+        // country filter at all, unlike the two intersection queries above.
+        Assert.That(sentQuery, Does.Not.Contain("P54"));
+        Assert.That(sentQuery, Does.Not.Contain("P27 wd:"));
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_ParsesBirthYearNationalityAndPhotoUrl()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "birthYear": { "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#integer", "value": "1977" },
+                    "countryLabel": { "type": "literal", "value": "France" },
+                    "image": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
+        Assert.That(result[0].FullName, Is.EqualTo("Thierry Henry"));
+        Assert.That(result[0].BirthYear, Is.EqualTo(1977));
+        Assert.That(result[0].Nationality, Is.EqualTo("France"));
+        Assert.That(result[0].PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_MultipleRowsForSamePlayer_GroupsIntoOneEntry_KeepingFirstNonNullNationality()
+    {
+        // A player with more than one P27 citizenship (or P18 image)
+        // produces more than one binding row for the same ?player — these
+        // must collapse into one WikidataNameIndexEntry, not one row per
+        // citizenship.
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "birthYear": { "type": "literal", "value": "1977" },
+                    "countryLabel": { "type": "literal", "value": "France" }
+                  },
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "birthYear": { "type": "literal", "value": "1977" },
+                    "countryLabel": { "type": "literal", "value": "Guadeloupe" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].Nationality, Is.EqualTo("France"), "the first non-null nationality seen wins, rather than producing a duplicate row per citizenship");
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_NoBindings_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Is.Empty, "an empty page is the importer's loop-termination signal");
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_HttpErrorStatus_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolPageAsync_MalformedJson_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void QueryPlayerPoolPageAsync_RejectsNegativeOffset()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolPageAsync(offset: -1, pageSize: 100));
+    }
+
+    [Test]
+    public void QueryPlayerPoolPageAsync_RejectsNonPositivePageSize()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 0));
+    }
 }

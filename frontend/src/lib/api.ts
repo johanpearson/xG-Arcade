@@ -2,6 +2,7 @@ import type {
   CurrentRoundResponse,
   LeaderboardResponse,
   LoginResponse,
+  PlayerAutocompleteSuggestion,
   SignupResponse,
   SubmitGuessResponse,
 } from './types';
@@ -127,6 +128,26 @@ export async function fetchLeaderboard(
   );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LeaderboardResponse;
+}
+
+// REQ-207/ADR-0007 (S-032): sourced from PlayerNameIndex only, never
+// PlayerAttribute/PlayerOverride (see PlayerAutocompleteSuggestion's own
+// comment in types.ts) — GuessInput treats a failed/empty result as "no
+// suggestions," never as a reason to block guess submission.
+export async function fetchPlayerAutocomplete(
+  accessToken: string,
+  query: string,
+  limit?: number,
+): Promise<PlayerAutocompleteSuggestion[]> {
+  const params = new URLSearchParams();
+  params.set('query', query);
+  if (limit !== undefined) params.set('limit', String(limit));
+  const response = await fetch(
+    `${API_BASE_URL}/players/autocomplete?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as PlayerAutocompleteSuggestion[];
 }
 
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
