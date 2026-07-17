@@ -873,6 +873,52 @@ become trivially easy to solve via what does/doesn't autocomplete
 name matching exists), S-006 (Wikidata client exists to extend for the
 bulk query).
 
+**Built as (2026-07-17, backend only — a frontend agent is wiring the UI
+against this same contract in parallel):** `PlayerNameIndex` entity/table
+(`PlayerNameIndexEntries`, keyed by `PlayerId`, `HasIndex(NormalizedName)`)
+plus `IPlayerNameIndexRepository`/`PlayerNameIndexRepository`
+(`SearchByPrefixAsync`, `UpsertManyAsync`) in `XGArcade.Data` — a
+deliberately separate interface from `IPlayerStoreRepository`/COMP-06, never
+merged, per ADR-0007/boundary rule 5. `GET /players/autocomplete?query=&limit=`
+(`XGArcade.Api.Players.PlayerAutocompleteEndpoints`, bearer-token
+authenticated, response `{ playerId, name, birthYear?, nationality? }[]`):
+a query under 2 characters (trimmed) returns `[]` without querying the
+repository; `limit` defaults to 10, clamped server-side to 25 regardless of
+what's requested. `WikidataClient.QueryPlayerPoolPageAsync` is the new bulk,
+paginated (5,000 rows/page, loop until an empty page) `P106`=`Q937857`
+query, same male-only/born-1939-or-later filter as the intersection
+queries, deliberately no `P54`. `PlayerNameIndexImporter` (the
+`import-player-name-index` CLI verb, ADR-0024, `import-player-name-index.yml`
+workflow_dispatch-only) drives the page loop and upserts.
+
+Two deviations from how this story was originally scoped, both forced by
+the existing project-reference graph rather than a judgment call:
+- `PlayerNameIndexImporter` lives in `XGArcade.DataSync.Wikidata`
+  (alongside `WikidataLookupService`), not `XGArcade.Data/Seeding` alongside
+  `ReferenceDataSeeder`/`StaleClubAttributeCleaner` — `XGArcade.Data` has no
+  project reference to `XGArcade.DataSync` (only the reverse), so a class
+  needing both `IWikidataClient` and `IPlayerNameIndexRepository` cannot
+  live in `XGArcade.Data` without a circular project reference, which the
+  build simply refuses.
+- `PlayerNameIndex` has no `WikidataQid` column (matching the entity sketch
+  exactly), so `PlayerNameIndexImporter` derives `PlayerId` as a
+  deterministic hash of the QID (MD5's 16 bytes mapped onto a `Guid`) rather
+  than a fresh `Guid.NewGuid()` per run — otherwise every re-import would
+  duplicate every player's row instead of correcting it in place. Flagged
+  for `architecture-reviewer`/`quality-architect` review as a judgment call
+  made under ambiguity in the entity spec, not a pre-approved design.
+
+Backend test suite run in full this session (`dotnet` SDK installed fresh
+in this sandbox via `apt-get install dotnet-sdk-10.0`, per NOTES.md's
+documented fix): 361/361 passed across all five backend test projects (up
+from 328/328 pre-S-032; +33 new tests: `PlayerNameIndexRepositoryTests`,
+`WikidataClientTests`' new `QueryPlayerPoolPageAsync` coverage,
+`PlayerNameIndexImporterTests`, `PlayerAutocompleteEndpointTests`). A real
+EF Core migration (`AddPlayerNameIndex`) was generated via `dotnet ef
+migrations add`, not hand-written. New Wikidata QIDs: none — this story
+reuses `Q937857`/`Q6581097` (already in use elsewhere in `WikidataClient`),
+no new QID introduced.
+
 **S-033 · Show point value on the "incorrect, no attempts left" cell state (REQ-204)**
 Frontend-only gap, flagged and left unfixed three times (originally around
 S-011, again at S-028): `CellState.tsx`'s state 3 (SCREEN-01a's "Incorrect,

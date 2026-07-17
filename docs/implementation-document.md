@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.52"
+version: "0.54"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -323,9 +323,18 @@ public class PlayerAttribute      // effective, denormalized for fast querying
 // see ADR-0007. Used ONLY for autocomplete and name matching, NEVER for
 // correctness-checking. Refreshed periodically as a whole, not built
 // incrementally.
+//
+// Built S-032 exactly as sketched below, with one implementation note not
+// obvious from the shape alone: there is deliberately no WikidataQid column
+// here (unlike Player.WikidataQid in COMP-06) — PlayerNameIndexImporter
+// instead derives PlayerId as a deterministic hash of the QID (MD5's 16
+// bytes mapped onto a Guid), so re-running the bulk import updates the same
+// row in place rather than minting a fresh random PlayerId — and duplicating
+// the row — on every re-run. See PlayerNameIndexImporter's own doc comment
+// (XGArcade.DataSync.Wikidata) for the full reasoning.
 public class PlayerNameIndex
 {
-    public Guid PlayerId { get; set; }              // same id space as PlayerAttribute's PlayerId
+    public Guid PlayerId { get; set; }              // synthetic, QID-derived key local to this table (PlayerNameIndexImporter.DeterministicPlayerId) — NOT the same id space as PlayerAttribute's PlayerId (Player.Id is a plain Guid.NewGuid()); reconciling the two per real person is unbuilt, out of scope for S-032
     public string PrimaryName { get; set; }
     public string NormalizedName { get; set; }      // lowercased, diacritics stripped — see REQ-208
     public int? BirthYear { get; set; }             // disambiguation display only
@@ -575,7 +584,7 @@ public class LeagueMembership
 | `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
-| `PlayerNameIndex` | `(NormalizedName)` | Not built (Tier 1, no `PlayerNameIndex` table exists yet) — recorded here as the long-term index once autocomplete/COMP-10 exist. Every guess submission normalizes and looks up against this first (REQ-208) |
+| `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
 | `PlayerAlias` | `(NormalizedAlias)` | Alias lookup on the fallback path when the primary name doesn't match (REQ-208) |
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |
@@ -1187,6 +1196,25 @@ Four rules that make this query correct, not just functional:
   for those, best-rank semantics match product intent. Deprecated rank is
   still excluded: it's Wikidata's "recorded but wrong" marker, not a
   historical spell.
+
+**S-032 addition — `PlayerNameIndex`'s bulk-import query is the one
+deliberate exception to "never `LIMIT`" above.** `WikidataClient
+.QueryPlayerPoolPageAsync` (COMP-10/ADR-0007's bulk name-index refresh, run
+by `PlayerNameIndexImporter`) queries the same `P106`=`Q937857` occupation
+broadly, with the same male-only/born-1939-or-later filter, but with no
+country/club filter at all — a far larger, unfiltered result set than any
+intersection query's "rarely >100 players." This one DOES page
+(`ORDER BY ?player LIMIT {pageSize} OFFSET {offset}` in an inner subquery,
+5,000 rows per page), looping until a page comes back empty — WDQS has its
+own result-size/time limits regardless of this app's own concerns.
+Deliberately does not fetch `P54` (club) — that data belongs to
+`PlayerAttribute`, not this index (ADR-0007) — but does fetch `P569`
+(birth year, via `BIND(YEAR(?dateOfBirth) AS ?birthYear)`), `P27`
+(nationality, display-only), and `P18` (photo, display-only). A player with
+more than one citizenship or image produces more than one result row for
+the same `?player`; the client groups these client-side, keeping the first
+non-null value seen per field, same shape as how alias rows are grouped for
+the intersection queries above.
 
 Semantics note: the Country category means **citizenship (P27)**, not
 "capped for the national team" — a deliberate, player-visible rule

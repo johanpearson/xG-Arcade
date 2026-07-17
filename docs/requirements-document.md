@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.57"
+version: "0.58"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -925,14 +925,20 @@ indicator of any kind, no percent)
 > seeing a name suggested (or not) doesn't itself tell me whether it's the
 > right answer.
 
-- **Status: Proposed, queued as `docs/backlog.md` S-032 (pulled forward
-  from Tier 1, `MVP-SCOPE.md`, 2026-07-12, by deliberate choice rather than
-  the stated trigger having strictly fired).** Builds exactly what ADR-0007
-  already specifies — `PlayerNameIndex` populated via a one-time bulk
-  Wikidata query for `P106` (association football player) — no new
-  architectural decision. This story covers the suggestion-list UX only;
+- **Status: Implemented (Tier 1 pulled forward, S-032, 2026-07-17).**
+  Builds exactly what ADR-0007 already specifies — a new `PlayerNameIndex`
+  table (COMP-10, `IPlayerNameIndexRepository`/`PlayerNameIndexRepository`,
+  never merged with `IPlayerStoreRepository`/COMP-06), populated via
+  `PlayerNameIndexImporter`'s bulk, paginated Wikidata query for `P106`
+  (association football player) — the `import-player-name-index` CLI verb
+  (ADR-0024), workflow_dispatch-only, no schedule yet, per ADR-0007's own
+  follow-up note. `GET /players/autocomplete?query=&limit=` (bearer-token
+  authenticated) queries `PlayerNameIndex` only; a query under 2 characters
+  (after trimming) returns an empty array without querying the repository;
+  `limit` defaults to 10, clamped server-side to a max of 25 regardless of
+  what the caller requests. This story covers the suggestion-list UX only;
   REQ-208's alias/fuzzy-typo-tolerance clauses for guess *scoring* remain
-  separately deferred.
+  separately deferred, as does REQ-209's disambiguation UI.
 - Given a player is typing a guess
 - When autocomplete suggestions are shown
 - Then suggestions are drawn from a broad player name index covering many

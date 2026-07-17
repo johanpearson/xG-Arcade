@@ -1,0 +1,35 @@
+name: import-player-name-index
+
+# S-032 (ADR-0007/REQ-207): bulk-populates PlayerNameIndex (COMP-10) from a
+# broad "association football player" Wikidata SPARQL query, so autocomplete
+# (REQ-207) has many thousands of names to suggest from — deliberately
+# separate from PlayerAttribute's narrow, incrementally-built validation
+# cache (see PlayerNameIndexImporter's own doc comment and ADR-0007 for why).
+#
+# A plain CLI job (`dotnet run -- import-player-name-index`), not an HTTP
+# endpoint against the deployed backend — same "long-running bulk job is a
+# CLI verb, never a fire-and-forget background task or a long HTTP endpoint"
+# reasoning as warm-player-cache.yml (ADR-0024): this query pages through
+# many thousands of rows (5,000 at a time) and can run far longer than the
+# deployed backend's ~240s HTTP ingress timeout allows.
+#
+# Manual trigger only, no recurring schedule — ADR-0007's own follow-up note
+# says start with a manual/periodic refresh and tighten only if names are
+# noticeably missing later.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  import-player-name-index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Import player name index
+        run: dotnet run --project backend/src/XGArcade.Api -- import-player-name-index
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

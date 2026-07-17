@@ -10,6 +10,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Leagues;
+using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
@@ -97,6 +98,48 @@ if (args is ["warm-player-cache"])
     await warmingService.WarmAsync();
 
     Console.WriteLine("warm-player-cache: complete.");
+    return;
+}
+
+// S-032 (ADR-0007/REQ-207): `dotnet run -- import-player-name-index` is a
+// fifth distinct CLI verb — same shape as warm-player-cache above (builds
+// its dependencies directly rather than the full DI container, since it
+// runs before WebApplication.CreateBuilder), run manually via its own
+// workflow (import-player-name-index.yml, workflow_dispatch only, no
+// schedule — ADR-0007's own follow-up note says start with a manual/
+// periodic refresh, tighten only if names are noticeably missing). See
+// PlayerNameIndexImporter's own doc comment for the full "why a CLI verb,
+// not an HTTP endpoint or background task" reasoning (ADR-0024).
+if (args is ["import-player-name-index"])
+{
+    var importConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var importConnectionString = importConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var importDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(importConnectionString)
+        .Options;
+
+    using var importLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var importDbContext = new XGArcadeDbContext(importDbContextOptions);
+    var importRepository = new PlayerNameIndexRepository(importDbContext);
+
+    using var importHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(importHttpClient);
+    var importWikidataClient = new WikidataClient(importHttpClient, logger: importLoggerFactory.CreateLogger<WikidataClient>());
+
+    var importer = new PlayerNameIndexImporter(
+        importWikidataClient, importRepository, importLoggerFactory.CreateLogger<PlayerNameIndexImporter>());
+
+    var importedCount = await importer.ImportAsync();
+
+    Console.WriteLine($"import-player-name-index: upserted {importedCount} PlayerNameIndex row(s).");
     return;
 }
 
@@ -266,6 +309,12 @@ builder.Services.AddDbContext<XGArcadeDbContext>(options =>
 // see architecture-document.md boundary rule 1.
 builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
 builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
+
+// COMP-10 (Data.PlayerNameIndex) — REQ-207's autocomplete-only data source,
+// deliberately a separate repository/interface from IPlayerStoreRepository
+// above (never merged — see ADR-0007 and architecture-document.md boundary
+// rule 5).
+builder.Services.AddScoped<IPlayerNameIndexRepository, PlayerNameIndexRepository>();
 
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -498,6 +547,7 @@ app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapAdminEndpoints();
+app.MapPlayerAutocompleteEndpoints();
 
 app.Run();
 

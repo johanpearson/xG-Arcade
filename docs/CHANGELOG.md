@@ -13,6 +13,83 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `MVP-SCOPE.md` — doc-sync pass over the S-032 diff
+  (REQ-207/ADR-0007/COMP-10): the Tier 0 "Guessing" bullet still said
+  "plain text input, no autocomplete... defer `PlayerNameIndex`/ADR-0007
+  entirely" — stale now that autocomplete/`PlayerNameIndex` actually
+  shipped. Rewrote it to describe what's built and point at the Tier 1
+  section for detail; updated that Tier 1 section's own S-032 entry from
+  "queued" to "built, 2026-07-17" with the shipped shape (`PlayerNameIndexImporter`,
+  `GET /players/autocomplete`, `GuessInput.tsx`'s debounced suggestion
+  list), matching the existing "trigger hit and pulled forward" pattern
+  already used there for REQ-211/S-031. No frontmatter to bump — this file
+  has none. Checked `docs/requirements-document.md`,
+  `docs/architecture-document.md`, `docs/implementation-document.md`,
+  `docs/backlog.md`, `docs/design-document.md`, and `docs/legal/*.md`
+  against the full S-032 diff independently: all found already accurate
+  (the implementing agent's own doc updates, plus the later id-space
+  quality-gate fix below, hold up) — `docs/legal/*.md` specifically needs
+  no change since `PlayerNameIndex` stores only public Wikidata data about
+  footballers (name, birth year, nationality), already covered generically
+  by the privacy policy draft's existing "Data sources for gameplay
+  content" section, and the autocomplete query string itself is never
+  persisted (an in-memory `IPlayerNameIndexRepository.SearchByPrefixAsync`
+  read only), so it's no more "collected" than any other request path
+  already covered by "standard web server logs."
+- 2026-07-17 — `docs/implementation-document.md` (0.53 → 0.54),
+  `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerNameIndexRepository.cs` —
+  quality-gate follow-up on S-032 (REQ-207/ADR-0007): corrected a false
+  "same id space as `Player.Id`" claim in `PlayerNameIndex.PlayerId`'s doc
+  comments — it's actually a synthetic, QID-derived key local to
+  `PlayerNameIndex`/COMP-10 (`PlayerNameIndexImporter.DeterministicPlayerId`),
+  with no guaranteed relationship to the separately-minted `Player.Id`
+  (`Guid.NewGuid()`, `WikidataLookupService`) for the same real person, and
+  no reconciliation between the two exists. Comment/doc text only, no
+  behavior change, no new ADR (both `architecture-reviewer` and
+  `quality-architect` agreed this doesn't need one). Also added
+  `PlayerNameIndexImporterTests.ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed`
+  covering the previously-untested write-failure propagation path, by
+  `backend-implementer`.
+- 2026-07-17 — `docs/requirements-document.md` (0.57 → 0.58: REQ-207's
+  status note rewritten from "Proposed, queued as S-032" to "Implemented
+  (S-032)", describing the shipped `GET /players/autocomplete` contract),
+  `docs/architecture-document.md` (0.35 → 0.36: COMP-10's row and the
+  guess-submission flow diagram's Tier 0 status notes both updated —
+  `PlayerNameIndex`/`IPlayerNameIndexRepository` now exist, and
+  `PlayerNameIndexImporter` is noted living in `XGArcade.DataSync` rather
+  than `XGArcade.Data/Seeding`, forced by the existing one-way
+  `XGArcade.DataSync` → `XGArcade.Data` project-reference direction),
+  `docs/implementation-document.md` (0.52 → 0.53: `PlayerNameIndex`'s
+  entity sketch gains a note on the deterministic-hash `PlayerId`
+  derivation in place of a `WikidataQid` column; §5's required-indexes
+  table row and §6a both updated with the new paginated bulk-import
+  query's shape), `docs/backlog.md` (S-032 entry gains a "Built as" note,
+  including the two deviations forced by the project-reference graph),
+  `infra/scripts/lib/game-data-tables.sh` (corrected the `PlayerNameIndex`
+  placeholder entry to the real EF Core table name,
+  `PlayerNameIndexEntries`, now that the table exists — no other allowlist
+  entry touched, per ADR-0009), by `backend-implementer` — closes
+  REQ-207/ADR-0007's `PlayerNameIndex` gap (S-032, pulled forward from
+  Tier 1): a new `PlayerNameIndex` table/repository (COMP-10, structurally
+  separate from COMP-06's `IPlayerStoreRepository`), a bulk, paginated
+  Wikidata importer (`PlayerNameIndexImporter`, the
+  `import-player-name-index` CLI verb/workflow per ADR-0024), and
+  `GET /players/autocomplete?query=&limit=` (bearer-token authenticated).
+  Backend suite: 361/361 passed across all five projects (`dotnet` SDK
+  freshly installed in this sandbox via `apt-get install
+  dotnet-sdk-10.0`); a real EF Core migration (`AddPlayerNameIndex`) was
+  generated via `dotnet ef migrations add`, not hand-written.
+- 2026-07-17 — `docs/design-document.md` (0.20 → 0.21) — S-032: added a
+  frontend implementation note under SCREEN-02 for the shipped autocomplete
+  suggestion list (`GuessInput.tsx`) — neutral-tokens-only styling (no
+  accent-green/accent-gold, per REQ-207/ADR-0007's "suggestion ≠
+  correctness" boundary), the select-fills-but-never-auto-submits
+  behavior, the 275ms/2-character debounce, and the standard
+  combobox/listbox ARIA pattern used for keyboard nav — none of which had
+  an existing spec to follow. Flagged that the photo/silhouette avatar
+  SCREEN-02 already described isn't shippable yet since the
+  `PlayerNameIndex` contract this story builds against has no photo field.
 - 2026-07-17 — `docs/requirements-document.md` (0.56 → 0.57: REQ-607's
   status note rewritten from "Partially implemented... currently-unmet
   gap" to "Implemented (S-034)" describing the shipped `cursor`/`pageSize`

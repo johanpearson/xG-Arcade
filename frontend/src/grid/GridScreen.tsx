@@ -175,6 +175,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       {activeCell && (
         <GuessInput
           cell={activeCell}
+          accessToken={accessToken}
           onSubmit={handleSubmitGuess}
           onClose={() => setActiveCell(null)}
         />

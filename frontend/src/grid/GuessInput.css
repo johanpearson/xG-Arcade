@@ -89,6 +89,54 @@
   font-size: 16px;
 }
 
+/* REQ-207/ADR-0007: neutral tokens only, deliberately — no accent-green/
+   accent-gold anywhere here, since this list must never look like it's
+   vouching for a name being the correct answer (see GuessInput.tsx's own
+   comment). The keyboard-highlighted item uses surface-sunken, the same
+   neutral "recessed" token used for an untouched input, not a live/correct
+   accent. */
+.guess-input__suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.guess-input__suggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.guess-input__suggestion:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.guess-input__suggestion--highlighted {
+  background: var(--color-surface-sunken);
+}
+
+.guess-input__suggestion-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.guess-input__suggestion-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .guess-input__error {
   color: var(--color-accent-red);
   font-size: 13px;

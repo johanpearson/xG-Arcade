@@ -66,6 +66,20 @@ export interface LoginResponse {
   refreshToken: string | null;
 }
 
+// REQ-207/ADR-0007 (S-032): a suggestion sourced from PlayerNameIndex
+// (COMP-10) only — a name appearing here implies nothing about whether
+// it's correct for the current cell. Never merge this shape/path with
+// PlayerAttribute/PlayerOverride correctness data (ADR-0007's boundary
+// rule). birthYear/nationality are optional disambiguation context only
+// (e.g. two players sharing a name), not a correctness signal, and must
+// never be styled to suggest one is "more right" than another.
+export interface PlayerAutocompleteSuggestion {
+  playerId: string;
+  name: string;
+  birthYear?: number;
+  nationality?: string;
+}
+
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).
 // REQ-607 (S-034): rank is the row's global 1-based rank, not a page-local
 // index — a later page no longer starts at rank 1, so the UI must always
