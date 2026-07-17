@@ -31,10 +31,19 @@ describe('LeaderboardScreen', () => {
       vi.fn().mockImplementation(() =>
         jsonResponse({
           rows: [
-            { userId: 'user-3', displayName: 'Sam', totalPoints: 120, isRequestingUser: false },
-            { userId: 'user-2', displayName: 'Player One', totalPoints: 138, isRequestingUser: true },
-            { userId: 'user-1', displayName: 'Alex', totalPoints: 142, isRequestingUser: false },
+            { rank: 1, userId: 'user-3', displayName: 'Sam', totalPoints: 120, isRequestingUser: false },
+            { rank: 2, userId: 'user-2', displayName: 'Player One', totalPoints: 138, isRequestingUser: true },
+            { rank: 3, userId: 'user-1', displayName: 'Alex', totalPoints: 142, isRequestingUser: false },
           ],
+          requestingUserRow: {
+            rank: 2,
+            userId: 'user-2',
+            displayName: 'Player One',
+            totalPoints: 138,
+            isRequestingUser: true,
+          },
+          nextCursor: null,
+          hasMore: false,
         }),
       ),
     );
@@ -62,7 +71,10 @@ describe('LeaderboardScreen', () => {
       'fetch',
       vi.fn().mockImplementation(() =>
         jsonResponse({
-          rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }],
+          rows: [{ rank: 1, userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
         }),
       ),
     );
@@ -74,7 +86,12 @@ describe('LeaderboardScreen', () => {
   });
 
   it('REQ-401: shows a calm empty-state invitation when nobody has scored yet', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse({ rows: [] })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+      ),
+    );
 
     render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
 
@@ -87,10 +104,20 @@ describe('LeaderboardScreen', () => {
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(() =>
-        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }] }),
+        jsonResponse({
+          rows: [{ rank: 1, userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
       )
       .mockImplementation(() =>
-        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 40, isRequestingUser: false }] }),
+        jsonResponse({
+          rows: [{ rank: 1, userId: 'user-1', displayName: 'Alex', totalPoints: 40, isRequestingUser: false }],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
       );
     vi.stubGlobal('fetch', fetchMock);
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -112,7 +139,12 @@ describe('LeaderboardScreen', () => {
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(() =>
-        jsonResponse({ rows: [{ userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }] }),
+        jsonResponse({
+          rows: [{ rank: 1, userId: 'user-1', displayName: 'Alex', totalPoints: 10, isRequestingUser: false }],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
       )
       .mockImplementation(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response));
     vi.stubGlobal('fetch', fetchMock);

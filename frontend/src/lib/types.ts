@@ -67,13 +67,25 @@ export interface LoginResponse {
 }
 
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).
+// REQ-607 (S-034): rank is the row's global 1-based rank, not a page-local
+// index — a later page no longer starts at rank 1, so the UI must always
+// read this field rather than deriving rank from array position.
 export interface LeaderboardRow {
+  rank: number;
   userId: string;
   displayName: string;
   totalPoints: number;
   isRequestingUser: boolean;
 }
 
+// REQ-607 (S-034): the backend paginates via cursor/pageSize now — `rows`
+// is capped at the requested pageSize per response, `nextCursor` is what to
+// pass back as `cursor` for the next page, and `requestingUserRow` is
+// always populated with the caller's own row/rank (even off-page) so
+// SCREEN-03's "your position" footer never needs a second round-trip.
 export interface LeaderboardResponse {
   rows: LeaderboardRow[];
+  requestingUserRow: LeaderboardRow | null;
+  nextCursor: number | null;
+  hasMore: boolean;
 }

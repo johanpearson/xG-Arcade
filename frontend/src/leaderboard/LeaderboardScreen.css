@@ -97,3 +97,54 @@
   font-size: 11px;
   color: var(--color-accent-green-text);
 }
+
+/* REQ-607 (S-034): pagination's "Load more" — same button treatment
+   as .guess-input__submit/.auth-screen__submit but on a light/outline
+   fill, since this is a secondary action on a screen with no primary
+   green CTA of its own. */
+.leaderboard-screen__load-more {
+  align-self: center;
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+  color: var(--color-accent-green-text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.leaderboard-screen__load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.leaderboard-screen__load-more-error {
+  margin: 0;
+  text-align: center;
+  color: var(--color-accent-red);
+  font-size: 13px;
+  font-family: var(--font-body);
+}
+
+/* REQ-607: the requesting user's own row, pinned so it's always visible
+   without scrolling/loading more when they're off the currently loaded
+   page(s) — same surface-sunken/"you" tag treatment as
+   .leaderboard-screen__row--you, just outside the <ol> and pinned to the
+   viewport bottom via position: sticky (layout only, no new color/motion
+   token). */
+.leaderboard-screen__you-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+}
