@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.53"
+version: "0.54"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -334,7 +334,7 @@ public class PlayerAttribute      // effective, denormalized for fast querying
 // (XGArcade.DataSync.Wikidata) for the full reasoning.
 public class PlayerNameIndex
 {
-    public Guid PlayerId { get; set; }              // same id space as PlayerAttribute's PlayerId
+    public Guid PlayerId { get; set; }              // synthetic, QID-derived key local to this table (PlayerNameIndexImporter.DeterministicPlayerId) — NOT the same id space as PlayerAttribute's PlayerId (Player.Id is a plain Guid.NewGuid()); reconciling the two per real person is unbuilt, out of scope for S-032
     public string PrimaryName { get; set; }
     public string NormalizedName { get; set; }      // lowercased, diacritics stripped — see REQ-208
     public int? BirthYear { get; set; }             // disambiguation display only

@@ -8,10 +8,18 @@ namespace XGArcade.Data.Entities;
 // zero PlayerAttribute rows is a normal, expected state, not a bug.
 public class PlayerNameIndex
 {
-    // Same id space as Player.Id (COMP-06) — a suggestion resolves to the
-    // same player identity guess-submission ultimately checks against, but
-    // this table itself is never joined against PlayerAttribute/PlayerOverride
-    // for the purpose of deciding what to suggest.
+    // A synthetic key local to PlayerNameIndex/COMP-10 — a deterministic hash
+    // of the Wikidata QID (see PlayerNameIndexImporter.DeterministicPlayerId),
+    // NOT the same id space as Player.Id (COMP-06), which is a plain
+    // Guid.NewGuid() with no relationship to the QID (WikidataLookupService).
+    // For the same real person these two GUIDs will practically always
+    // differ, and nothing today reconciles them — there is no lookup that
+    // maps a PlayerNameIndex row to its corresponding Player/PlayerAttribute
+    // row for the same person. If a future story (e.g. REQ-208's name
+    // resolution) ever needs that reconciliation, it must be built
+    // deliberately; do not assume or wire up an implicit relationship
+    // between the two id spaces — see ADR-0007 and the note this correction
+    // itself responds to (S-032 quality-gate review, 2026-07-17).
     public Guid PlayerId { get; set; }
 
     public required string PrimaryName { get; set; }

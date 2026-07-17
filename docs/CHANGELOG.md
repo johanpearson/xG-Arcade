@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/implementation-document.md` (0.53 → 0.54),
+  `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerNameIndexRepository.cs` —
+  quality-gate follow-up on S-032 (REQ-207/ADR-0007): corrected a false
+  "same id space as `Player.Id`" claim in `PlayerNameIndex.PlayerId`'s doc
+  comments — it's actually a synthetic, QID-derived key local to
+  `PlayerNameIndex`/COMP-10 (`PlayerNameIndexImporter.DeterministicPlayerId`),
+  with no guaranteed relationship to the separately-minted `Player.Id`
+  (`Guid.NewGuid()`, `WikidataLookupService`) for the same real person, and
+  no reconciliation between the two exists. Comment/doc text only, no
+  behavior change, no new ADR (both `architecture-reviewer` and
+  `quality-architect` agreed this doesn't need one). Also added
+  `PlayerNameIndexImporterTests.ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed`
+  covering the previously-untested write-failure propagation path, by
+  `backend-implementer`.
 - 2026-07-17 — `docs/requirements-document.md` (0.57 → 0.58: REQ-207's
   status note rewritten from "Proposed, queued as S-032" to "Implemented
   (S-032)", describing the shipped `GET /players/autocomplete` contract),

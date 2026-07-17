@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Data;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
 
@@ -107,5 +108,35 @@ public class PlayerNameIndexImporterTests
         Assert.That(rowCount, Is.EqualTo(1), "re-running the import for the same Wikidata QID must never duplicate the row");
         var secondRunPlayerId = (await _dbContext.PlayerNameIndexEntries.SingleAsync()).PlayerId;
         Assert.That(secondRunPlayerId, Is.EqualTo(firstRunPlayerId), "the same QID must derive the same PlayerId across runs");
+    }
+
+    // Distinct from the page-*fetch* failure path above (SetPage/CallCount
+    // tests): QueryPlayerPoolPageAsync deliberately never throws, surfacing a
+    // transient WDQS failure as an early empty page instead. A *write*
+    // failure (e.g. a real Postgres outage under UpsertManyAsync) must not
+    // get the same silent-swallow treatment — this CLI job should fail
+    // loudly so the GitHub Actions run is visibly red, not quietly report a
+    // partial success.
+    [Test]
+    public void ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed()
+    {
+        _wikidataClient.SetPage(0, [new WikidataNameIndexEntry("Q1", "Player One", 1990, "France", null)]);
+        var importer = new PlayerNameIndexImporter(
+            _wikidataClient, new ThrowingPlayerNameIndexRepository(), NullLogger<PlayerNameIndexImporter>.Instance);
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await importer.ImportAsync());
+    }
+
+    // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
+    // "don't over-mock") — only used by the test above, so SearchByPrefixAsync
+    // is left unimplemented rather than speculatively fleshed out.
+    private sealed class ThrowingPlayerNameIndexRepository : IPlayerNameIndexRepository
+    {
+        public Task<IReadOnlyList<PlayerNameIndex>> SearchByPrefixAsync(
+            string normalizedQuery, int limit, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
+
+        public Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("simulated DB write failure");
     }
 }

@@ -23,5 +23,10 @@ public interface IPlayerNameIndexRepository
     // place, not duplicated (same "correct in place, don't just blindly
     // insert" discipline as ReferenceDataSeeder.SeedAsync, see its own doc
     // comment / S-037's CHANGELOG entry for the precedent this follows).
+    // Note this PlayerId is PlayerNameIndex's own synthetic, QID-derived key
+    // (see the entity's doc comment) — it has no guaranteed relationship to
+    // any separately-created Player.Id/PlayerAttribute.PlayerId (COMP-06) for
+    // the same real person; reconciling the two is unbuilt and out of scope
+    // here.
     Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default);
 }
