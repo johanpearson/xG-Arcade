@@ -1595,6 +1595,44 @@ to match the new at-rest cell content but was logic-reviewed only, not
 executed (no live backend available in this environment) — a known gap,
 not a passing confirmation, until it's run against a real deployment.
 
+**S-042 · Fix truthy `wdt:P54` dropping historical clubs; all-clubs stale-cache recovery (REQ-113, REQ-111)**
+Incident-driven bugfix, orchestrated as a bug rather than a planned story
+(entry added retroactively, same as the S-033/S-035/S-037 precedent): a
+genuinely correct guess (Sandro Tonali × AC Milan) scored incorrect. Both
+`WikidataClient` intersection builders matched clubs via Wikidata's truthy
+`wdt:P54` shortcut — a best-rank-only view, so a preferred-ranked *current*
+club silently suppressed every normal-rank historical club, reducing "ever
+played for" to "currently plays for." See NOTES.md's 2026-07-17 entry for
+the full incident writeup and operator recovery order.
+*Accept:* both builders match P54 via the full statement path
+(`p:P54`/`ps:P54`) excluding only `wikibase:DeprecatedRank`, with two
+distinct statement variables in the club-club builder; REQ113-named
+query-shape tests prove the sent SPARQL for both; a recovery path exists
+for the fact that every seeded club's cached data was incomplete at once
+(re-warming alone can't fix partial pairs — the warming service skips
+pairs already at `MinValidAnswers`). *Deps:* S-006, S-030, S-036, S-037.
+**Built as:** query fix exactly as above (`WikidataClient.cs`, REQ-113 —
+new requirement pinning the ever-played-for semantics that previously only
+existed as an aside in REQ-109). Recovery extends S-037's existing
+mechanism rather than adding a new one: `clean-stale-club-attributes`
+gains an `--all-clubs` mode (`StaleClubAttributeCleaner.
+CleanAllSeededClubsAsync`, REQ-111 extended) resolving every club name
+from `ClubDefinition` at runtime — hand-typing ~32 names is exactly the
+typo surface where one misspelled club silently stays stale. Fails loudly
+on an empty `ClubDefinition` table; the named form now rejects any
+`-`-prefixed token (a mistyped `--all-club` must never pass as a club name
+that "removed 0 rows" successfully — guard lives in `Program.cs`'s
+argument handling, no unit-test seam today, verified manually). Two
+REQ113 tests in `WikidataClientTests.cs`, four REQ111 tests in
+`StaleClubAttributeCleanerTests.cs`. No ADR — `architecture-reviewer` and
+`quality-architect` concurred this restores already-documented semantics
+(bug fix), conditional on `implementation-document.md` §6a being updated
+to the statement-path query, which was done in the same pass.
+`docs/architecture-document.md` checked, no change (COMP-07-internal query
+shape + COMP-06-internal tooling; no boundary or data-flow change). Open
+follow-up: the Tonali "Tottenham" attribution needs manual live-Wikidata
+verification (genuine transfer vs. S-037-class wrong QID).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

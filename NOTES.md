@@ -624,7 +624,10 @@ genuinely dangerous rather than a minor data-entry slip: a wrong QID
 doesn't fail loudly. `WikidataClient`'s SPARQL queries have no way to know
 a QID doesn't correspond to the intended entity — if it happens to be some
 *other* real Wikidata item that also satisfies the query shape (`?player
-wdt:P106 wd:Q937857. ?player wdt:P54 wd:{{clubQid}}.`), the query returns
+wdt:P106 wd:Q937857. ?player wdt:P54 wd:{{clubQid}}.` — **query shape now
+stale**: since 2026-07-17 the P54 triple is the full statement path
+`p:P54`/`ps:P54` excluding deprecated rank, see that day's entry below;
+the wrong-QID lesson here is unchanged), the query returns
 real players, persisted under the *intended* club's name, looking
 completely normal. `ReferenceDataSeeder.cs`'s own S-036 comment predicted
 exactly this ("a wrong QID here is self-limiting, not dangerous... just
@@ -728,3 +731,52 @@ confirmation phrase `delete all player data`, (3) trigger
 2 before step 3, same reasoning as S-037's clean-then-warm ordering — the
 purge has to happen before the pool is fresh, or it would just delete the
 freshly-correct data too.
+
+### 2026-07-17 — Truthy `wdt:P54` is best-rank-only; historical clubs silently vanished, tainting every seeded club's cache at once (REQ-113, REQ-111)
+
+A genuinely correct guess (Sandro Tonali × AC Milan) scored incorrect.
+Root cause: both `WikidataClient` intersection builders matched clubs via
+the truthy `wdt:P54` shortcut, and **Wikidata's truthy `wdt:` graph
+contains only best-rank statements** — the moment an editor marks a
+player's *current* club preferred rank (routine Wikidata practice), every
+normal-rank historical club vanishes from `wdt:P54` for that player.
+"Ever played for" silently became "currently plays for" for exactly the
+players whose items are well-maintained enough to use ranks. Fixed by
+switching both builders to the full statement path (`p:P54`/`ps:P54`)
+with only `wikibase:DeprecatedRank` excluded via `MINUS`; the club-club
+builder needs **two distinct statement variables** (one statement can't
+point at two clubs). `P106`/`P27`/`P21`/`P569` deliberately stay truthy —
+best-rank is the right semantics for those. Don't "simplify" P54 back;
+the trap is invisible in testing against players without preferred-rank
+statements. Pinned as REQ-113; the query-shape comment in
+`WikidataClient.cs` carries the full reasoning.
+
+**Why this was worse than S-037's wrong-QID incident:** that one tainted
+4 named clubs; this one made the cached data of **every seeded club**
+suspect-incomplete at once — every club row ever fetched under the truthy
+query may be missing that club's since-transferred former players. And
+**re-warming alone cannot repair it**: `PlayerCacheWarmingService` skips
+any pair already at `>= MinValidAnswers` cached answers, so a partial
+(but non-empty) cached pair is never re-queried — the stale rows have to
+be swept first. Hence the new `clean-stale-club-attributes --all-clubs`
+mode (`StaleClubAttributeCleaner.CleanAllSeededClubsAsync`): resolves
+every club name from `ClubDefinition` at runtime instead of hand-typing
+~32 names (one typo = one club silently left stale, since the named mode
+can't tell a typo from nothing-to-clean). Fails loudly on an empty
+`ClubDefinition` table (wrong DB / never seeded), and the named form now
+rejects any `-`-prefixed token so a mistyped `--all-club` can't
+masquerade as a club name that "removed 0 rows" successfully.
+
+**Operator recovery order, strictly:** (1) deploy the query fix, (2)
+`clean-stale-club-attributes.yml` once with input `--all-clubs`, (3)
+`warm-player-cache.yml`. Never clean after a fresh warm — same
+can't-tell-old-from-new reasoning as S-037/S-038, nothing in the
+persisted rows records which query shape fetched them.
+
+**Open item, needs manual live-Wikidata verification** (sandbox can't
+reach `wikidata.org`): the same investigation surfaced a Tonali
+"Tottenham" attribution in cached data. Could be a genuine post-2026
+transfer (training-data knowledge here is stale by definition) or an
+S-037-class wrong QID resolving to the wrong entity — the user has a
+checklist for verifying it against live Wikidata pages. Don't assume
+either way until checked.

@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/requirements-document.md` (0.54 → 0.55, by
+  `requirements-writer`: new **REQ-113** "club membership means ever
+  played for," **REQ-111** extended with all-clubs mode),
+  `docs/implementation-document.md` (0.50 → 0.51: §6a sample intersection
+  query switched to the full `p:P54`/`ps:P54` statement path, rules list
+  3 → 4 with the new never-truthy-P54 rule, senior-career-only note
+  clarified to be about club *entities* per REQ-109 not statement ranks,
+  §6's `clean-stale-club-attributes` verb gains the `--all-clubs`
+  mode/guards), `NOTES.md` (2026-07-13 entry's now-stale query-shape
+  quote annotated; new 2026-07-17 incident entry with operator recovery
+  order and the open Tonali/"Tottenham" verification item),
+  `docs/backlog.md` (retroactive **S-042** entry with "Built as" note,
+  per S-033/S-035/S-037 precedent for incident-driven work) — truthy
+  `wdt:P54` is best-rank-only, so preferred-ranked current clubs silently
+  dropped normal-rank historical clubs ("ever played for" became
+  "currently plays for"; Sandro Tonali × AC Milan scored incorrect);
+  fixed via the full statement path excluding only deprecated rank in
+  both `WikidataClient` builders, recovered via the new
+  `clean-stale-club-attributes --all-clubs` mode. **No ADR** —
+  `architecture-reviewer` and `quality-architect` concurred this is a bug
+  fix restoring already-documented semantics (conditional on the §6a
+  update, done here), and `--all-clubs` extends the existing S-037/
+  REQ-111 mechanism; `docs/architecture-document.md` checked, no change
+  (COMP-07-internal query shape + COMP-06-internal tooling, no
+  boundary/data-flow change). Tests: 2× REQ113 query-shape
+  (`WikidataClientTests.cs`), 4× REQ111
+  (`StaleClubAttributeCleanerTests.cs`); backend suite not runnable in
+  this sandbox (no dotnet SDK), deferred to CI; frontend suite 89/89
+  green (untouched by the diff, run for completeness). REQ-111, REQ-113.
 - 2026-07-17 — new `.github/pull_request_template.md`, `CLAUDE.md` (Git
   and PR conventions section) — PR descriptions were getting bloated
   (free-form prose leaking this repo's CHANGELOG-style thoroughness
