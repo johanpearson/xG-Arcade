@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `MVP-SCOPE.md` — doc-sync pass over the S-032 diff
+  (REQ-207/ADR-0007/COMP-10): the Tier 0 "Guessing" bullet still said
+  "plain text input, no autocomplete... defer `PlayerNameIndex`/ADR-0007
+  entirely" — stale now that autocomplete/`PlayerNameIndex` actually
+  shipped. Rewrote it to describe what's built and point at the Tier 1
+  section for detail; updated that Tier 1 section's own S-032 entry from
+  "queued" to "built, 2026-07-17" with the shipped shape (`PlayerNameIndexImporter`,
+  `GET /players/autocomplete`, `GuessInput.tsx`'s debounced suggestion
+  list), matching the existing "trigger hit and pulled forward" pattern
+  already used there for REQ-211/S-031. No frontmatter to bump — this file
+  has none. Checked `docs/requirements-document.md`,
+  `docs/architecture-document.md`, `docs/implementation-document.md`,
+  `docs/backlog.md`, `docs/design-document.md`, and `docs/legal/*.md`
+  against the full S-032 diff independently: all found already accurate
+  (the implementing agent's own doc updates, plus the later id-space
+  quality-gate fix below, hold up) — `docs/legal/*.md` specifically needs
+  no change since `PlayerNameIndex` stores only public Wikidata data about
+  footballers (name, birth year, nationality), already covered generically
+  by the privacy policy draft's existing "Data sources for gameplay
+  content" section, and the autocomplete query string itself is never
+  persisted (an in-memory `IPlayerNameIndexRepository.SearchByPrefixAsync`
+  read only), so it's no more "collected" than any other request path
+  already covered by "standard web server logs."
 - 2026-07-17 — `docs/implementation-document.md` (0.53 → 0.54),
   `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
   `backend/src/XGArcade.Data/Repositories/IPlayerNameIndexRepository.cs` —
