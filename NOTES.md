@@ -826,7 +826,28 @@ versions of Microsoft.EntityFrameworkCore.Relational" warning for
 exactly the risk `implementation-document.md` §1 already calls out for the
 Npgsql provider ("it typically follows .NET's release within weeks, but
 confirm before committing"). It's a build-time warning only — every CI run
-and a manual `import-player-name-index` run completed successfully with no
-observed functional issue. Don't be alarmed by it; revisit once Npgsql
-publishes a 10.0.10-tracking patch (should make the warning disappear on
-its own), and only chase it earlier if something actually breaks.
+and a manual `import-player-name-index` run completed (exit 0) with it
+present. Don't be alarmed by it; revisit once Npgsql publishes a
+10.0.10-tracking patch (should make the warning disappear on its own), and
+only chase it earlier if something actually breaks. **Unrelated** to the
+`import-player-name-index` timeout entry below — that job's 0-rows outcome
+was a separate pre-existing issue that just happened to surface in the
+same log, not caused by this warning.
+
+### 2026-07-17 — `import-player-name-index` always upserted 0 rows: 15s client timeout too tight for the unfiltered page query
+Three consecutive manual runs of `import-player-name-index.yml` all
+completed successfully but upserted 0 `PlayerNameIndex` rows, each logging
+`Wikidata player-pool page query timed out at offset 0; treating as empty
+page` at almost exactly 15s into the query — `WikidataClient`'s
+`_queryTimeout` default. That default was tuned in ADR-0011 for the
+narrow per-cell country/club *intersection* queries (9-27s observed under
+load); `PlayerNameIndexImporter`'s page query has no club/country filter
+at all (S-032/ADR-0007's broad player-pool scan), so it's a heavier WDQS
+query than ADR-0011's evidence covers, and 15s was consistently too tight
+for it — not occasional flakiness. Fixed by passing a 60s `queryTimeout`
+specifically to the standalone `WikidataClient` the `import-player-name-index`
+CLI verb constructs in `Program.cs` (separate from the DI-registered
+client ADR-0011 governs, so the interactive guess-time/grid-generation
+paths keep their 15s default unchanged). If 60s still isn't enough, the
+next step is checking whether WDQS's own server-side timeout (~60s) is the
+real ceiling, not just raising the client-side number further.

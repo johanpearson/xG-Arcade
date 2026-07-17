@@ -132,7 +132,19 @@ if (args is ["import-player-name-index"])
 
     using var importHttpClient = new HttpClient();
     ConfigureWikidataHttpClient(importHttpClient);
-    var importWikidataClient = new WikidataClient(importHttpClient, logger: importLoggerFactory.CreateLogger<WikidataClient>());
+    // Longer than WikidataClient's 15s default (ADR-0011, tuned for the
+    // narrow per-cell country/club intersection queries): the unfiltered
+    // player-pool page query this importer issues has no club/country
+    // filter at all, so it's a much heavier WDQS query than anything
+    // ADR-0011's 9-27s evidence covers. This is a manually-triggered batch
+    // job with no request-latency constraint (PlayerNameIndexImporter's own
+    // doc comment already expects the whole run to take far longer than an
+    // HTTP request would tolerate), so there's no cost to waiting longer
+    // per page before treating it as an empty/failed page.
+    var importWikidataClient = new WikidataClient(
+        importHttpClient,
+        queryTimeout: TimeSpan.FromSeconds(60),
+        logger: importLoggerFactory.CreateLogger<WikidataClient>());
 
     var importer = new PlayerNameIndexImporter(
         importWikidataClient, importRepository, importLoggerFactory.CreateLogger<PlayerNameIndexImporter>());
