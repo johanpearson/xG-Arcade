@@ -162,9 +162,9 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task REQ107_QueryCountryClubIntersectionAsync_SentQuery_MatchesClubViaFullStatementPathExcludingOnlyDeprecatedRank()
+    public async Task REQ113_QueryCountryClubIntersectionAsync_SentQuery_MatchesClubViaFullStatementPathExcludingOnlyDeprecatedRank()
     {
-        // "Ever played for this club" (REQ-107 semantics; REQ-101/REQ-203's
+        // "Ever played for this club" (REQ-113 semantics; REQ-101/REQ-203's
         // correctness contract): the truthy wdt:P54 shortcut silently drops
         // every normal-rank historical club the moment a player's current
         // club is marked preferred rank, so the club match must go through
@@ -323,7 +323,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task REQ107_QueryClubClubIntersectionAsync_SentQuery_ChecksP54StatementPathTwiceWithDistinctVariablesAndNeverP27()
+    public async Task REQ113_QueryClubClubIntersectionAsync_SentQuery_ChecksP54StatementPathTwiceWithDistinctVariablesAndNeverP27()
     {
         // S-030: Club x Club's query shape checks "member of sports team"
         // (P54) against both clubs, unlike Country x Club's P27+P54 —

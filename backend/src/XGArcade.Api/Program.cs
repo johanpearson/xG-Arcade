@@ -158,15 +158,17 @@ if (args is ["clean-stale-club-attributes", ..])
         cleanClubNames = cleanClubNamesArg
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        // A mistyped flag (e.g. `--all-club`) would otherwise fall through
-        // to the named mode, match no club, and print a plausible-looking
-        // "removed 0 rows" success — the exact silent-typo failure mode the
-        // `--all-clubs` mode exists to close. No seeded club name starts
-        // with `--`, so this can never reject a real club list.
-        var flagLikeName = cleanClubNames.FirstOrDefault(name => name.StartsWith("--", StringComparison.Ordinal));
-        if (flagLikeName is not null)
+        // A mistyped flag (e.g. `--all-club`, or single-dash `-all-clubs`)
+        // would otherwise fall through to the named mode, match no club,
+        // and print a plausible-looking "removed 0 rows" success — the
+        // exact silent-typo failure mode the `--all-clubs` mode exists to
+        // close. REQ-111: any `-`-prefixed token fails loudly. No seeded
+        // club name starts with `-`, so this can never reject a real club
+        // list.
+        var flagLikeToken = cleanClubNames.FirstOrDefault(name => name.StartsWith("-", StringComparison.Ordinal));
+        if (flagLikeToken is not null)
             throw new InvalidOperationException(
-                $"clean-stale-club-attributes got '{flagLikeName}', which looks like a mistyped flag — " +
+                $"clean-stale-club-attributes got the flag-like token '{flagLikeToken}' (`-` prefix) — " +
                 "the only supported flag is the exact literal `--all-clubs`.");
 
         (removedAttributeCount, removedDataCount) =
