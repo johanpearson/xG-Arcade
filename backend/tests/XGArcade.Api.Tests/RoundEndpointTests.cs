@@ -83,9 +83,9 @@ public class RoundEndpointTests
     [TearDown]
     public void TearDown() => _factory.Dispose();
 
-    private async Task SeedFullyMatchedReferenceDataAsync(int size)
+    private async Task SeedFullyMatchedReferenceDataAsync(int size, WebApplicationFactory<Program>? factory = null)
     {
-        using var scope = _factory.Services.CreateScope();
+        using var scope = (factory ?? _factory).Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
 
         var countries = Enumerable.Range(0, size)
@@ -196,17 +196,19 @@ public class RoundEndpointTests
     public async Task REQ301_GenerateRound_Post_WithRoundDurationHoursOverride_UsesOverrideInsteadOfConfiguredDefault()
     {
         // SetUp's RoundSchedulingOptions.RoundDuration is 3 days (72h) — a
-        // 12h override must win for this call, proving the query param is
-        // actually plumbed through rather than merely accepted and ignored.
+        // 24h override (ADR-0027's inclusive floor, still below the 72h
+        // configured default) must win for this call, proving the query
+        // param is actually plumbed through rather than merely accepted and
+        // ignored.
         await SeedFullyMatchedReferenceDataAsync(size: 3);
         var client = CreateAuthorizedClient();
 
-        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=12", content: null);
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=24", content: null);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
         Assert.That(body, Is.Not.Null);
-        Assert.That(body!.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(12)));
+        Assert.That(body!.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(24)));
     }
 
     [Test]
@@ -235,6 +237,121 @@ public class RoundEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.That(problem!.Title, Is.EqualTo("Invalid roundDurationHours"));
+    }
+
+    [Test]
+    public async Task REQ301_GenerateRound_Post_WithRoundDurationHoursBelow24Floor_ReturnsBadRequest()
+    {
+        // ADR-0027's 24h floor: distinct from the already-covered <=0 cases
+        // above — this is a *positive* value that's still unsafe, because it
+        // could let a round close before generate-round.yml's daily cron
+        // fires again and generates its successor.
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=23", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid roundDurationHours"));
+        Assert.That(problem.Detail, Is.EqualTo(
+            "roundDurationHours must be at least 24 (the daily cron's maximum gap — see ADR-0027) " +
+            "to avoid a round closing before the next scheduled run can generate its successor."));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an invalid override must not generate a round");
+    }
+
+    [Test]
+    public async Task REQ301_GenerateRound_Post_WithRoundDurationHoursExactly24_IsAccepted()
+    {
+        // Boundary: ADR-0027's floor is inclusive (>= 24), so exactly 24
+        // must succeed, not be rejected alongside 23.
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=24", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(24)));
+    }
+
+    [Test]
+    public async Task REQ301_GenerateRound_Post_UsesRoundSchedulingRoundDurationHoursFromConfiguration_WhenNoOverrideSupplied()
+    {
+        // Every other test in this class swaps RoundSchedulingOptions out via
+        // services.RemoveAll<RoundSchedulingOptions>()/AddSingleton (SetUp
+        // above), which bypasses Program.cs's actual
+        // `RoundScheduling:RoundDurationHours` config-binding logic (the
+        // literal mechanism ADR-0027/REQ-301 added so play frequency is
+        // adjustable without a code change). This test uses a dedicated
+        // factory that never touches RoundSchedulingOptions itself, so
+        // Program.cs's real `builder.Configuration.GetValue<double?>(...) ??
+        // 48` registration is exercised end-to-end.
+        //
+        // The override must be a real process environment variable, not a
+        // WithWebHostBuilder/ConfigureAppConfiguration source: Program.cs
+        // reads RoundScheduling:RoundDurationHours directly off
+        // builder.Configuration in its own top-level code, *before*
+        // builder.Build() runs — the exact same "eager read" gotcha
+        // documented on SeedGuessableRound/ForceCloseRound's Production
+        // tests below for ConnectionStrings/Supabase. WebApplicationFactory's
+        // ConfigureAppConfiguration hook only takes effect once the deferred
+        // host-build machinery intercepts Build(), which is too late for a
+        // value Program.cs already read. Real environment variables are
+        // loaded by WebApplication.CreateBuilder(args) itself, before
+        // Program.cs's top-level code runs, so they're the only override
+        // visible early enough here.
+        const double configuredRoundDurationHours = 72;
+        using var _ = TemporaryEnvironmentVariables(
+            ("RoundScheduling__RoundDurationHours", configuredRoundDurationHours.ToString()));
+
+        using var configBoundFactory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, configBuilder) =>
+                {
+                    configBuilder.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Internal:JobToken"] = ValidJobToken,
+                    });
+                });
+
+                builder.ConfigureServices(services =>
+                {
+                    var xgArcadeDbContextDescriptors = services
+                        .Where(d => d.ServiceType == typeof(XGArcadeDbContext)
+                            || (d.ServiceType.IsGenericType && d.ServiceType.GetGenericArguments().Contains(typeof(XGArcadeDbContext))))
+                        .ToList();
+                    foreach (var descriptor in xgArcadeDbContextDescriptors)
+                    {
+                        services.Remove(descriptor);
+                    }
+
+                    var inMemoryDatabaseName = Guid.NewGuid().ToString();
+                    services.AddDbContext<XGArcadeDbContext>(options =>
+                        options.UseInMemoryDatabase(inMemoryDatabaseName));
+
+                    services.RemoveAll<GridGenerationOptions>();
+                    services.AddSingleton(new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 50 });
+
+                    // Deliberately no RoundSchedulingOptions override here —
+                    // that's the entire point of this test.
+                });
+            });
+        await SeedFullyMatchedReferenceDataAsync(size: 3, factory: configBoundFactory);
+        var client = configBoundFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(configuredRoundDurationHours)),
+            "Program.cs's RoundScheduling:RoundDurationHours config binding must drive the generated round's duration");
     }
 
     [Test]
