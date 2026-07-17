@@ -69,7 +69,6 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
             const prevReady = prev.phase === 'ready' ? prev : null;
             const freshPage1 = [...response.rows];
             const trailingPages = prevReady ? prevReady.pages.slice(1) : [];
-            const hasTrailingPages = trailingPages.length > 0;
 
             // A player's rank can cross the page-1/page-2 boundary between
             // poll ticks (round close shifting FinalPoints totals, or a
@@ -84,13 +83,16 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
               page.filter((row) => !freshIds.has(row.userId)),
             );
 
-            // hasTrailingPages is only true when prevReady already had a
-            // page beyond page 1 loaded, so the frontier (nextCursor/hasMore
-            // for "Load more") can only ever be carried over from a ready
-            // prev state.
-            const frontier = hasTrailingPages
-              ? { nextCursor: prevReady!.nextCursor, hasMore: prevReady!.hasMore }
-              : { nextCursor: response.nextCursor, hasMore: response.hasMore };
+            // Trailing pages beyond page 1 exist only when prevReady already
+            // had one loaded, so the frontier (nextCursor/hasMore for "Load
+            // more") can only ever be carried over from a ready prev state —
+            // checking prevReady directly in the condition (rather than a
+            // separate boolean) lets TypeScript narrow it without an
+            // assertion.
+            const frontier =
+              prevReady && trailingPages.length > 0
+                ? { nextCursor: prevReady.nextCursor, hasMore: prevReady.hasMore }
+                : { nextCursor: response.nextCursor, hasMore: response.hasMore };
 
             return {
               phase: 'ready',
