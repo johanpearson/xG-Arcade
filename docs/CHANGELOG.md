@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — new `.github/pull_request_template.md`, `CLAUDE.md` (Git
+  and PR conventions section) — PR descriptions were getting bloated
+  (free-form prose leaking this repo's CHANGELOG-style thoroughness
+  straight into PR bodies). Added a template with four sections (Summary,
+  Why, How — only if non-obvious, Testing & docs) plus an optional
+  "Agents involved" section (one line per agent, only when it adds real
+  signal, e.g. which lane owns a needed follow-up) — omitted entirely for
+  small or single-agent changes. Deliberately no dedicated PR-writing
+  agent: same reasoning already recorded for git/PR operations generally
+  (a persona wrapped around a built-in capability adds a layer without
+  adding value) — the template constrains the orchestrator's existing PR
+  authoring instead. Written so Summary/Why read standalone, intended to
+  double as release-notes material later. No REQ/ADR — process/tooling
+  only, no product behavior change.
 - 2026-07-17 — new `docs/ai/agent-migration-plan.md`, `CLAUDE.md`
   (agent/command tables, document map row, conventions line),
   `.claude/README.md` (rewritten for the new organization),
