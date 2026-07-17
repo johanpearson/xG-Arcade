@@ -8,6 +8,9 @@ namespace XGArcade.Core.Tests.Leagues;
 
 // REQ-401/404 (docs/requirements-document.md §4.4): Core.Leagues' first real
 // code (S-011) — global league auto-membership plus its leaderboard read.
+// REQ-607/S-034 added pagination (docs/backlog.md S-034) — the same tests
+// were updated in place for the now-paginated response shape rather than
+// duplicated, per this repo's convention.
 // Same no-mocking-framework, real-InMemory-backed-repository pattern as
 // RoundCloseServiceScoringTests.
 public class LeaderboardServiceTests
@@ -79,12 +82,16 @@ public class LeaderboardServiceTests
         // not last.
         var member = await SeedMemberAsync("Alex");
 
-        var rows = await _service.GetGlobalLeaderboardAsync(member.Id);
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 0, pageSize: 50);
 
-        Assert.That(rows, Has.Count.EqualTo(1));
-        Assert.That(rows[0].UserId, Is.EqualTo(member.Id));
-        Assert.That(rows[0].TotalPoints, Is.EqualTo(0));
-        Assert.That(rows[0].IsRequestingUser, Is.True);
+        Assert.That(page.Rows, Has.Count.EqualTo(1));
+        Assert.That(page.Rows[0].Rank, Is.EqualTo(1));
+        Assert.That(page.Rows[0].UserId, Is.EqualTo(member.Id));
+        Assert.That(page.Rows[0].TotalPoints, Is.EqualTo(0));
+        Assert.That(page.Rows[0].IsRequestingUser, Is.True);
+        Assert.That(page.RequestingUserEntry?.UserId, Is.EqualTo(member.Id));
+        Assert.That(page.HasMore, Is.False);
+        Assert.That(page.NextCursor, Is.Null);
     }
 
     [Test]
@@ -99,12 +106,86 @@ public class LeaderboardServiceTests
         await SeedLockedGuessAsync(you.Id, 50);
         await SeedLockedGuessAsync(you.Id, 88); // a second closed round's points, same player
 
-        var rows = await _service.GetGlobalLeaderboardAsync(you.Id);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
 
         // Ascending by TotalPoints: Sam (120) < You (50 + 88 = 138) < Alex (142).
-        Assert.That(rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "You", "Alex" }));
-        Assert.That(rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 120, 138, 142 }));
-        Assert.That(rows.Single(r => r.DisplayName == "You").IsRequestingUser, Is.True);
-        Assert.That(rows.Where(r => r.DisplayName != "You").All(r => !r.IsRequestingUser), Is.True);
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "You", "Alex" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 120, 138, 142 }));
+        Assert.That(page.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 1, 2, 3 }));
+        Assert.That(page.Rows.Single(r => r.DisplayName == "You").IsRequestingUser, Is.True);
+        Assert.That(page.Rows.Where(r => r.DisplayName != "You").All(r => !r.IsRequestingUser), Is.True);
+        Assert.That(page.RequestingUserEntry?.DisplayName, Is.EqualTo("You"));
+        Assert.That(page.HasMore, Is.False);
+    }
+
+    [Test]
+    public async Task REQ607_GetGlobalLeaderboardAsync_PageSizeSmallerThanMembership_CapsResponseAtPageSize()
+    {
+        var members = new List<User>();
+        for (var i = 0; i < 5; i++)
+            members.Add(await SeedMemberAsync($"Member{i}"));
+        foreach (var member in members)
+            await SeedLockedGuessAsync(member.Id, members.IndexOf(member) * 10);
+
+        var page = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
+
+        Assert.That(page.Rows, Has.Count.EqualTo(2));
+        Assert.That(page.HasMore, Is.True);
+        Assert.That(page.NextCursor, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ607_GetGlobalLeaderboardAsync_SecondPageViaCursor_ReturnsNextDistinctSliceNoOverlapOrGap()
+    {
+        var members = new List<User>();
+        for (var i = 0; i < 5; i++)
+            members.Add(await SeedMemberAsync($"Member{i}"));
+        foreach (var member in members)
+            await SeedLockedGuessAsync(member.Id, members.IndexOf(member) * 10);
+
+        var firstPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
+        var secondPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: firstPage.NextCursor!.Value, pageSize: 2);
+        var thirdPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: secondPage.NextCursor!.Value, pageSize: 2);
+
+        Assert.That(firstPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 1, 2 }));
+        Assert.That(secondPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 3, 4 }));
+        Assert.That(thirdPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 5 }));
+        Assert.That(thirdPage.HasMore, Is.False);
+        Assert.That(thirdPage.NextCursor, Is.Null);
+
+        var allRanksAcrossPages = firstPage.Rows.Concat(secondPage.Rows).Concat(thirdPage.Rows).Select(r => r.Rank).ToList();
+        Assert.That(allRanksAcrossPages, Is.EqualTo(new[] { 1, 2, 3, 4, 5 }));
+    }
+
+    [Test]
+    public async Task REQ607_GetGlobalLeaderboardAsync_RequestingUserOffPage_StillReturnsTheirOwnRow()
+    {
+        var members = new List<User>();
+        for (var i = 0; i < 5; i++)
+            members.Add(await SeedMemberAsync($"Member{i}"));
+        foreach (var member in members)
+            await SeedLockedGuessAsync(member.Id, members.IndexOf(member) * 10);
+
+        // Member4 has the highest TotalPoints, so ranks last (5th) —
+        // outside a pageSize=2 first page.
+        var page = await _service.GetGlobalLeaderboardAsync(members[4].Id, cursor: 0, pageSize: 2);
+
+        Assert.That(page.Rows.Any(r => r.IsRequestingUser), Is.False);
+        Assert.That(page.RequestingUserEntry, Is.Not.Null);
+        Assert.That(page.RequestingUserEntry!.UserId, Is.EqualTo(members[4].Id));
+        Assert.That(page.RequestingUserEntry.Rank, Is.EqualTo(5));
+    }
+
+    [Test]
+    public async Task REQ607_GetGlobalLeaderboardAsync_CursorBeyondMembership_ReturnsEmptyPageNotError()
+    {
+        var member = await SeedMemberAsync("Alex");
+
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 50, pageSize: 10);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.HasMore, Is.False);
+        Assert.That(page.NextCursor, Is.Null);
+        Assert.That(page.RequestingUserEntry, Is.Not.Null);
     }
 }

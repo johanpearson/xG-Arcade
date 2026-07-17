@@ -7,8 +7,8 @@ public class LeaderboardService(
     IUserRepository userRepository,
     IGuessRepository guessRepository) : ILeaderboardService
 {
-    public async Task<IReadOnlyList<LeaderboardEntry>> GetGlobalLeaderboardAsync(
-        Guid requestingUserId, CancellationToken cancellationToken = default)
+    public async Task<LeaderboardPage> GetGlobalLeaderboardAsync(
+        Guid requestingUserId, int cursor, int pageSize, CancellationToken cancellationToken = default)
     {
         var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
         var memberUserIds = await leagueRepository.GetMemberUserIdsAsync(globalLeague.Id, cancellationToken);
@@ -22,14 +22,34 @@ public class LeaderboardService(
         // is the best possible score under this model, so an
         // unlocked/never-played member legitimately ranks at the top until
         // their first round locks).
-        return members
-            .Select(member => new LeaderboardEntry(
-                member.Id,
-                member.DisplayName,
-                totalsByUserId.GetValueOrDefault(member.Id, 0),
-                member.Id == requestingUserId))
-            .OrderBy(entry => entry.TotalPoints)
-            .ThenBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
+        var ranked = members
+            .Select(member => (member.Id, member.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(member.Id, 0)))
+            .OrderBy(m => m.TotalPoints)
+            .ThenBy(m => m.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select((m, index) => new LeaderboardEntry(
+                index + 1,
+                m.Id,
+                m.DisplayName,
+                m.TotalPoints,
+                m.Id == requestingUserId))
             .ToList();
+
+        // REQ-607/S-034: `cursor` is the last-seen rank (0 = nothing seen
+        // yet, i.e. start from the top) — at MVP scale this is equivalent
+        // to a plain offset since ranks are 1-based and contiguous, per
+        // implementation-document.md §6's "simple offset is acceptable for
+        // MVP scale, contract should already look cursor-shaped" note. An
+        // out-of-range cursor (e.g. stale, from a since-shrunk league)
+        // isn't an error — `Skip` beyond the list length is already a
+        // no-op in LINQ, so it falls back to an empty final page rather
+        // than a 500. Negative cursors are rejected earlier, at the API
+        // boundary (LeaderboardEndpoints), before reaching this method.
+        var page = ranked.Skip(cursor).Take(pageSize).ToList();
+        var hasMore = cursor + page.Count < ranked.Count;
+        int? nextCursor = hasMore ? cursor + page.Count : null;
+
+        var requestingUserEntry = ranked.SingleOrDefault(entry => entry.IsRequestingUser);
+
+        return new LeaderboardPage(page, requestingUserEntry, nextCursor, hasMore);
     }
 }

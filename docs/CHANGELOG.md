@@ -13,6 +13,33 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-17 — `docs/requirements-document.md` (0.56 → 0.57: REQ-607's
+  status note rewritten from "Partially implemented... currently-unmet
+  gap" to "Implemented (S-034)" describing the shipped `cursor`/`pageSize`
+  contract; REQ-404's status note and REQ-405's "Performance" design-
+  question note both had their stale cross-references to REQ-607's
+  unbounded-response gap corrected), `docs/architecture-document.md`
+  (0.34 → 0.35: §6.2a's global leaderboard flow diagram corrected — no
+  longer says "response never paginated yet," now describes the in-memory
+  rank/slice step added by S-034; architecture-reviewer's "no boundary
+  change, no ADR needed" verdict from the S-034 quality gate confirmed,
+  not re-litigated), `docs/implementation-document.md` (0.51 → 0.52: §6's
+  "Tier 0 status (S-011)" paragraph under "Leaderboard pagination
+  (REQ-607)" replaced with a "Built as (S-034)" note covering the query
+  params, response DTO shape/explicit `Rank` field, default/max pageSize,
+  cursor-validation behavior, and the accepted in-memory-slice MVP-scale
+  tradeoff), `docs/backlog.md` (S-034 entry gained a "Built as" note,
+  including the page-1-reorder dedup bug found and fixed during the
+  quality gate), `docs/design-document.md` (0.19 → 0.20: SCREEN-03's
+  mockup gains the "Load more" control and pinned "you" footer, both
+  reusing existing surface/border/accent tokens, no new design decision),
+  by `doc-sync` and the orchestrator — closes REQ-607's leaderboard-
+  pagination gap (S-034): `GET /leagues/global/leaderboard` now takes
+  `cursor`/`pageSize` query params and returns a bounded page with an
+  explicit global `Rank` per row and an always-present `RequestingUserRow`.
+  Backend suite verified in full this session (`dotnet` SDK installed per
+  `NOTES.md`'s documented fix): 328/328 passed across all five backend
+  test projects; frontend suite 96/96, `tsc -b`/lint clean.
 - 2026-07-17 — `docs/requirements-document.md` (0.55 → 0.56: REQ-301's
   Status block rewritten — configurable round duration is now built, not a
   gap), `docs/architecture-document.md` (0.33 → 0.34: ADR index gains

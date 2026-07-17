@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.51"
+version: "0.52"
 status: draft
 last_updated: 2026-07-17
 owner: Johan
@@ -1014,19 +1014,40 @@ large enough for offset pagination's performance to degrade; for MVP scale,
 a simple offset is acceptable but the API contract should already look
 cursor-shaped so switching the implementation later doesn't change callers.
 
-**Tier 0 status (S-011):** the pseudocode above is the full/long-term
-shape; it is not built yet. What's actually built: `GET
+**Built as (S-034):** matches the pseudocode's contract shape, with two
+MVP-scale implementation choices called out below. `GET
 /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`
 → `ILeaderboardService`/`LeaderboardService`, `XGArcade.Core.Leagues`)
-implements the aggregation itself (member `DisplayName`s joined with each
-member's `SUM(Guess.FinalPoints ?? 0)`, computed database-side via
-`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s `GROUP BY`, sorted
-descending), but for the global league only (no `{leagueId}` route
-parameter — custom leagues don't exist yet) and with no pagination at all:
-the endpoint returns every member's row in one response, unbounded. This
-is a real, deliberately-acknowledged gap against REQ-607's own pagination
-clause, not a Tier-0-scoped-out item — see REQ-607's status note in
-`requirements-document.md` for the explicit trigger to revisit.
+takes optional `cursor`/`pageSize` query params — `pageSize` defaults to
+50, capped at a `MaxPageSize` of 100 (a request above the cap or `<= 0` is
+a 400, not a silent clamp); `cursor` defaults to 0 and is the last-seen
+global rank, rejected with a 400 if negative, but an out-of-range-but-valid
+cursor (e.g. stale, from a since-shrunk league) is not an error — it falls
+back to an empty final page. The response is `LeaderboardResponse { Rows,
+RequestingUserRow, NextCursor, HasMore }`; each `Rows` entry carries an
+explicit, global 1-based `Rank` (not a page-local array index — a later
+page no longer starts at rank 1), and `RequestingUserRow` is always
+populated with the caller's own row even when it falls outside the current
+page, so SCREEN-03's sticky "your position" footer never needs a second
+round-trip. Still the global league only (no `{leagueId}` route parameter
+— custom leagues don't exist yet, deferred per `MVP-SCOPE.md`/T-109).
+
+Two deliberate MVP-scale choices, not gaps: (1) member `DisplayName`s and
+each member's `SUM(Guess.FinalPoints ?? 0)` are still fetched via
+`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s database-side
+`GROUP BY` for the *full* membership, but ranking and the `cursor`/
+`pageSize` slice itself happen in memory afterward — bounding the
+*response*, not doing a DB-level `ORDER BY`/`LIMIT`; acceptable at Tier 0
+membership sizes, revisit if the global league's membership grows large
+enough for this to matter. (2) pagination is a plain in-memory offset
+under a cursor-shaped contract (per this section's original note above),
+so switching to a real keyset/cursor implementation later doesn't change
+callers. Frontend (`LeaderboardScreen.tsx`): a "Load more" button appends
+subsequent pages on top of what's already loaded; a pinned "you" footer
+renders `requestingUserRow` when it isn't already present among the loaded
+rows; the existing 15s poll re-fetches only page 1, with a dedup fix so a
+player whose rank crosses the page-1/page-2 boundary between polls isn't
+shown twice.
 
 **Account deletion — anonymize, don't hard-delete Guess rows (REQ-710)**
 
