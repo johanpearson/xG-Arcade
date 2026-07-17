@@ -811,3 +811,22 @@ transfer (training-data knowledge here is stale by definition) or an
 S-037-class wrong QID resolving to the wrong entity — the user has a
 checklist for verifying it against live Wikidata pages. Don't assume
 either way until checked.
+
+### 2026-07-17 — Npgsql provider patch lagging EF Core patch produces a benign MSB3277 warning
+After merging a batch of Dependabot PRs, `Microsoft.EntityFrameworkCore`/
+`.Design` moved to 10.0.10 (direct PackageReference in
+`XGArcade.Api`/`XGArcade.Data`) while `Npgsql.EntityFrameworkCore.PostgreSQL`
+moved to 10.0.3 — the newest version published at the time — which still
+declares a floor dependency on `EntityFrameworkCore.Relational >= 10.0.4`.
+The two package families haven't released in lockstep, so every backend
+build (and any workflow that does `dotnet build`/`dotnet run` against
+`XGArcade.Api`) prints an `MSB3277` "found conflicts between different
+versions of Microsoft.EntityFrameworkCore.Relational" warning for
+`XGArcade.Core`, `XGArcade.DataSync`, and `XGArcade.Games.XGGrid`. This is
+exactly the risk `implementation-document.md` §1 already calls out for the
+Npgsql provider ("it typically follows .NET's release within weeks, but
+confirm before committing"). It's a build-time warning only — every CI run
+and a manual `import-player-name-index` run completed successfully with no
+observed functional issue. Don't be alarmed by it; revisit once Npgsql
+publishes a 10.0.10-tracking patch (should make the warning disappear on
+its own), and only chase it earlier if something actually breaks.
