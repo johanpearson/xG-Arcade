@@ -8,15 +8,14 @@ export interface LeaderboardScreenProps {
   onAuthError: () => void;
 }
 
-// REQ-607 (S-034): `rows` is the flattened, in-rank-order list across
-// however many pages the player has loaded so far — `firstPageCount` marks
-// where page 1 ends within it, since the 15s poll only ever re-fetches page
-// 1 (see the effect below) and needs to know which prefix of `rows` to
-// replace without disturbing any pages loaded via "Load more".
+// REQ-607 (S-034, refactored per quality-architect's S-034 review): `pages`
+// is one entry per page loaded so far, in load order. `pages[0]` is always
+// what the 15s poll replaces wholesale (see the effect below); `pages[1+]`
+// are appended, one per "Load more" click, and never touched by the poll.
+// Rendering flattens `pages` back into a single in-rank-order list.
 type ReadyState = {
   phase: 'ready';
-  rows: LeaderboardRow[];
-  firstPageCount: number;
+  pages: LeaderboardRow[][];
   requestingUserRow: LeaderboardRow | null;
   nextCursor: number | null;
   hasMore: boolean;
@@ -57,10 +56,9 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     // REQ-607: the poll always re-fetches only page 1 (cursor omitted) at
     // the default pageSize — it never re-fetches pages loaded via "Load
     // more". When additional pages are already loaded, the poll's page-1
-    // response replaces just that leading prefix of `rows`; the pagination
-    // frontier (`nextCursor`/`hasMore` for the "Load more" button) is left
-    // alone in that case, since it reflects the *last* loaded page, not
-    // page 1.
+    // response replaces `pages[0]` wholesale; the pagination frontier
+    // (`nextCursor`/`hasMore` for the "Load more" button) is left alone in
+    // that case, since it reflects the *last* loaded page, not page 1.
     function load(showLoadingState: boolean) {
       if (showLoadingState) setState({ phase: 'loading' });
 
@@ -69,34 +67,34 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
           if (cancelled) return;
           setState((prev) => {
             const prevReady = prev.phase === 'ready' ? prev : null;
-            const staleTrailingRows = prevReady ? prevReady.rows.slice(prevReady.firstPageCount) : [];
-            const isFrontierStillPageOne = staleTrailingRows.length === 0;
+            const freshPage1 = [...response.rows];
+            const trailingPages = prevReady ? prevReady.pages.slice(1) : [];
+            const hasTrailingPages = trailingPages.length > 0;
 
             // A player's rank can cross the page-1/page-2 boundary between
             // poll ticks (round close shifting FinalPoints totals, or a
-            // REQ-710 account deletion). If that happens while a second page
-            // is already loaded, the fresh page-1 response can now include a
-            // userId that's also still sitting in the stale trailing rows
-            // from the earlier "Load more" fetch. Drop those from the
-            // trailing rows so that player appears once, in their fresher
-            // page-1 position, instead of duplicated (and instead of
-            // colliding on the row's React `key`).
-            const freshIds = new Set(response.rows.map((row) => row.userId));
-            const trailingRows = staleTrailingRows.filter((row) => !freshIds.has(row.userId));
+            // REQ-710 account deletion). Replacing `pages[0]` wholesale while
+            // leaving `pages[1:]` untouched can therefore put the same
+            // userId in both the fresh page 1 and a stale trailing page —
+            // drop it from the trailing pages so that player appears once,
+            // in their fresher page-1 position, instead of duplicated (and
+            // instead of colliding on the row's React `key`).
+            const freshIds = new Set(freshPage1.map((row) => row.userId));
+            const dedupedTrailingPages = trailingPages.map((page) =>
+              page.filter((row) => !freshIds.has(row.userId)),
+            );
 
-            // isFrontierStillPageOne is only false when prevReady is set
-            // (staleTrailingRows is always [] otherwise), so the frontier
-            // (nextCursor/hasMore for "Load more") can only ever be carried
-            // over from a ready prev state.
-            const frontier =
-              isFrontierStillPageOne || prevReady === null
-                ? { nextCursor: response.nextCursor, hasMore: response.hasMore }
-                : { nextCursor: prevReady.nextCursor, hasMore: prevReady.hasMore };
+            // hasTrailingPages is only true when prevReady already had a
+            // page beyond page 1 loaded, so the frontier (nextCursor/hasMore
+            // for "Load more") can only ever be carried over from a ready
+            // prev state.
+            const frontier = hasTrailingPages
+              ? { nextCursor: prevReady!.nextCursor, hasMore: prevReady!.hasMore }
+              : { nextCursor: response.nextCursor, hasMore: response.hasMore };
 
             return {
               phase: 'ready',
-              rows: [...response.rows, ...trailingRows],
-              firstPageCount: response.rows.length,
+              pages: [freshPage1, ...dedupedTrailingPages],
               requestingUserRow: response.requestingUserRow,
               ...frontier,
               loadingMore: prevReady ? prevReady.loadingMore : false,
@@ -148,7 +146,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
         if (prev.phase !== 'ready') return prev;
         return {
           ...prev,
-          rows: [...prev.rows, ...response.rows],
+          pages: [...prev.pages, response.rows],
           requestingUserRow: response.requestingUserRow,
           nextCursor: response.nextCursor,
           hasMore: response.hasMore,
@@ -175,13 +173,15 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     return <p className="leaderboard-screen__status leaderboard-screen__status--error">{state.message}</p>;
   }
 
+  const rows = state.pages.flat();
+
   // REQ-607: when the requesting user's row isn't among the currently
   // loaded rows (they're off-page), pin a distinct footer row with their
   // real global rank/points so they always know their standing without
   // loading more pages. When it IS already visible in the list, skip the
   // footer — showing both would be a redundant duplicate.
   const showYouFooter =
-    state.requestingUserRow !== null && !state.rows.some((row) => row.userId === state.requestingUserRow!.userId);
+    state.requestingUserRow !== null && !rows.some((row) => row.userId === state.requestingUserRow!.userId);
 
   return (
     <div className="leaderboard-screen">
@@ -193,13 +193,13 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
             in the ranking order alone. */}
         <p className="leaderboard-screen__subtitle">Lowest total wins</p>
       </div>
-      {state.rows.length === 0 ? (
+      {rows.length === 0 ? (
         // design-document.md §5: "empty states are invitations."
         <p className="leaderboard-screen__empty">No scores yet — be the first to play a round.</p>
       ) : (
         <>
           <ol className="leaderboard-screen__list">
-            {state.rows.map((row) => (
+            {rows.map((row) => (
               <li
                 key={row.userId}
                 className={`leaderboard-screen__row ${row.isRequestingUser ? 'leaderboard-screen__row--you' : ''}`}
