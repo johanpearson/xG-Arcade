@@ -15,7 +15,7 @@
          XGArcadeDbContext for an in-memory one in AuthEndpointTests, same
          version XGArcade.Data.Tests already pins. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="NUnit" Version="4.3.2" />
     <PackageReference Include="NUnit.Analyzers" Version="4.7.0" />
     <PackageReference Include="NUnit3TestAdapter" Version="5.0.0" />
