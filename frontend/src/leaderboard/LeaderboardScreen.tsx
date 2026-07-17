@@ -68,25 +68,39 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
         .then((response) => {
           if (cancelled) return;
           setState((prev) => {
-            const trailingRows = prev.phase === 'ready' ? prev.rows.slice(prev.firstPageCount) : [];
-            const isFrontierStillPageOne = trailingRows.length === 0;
+            const prevReady = prev.phase === 'ready' ? prev : null;
+            const staleTrailingRows = prevReady ? prevReady.rows.slice(prevReady.firstPageCount) : [];
+            const isFrontierStillPageOne = staleTrailingRows.length === 0;
+
+            // A player's rank can cross the page-1/page-2 boundary between
+            // poll ticks (round close shifting FinalPoints totals, or a
+            // REQ-710 account deletion). If that happens while a second page
+            // is already loaded, the fresh page-1 response can now include a
+            // userId that's also still sitting in the stale trailing rows
+            // from the earlier "Load more" fetch. Drop those from the
+            // trailing rows so that player appears once, in their fresher
+            // page-1 position, instead of duplicated (and instead of
+            // colliding on the row's React `key`).
+            const freshIds = new Set(response.rows.map((row) => row.userId));
+            const trailingRows = staleTrailingRows.filter((row) => !freshIds.has(row.userId));
+
+            // isFrontierStillPageOne is only false when prevReady is set
+            // (staleTrailingRows is always [] otherwise), so the frontier
+            // (nextCursor/hasMore for "Load more") can only ever be carried
+            // over from a ready prev state.
+            const frontier =
+              isFrontierStillPageOne || prevReady === null
+                ? { nextCursor: response.nextCursor, hasMore: response.hasMore }
+                : { nextCursor: prevReady.nextCursor, hasMore: prevReady.hasMore };
+
             return {
               phase: 'ready',
               rows: [...response.rows, ...trailingRows],
               firstPageCount: response.rows.length,
               requestingUserRow: response.requestingUserRow,
-              nextCursor: isFrontierStillPageOne
-                ? response.nextCursor
-                : prev.phase === 'ready'
-                  ? prev.nextCursor
-                  : response.nextCursor,
-              hasMore: isFrontierStillPageOne
-                ? response.hasMore
-                : prev.phase === 'ready'
-                  ? prev.hasMore
-                  : response.hasMore,
-              loadingMore: prev.phase === 'ready' ? prev.loadingMore : false,
-              loadMoreError: prev.phase === 'ready' ? prev.loadMoreError : null,
+              ...frontier,
+              loadingMore: prevReady ? prevReady.loadingMore : false,
+              loadMoreError: prevReady ? prevReady.loadMoreError : null,
             };
           });
         })
