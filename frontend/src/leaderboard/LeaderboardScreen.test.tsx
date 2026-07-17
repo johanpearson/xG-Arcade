@@ -373,4 +373,75 @@ describe('LeaderboardScreen', () => {
     // Still exactly one "Player One" row (in the list, not duplicated below it).
     expect(screen.getAllByText('Player One')).toHaveLength(1);
   });
+
+  it('REQ-607: a player who moves from page 2 to page 1 between poll ticks appears once, not duplicated', async () => {
+    const fetchMock = vi
+      .fn()
+      // Initial mount load — page 1.
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(1, 'user-1', 'Alex', 10), row(2, 'user-2', 'Blair', 20)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      )
+      // "Load more" click — page 2, Casey is still down here.
+      .mockImplementationOnce(() =>
+        jsonResponse({
+          rows: [row(3, 'user-3', 'Casey', 30)],
+          requestingUserRow: null,
+          nextCursor: null,
+          hasMore: false,
+        }),
+      )
+      // The 15s poll tick — round close reshuffled totals and Casey now
+      // ranks into page 1, ahead of Alex.
+      .mockImplementation(() =>
+        jsonResponse({
+          rows: [row(1, 'user-3', 'Casey', 5), row(2, 'user-1', 'Alex', 10)],
+          requestingUserRow: null,
+          nextCursor: 50,
+          hasMore: true,
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(screen.getByText('Casey')).toBeInTheDocument());
+    // Sanity check: before the poll tick, Casey is still the stale page-2
+    // copy (30 pts).
+    expect(screen.getByText('30 pts')).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    // The poll's fresh page-1 copy of Casey (5 pts) has landed...
+    await waitFor(() => expect(screen.getByText('5 pts')).toBeInTheDocument());
+
+    // ...and Casey appears exactly once, not duplicated between the fresh
+    // page-1 row and the stale page-2 trailing row.
+    expect(screen.getAllByText('Casey')).toHaveLength(1);
+    expect(screen.queryByText('30 pts')).not.toBeInTheDocument();
+
+    // Blair (the other original page-1 row, now bumped off page 1 entirely
+    // by the fresh response) is gone too — the poll replaces the whole
+    // page-1 prefix, it doesn't merge it.
+    expect(screen.queryByText('Blair')).not.toBeInTheDocument();
+
+    // Total row count reflects the two fresh page-1 rows plus zero
+    // still-distinct trailing rows (Casey was the only trailing row, and it
+    // was deduped away) — not three.
+    const rows = screen.getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('Casey');
+    expect(rows[0]).toHaveTextContent('5 pts');
+    expect(rows[1]).toHaveTextContent('Alex');
+    expect(rows[1]).toHaveTextContent('10 pts');
+
+    vi.useRealTimers();
+  });
 });
