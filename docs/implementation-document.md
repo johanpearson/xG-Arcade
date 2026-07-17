@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.50"
+version: "0.51"
 status: draft
-last_updated: 2026-07-14
+last_updated: 2026-07-17
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.50 · 2026-07-14
+Version 0.51 · 2026-07-17
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -826,6 +826,29 @@ specific club name(s) just corrected — and strictly *before* the next
 `warm-player-cache` run, since running it after a fresh warm would delete
 the new, correct data too.
 
+**All-clubs mode (2026-07-17, REQ-111):** the verb also accepts the exact
+literal `--all-clubs` in place of a name list
+(`StaleClubAttributeCleaner.CleanAllSeededClubsAsync`), added for the
+REQ-113 truthy-`wdt:P54` query-shape incident, where the cached club data
+of **every** seeded club was incomplete at once — and hand-typing ~32
+club names is exactly the typo surface where one misspelled name silently
+stays stale (the named mode can't distinguish a typo from a club with
+nothing to clean; both remove zero rows and report success). It resolves
+the club-name list from the `ClubDefinition` reference table at runtime
+and then runs the same per-name cleanup — scoped by the reference table
+exactly as the named form is scoped by its list, never "every `club`-type
+row regardless of value" — and reports the resolved names back so the
+operator can verify what was swept. Two fail-loud guards: (1) all-clubs
+mode against an empty `ClubDefinition` table **throws** instead of
+cleaning nothing (zero seeded clubs means a wrong database or a
+never-seeded one, not a genuine "nothing to clean"); (2) in the named
+form, any `-`-prefixed token (e.g. a mistyped `--all-club`) **throws**
+before any deletion in `Program.cs`'s argument handling, rather than
+matching zero rows and printing a plausible "removed 0 rows" success —
+no seeded club name starts with `-`, so this never rejects a real list.
+Same manual, workflow_dispatch-only friction as the named mode, same
+clean-then-warm ordering rule, still never wired into `migrate-and-seed`.
+
 **REQ-112 player pool restriction (S-038, ADR-0025):** the same
 "can't selectively fix already-cached data" problem, but for the whole
 pool rather than a few named clubs — neither sex nor date of birth was
@@ -1079,13 +1102,19 @@ and column categories") looks like:
 SELECT ?player ?playerLabel WHERE {
   ?player wdt:P106 wd:Q937857.   # occupation: association football player
   ?player wdt:P27 wd:Q142.       # country of citizenship: e.g. France
-  ?player wdt:P54 wd:Q9617.      # member of sports team: e.g. Arsenal F.C.
+  ?player p:P54 ?clubStatement.  # member of sports team: full statement path,
+  ?clubStatement ps:P54 wd:Q9617.       # e.g. Arsenal F.C. — NOT truthy wdt:P54
+  MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. } # (REQ-113, rule 4 below)
   ?player wdt:P21 wd:Q6581097.   # sex or gender: male (REQ-112, ADR-0025)
   ?player wdt:P569 ?dateOfBirth. # date of birth (REQ-112, ADR-0025)
   FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime) # fixed cutoff, not rolling
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ```
+
+(The Club × Club variant checks P54 twice, once per club, through **two
+distinct statement variables** — a single shared `?clubStatement` could
+never bind, since one P54 statement can't point at two clubs.)
 
 The response shape is SPARQL's own JSON results format (`head.vars` /
 `results.bindings`), not a simple object list — needs its own parsing
@@ -1096,7 +1125,7 @@ ADR-0011's 2026-07-09 addendum — chosen over the ADR's original "e.g.
 taking 9-27s under load) and treat a timeout the same as a miss, falling through to
 API-Football.
 
-Three rules that make this query correct, not just functional:
+Four rules that make this query correct, not just functional:
 
 - **Never `LIMIT` the intersection query.** Its results ARE the cell's
   answer key: fetching *all* matches is exactly what makes Tier 0's
@@ -1121,6 +1150,22 @@ Three rules that make this query correct, not just functional:
   recorded on the persisted `Player`/`PlayerAttribute` rows — the filter
   exists only at query time, so a player already outside these bounds is
   simply never fetched in the first place, never fetched-then-excluded.
+- **P54 must use the full statement path (`p:P54`/`ps:P54`), excluding
+  only `wikibase:DeprecatedRank` via `MINUS` — never the truthy `wdt:P54`
+  shortcut** (REQ-113). Wikidata's truthy `wdt:` graph contains only
+  best-rank statements: the moment any P54 statement on a player is
+  marked preferred rank (editors routinely mark the *current* club
+  preferred), every normal-rank historical club silently vanishes from
+  `wdt:P54` — turning "ever played for this club" into "currently plays
+  for this club" for exactly those players. This shipped as a real bug
+  (e.g. Sandro Tonali × AC Milan scored incorrect) and left the persisted
+  answer key incomplete for every seeded club at once; recovery required
+  `clean-stale-club-attributes --all-clubs` plus a fresh
+  `warm-player-cache` pass (see §6's CLI-verb notes and REQ-111). The
+  other properties (`P106`/`P27`/`P21`/`P569`) stay truthy on purpose —
+  for those, best-rank semantics match product intent. Deprecated rank is
+  still excluded: it's Wikidata's "recorded but wrong" marker, not a
+  historical spell.
 
 Semantics note: the Country category means **citizenship (P27)**, not
 "capped for the national team" — a deliberate, player-visible rule
@@ -1148,12 +1193,16 @@ for dual nationals and naturalized players, so this is correct modeling,
 not incidental complexity to simplify away.
 
 Semantics note: the Club category means **senior/first-team career
-only** — a deliberate decision, not the "any P54 statement" default.
-`ClubDefinition.WikidataQid` must point at the senior club's specific
-item, not a generic club-family concept, so that a youth academy with its
-own distinct Wikidata item (common for well-documented clubs) is
-naturally excluded — the youth spell links to the youth item, not this
-one. **This is not guaranteed for every club/player**: a thin or
+only** — a deliberate decision, not the "any club *entity* a P54
+statement points at" default. This is about which club QIDs count
+(REQ-109's resolution rule), not about statement ranks — it does not
+contradict the full-statement-path rule above, which deliberately
+accepts *every* non-deprecated P54 statement against the senior club's
+QID (REQ-113's "ever played for" semantics). `ClubDefinition.WikidataQid`
+must point at the senior club's specific item, not a generic club-family
+concept, so that a youth academy with its own distinct Wikidata item
+(common for well-documented clubs) is naturally excluded — the youth
+spell links to the youth item, not this one. **This is not guaranteed for every club/player**: a thin or
 poorly-maintained Wikidata page can record a youth-only appearance
 directly against the senior club's own QID with nothing distinguishing
 it. No secondary filter is planned to catch this in Tier 0 (an

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.54"
+version: "0.55"
 status: draft
-last_updated: 2026-07-14
+last_updated: 2026-07-17
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.54 · 2026-07-14
+Version 0.55 · 2026-07-17
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -345,6 +345,17 @@ below-threshold pair is re-queried, not skipped)
   specific corrected club name(s) before the next REQ-110 cache-warming
   pass — running it after a fresh warming pass would incorrectly wipe the
   new, correct data too, since nothing here can tell old from new.
+- **Extended (2026-07-17):** a second incident class motivated an
+  all-clubs mode (`clean-stale-club-attributes --all-clubs`,
+  `StaleClubAttributeCleaner.CleanAllSeededClubsAsync`): REQ-113's truthy
+  `wdt:P54` query-*shape* bug tainted the cached data of **every** seeded
+  club at once, not one club's wrong QID — and hand-typing every seeded
+  club name is exactly the typo surface where one misspelled name silently
+  stays stale (the named mode cannot distinguish a typo from a club with
+  nothing to clean; both remove zero rows and report success). Same
+  manual, deliberate-friction character as the named mode: still a
+  one-off CLI verb run before the next REQ-110 warming pass, never wired
+  into any automatic migrate-and-seed or scheduled run.
 - Given a `ClubDefinition` row's `WikidataQid` was corrected (REQ-109)
   after `PlayerAttribute`/`PlayerData` rows were already fetched and
   persisted under its old, wrong QID
@@ -357,10 +368,31 @@ below-threshold pair is re-queried, not skipped)
 - And club names not included in the run are left untouched
 - And running the tool again once nothing is left to clean deletes zero
   rows and does not error
+- And when run in all-clubs mode (the literal `--all-clubs` instead of a
+  name list), the club-name list is resolved at runtime from the
+  `ClubDefinition` reference table (REQ-109) — every seeded club's rows
+  are cleaned, scoped by the reference table exactly as the named form is
+  scoped by its list (never "every `club`-type row regardless of value"),
+  and attribute types other than `club` are untouched — and the resolved
+  names are reported back so an operator can verify what was swept
+- And all-clubs mode run against an empty `ClubDefinition` table fails
+  loudly (errors, deletes nothing, produces no success summary) — zero
+  seeded clubs signals a wrong database or a never-seeded one, not a
+  genuine "nothing to clean"
+- And in the named comma-separated form, a token that looks like a flag
+  rather than a club name (a `-`-prefixed token, e.g. a mistyped
+  `--all-club`) fails loudly before any deletion — it must never be
+  treated as an ordinary club name that matches zero rows and produce a
+  plausible-looking "removed 0 rows" success
 
 **Test level:** Unit (`StaleClubAttributeCleanerTests.cs` — removes stale
 rows and leaves zero cached matches; scopes strictly to the named clubs and
-to `AttributeType == "club"`; safe to re-run)
+to `AttributeType == "club"`; safe to re-run; all-clubs mode resolves names
+from `ClubDefinition`, cleans only seeded clubs' `club`-type rows, and
+throws on an empty `ClubDefinition` table rather than cleaning nothing
+silently). The named-form flag guard lives in the CLI verb's argument
+handling (`Program.cs`), which has no unit-test seam today — verified
+manually until one exists
 
 **REQ-112 – Player pool restricted to male, born in 1939 or later**
 > As a player, I want every candidate answer the grid could ever accept to
@@ -395,6 +427,54 @@ to `AttributeType == "club"`; safe to re-run)
 **Test level:** Unit (`WikidataClientTests.cs` — sent SPARQL query contains
 the P21 male triple; sent query's date-of-birth cutoff is exactly
 `1939-01-01T00:00:00Z`, for both query builders)
+
+**REQ-113 – Club membership means "ever played for," at any career point**
+> As a player, I want a guess to be correct for a club cell whenever that
+> player genuinely played for the club at any point in their senior career,
+> so a real former club is never scored incorrect just because the player
+> has since moved on.
+
+- **Status: Implemented (Tier 0, 2026-07-17 bugfix).** This semantics was
+  always the intent (REQ-109's senior-career aside was the only place it
+  appeared in writing before this requirement), but a real production
+  incident showed it was never pinned: both `WikidataClient` SPARQL
+  intersection builders (`BuildCountryClubIntersectionQuery`,
+  `BuildClubClubIntersectionQuery`, `XGArcade.DataSync.Wikidata`) used
+  Wikidata's truthy `wdt:P54` shortcut, and the truthy graph contains only
+  best-rank statements — the moment a player's *current* club is marked
+  preferred rank (routine Wikidata editing practice), every normal-rank
+  historical club silently vanished from the result, reducing "ever played
+  for" to "currently plays for" for exactly those players. A genuinely
+  correct guess (e.g. Sandro Tonali × AC Milan) scored incorrect. Fixed by
+  querying the full statement path (`p:P54`/`ps:P54`), excluding only
+  deprecated-rank statements, in both builders. Cached data fetched under
+  the old query shape was incomplete for **every** seeded club at once —
+  recovered via REQ-111's `--all-clubs` cleanup mode followed by a fresh
+  REQ-110 cache-warming pass.
+- Given a player whose Wikidata item records a club membership (P54)
+  statement for a club, at any statement rank other than deprecated
+- When candidates are fetched for a cell involving that club — Country ×
+  Club or Club × Club, whether during grid generation (REQ-101/103/110) or
+  a guess-time live lookup (REQ-211), all of which share the same two
+  query builders
+- Then that player is returned as a match for the club — a normal-rank
+  historical spell counts exactly the same as a preferred-rank current one
+- And marking a player's current club preferred rank must never suppress
+  their normal-rank historical clubs: club membership must never be
+  fetched through a best-rank-only view (Wikidata's truthy `wdt:P54` graph
+  is exactly such a view and must not be used for P54)
+- And a deprecated-rank P54 statement never counts — deprecated is
+  Wikidata's "recorded but wrong" marker, not a historical spell
+- And this ever-played-for rule is specific to club membership — the other
+  properties these queries use (nationality, sex, date of birth) deliberately
+  keep best-rank semantics, where "current/best-supported" is the intent
+- And "played for" remains scoped to the senior/first team by REQ-109's
+  QID-resolution rule — this requirement governs which membership
+  statements count for a club, not which club entity the cell asks about
+
+**Test level:** Unit (`WikidataClientTests.cs` query-shape tests — both
+builders' sent SPARQL uses the full `p:P54`/`ps:P54` statement path with
+only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
 
 ---
 

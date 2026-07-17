@@ -11,12 +11,17 @@ name: clean-stale-club-attributes
 # Running it after a fresh warm-player-cache pass would incorrectly wipe
 # the new, correct data too — nothing in the persisted data can tell a
 # wrong-QID row from a correct one after the fact.
+#
+# The same once-then-rewarm rule applies to the --all-clubs input (which
+# resolves every seeded club name from ClubDefinition instead of taking a
+# hand-typed list): deploy the corrected query/QIDs first, run this once,
+# then run warm-player-cache.yml to rebuild the club data cleanly.
 
 on:
   workflow_dispatch:
     inputs:
       club_names:
-        description: "Comma-separated club names to purge, exactly as seeded (e.g. Napoli,AS Roma,Sevilla,Porto)"
+        description: "Comma-separated club names to purge, exactly as seeded (e.g. Napoli,AS Roma,Sevilla,Porto) — or the literal --all-clubs to resolve every seeded club name from the ClubDefinition table (for recoveries that invalidate all clubs at once, like the truthy wdt:P54 query bug)"
         required: true
         type: string
 
