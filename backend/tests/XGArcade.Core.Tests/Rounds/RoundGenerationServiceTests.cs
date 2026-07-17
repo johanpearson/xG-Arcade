@@ -138,6 +138,48 @@ public class RoundGenerationServiceTests
     }
 
     [Test]
+    public async Task REQ301_GenerateNextRoundIfNeeded_RoundDurationOverrideSupplied_UsesOverrideInsteadOfOptionsRoundDuration()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var round = await service.GenerateNextRoundIfNeededAsync(
+            new RoundConfig { TemplateId = Guid.NewGuid() },
+            roundDurationOverride: TimeSpan.FromHours(12));
+
+        Assert.That(round.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromHours(12)));
+    }
+
+    [Test]
+    public async Task REQ301_GenerateNextRoundIfNeeded_RoundDurationOverrideSupplied_DoesNotMutateSharedOptionsForSubsequentCall()
+    {
+        // Round A (overridden to 12h) is seeded as the only existing round;
+        // calling again without an override must chain Round B off Round A's
+        // EndTime using the *configured* 3-day duration, not the 12h override
+        // from the first call — proving RoundSchedulingOptions itself was
+        // never mutated.
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var roundA = await service.GenerateNextRoundIfNeededAsync(
+            new RoundConfig { TemplateId = Guid.NewGuid() },
+            roundDurationOverride: TimeSpan.FromHours(12));
+        Assert.That(roundA.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromHours(12)));
+
+        // Advance the clock so Round A now reads as active, and Round B (no
+        // upcoming round exists yet) is genuinely generated rather than the
+        // "already one round ahead" no-op path.
+        var later = now.AddHours(1);
+        var serviceNoOverride = BuildService(later, TimeSpan.FromDays(3));
+
+        var roundB = await serviceNoOverride.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(roundB.StartTime, Is.EqualTo(roundA.EndTime));
+        Assert.That(roundB.EndTime, Is.EqualTo(roundA.EndTime + TimeSpan.FromDays(3)),
+            "the second call's round must use the originally configured RoundDuration, not the first call's override");
+    }
+
+    [Test]
     public void GenerateNextRoundIfNeeded_UnknownGameKey_ThrowsInvalidOperationException()
     {
         var service = new RoundGenerationService(

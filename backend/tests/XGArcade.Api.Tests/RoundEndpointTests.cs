@@ -193,6 +193,51 @@ public class RoundEndpointTests
     }
 
     [Test]
+    public async Task REQ301_GenerateRound_Post_WithRoundDurationHoursOverride_UsesOverrideInsteadOfConfiguredDefault()
+    {
+        // SetUp's RoundSchedulingOptions.RoundDuration is 3 days (72h) — a
+        // 12h override must win for this call, proving the query param is
+        // actually plumbed through rather than merely accepted and ignored.
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=12", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(12)));
+    }
+
+    [Test]
+    public async Task REQ301_GenerateRound_Post_WithZeroRoundDurationHours_ReturnsBadRequest()
+    {
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=0", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid roundDurationHours"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an invalid override must not generate a round");
+    }
+
+    [Test]
+    public async Task REQ301_GenerateRound_Post_WithNegativeRoundDurationHours_ReturnsBadRequest()
+    {
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?roundDurationHours=-5", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid roundDurationHours"));
+    }
+
+    [Test]
     public async Task GenerateRound_Post_ReturnsProblemDetails_WhenAnUnexpectedExceptionOccurs()
     {
         // Regression coverage for the 2026-07-12 dev incident: a manual
