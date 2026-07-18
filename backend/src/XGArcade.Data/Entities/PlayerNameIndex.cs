@@ -30,5 +30,11 @@ public class PlayerNameIndex
 
     public int? BirthYear { get; set; }
     public string? PrimaryNationality { get; set; }
-    public string? PhotoUrl { get; set; }
+
+    // No PhotoUrl: dropped 2026-07-18 (RemovePlayerNameIndexPhotoUrl
+    // migration) — the autocomplete contract never exposed a photo
+    // (design-document.md's SCREEN-02 note records the avatar as not
+    // shippable for exactly that reason), so fetching/storing P18 was dead
+    // weight in the bulk import. Re-add deliberately if a real photo
+    // feature ever exists.
 }

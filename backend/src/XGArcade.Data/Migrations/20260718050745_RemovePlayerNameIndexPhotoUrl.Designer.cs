@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using XGArcade.Data;
@@ -11,9 +12,11 @@ using XGArcade.Data;
 namespace XGArcade.Data.Migrations
 {
     [DbContext(typeof(XGArcadeDbContext))]
-    partial class XGArcadeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260718050745_RemovePlayerNameIndexPhotoUrl")]
+    partial class RemovePlayerNameIndexPhotoUrl
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

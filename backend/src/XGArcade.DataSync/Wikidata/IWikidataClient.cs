@@ -26,21 +26,25 @@ public interface IWikidataClient
 
     // S-032/ADR-0007/REQ-207: PlayerNameIndexImporter's bulk-import query —
     // "association football player" (P106=Q937857) broadly, no country/club
-    // filter, unlike the two intersection queries above. Unlike those (which
-    // never LIMIT — the result set is the cell's complete answer key), this
-    // query DOES page — this result set is far larger (many thousands of
-    // rows) than WDQS can safely return in one request, so the importer
-    // calls this repeatedly with increasing offset until a page comes back
-    // empty. Same male-only/born-1939-or-later filter as the intersection
-    // queries (ADR-0025/REQ-112) for player-pool consistency. Deliberately
-    // does not fetch P54 (club) data — that's PlayerAttribute's job, not
-    // this index's (ADR-0007). Same no-LIMIT-on-a-per-page-basis-means-
-    // never-throws contract as the intersection queries: returns an empty
-    // page on timeout/HTTP error, which the importer must not mistake for
-    // "no more pages" vs. "transient failure" — see PlayerNameIndexImporter's
-    // own doc comment for how it handles that ambiguity.
-    Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolPageAsync(
-        int offset,
-        int pageSize,
+    // filter, unlike the two intersection queries above. Sliced by BIRTH
+    // YEAR (revised 2026-07-18): one call fetches every eligible player born
+    // in the given year via a bounded one-year P569 window, with no
+    // ORDER BY/LIMIT/OFFSET — the original LIMIT/OFFSET paging forced WDQS
+    // to sort the entire unfiltered pool per page and hit its hard ~60s
+    // server-side timeout on every single page (NOTES.md 2026-07-18). Same
+    // male-only/born-1939-or-later filter as the intersection queries
+    // (ADR-0025/REQ-112); deliberately does not fetch P54 (club) data —
+    // that's PlayerAttribute's job, not this index's (ADR-0007).
+    //
+    // Error contract — deliberately the OPPOSITE of the intersection
+    // queries above: throws WikidataQueryException on timeout/HTTP/parse
+    // failure instead of returning []. An empty list means exactly "no
+    // eligible players born this year" (real for sparse early years), never
+    // a swallowed failure — the old swallow-to-[] contract made a timeout
+    // indistinguishable from end-of-data, and the import job exited 0
+    // having imported nothing. The importer retries a failed slice and
+    // fails the whole run loudly if it keeps failing.
+    Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
+        int birthYear,
         CancellationToken cancellationToken = default);
 }

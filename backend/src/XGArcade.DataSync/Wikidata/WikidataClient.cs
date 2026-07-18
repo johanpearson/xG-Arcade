@@ -30,6 +30,12 @@ public partial class WikidataClient(
     private const string MaleWikidataQid = "Q6581097";
     private const string DateOfBirthCutoff = "1939-01-01T00:00:00Z";
 
+    // The same ADR-0025 pool floor as DateOfBirthCutoff above, as a plain
+    // year — QueryPlayerPoolBirthYearAsync slices the bulk import by birth
+    // year, and PlayerNameIndexImporter iterates from this year to the
+    // current one. Keep the two constants in sync.
+    public const int FirstEligibleBirthYear = 1939;
+
     // ADR-0011's original "e.g. 5-10s" was only an illustrative example;
     // the ADR's own evidence (WDQS queries observed taking 9-27s under
     // load) argues for a longer default — 8-10s would treat a large share
@@ -187,15 +193,14 @@ public partial class WikidataClient(
         }
         """;
 
-    public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolPageAsync(
-        int offset, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
+        int birthYear, CancellationToken cancellationToken = default)
     {
-        if (offset < 0)
-            throw new ArgumentOutOfRangeException(nameof(offset), offset, "offset must not be negative.");
-        if (pageSize <= 0)
-            throw new ArgumentOutOfRangeException(nameof(pageSize), pageSize, "pageSize must be positive.");
+        if (birthYear < FirstEligibleBirthYear)
+            throw new ArgumentOutOfRangeException(nameof(birthYear), birthYear,
+                $"birthYear must be {FirstEligibleBirthYear} or later (ADR-0025's player-pool floor).");
 
-        var query = BuildPlayerPoolPageQuery(offset, pageSize);
+        var query = BuildPlayerPoolBirthYearQuery(birthYear);
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
@@ -204,6 +209,17 @@ public partial class WikidataClient(
         using var timeoutCts = new CancellationTokenSource(_queryTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
+        // Unlike every other public method on this client, this one THROWS
+        // (WikidataQueryException) on timeout/HTTP/parse failure instead of
+        // returning [] — an empty list from this method means exactly "no
+        // eligible players born this year" (a real thing for sparse early
+        // years), never "the query failed." The original swallow-to-[]
+        // contract made a WDQS timeout indistinguishable from end-of-data,
+        // and the import-player-name-index job exited 0 having imported
+        // nothing (NOTES.md 2026-07-18). The intersection queries above keep
+        // their never-throw contract untouched — REQ-103's "never block grid
+        // generation on a Wikidata failure" depends on it; this bulk-import
+        // method has the opposite requirement (fail loudly, re-run the job).
         try
         {
             using var response = await httpClient.SendAsync(request, linkedCts.Token);
@@ -214,53 +230,48 @@ public partial class WikidataClient(
 
             return ParseNameIndexBindings(parsed);
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // Timeout on a single page — treated as an empty page, same
-            // "never throws" contract as the intersection queries. The
-            // importer's own doc comment covers why it can't fully
-            // distinguish this from "no more pages" and what it does about it.
-            _logger.LogWarning(
-                "Wikidata player-pool page query timed out at offset {Offset}; treating as empty page.", offset);
-            return [];
+            throw new WikidataQueryException(
+                $"Wikidata player-pool query for birth year {birthYear} timed out after {_queryTimeout.TotalSeconds:0}s.");
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
-            _logger.LogWarning(ex,
-                "Wikidata player-pool page query failed at offset {Offset}; treating as empty page.", offset);
-            return [];
+            throw new WikidataQueryException(
+                $"Wikidata player-pool query for birth year {birthYear} failed: {ex.Message}", ex);
         }
     }
 
-    // S-032/ADR-0007: broad "association football player" pool query, no
-    // country/club filter — unlike the two intersection queries above, this
-    // DOES page (inner SELECT DISTINCT ?player ... LIMIT/OFFSET) because the
-    // unfiltered result set is far larger than WDQS can safely return in one
-    // request. The outer query re-joins ?player against birth date/
-    // citizenship/image so a player with more than one P27 citizenship or
-    // P18 image produces more than one result row for the same ?player —
-    // ParseNameIndexBindings groups by qid the same way ParseBindings above
-    // groups aliases, taking the first non-null value seen for each. Same
-    // male-only/born-1939-or-later filter as the intersection queries
-    // (ADR-0025/REQ-112) for player-pool consistency. Deliberately no P54
-    // (club) — that's PlayerAttribute's job, not this index's (ADR-0007).
-    private static string BuildPlayerPoolPageQuery(int offset, int pageSize) => $$"""
-        SELECT ?player ?playerLabel ?birthYear ?countryLabel ?image WHERE {
-          {
-            SELECT DISTINCT ?player WHERE {
-              ?player wdt:P106 wd:Q937857.
-              ?player wdt:P21 wd:{{MaleWikidataQid}}.
-              ?player wdt:P569 ?dateOfBirth.
-              FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
-            }
-            ORDER BY ?player
-            LIMIT {{pageSize}}
-            OFFSET {{offset}}
-          }
+    // S-032/ADR-0007's broad "association football player" pool query, no
+    // country/club filter — revised 2026-07-18: sliced by BIRTH YEAR, not
+    // paged by LIMIT/OFFSET. The original shape (inner
+    // `SELECT DISTINCT ?player ... ORDER BY ?player LIMIT n OFFSET m`)
+    // forced WDQS to materialize and sort the ENTIRE unfiltered pool
+    // (hundreds of thousands of items) on every page request, which blew
+    // WDQS's hard ~60s server-side timeout on every single page — no
+    // client-side timeout can raise that cap, so every run imported zero
+    // rows (NOTES.md 2026-07-18). A one-year P569 window instead bounds each
+    // query to a few thousand rows with NO ORDER BY, OFFSET, LIMIT, or inner
+    // subquery — the same size/shape class as the intersection queries that
+    // already work in production. Same male-only filter and 1939 floor as
+    // the intersection queries (ADR-0025/REQ-112). A player with two P569
+    // statements in different years appears in two slices; the importer's
+    // deterministic-PlayerId upsert dedups that (see PlayerNameIndexImporter).
+    // A player with more than one P27 citizenship produces more than one
+    // result row for the same ?player — ParseNameIndexBindings groups by
+    // qid, taking the first non-null value seen. Deliberately no P54 (club)
+    // — that's PlayerAttribute's job, not this index's (ADR-0007) — and,
+    // since 2026-07-18, no P18 (photo) either: the autocomplete contract
+    // never exposes photos (design-document.md's SCREEN-02 note), so
+    // fetching P18 was pure join/row cost for a column nothing read.
+    private static string BuildPlayerPoolBirthYearQuery(int birthYear) => $$"""
+        SELECT ?player ?playerLabel ?birthYear ?countryLabel WHERE {
+          ?player wdt:P106 wd:Q937857.
+          ?player wdt:P21 wd:{{MaleWikidataQid}}.
           ?player wdt:P569 ?dateOfBirth.
+          FILTER(?dateOfBirth >= "{{birthYear}}-01-01T00:00:00Z"^^xsd:dateTime && ?dateOfBirth < "{{birthYear + 1}}-01-01T00:00:00Z"^^xsd:dateTime)
           BIND(YEAR(?dateOfBirth) AS ?birthYear)
           OPTIONAL { ?player wdt:P27 ?country. }
-          OPTIONAL { ?player wdt:P18 ?image. }
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         """;
@@ -270,7 +281,7 @@ public partial class WikidataClient(
         if (response?.Results?.Bindings is null)
             return [];
 
-        var byQid = new Dictionary<string, (string FullName, int? BirthYear, string? Nationality, string? PhotoUrl)>();
+        var byQid = new Dictionary<string, (string FullName, int? BirthYear, string? Nationality)>();
 
         foreach (var binding in response.Results.Bindings)
         {
@@ -286,26 +297,21 @@ public partial class WikidataClient(
                     && int.TryParse(birthYearValue.Value, out var parsedBirthYear)
                         ? parsedBirthYear
                         : null;
-                entry = (label, birthYear, null, null);
+                entry = (label, birthYear, null);
             }
 
-            // A player with more than one citizenship/image produces more
-            // than one binding row — keep the first non-null value seen for
-            // each, rather than overwriting with a later (possibly blank)
-            // one.
+            // A player with more than one citizenship produces more than one
+            // binding row — keep the first non-null value seen, rather than
+            // overwriting with a later (possibly blank) one.
             if (entry.Nationality is null && binding.TryGetValue("countryLabel", out var countryValue)
                 && !string.IsNullOrWhiteSpace(countryValue.Value))
                 entry.Nationality = countryValue.Value;
-
-            if (entry.PhotoUrl is null && binding.TryGetValue("image", out var imageValue)
-                && !string.IsNullOrWhiteSpace(imageValue.Value))
-                entry.PhotoUrl = imageValue.Value;
 
             byQid[qid] = entry;
         }
 
         return byQid
-            .Select(kv => new WikidataNameIndexEntry(kv.Key, kv.Value.FullName, kv.Value.BirthYear, kv.Value.Nationality, kv.Value.PhotoUrl))
+            .Select(kv => new WikidataNameIndexEntry(kv.Key, kv.Value.FullName, kv.Value.BirthYear, kv.Value.Nationality))
             .ToList();
     }
 

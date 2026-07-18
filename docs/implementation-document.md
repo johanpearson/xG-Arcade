@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.54"
+version: "0.55"
 status: draft
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -339,7 +339,11 @@ public class PlayerNameIndex
     public string NormalizedName { get; set; }      // lowercased, diacritics stripped — see REQ-208
     public int? BirthYear { get; set; }             // disambiguation display only
     public string PrimaryNationality { get; set; }  // disambiguation display only
-    public string PhotoUrl { get; set; }            // optional, nullable
+    // PhotoUrl was sketched here originally and shipped in S-032, then
+    // dropped 2026-07-18 (RemovePlayerNameIndexPhotoUrl migration): the
+    // autocomplete contract never exposed a photo, so fetching P18 and
+    // storing the column was dead weight. Re-add deliberately if a photo
+    // feature ever exists.
 }
 
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
@@ -1197,24 +1201,52 @@ Four rules that make this query correct, not just functional:
   still excluded: it's Wikidata's "recorded but wrong" marker, not a
   historical spell.
 
-**S-032 addition — `PlayerNameIndex`'s bulk-import query is the one
-deliberate exception to "never `LIMIT`" above.** `WikidataClient
-.QueryPlayerPoolPageAsync` (COMP-10/ADR-0007's bulk name-index refresh, run
-by `PlayerNameIndexImporter`) queries the same `P106`=`Q937857` occupation
-broadly, with the same male-only/born-1939-or-later filter, but with no
-country/club filter at all — a far larger, unfiltered result set than any
-intersection query's "rarely >100 players." This one DOES page
-(`ORDER BY ?player LIMIT {pageSize} OFFSET {offset}` in an inner subquery,
-5,000 rows per page), looping until a page comes back empty — WDQS has its
-own result-size/time limits regardless of this app's own concerns.
+**S-032 addition, revised 2026-07-18 — `PlayerNameIndex`'s bulk import
+slices by birth year, never by `LIMIT`/`OFFSET`.** `WikidataClient
+.QueryPlayerPoolBirthYearAsync` (COMP-10/ADR-0007's bulk name-index
+refresh, run by `PlayerNameIndexImporter`) queries the same
+`P106`=`Q937857` occupation broadly with the same male-only filter, but
+with no country/club filter at all — a far larger pool (hundreds of
+thousands of items) than any intersection query's "rarely >100 players."
+S-032's original shape paged it with an inner
+`SELECT DISTINCT ?player ... ORDER BY ?player LIMIT 5000 OFFSET n`
+subquery; in production that `ORDER BY` forced WDQS to materialize and
+sort the entire unfiltered pool on *every* page request, which hit WDQS's
+hard ~60s **server-side** timeout on every single page (no client-side
+timeout can raise it), and the then-swallow-to-`[]` error contract made
+the importer read the first timed-out page as end-of-data — every run
+exited 0 having imported nothing (see NOTES.md 2026-07-18). The replacement
+is the standard WDQS pattern for large pools: one bounded query per birth
+year (`?dateOfBirth >= "{year}-01-01" && < "{year+1}-01-01"`,
+1939 → current year), each a few-thousand-row query with **no `ORDER BY`,
+`LIMIT`, `OFFSET`, or subquery** — the same size/shape class as the
+intersection queries that already work. Two paired contract changes,
+deliberate and load-bearing:
+- `QueryPlayerPoolBirthYearAsync` **throws** (`WikidataQueryException`) on
+  timeout/HTTP/parse failure instead of returning `[]` — an empty list
+  means exactly "no eligible players born this year" (real for sparse
+  early years). The intersection queries' never-throw contract is
+  untouched (REQ-103 depends on it).
+- `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
+  backoff), finishes the remaining years (each successful slice is
+  upserted immediately), then **fails the whole run loudly** if any slice
+  failed — S-032's "partial import is an accepted trade-off" is reversed;
+  the job is idempotent and manually re-run, so a red workflow beats a
+  silent exit 0.
+
 Deliberately does not fetch `P54` (club) — that data belongs to
 `PlayerAttribute`, not this index (ADR-0007) — but does fetch `P569`
-(birth year, via `BIND(YEAR(?dateOfBirth) AS ?birthYear)`), `P27`
-(nationality, display-only), and `P18` (photo, display-only). A player with
-more than one citizenship or image produces more than one result row for
-the same `?player`; the client groups these client-side, keeping the first
-non-null value seen per field, same shape as how alias rows are grouped for
-the intersection queries above.
+(birth year, via `BIND(YEAR(?dateOfBirth) AS ?birthYear)`) and `P27`
+(nationality, display-only). `P18` (photo) was dropped in the 2026-07-18
+revision along with the `PhotoUrl` column (`RemovePlayerNameIndexPhotoUrl`
+migration): the autocomplete contract never exposed a photo
+(design-document.md's SCREEN-02 note), so it was pure query/storage cost.
+A player with more than one citizenship produces more than one result row
+for the same `?player`; the client groups these client-side, keeping the
+first non-null value seen, same shape as how alias rows are grouped for
+the intersection queries above. A player with two `P569` statements in
+different years appears in two slices — the importer's deterministic
+QID-derived `PlayerId` upsert collapses that into one row.
 
 Semantics note: the Country category means **citizenship (P27)**, not
 "capped for the national team" — a deliberate, player-visible rule

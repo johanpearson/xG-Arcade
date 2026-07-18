@@ -38,7 +38,6 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
                 existingEntry.NormalizedName = entry.NormalizedName;
                 existingEntry.BirthYear = entry.BirthYear;
                 existingEntry.PrimaryNationality = entry.PrimaryNationality;
-                existingEntry.PhotoUrl = entry.PhotoUrl;
             }
             else
             {

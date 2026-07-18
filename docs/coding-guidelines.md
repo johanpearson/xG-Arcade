@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.4"
+version: "0.5"
 status: draft
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -76,6 +76,24 @@ update_when:
   `/internal/generate-round` for the one endpoint currently relying on
   this, and `GuessEndpoints.cs`/`AdminEndpoints.cs` for the default rule
   still applying everywhere else.
+- **External-client error contracts: swallow-to-empty is only valid where
+  failure and no-data must be treated identically.** A "never throws,
+  returns `[]`" client method is the right shape for an interactive path
+  that genuinely wants a failure to look like a no-match (e.g. REQ-103's
+  "never block grid generation on a Wikidata failure" — see
+  `WikidataClient`'s intersection queries). It is the *wrong* shape for a
+  batch/bulk job whose success metric IS the row count: there, a swallowed
+  failure is indistinguishable from end-of-data, and a total outage becomes
+  a silent exit 0. Batch-path client methods must throw on
+  timeout/HTTP/parse failure (a distinct exception type, e.g.
+  `WikidataQueryException`) so the job can retry and ultimately fail
+  loudly — an empty result must mean exactly "no data," never "the call
+  failed." Trigger: the S-032 `import-player-name-index` incident, where
+  every WDQS page query timed out server-side, the swallow-to-`[]` contract
+  read the timeout as end-of-data, and the job exited 0 having imported
+  nothing (NOTES.md 2026-07-18). When one client serves both kinds of
+  caller, give each path its own contract and document the split at the
+  method level rather than averaging them into one.
 - **Naming**: `PascalCase` for types/methods/properties, `camelCase` for
   locals/parameters, per standard .NET convention — no project-specific
   deviation here.
