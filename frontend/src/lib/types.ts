@@ -26,6 +26,18 @@ export interface CurrentRoundGuess {
   // MaxPointsPerCell) formula REQ-205 locks at round close — an estimate
   // that can still change, never the locked FinalPoints.
   livePoints: number | null;
+  // REQ-214 (Photo reveal on a locked, correct cell): a nullable Wikidata
+  // P18 photo URL for the resolved player, carried alongside
+  // resolvedPlayerName wherever that's already resolved. Field name
+  // confirmed against the backend half (S-043,
+  // `CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl` in
+  // `XGArcade.Api.Rounds.RoundEndpoints`), which landed in parallel with
+  // this frontend half — camelCase JSON serialization matches exactly, no
+  // rename needed. Deliberately optional (`?:`), not just nullable, so an
+  // older cached response that predates this field still degrades safely to
+  // "no photo," same as an explicit `null` — never a type error and never a
+  // fabricated photo.
+  resolvedPlayerPhotoUrl?: string | null;
 }
 
 export interface CurrentRoundCell {
@@ -53,6 +65,14 @@ export interface SubmitGuessResponse {
   locked: boolean;
   // Frontend name-display fix: see CurrentRoundGuess.resolvedPlayerName.
   resolvedPlayerName: string | null;
+  // REQ-214: see CurrentRoundGuess.resolvedPlayerPhotoUrl — same confirmed
+  // field name (matches `SubmitGuessResponse.ResolvedPlayerPhotoUrl` in
+  // `XGArcade.Api.Guesses.GuessEndpoints`), present here too since
+  // GridScreen.handleSubmitGuess spreads this response directly into the
+  // cell's guess without an intervening GET /rounds/current, so a photo
+  // revealed immediately after submitting (not just after a later reload)
+  // needs it on this shape as well.
+  resolvedPlayerPhotoUrl?: string | null;
 }
 
 export interface SignupResponse {

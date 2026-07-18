@@ -129,7 +129,9 @@ public partial class WikidataClient(
     // value, free). P106 = occupation (association football player),
     // P27 = country of citizenship, P54 = member of sports team, P21 = sex
     // or gender, P569 = date of birth (ADR-0025's male-only/born-1939-
-    // or-later player pool restriction — REQ-112).
+    // or-later player pool restriction — REQ-112), P18 = image (REQ-214's
+    // photo reveal — OPTIONAL, same as alias, so a player with no photo
+    // still matches the rest of the query instead of being dropped).
     //
     // P54 deliberately uses the full statement path (p:P54/ps:P54,
     // excluding only deprecated rank), NOT the truthy wdt:P54 shortcut the
@@ -149,7 +151,7 @@ public partial class WikidataClient(
     // best-supported date of birth) and the preferred-rank trap doesn't
     // change the answer to the question being asked.
     private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
-        SELECT ?player ?playerLabel ?alias WHERE {
+        SELECT ?player ?playerLabel ?alias ?photo WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player wdt:P27 wd:{{countryQid}}.
           ?player p:P54 ?clubStatement.
@@ -162,6 +164,7 @@ public partial class WikidataClient(
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")
           }
+          OPTIONAL { ?player wdt:P18 ?photo. }
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         """;
@@ -174,7 +177,7 @@ public partial class WikidataClient(
     // Two distinct statement variables, one per club — a single shared
     // variable could never bind (one statement can't point at two clubs).
     private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
-        SELECT ?player ?playerLabel ?alias WHERE {
+        SELECT ?player ?playerLabel ?alias ?photo WHERE {
           ?player wdt:P106 wd:Q937857.
           ?player p:P54 ?clubAStatement.
           ?clubAStatement ps:P54 wd:{{clubAQid}}.
@@ -189,6 +192,7 @@ public partial class WikidataClient(
             ?player skos:altLabel ?alias.
             FILTER(LANG(?alias) = "en")
           }
+          OPTIONAL { ?player wdt:P18 ?photo. }
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         """;
@@ -320,7 +324,7 @@ public partial class WikidataClient(
         if (response?.Results?.Bindings is null)
             return [];
 
-        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases)>();
+        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases, string? PhotoUrl)>();
 
         foreach (var binding in response.Results.Bindings)
         {
@@ -332,15 +336,27 @@ public partial class WikidataClient(
             if (!byQid.TryGetValue(qid, out var entry))
             {
                 var label = binding.TryGetValue("playerLabel", out var labelValue) ? labelValue.Value : qid;
-                entry = (label, []);
-                byQid[qid] = entry;
+                entry = (label, [], null);
             }
 
             if (binding.TryGetValue("alias", out var aliasValue) && !string.IsNullOrWhiteSpace(aliasValue.Value))
                 entry.Aliases.Add(aliasValue.Value);
+
+            // REQ-214: one row can carry the photo binding while a different
+            // row (for the same player, joined against a different alias)
+            // does not — OPTIONAL joins independently, same reasoning as
+            // ParseNameIndexBindings' "keep the first non-null value seen"
+            // comment. wdt:P18 is single-valued in practice for a Wikidata
+            // person item, so "first non-null" is not a lossy simplification
+            // here the way it can be for a genuinely multi-valued property.
+            if (entry.PhotoUrl is null && binding.TryGetValue("photo", out var photoValue)
+                && !string.IsNullOrWhiteSpace(photoValue.Value))
+                entry.PhotoUrl = photoValue.Value;
+
+            byQid[qid] = entry;
         }
 
-        return byQid.Select(kv => new WikidataPlayerMatch(kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList())).ToList();
+        return byQid.Select(kv => new WikidataPlayerMatch(kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl)).ToList();
     }
 
     [GeneratedRegex(@"^Q\d+$")]

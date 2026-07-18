@@ -115,7 +115,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
             ? null
             : await playerStore!.GetPlayerByWikidataQidAsync(player.WikidataQid, cancellationToken);
         var persisted = existing ?? await playerStore!.AddPlayerAsync(
-            new Player { Id = player.Id, FullName = player.FullName, WikidataQid = player.WikidataQid },
+            new Player { Id = player.Id, FullName = player.FullName, WikidataQid = player.WikidataQid, PhotoUrl = player.PhotoUrl },
             cancellationToken);
 
         if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeA, attributeValueA, cancellationToken))

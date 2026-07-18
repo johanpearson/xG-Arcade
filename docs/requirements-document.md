@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.60"
+version: "0.62"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -1246,11 +1246,20 @@ wording)
 > available, alongside their name when I reveal a solved cell, so I can
 > visually confirm my own answer, not just read it as text.
 
-- **Status: Proposed (Tier 1, pulled forward by deliberate choice,
-  2026-07-18 — see `MVP-SCOPE.md`).** The trigger for this pull-forward is
-  not an observed pain point — it's a direct idea request, recorded
-  plainly rather than invented as something else. This requirement covers
-  scope only; implementation is a separate, not-yet-delegated task.
+- **Status: Implemented (Tier 1, pulled forward by deliberate choice,
+  2026-07-18 — see `MVP-SCOPE.md`, `docs/backlog.md` S-043/S-044).** The
+  trigger for this pull-forward is not an observed pain point — it's a
+  direct idea request, recorded plainly rather than invented as something
+  else. The backend half (S-043) carries Wikidata's `P18` through
+  `WikidataClient`'s existing intersection queries into a new
+  `Player.PhotoUrl` column and exposes it, additive, alongside
+  `ResolvedPlayerName` in both reveal responses (`POST .../guesses`'
+  `SubmitGuessResponse.ResolvedPlayerPhotoUrl` and `GET /rounds/current`'s
+  `CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl`). The frontend half
+  (S-044) landed in parallel and confirmed the field name matched exactly
+  (camelCase JSON: `resolvedPlayerPhotoUrl`) — see S-044 for the full "built
+  as" note, including the fixed-size avatar-slot approach that satisfies the
+  no-layout-change/no-broken-image-icon constraints below.
 - **Scope note:** this is a display-only addition to the correctness side
   of player data (`Player`/`PlayerAttribute`, COMP-06) — specifically,
   carrying Wikidata's `P18` (image) property through the cell-resolution

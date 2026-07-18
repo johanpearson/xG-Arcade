@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { CellState } from './CellState';
 
@@ -426,6 +426,260 @@ describe('CellState badge-dock reveal (S-015, re-keyed to the revealed prop by S
     expect(screen.getByTestId('badge-dock-row')).toBeInTheDocument();
     expect(screen.getByTestId('badge-dock-col')).toBeInTheDocument();
     expect(container.querySelector('.cell-state--reveal')).toBeInTheDocument();
+  });
+});
+
+// REQ-214 (Photo reveal on a locked, correct cell): a photo shows/hides in
+// lockstep with REQ-212's existing reveal toggle — never a separate control
+// — and degrades to exactly today's text-only reveal (no broken-image icon,
+// no loading/error state, no footprint change) whenever no photo is
+// available, whether that's because the field is absent entirely (today's
+// baseline, before this story), explicitly null (backend confirmed no
+// photo), or a same-session image load failure.
+describe('CellState photo reveal (REQ-214)', () => {
+  it('REQ-214: a revealed correct cell with a photoUrl shows the photo alongside the name', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+
+    // Decorative-image queries: an <img alt=""> has an accessible role of
+    // "presentation"/"none" per the ARIA spec (not "img"), and is also
+    // aria-hidden, so this is queried structurally rather than via
+    // getByRole — same reasoning the badge-dock glyphs already use
+    // (data-testid) for their own decorative, aria-hidden elements.
+    const img = container.querySelector('.cell-state__avatar img');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
+    // Decorative only — the visible name text is the accessible identifier,
+    // same pairing rule §6 already applies to the flag/badge glyphs.
+    expect(img).toHaveAttribute('alt', '');
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+  });
+
+  it('REQ-214: no photoUrl field at all (today\'s baseline) falls back to exactly today\'s text-only reveal — no image, no broken-image icon', () => {
+    const { container } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
+    );
+
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__avatar')).not.toBeInTheDocument();
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+  });
+
+  it('REQ-214: an explicit photoUrl={null} (backend confirmed no photo exists) degrades identically to the no-field baseline', () => {
+    const { container: baselineContainer } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
+    );
+    const { container: explicitNullContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl={null}
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+
+    expect(explicitNullContainer.querySelector('.cell-state__avatar')).not.toBeInTheDocument();
+    // Byte-for-byte identical markup, not just "visually similar" — a real
+    // regression check that the two "no photo" cases produce the same DOM,
+    // not merely the same on-screen appearance.
+    expect(explicitNullContainer.querySelector('.cell-state')?.outerHTML).toBe(
+      baselineContainer.querySelector('.cell-state')?.outerHTML,
+    );
+  });
+
+  it('REQ-214: an image load failure removes the photo and falls back to text-only, never showing a broken-image icon', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/broken.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+
+    const img = container.querySelector('.cell-state__avatar img') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    fireEvent.error(img);
+
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__avatar')).not.toBeInTheDocument();
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+  });
+
+  it('REQ-214: hiding the cell (revealed -> false) hides the photo along with the name — the same toggle, not a separate control', () => {
+    const { container, rerender } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__avatar img')).toBeInTheDocument();
+
+    rerender(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed={false}
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+  });
+
+  it('REQ-214: an incorrect (state 2/3) cell never shows a photo even if photoUrl is present, unchanged from REQ-212\'s existing rule for names', () => {
+    const { container } = render(
+      <CellState
+        playerName="Ronaldinho"
+        photoUrl="https://example.test/ronaldinho.jpg"
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        revealed
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+  });
+
+  // REQ-212's own status note records a real layout bug (the name silently
+  // shrinking to zero width) that was missed by tests and only caught by
+  // required manual browser verification — this test exists specifically so
+  // that class of bug can't recur silently for the photo slot. jsdom has no
+  // real layout engine (no box model, no actual rendering), so it cannot
+  // report true pixel bounding boxes the way a real browser could; the
+  // closest genuine regression signal available here is asserting the CSS
+  // rules that are the *mechanism* by which the footprint stays fixed are
+  // actually in effect (literal, non-content-derived pixel dimensions and
+  // flex-shrink: 0 on the avatar slot, matching the badge dock's own already
+  // battle-tested size) — not a snapshot of appearance, a check of the
+  // layout-affecting properties themselves. See the "what to build" item 5
+  // in this story's brief for the real-browser check this doesn't replace.
+  it('REQ-214: the avatar occupies a fixed slot sized to match the existing badge dock — a photo cannot grow the row beyond what badges already reserve', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+        revealed
+      />,
+    );
+
+    // Country categories (rowCategoryType here) render as a flag emoji, not
+    // a sized badge — the club badge (colCategoryType) is the one comparable
+    // fixed-size circle already on this row, so that's the baseline
+    // compared against below.
+    const avatar = container.querySelector('.cell-state__avatar');
+    const colBadge = container.querySelector('.cell-state__badge-dock--col .category-label__badge--small');
+    expect(avatar).toBeInTheDocument();
+    expect(colBadge).toBeInTheDocument();
+
+    const avatarStyle = getComputedStyle(avatar as Element);
+    const badgeStyle = getComputedStyle(colBadge as Element);
+
+    // Fixed, literal (not content-derived) dimensions — an image can never
+    // push this box larger, since width/height aren't driven by the image's
+    // own intrinsic size (no width:auto/height:auto here).
+    expect(avatarStyle.width).toBe('18px');
+    expect(avatarStyle.height).toBe('18px');
+    // Exactly the badge dock's own already-shipped "small" size — the photo
+    // slot can't make the row taller than the badge sitting right next to it
+    // already does.
+    expect(avatarStyle.width).toBe(badgeStyle.width);
+    expect(avatarStyle.height).toBe(badgeStyle.height);
+    // Never compressible, same policy as the badges/icon it sits beside —
+    // and never allowed to grow past its fixed basis either.
+    expect(avatarStyle.flexShrink).toBe('0');
+
+    // The image inside is cropped to fill the fixed box (object-fit: cover)
+    // rather than the box growing to fit the image.
+    const img = avatar?.querySelector('img');
+    const imgStyle = getComputedStyle(img as Element);
+    expect(imgStyle.objectFit).toBe('cover');
+    expect(imgStyle.width).toBe('100%');
+    expect(imgStyle.height).toBe('100%');
+  });
+
+  it('REQ-214: cell-state__row itself renders with the identical class/structure whether or not a photo is present — no extra wrapper reflows the row', () => {
+    const { container: noPhotoContainer } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+        revealed
+      />,
+    );
+    const { container: photoContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+        revealed
+      />,
+    );
+
+    const noPhotoRow = noPhotoContainer.querySelector('.cell-state__row');
+    const photoRow = photoContainer.querySelector('.cell-state__row');
+    expect(getComputedStyle(noPhotoRow as Element).display).toBe(getComputedStyle(photoRow as Element).display);
+    expect(getComputedStyle(noPhotoRow as Element).flexWrap).toBe(getComputedStyle(photoRow as Element).flexWrap);
+    // Same number of direct flex-item children either way (row badge dock,
+    // name group, col badge dock, icon) — the photo lives *inside* the name
+    // group rather than adding a fifth item to the row's own flex layout.
+    expect(noPhotoRow?.children.length).toBe(photoRow?.children.length);
   });
 });
 

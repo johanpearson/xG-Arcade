@@ -23,6 +23,19 @@
   min-width: 0;
 }
 
+/* REQ-214: groups the (optional) avatar with the name so they wrap/reflow
+   as one unit and stay adjacent. min-width: 0 for the same reason
+   .cell-state__row/.cell-state__meta already need it (S-041's comment
+   below) — without it, this group's *own* automatic flex-item minimum
+   width would be its content's unbroken width, defeating .cell-state__name's
+   overflow-wrap: anywhere before it ever gets a chance to wrap. */
+.cell-state__name-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 /* S-041: no longer `overflow: hidden` + `white-space: nowrap` + ellipsis —
    in a narrow revealed cell (badges + name + checkmark all in one row,
    flag/badge/checkmark are flex-shrink: 0 so they never yield space), an
@@ -37,6 +50,31 @@
   font-weight: 500;
   color: var(--color-text-primary);
   overflow-wrap: anywhere;
+}
+
+/* REQ-214: a fixed 18px circle — deliberately the same literal size as
+   .category-label__badge--small (CategoryLabel.css) so a revealed photo can
+   never make this row taller/wider than the badge dock beside it already
+   makes it. flex-shrink: 0 so it's never compressed away either; the image
+   itself is cropped to fill this fixed box (object-fit: cover) rather than
+   the box growing to fit the image, so an unusually tall/wide source photo
+   still can't change the cell's footprint. */
+.cell-state__avatar {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-hairline);
+}
+
+.cell-state__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:

@@ -83,8 +83,15 @@ public class CurrentRoundEndpointTests
     // Seeds a Round (GameKey/GameInstanceId only, per ADR-0003) backed by a
     // two-cell GridInstance directly — enough to exercise the read endpoint
     // without depending on real grid generation.
+    private Task<(Guid RoundId, Guid FirstCellId, Guid SecondCellId)> SeedRoundWithCellsAsync(
+        DateTime startTime, DateTime endTime, bool allowGuessChange = true) =>
+        SeedRoundWithCellsAsync(startTime, endTime, allowGuessChange, photoUrl: null);
+
+    // REQ-214: photoUrl defaults to null via the overload above — only the
+    // dedicated REQ214 tests pass a real value, same pattern as
+    // GuessEndpointTests' SeedRoundWithCellAsync.
     private async Task<(Guid RoundId, Guid FirstCellId, Guid SecondCellId)> SeedRoundWithCellsAsync(
-        DateTime startTime, DateTime endTime, bool allowGuessChange = true)
+        DateTime startTime, DateTime endTime, bool allowGuessChange, string? photoUrl)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -123,7 +130,7 @@ public class CurrentRoundEndpointTests
             ],
         });
 
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = $"Qplayer-{Guid.NewGuid()}", PhotoUrl = photoUrl };
         dbContext.Players.Add(player);
         dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
         dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
@@ -365,6 +372,64 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
         Assert.That(guessedCell.Guess.ResolvedPlayerName, Is.Null);
+    }
+
+    // ---- REQ-214: photo reveal alongside the resolved player name ---------
+
+    [Test]
+    public async Task REQ214_CurrentRound_Get_CorrectGuess_ReturnsResolvedPlayerPhotoUrl_WhenPlayerHasPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        const string photoUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg";
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true, photoUrl);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.ResolvedPlayerName, Is.EqualTo("Thierry Henry"));
+        Assert.That(guessedCell.Guess.ResolvedPlayerPhotoUrl, Is.EqualTo(photoUrl));
+    }
+
+    [Test]
+    public async Task REQ214_CurrentRound_Get_CorrectGuess_ResolvedPlayerPhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true, photoUrl: null);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Thierry Henry"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.ResolvedPlayerName, Is.EqualTo("Thierry Henry"), "REQ-212's name reveal must be unaffected by a missing photo");
+        Assert.That(guessedCell.Guess.ResolvedPlayerPhotoUrl, Is.Null, "no photo is a normal case, never an error");
+    }
+
+    [Test]
+    public async Task REQ214_CurrentRound_Get_IncorrectGuess_ResolvedPlayerPhotoUrlIsNull_EvenWhenAPlayerWithAPhotoExists()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true,
+            photoUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{firstCellId}/guesses", new SubmitGuessRequest("Wrong Guess"));
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
+        Assert.That(guessedCell.Guess.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, unchanged from REQ-212's rule for names");
     }
 
     // ---- REQ-204: live unique_percent --------------------------------------

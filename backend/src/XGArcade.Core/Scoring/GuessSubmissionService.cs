@@ -86,10 +86,14 @@ public class GuessSubmissionService(
         // exactly as the player entered it on the Guess row itself. Safe:
         // scoreResult.IsCorrect is never true without PlayerAnswerId also
         // being set (ScoreResult's own doc comment).
-        var resolvedPlayerName = scoreResult.IsCorrect
-            ? (await playerStoreRepository.GetPlayerByIdAsync(scoreResult.PlayerAnswerId!.Value, cancellationToken))?.FullName
+        // REQ-214: resolvedPlayer.PhotoUrl travels alongside FullName from
+        // the same lookup — never a second query, and null exactly when
+        // Wikidata had no P18 for this player (no error either way).
+        var resolvedPlayer = scoreResult.IsCorrect
+            ? await playerStoreRepository.GetPlayerByIdAsync(scoreResult.PlayerAnswerId!.Value, cancellationToken)
             : null;
 
-        return GuessSubmissionResult.Accepted(scoreResult.IsCorrect, attemptCount, locked, resolvedPlayerName);
+        return GuessSubmissionResult.Accepted(
+            scoreResult.IsCorrect, attemptCount, locked, resolvedPlayer?.FullName, resolvedPlayer?.PhotoUrl);
     }
 }

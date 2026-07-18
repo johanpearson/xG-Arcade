@@ -184,6 +184,63 @@ public class WikidataClientTests
             "truthy wdt:P54 is best-rank-only — reintroducing it silently reduces 'ever played for' to 'currently plays for' whenever a current club is preferred rank");
     }
 
+    // ---- REQ-214: P18 (photo) carried through the same intersection query -
+
+    [Test]
+    public async Task REQ214_QueryCountryClubIntersectionAsync_ParsesPhotoUrl_WhenP18Present()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
+    }
+
+    [Test]
+    public async Task REQ214_QueryCountryClubIntersectionAsync_PhotoUrlIsNull_WhenP18Absent()
+    {
+        // No "photo" binding at all — a player with no Wikidata image
+        // (REQ-214's explicit "no photo is a normal case, never an error").
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ214_QueryCountryClubIntersectionAsync_SentQuery_FetchesP18ImageAsOptional()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?player wdt:P18 ?photo. }"),
+            "P18 must be OPTIONAL, same as alias — a player with no photo must still match the rest of the query");
+    }
+
     [Test]
     public void QueryCountryClubIntersectionAsync_RejectsNonQidCountryValue()
     {
@@ -376,6 +433,63 @@ public class WikidataClientTests
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P569"));
         Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
+    }
+
+    // ---- REQ-214: P18 (photo) carried through the same intersection query -
+    // Mirrors the QueryCountryClubIntersectionAsync REQ-214 tests above —
+    // same ParseBindings code path, different query builder.
+
+    [Test]
+    public async Task REQ214_QueryClubClubIntersectionAsync_ParsesPhotoUrl_WhenP18Present()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
+    }
+
+    [Test]
+    public async Task REQ214_QueryClubClubIntersectionAsync_PhotoUrlIsNull_WhenP18Absent()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ214_QueryClubClubIntersectionAsync_SentQuery_FetchesP18ImageAsOptional()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?player wdt:P18 ?photo. }"),
+            "P18 must be OPTIONAL, same as alias — a player with no photo must still match the rest of the query");
     }
 
     [Test]

@@ -46,6 +46,18 @@ public class WikidataLookupServiceTests
 
     private const string NoMatchJson = """{ "results": { "bindings": [] } }""";
 
+    // REQ-214: same single-match shape as SingleHenryMatchJson, plus a P18
+    // photo binding.
+    private const string SingleHenryMatchWithPhotoJson = """
+        {
+          "results": {
+            "bindings": [
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" } }
+            ]
+          }
+        }
+        """;
+
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStore = null!;
 
@@ -97,6 +109,30 @@ public class WikidataLookupServiceTests
         var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
         Assert.That(aliases, Has.Count.EqualTo(1));
         Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    [Test]
+    public async Task REQ214_LookupAndPersistAsync_HitWithPhoto_PersistsPlayerPhotoUrl()
+    {
+        var service = BuildService(SingleHenryMatchWithPhotoJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
+    }
+
+    [Test]
+    public async Task REQ214_LookupAndPersistAsync_HitWithoutPhoto_PlayerPhotoUrlIsNull()
+    {
+        // SingleHenryMatchJson has no "photo" binding — the normal,
+        // error-free "no Wikidata photo" case.
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.PhotoUrl, Is.Null);
     }
 
     [Test]

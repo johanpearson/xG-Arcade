@@ -14,6 +14,14 @@ export interface CellStateProps {
   // as-typed text. Falls back to a plain, non-fabricated label if somehow
   // absent for a correct guess, rather than inventing a name.
   playerName?: string;
+  // REQ-214: a nullable Wikidata photo URL for the resolved player, shown
+  // alongside `playerName` once revealed — see the CurrentRoundGuess type's
+  // own doc comment for the confirmed backend field this maps to. `undefined`
+  // (field never sent), `null` (backend confirmed no photo exists), and a
+  // same-session image load failure are all treated identically: fall back
+  // to exactly today's text-only reveal, no broken-image icon, no error
+  // state. Only ever meaningful for a correct guess, same as playerName.
+  photoUrl?: string | null;
   isCorrect: boolean;
   attemptCount: number;
   locked: boolean;
@@ -143,6 +151,7 @@ function useShakeToken(attemptCount: number, isCorrect: boolean, submittedThisSe
 // REQ-212), is the only thing that differs by interaction, not by state.
 export function CellState({
   playerName,
+  photoUrl,
   isCorrect,
   attemptCount,
   locked,
@@ -177,7 +186,12 @@ export function CellState({
       // reveal after the player closed and reopened it (same className
       // string both times, which a mere re-render wouldn't restart).
       <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
-        <Row name={revealed ? name : undefined} correct badges={revealed ? badges : undefined} />
+        <Row
+          name={revealed ? name : undefined}
+          photoUrl={revealed ? photoUrl : undefined}
+          correct
+          badges={revealed ? badges : undefined}
+        />
         {points != null && <p className="cell-state__meta mono-figure">{points} pts</p>}
       </div>
     );
@@ -228,12 +242,16 @@ export function CellState({
 
 function Row({
   name,
+  photoUrl,
   correct,
   badges,
 }: {
   // Absent for an incorrect guess (states 2/3) — no name is shown at all,
   // only that the guess was wrong.
   name?: string;
+  // REQ-214: only ever rendered alongside a present `name` (see the
+  // `name &&` guard below) — never shown on its own.
+  photoUrl?: string | null;
   correct: boolean;
   badges?: { row: CategoryRef; col: CategoryRef };
 }) {
@@ -248,7 +266,12 @@ function Row({
           <CategoryGlyph categoryType={badges.row.categoryType} value={badges.row.value} size="small" />
         </span>
       )}
-      {name && <span className="cell-state__name">{name}</span>}
+      {name && (
+        <span className="cell-state__name-group">
+          <PlayerAvatar src={photoUrl} />
+          <span className="cell-state__name">{name}</span>
+        </span>
+      )}
       {badges && (
         <span
           className="cell-state__badge-dock cell-state__badge-dock--col"
@@ -265,5 +288,31 @@ function Row({
         {correct ? '✓' : '✕'}
       </span>
     </div>
+  );
+}
+
+// REQ-214: a fixed-size circular avatar slot, sized to match the badge
+// dock's own "small" glyph (design-document.md §2/SCREEN-02's small-avatar
+// precedent — no dedicated avatar token exists yet, so this reuses the
+// nearest already-verified-safe size rather than inventing one) so a photo
+// can never grow the cell beyond the footprint the row already reserves for
+// its badges. Renders nothing at all — not a placeholder box, not a
+// broken-image icon, not a loading state — for every "no photo" case: `src`
+// missing/null (no photo field, or backend confirmed none exists) and a
+// same-session image load failure both collapse to the identical "render
+// nothing" branch, so the reveal falls back to exactly today's text-only
+// presentation either way (REQ-214's explicit acceptance criterion).
+// Decorative only (`alt=""`, `aria-hidden`) — the adjacent name text is
+// already the accessible identifier, same pairing rule §6 applies to the
+// flag/badge glyphs above.
+function PlayerAvatar({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) return null;
+
+  return (
+    <span className="cell-state__avatar">
+      <img src={src} alt="" aria-hidden="true" onError={() => setFailed(true)} />
+    </span>
   );
 }

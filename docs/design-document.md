@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.21"
+version: "0.22"
 status: draft
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -345,7 +345,37 @@ Prior outcome: correct (revealed — click/tap the cell)
 │  Henry                ✓   │
 │  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
+
+Prior outcome: correct (revealed, photo available — REQ-214)
+┌─────────────────────────┐
+│  (●) Henry             ✓  │   ← (●) = fixed 18px circular photo, cropped
+│  88 pts                   │     to fit; layout otherwise identical to the
+└─────────────────────────┘      text-only mock directly above
 ```
+
+**REQ-214 implementation note (frontend half, 2026-07-18):** when the
+resolved player has a Wikidata photo, it's shown as a small circular avatar
+directly beside the name, appearing/disappearing with the exact same
+click/tap reveal toggle REQ-212 already defines — never a separate control.
+No dedicated avatar/photo token exists in §2 (open gap, same kind as the
+spacing/type-scale gaps §7 already flags), so this reuses the nearest
+already-shipped, already-verified-safe precedent instead of inventing a new
+size: `.category-label__badge--small`'s existing 18px circle (the club
+badge glyph docked beside the name via S-015/S-041's badge dock), plus
+SCREEN-02's own "small silhouette/placeholder avatar" note above (designed
+for the autocomplete list, never shipped there per that section's S-032
+note, but the closest prior spec for "a small round avatar next to a
+player's name" in this document). Fixed 18px × 18px, `border-radius: 50%`,
+`object-fit: cover`, `flex-shrink: 0` — the slot's size is a literal
+constant, never derived from the source image's own dimensions, so the cell
+footprint cannot change whether a photo is shown, absent, or fails to load;
+this is a hard, testable constraint (REQ-214), not a visual preference. No
+broken-image icon, no loading spinner, and no error text for a missing/
+failed photo — that state is visually and behaviorally identical to today's
+pre-REQ-214 text-only reveal (same DOM shape, verified in
+`CellState.test.tsx`). If/when §7's spacing-scale gap is ever resolved with
+a real token row, this 18px value should become a named token at the same
+time rather than staying a bare pixel value in `CellState.css`.
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
@@ -740,3 +770,13 @@ Unchanged from v0.1:
   client-side same-session cache (`GridScreen`'s `knownPlayerNames`) is kept
   only as the immediate-feedback path, since `POST .../guesses`' own
   response still doesn't echo the name back.
+- **REQ-214's photo field name is still provisional.** The frontend half
+  landed (`CellState.tsx`'s photo-reveal avatar, SCREEN-01a note above)
+  ahead of the backend half confirming what the additive DTO field is
+  actually called — the frontend guessed `resolvedPlayerPhotoUrl` (mirroring
+  `resolvedPlayerName`'s own naming) on `CurrentRoundGuess`/
+  `SubmitGuessResponse` (`frontend/src/lib/types.ts`), typed optional so a
+  real response that omits it entirely still degrades safely to "no photo."
+  Whoever lands the real backend DTO should rename the frontend field to
+  match exactly (`GridCell.tsx`'s `photoUrl` prop threads straight through)
+  and remove this note along with the inline comments flagging it.

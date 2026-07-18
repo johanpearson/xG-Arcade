@@ -13,6 +13,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `requirements-document.md`, `backlog.md`, `design-document.md`
+  — REQ-214 (photo reveal on a locked, correct cell) frontend half (S-044),
+  landed in parallel with the backend half (S-043): `CellState.tsx`/
+  `GridCell.tsx` render an optional player photo alongside the REQ-212 name
+  reveal, in a fixed 18px avatar slot reusing the existing badge-dock
+  "small" size (no dedicated avatar token exists in §2 yet — flagged as an
+  open item, not invented ad hoc); falls back to exactly today's text-only
+  reveal with no broken-image icon whenever no photo is available.
+  `frontend/src/lib/types.ts`'s `resolvedPlayerPhotoUrl` field name was
+  written before the backend DTO was confirmed and checked afterward to
+  match exactly. `vite.config.ts` test config gained `css: true` so
+  Vitest/jsdom assertions can check real computed CSS dimensions (needed
+  for a genuine layout-regression test, not just a snapshot) — verified
+  this doesn't change any existing test's outcome first. Real-browser
+  (Playwright) verification was attempted and could not complete in this
+  sandbox (chromium download blocked by the outbound proxy), flagged rather
+  than silently skipped — REQ-214/S-043/S-044
+
+- 2026-07-18 — `requirements-document.md` (v0.61), `implementation-document.md`
+  (v0.56), `backlog.md` — REQ-214 backend half (S-043): `WikidataClient`'s
+  two intersection query builders now fetch Wikidata's `P18` (image)
+  `OPTIONAL`, carried through `WikidataPlayerMatch` and
+  `WikidataLookupService` into a new `Player.PhotoUrl` column
+  (`AddPlayerPhotoUrl` migration), exposed additively alongside
+  `ResolvedPlayerName` in both `POST .../guesses`' and `GET /rounds/current`'s
+  reveal responses. Deliberately a `Player` column, not `PlayerAttribute` —
+  see `Player.PhotoUrl`'s doc comment and S-043's backlog entry for why;
+  flagged for `architecture-reviewer` as a placement decision that could
+  reasonably have gone the other way. Frontend rendering is a separate,
+  not-yet-delegated task. `P18`'s Special:FilePath URL shape and the
+  migration are both unverified against a live environment (no
+  `wikidata.org`/`dotnet` access) — flagged for manual verification —
+  REQ-214
+- 2026-07-18 — `docs/legal/privacy-policy-draft.md` (v0.5) — added a
+  Wikimedia Commons third-party-CDN disclosure (same shape as the existing
+  Google Fonts entry) ahead of REQ-214's frontend half actually shipping,
+  since the backend now stores/serves a photo URL that a browser will
+  eventually load directly from `commons.wikimedia.org`
 - 2026-07-18 — `coding-guidelines.md` (v0.5) — new error-handling
   guideline: swallow-to-empty external-client contracts are only valid
   where failure and no-data must be treated identically (interactive

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.55"
+version: "0.56"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -282,6 +282,16 @@ public class Player
     // Nullable only for a future non-Wikidata source (Tier 1); unique
     // index where not null.
     public string WikidataQid { get; set; }
+    // REQ-214 (S-043, backend half): Wikidata's P18 (image), carried
+    // through the same intersection queries as FullName/WikidataQid and
+    // set once at player creation — never re-synced on a later lookup,
+    // same as FullName. Null whenever Wikidata has no P18 for this player
+    // (a normal case, never an error). Deliberately a Player column, NOT a
+    // PlayerAttribute row — PlayerAttribute's composite key holds many
+    // rows per player (one per career club/nationality/trophy), so a
+    // per-player scalar has no natural "which row owns it" answer there.
+    // Migration: AddPlayerPhotoUrl.
+    public string PhotoUrl { get; set; }
 }
 
 // PlayerData, PlayerOverride, and PlayerAttribute below each carry a
@@ -342,8 +352,10 @@ public class PlayerNameIndex
     // PhotoUrl was sketched here originally and shipped in S-032, then
     // dropped 2026-07-18 (RemovePlayerNameIndexPhotoUrl migration): the
     // autocomplete contract never exposed a photo, so fetching P18 and
-    // storing the column was dead weight. Re-add deliberately if a photo
-    // feature ever exists.
+    // storing the column was dead weight. The photo feature that
+    // eventually did ship (REQ-214, S-043) lives on Player.PhotoUrl
+    // (COMP-06) instead, not here — this column stays gone; do not
+    // re-add it without a new, real autocomplete-photo requirement.
 }
 
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
@@ -1200,6 +1212,24 @@ Four rules that make this query correct, not just functional:
   for those, best-rank semantics match product intent. Deprecated rank is
   still excluded: it's Wikidata's "recorded but wrong" marker, not a
   historical spell.
+- **`P18` (image) is fetched `OPTIONAL`, same shape as `alias`** (REQ-214,
+  S-043, backend half) — added to both intersection query builders
+  (`BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery`),
+  never the birth-year bulk-import query below (that one deliberately
+  still has no `P18`, unchanged from the 2026-07-18
+  `RemovePlayerNameIndexPhotoUrl` decision — see that migration's note a
+  few paragraphs down). `wdt:P18` is a `commonsMedia`-typed property, so
+  Wikidata's SPARQL endpoint resolves it directly to a fully-qualified
+  Special:FilePath URL, not an entity QID — unlike `?player`, there is no
+  `/entity/Qnnn` suffix to split off; the raw binding value is the usable
+  photo URL. Parsed into `WikidataPlayerMatch.PhotoUrl` (nullable, "first
+  non-null seen" per QID, same as the alias/nationality grouping elsewhere
+  in this file) and persisted once at player creation into a new
+  `Player.PhotoUrl` column (`AddPlayerPhotoUrl` migration) — never a
+  `PlayerAttribute` row; see Player's own doc comment in §5 for why. This
+  shape could not be verified against a live Wikidata query when built (no
+  network access in that environment) — flagged for manual verification,
+  same precedent as prior QID/property additions (S-036/S-037).
 
 **S-032 addition, revised 2026-07-18 — `PlayerNameIndex`'s bulk import
 slices by birth year, never by `LIMIT`/`OFFSET`.** `WikidataClient

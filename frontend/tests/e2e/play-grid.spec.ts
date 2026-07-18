@@ -268,6 +268,17 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
     await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
 
+    // REQ-214: seed-guessable-round's Player rows are created without a
+    // PhotoUrl (InternalRoundEndpoints.cs's seed only ever sets FullName/
+    // WikidataQid), so this suite can only exercise REQ-214's "no photo
+    // available" fallback path deterministically, not the "photo shown"
+    // path — that's covered at the unit level instead (CellState.test.tsx's
+    // REQ-214 describe block, including the real dimension-affecting CSS
+    // assertions). This just confirms the fallback renders exactly like
+    // today's pre-REQ-214 text-only reveal in a real browser: no avatar
+    // slot at all once revealed.
+    await expect(cell.locator('.cell-state__avatar')).toHaveCount(0)
+
     // Clicking again hides the name/badges (a toggle, not a one-way reveal).
     await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
