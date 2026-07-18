@@ -19,15 +19,18 @@
      at that weight (design-document.md §2, S-013 accessibility pass). */
   --color-accent-green-text: #187e4f;
   --color-accent-gold-text: #8d6c20;
-  /* REQ-214 (2026-07-18): solid, near-opaque scrim behind text/icons
-     overlaid on a correct cell's at-rest photo — same hue as
-     --color-text-primary, 94% opacity so even a worst-case pure-white photo
-     showing through the remaining 6% still can't push the effective
-     backdrop light enough to fail contrast (design-document.md §2's
-     `overlay-scrim` token). Use --color-accent-gold (not
-     --color-accent-gold-text) as the foreground on this token specifically
-     — see that token's doc comment for why the pairing reverses here. */
-  --color-overlay-scrim: rgba(26, 31, 28, 0.94);
+  /* REQ-214 (2026-07-18, lightened same day after visual feedback that 94%
+     read as a heavy black shadow): scrim behind text/icons overlaid on a
+     correct cell's at-rest photo — same hue as --color-text-primary, 89%
+     opacity, the lightest value that still keeps both overlaid foreground
+     colors (--color-accent-gold and --color-surface-card) at or above
+     WCAG AA's 4.5:1 against the *worst case* (a pure-white photo showing
+     through the remaining 11%) — see design-document.md §2's
+     `overlay-scrim` token for the contrast math. Use --color-accent-gold
+     (not --color-accent-gold-text) as the foreground on this token
+     specifically — see that token's doc comment for why the pairing
+     reverses here. */
+  --color-overlay-scrim: rgba(26, 31, 28, 0.89);
 
   /* Type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;

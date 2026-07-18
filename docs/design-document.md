@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.25"
+version: "0.26"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -82,7 +82,7 @@ entirely.
 | `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red. Passes text contrast as-is (~4.9:1 on white) — no separate text variant needed |
 | `accent-green-text` | `#187E4F` | **(S-013)** Green text/icon labels, and white-on-green button-label backgrounds (`.guess-input__submit`, `.auth-screen__submit`) — `accent-green` itself measures ~3.4:1 against `surface-card`/white, below WCAG AA's 4.5:1 for normal text; this darkened variant measures ~5.1:1 |
 | `accent-gold-text` | `#8D6C20` | **(S-013)** Correct/locked-final text and icons (`CellState`'s correct icon + meta line) — `accent-gold` itself measures ~2.6:1 against `surface-card`/white, failing even the 3:1 floor for large text/icons; this darkened variant measures ~4.9:1 |
-| `overlay-scrim` | `rgba(26, 31, 28, 0.94)` | **(2026-07-18, REQ-214)** Solid, near-opaque backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`, at 94% opacity specifically so the *worst case* (a pure-white photo showing through the remaining 6%) still can't push the effective backdrop light enough to fail contrast — measured against that worst case, not against a typical photo. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid checkmark/points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background (measured ~5.5:1 worst-case-white-photo-behind-the-scrim, ~6.6:1 typical); `accent-gold-text` would under-perform here (~4.3:1 max even against pure black, since it was calibrated the opposite direction) and must not be reused on this token. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is (found visually, real-browser check, not caught by the initial contrast-math pass that only covered the checkmark/points): use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. |
+| `overlay-scrim` | `rgba(26, 31, 28, 0.89)` | **(2026-07-18, REQ-214; lightened same day after visual feedback that the original 94% read as a heavy black shadow, not a scrim)** Backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`. Opacity was chosen as the *lightest* value (most photo showing through) that still clears WCAG AA's 4.5:1 contrast floor for both overlaid foreground colors, measured against the *worst case* (a pure-white photo showing through the remaining 11%), not a typical photo — relative-luminance formula, `rgb(26, 31, 28)` alpha-blended over `#FFFFFF`: at 89%, the blended backdrop is `rgb(51, 56, 53)`, giving `accent-gold` (`#C99A2E`) a contrast ratio of **4.65:1** and `surface-card`/white a ratio of **11.99:1** against it — both clear 4.5:1, with `accent-gold` (the tighter of the two) landing ~3% above the floor rather than exactly on it, as a safety margin against rendering variance (anti-aliasing, photo compression artifacts) rather than relying on an exact knife-edge value. One point lower, at 88%, `accent-gold` drops to 4.49:1 and fails — 89% is therefore the practical floor at whole-percent granularity. Against a typical (non-white) photo the effective contrast is higher still, since most real photos are darker than pure white. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid checkmark/points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background; `accent-gold-text` would under-perform here (calibrated the opposite direction) and must not be reused on this token. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is: use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. |
 
 Green means "live/active," gold means "settled/correct" — same semantic
 split as before, just recolored for a light surface. This distinction is
@@ -851,12 +851,16 @@ Unchanged from v0.1:
   exactly under the default camelCase JSON policy — no rename needed.
 - ~~§2 has no overlay/scrim token for text-or-icon-on-photo contrast~~ —
   **resolved (2026-07-18, same session as the photo-decoupled-from-reveal
-  status note):** `overlay-scrim` (§2) is a solid, near-opaque (94%) band
-  behind the checkmark/points/name overlay, calibrated against the worst
-  case (a pure-white photo showing through the remaining 6%) rather than a
-  typical photo — pairs with `accent-gold` (not `accent-gold-text`) as the
-  foreground color specifically on this token, the reverse of every other
-  gold text/icon use in this document, since the darkened/lightened split
-  is calibrated per-background-direction, not universally "always use the
-  darkened one." `CellState.css`/`CellState.tsx` implement against this
-  token directly — no bare `rgba()` value left untracked.
+  status note; opacity lightened later the same day from 94% to 89% after
+  visual feedback that 94% read as a heavy black shadow — see the
+  `overlay-scrim` row above for the updated contrast math):**
+  `overlay-scrim` (§2) is a band behind the checkmark/points/name overlay,
+  calibrated against the worst case (a pure-white photo showing through)
+  rather than a typical photo, at the lightest opacity that still clears
+  the 4.5:1 floor for both overlaid foreground colors — pairs with
+  `accent-gold` (not `accent-gold-text`) as the foreground color
+  specifically on this token, the reverse of every other gold text/icon use
+  in this document, since the darkened/lightened split is calibrated
+  per-background-direction, not universally "always use the darkened one."
+  `CellState.css`/`CellState.tsx` implement against this token directly —
+  no bare `rgba()` value left untracked.

@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `design-document.md` (v0.26), `frontend/src/index.css` —
+  lightened REQ-214's `overlay-scrim` token from `rgba(26, 31, 28, 0.94)` to
+  `rgba(26, 31, 28, 0.89)` after direct user visual feedback that the
+  original 94% opacity read as a heavy black shadow over the photo rather
+  than a scrim. Re-did the relative-luminance contrast math for the new
+  value against the same worst-case backdrop (pure-white photo showing
+  through): at 89%, the blended background is `rgb(51, 56, 53)`, giving
+  `accent-gold` (the checkmark/points color) a 4.65:1 contrast ratio and
+  `surface-card`/white (the revealed-name color) 11.99:1 — both still clear
+  the 4.5:1 AA floor; `accent-gold` is the binding constraint and 89% is the
+  lightest whole-percent value that clears it (88% measures 4.49:1 and
+  fails). `CellState.css`/`CellState.tsx` unchanged — they reference
+  `--color-overlay-scrim` and the `accent-gold`/`surface-card` pairing
+  directly, no hardcoded opacity to update there. Full Vitest suite
+  unaffected (`CellState.test.tsx`'s REQ-214 contrast-pairing tests assert
+  token/pairing usage, not a hardcoded opacity number). Verified visually in
+  a real Chromium browser against a seeded test round with a data-URI photo
+  — scrim reads noticeably lighter, checkmark/points and revealed name both
+  still clearly legible.
 - 2026-07-18 — `design-document.md` (v0.25), `backlog.md` (S-046) —
   implemented REQ-214's
   photo-decoupled-from-reveal status note (frontend half, same day as the
