@@ -172,6 +172,28 @@ public class PlayerNameIndexImporterTests
         Assert.That(secondRunPlayerId, Is.EqualTo(firstRunPlayerId), "the same QID must derive the same PlayerId across runs");
     }
 
+    [Test]
+    public void ImportAsync_CallerCancellationMidRun_PropagatesImmediately_NotRetriedOrRecordedAsFailedYear()
+    {
+        // QuerySliceWithRetryAsync catches only WikidataQueryException — a
+        // caller-cancelled OCE must escape it on the spot: no retry of the
+        // cancelled year, no "failed year" bookkeeping, no later years run.
+        // Pairs with WikidataClientTests' CallerCancellation test, which pins
+        // the client-side half of the same distinction.
+        using var callerCts = new CancellationTokenSource();
+        _wikidataClient.CancelCallerTokenWhileQuerying(1990, callerCts);
+        _wikidataClient.SetYear(1991, [new WikidataNameIndexEntry("Q2", "Player Two", 1991, "Spain")]);
+
+        var ex = Assert.CatchAsync(() => _importer.ImportAsync(callerCts.Token));
+
+        Assert.That(ex, Is.InstanceOf<OperationCanceledException>());
+        Assert.That(ex, Is.Not.InstanceOf<InvalidOperationException>(),
+            "cancellation must never surface as the failed-slices run failure");
+        Assert.That(_wikidataClient.CallCountFor(1990), Is.EqualTo(1), "a cancelled slice must not be retried");
+        Assert.That(_wikidataClient.CallCountFor(1991), Is.EqualTo(0),
+            "cancellation aborts the run immediately — later years must not run");
+    }
+
     // Distinct from the slice-fetch failure path above: a *write* failure
     // (e.g. a real Postgres outage under UpsertManyAsync) is not part of the
     // retry-per-slice machinery and must propagate immediately — this CLI

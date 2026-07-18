@@ -565,6 +565,28 @@ public class WikidataClientTests
     }
 
     [Test]
+    public void QueryPlayerPoolBirthYearAsync_CallerCancellation_PropagatesAsOperationCanceledException_NotWikidataQueryException()
+    {
+        // The load-bearing counterpart of the Timeout test above: the catch
+        // filter in QueryPlayerPoolBirthYearAsync classifies only its OWN
+        // query timeout as a WikidataQueryException — caller cancellation
+        // (Ctrl+C, host shutdown) must propagate as an OCE so
+        // PlayerNameIndexImporter never retries it or records it as a failed
+        // year. "Simplifying" the filter back to the intersection queries'
+        // shape breaks exactly this test.
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromSeconds(30));
+        using var callerCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var ex = Assert.CatchAsync(() => client.QueryPlayerPoolBirthYearAsync(1977, callerCts.Token));
+
+        Assert.That(ex, Is.InstanceOf<OperationCanceledException>());
+        Assert.That(ex, Is.Not.InstanceOf<WikidataQueryException>(),
+            "caller cancellation misclassified as a query failure would make the importer retry a cancelled run");
+    }
+
+    [Test]
     public void QueryPlayerPoolBirthYearAsync_MalformedJson_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));

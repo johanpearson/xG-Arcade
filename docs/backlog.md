@@ -941,7 +941,9 @@ photo fetching and the `PhotoUrl` column were dropped
 (`RemovePlayerNameIndexPhotoUrl` migration) — the autocomplete contract
 never exposed a photo. The intersection queries' never-throw contract and
 the autocomplete endpoint/repository are untouched. Backend suite after
-the change: 365/365 across all five test projects. See
+the change: 367/367 across all five test projects (includes two
+quality-gate-requested tests pinning the caller-cancellation-vs-query-
+failure distinction in both `WikidataClient` and the importer). See
 `implementation-document.md` §6a and NOTES.md 2026-07-18; recorded as a
 bug fix within COMP-07's existing responsibility, no ADR (same precedent
 as S-042's truthy-P54 fix).

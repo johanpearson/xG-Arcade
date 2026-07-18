@@ -15,6 +15,7 @@ internal sealed class FakeWikidataClient : IWikidataClient
 {
     private readonly Dictionary<int, IReadOnlyList<WikidataNameIndexEntry>> _entriesByYear = new();
     private readonly Dictionary<int, int> _remainingFailuresByYear = new();
+    private readonly Dictionary<int, CancellationTokenSource> _cancelCallerTokenByYear = new();
 
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
@@ -26,6 +27,14 @@ internal sealed class FakeWikidataClient : IWikidataClient
     // The first `attempts` calls for this year throw WikidataQueryException;
     // pass int.MaxValue for a year that never succeeds.
     public void FailFor(int year, int attempts) => _remainingFailuresByYear[year] = attempts;
+
+    // Simulates the caller's own token being cancelled (Ctrl+C, host
+    // shutdown) while this year's query is in flight: cancels `source` and
+    // throws an OCE carrying its token — the real client's contract for
+    // caller cancellation, as opposed to FailFor's WikidataQueryException
+    // (a query failure). The importer must treat these two very differently.
+    public void CancelCallerTokenWhileQuerying(int year, CancellationTokenSource source) =>
+        _cancelCallerTokenByYear[year] = source;
 
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
@@ -39,6 +48,12 @@ internal sealed class FakeWikidataClient : IWikidataClient
         int birthYear, CancellationToken cancellationToken = default)
     {
         QueriedYears.Add(birthYear);
+
+        if (_cancelCallerTokenByYear.TryGetValue(birthYear, out var source))
+        {
+            source.Cancel();
+            throw new OperationCanceledException(source.Token);
+        }
 
         if (_remainingFailuresByYear.TryGetValue(birthYear, out var remaining) && remaining > 0)
         {
