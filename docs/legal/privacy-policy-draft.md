@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.4"
+version: "0.6"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-10
+last_updated: 2026-07-18
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -56,6 +56,14 @@ last_updated: 2026-07-10
   IP address and browser details on every page load, the same as loading a
   font from any third-party CDN would. We do not send your account or
   gameplay data to Google.
+- **Wikimedia Commons** (player photos, REQ-214) — when a solved cell's
+  photo is available and revealed, your browser loads that image file
+  directly from Wikimedia's own CDN (`commons.wikimedia.org`), the same
+  third-party-CDN exposure as Google Fonts above (your IP address and
+  browser details, nothing else). We store and serve only the image's
+  URL, never the image file itself. Shipped 2026-07-18 (`docs/backlog.md`
+  S-043 backend, S-044 frontend) — this browser request is live whenever a
+  solved cell with a photo is revealed.
 - We do not sell your data to anyone, for any reason.
 
 ## How long we keep it

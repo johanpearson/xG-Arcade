@@ -1742,6 +1742,199 @@ shape + COMP-06-internal tooling; no boundary or data-flow change). Open
 follow-up: the Tonali "Tottenham" attribution needs manual live-Wikidata
 verification (genuine transfer vs. S-037-class wrong QID).
 
+**S-043 · Photo reveal on a locked, correct cell — backend half (REQ-214)**
+Backend implementation of the pull-forward MVP-SCOPE.md already recorded for
+2026-07-18 (no new trigger — see REQ-214's own status note). Scoped to the
+backend only, per the task that delegated it; the frontend half (SCREEN-01a
+photo rendering, no-layout-change/no-broken-image-icon UI behavior) remains
+a separate, not-yet-delegated task.
+*Accept:* `WikidataClient`'s two intersection query builders fetch
+Wikidata's `P18` (image) `OPTIONAL`, same shape as the existing `alias`
+fetch; the resolved photo travels through `WikidataPlayerMatch` ->
+`WikidataLookupService` -> a new `Player.PhotoUrl` column -> both existing
+reveal responses (`POST .../guesses`' `SubmitGuessResponse` and
+`GET /rounds/current`'s `CurrentRoundGuessResponse`) alongside
+`ResolvedPlayerName`, additive-only; REQ103's never-throw contract and
+REQ211/ADR-0018's live-lookup fallback path are unaffected (both route
+through the same two builders, exercised by existing tests unchanged).
+**Built as:** `Player.PhotoUrl` (nullable `string`), NOT a `PlayerAttribute`
+column — a deliberate deviation from the task's literal instruction, made
+and documented in-code (`Player.cs`'s `PhotoUrl` doc comment) because
+`PlayerAttribute`'s composite key (`PlayerId`, `AttributeType`,
+`AttributeValue`) holds many rows per player (one per career club), so a
+scalar per-player field has no natural "which row owns it" answer there;
+`Player` is already the single-row-per-person table (`FullName`,
+`WikidataQid`), upserted the same way (`WikidataLookupService.
+GetOrCreatePlayerAsync`, set once at creation, never re-synced on a later
+lookup — same as `FullName`). `PlayerOverride` is untouched: photos are
+never correctness data, so there is no "photo" override field and none was
+added. EF Core migration `AddPlayerPhotoUrl` (hand-written against the
+existing migration pattern — `dotnet` unavailable in this environment, so
+`dotnet ef migrations add` could not be run; needs a real
+`dotnet ef` verification pass before merge, same caveat as every migration
+authored under this constraint). Flagged for `architecture-reviewer`: the
+`Player` vs. `PlayerAttribute` placement decision could reasonably have
+gone the other way and may warrant its own ADR. Wikidata's `P18` ->
+Special:FilePath URL shape (used directly, no QID-style suffix split)
+could not be verified against a live query (no `wikidata.org` access in
+this environment) — flagged for manual verification, same precedent as
+S-036/S-037's QID entries. Tests: `REQ214`-named, in
+`WikidataClientTests.cs` (SPARQL shape + parsing, both builders),
+`WikidataLookupServiceTests.cs` (persistence), `GuessSubmissionServiceTests.cs`,
+`GuessEndpointTests.cs`, `CurrentRoundEndpointTests.cs` (photo present,
+absent, and incorrect-guess-never-shows-photo, mirroring REQ-212's existing
+name-reveal coverage at each level). Full suite not run in this
+environment (`dotnet` unavailable) — CI is the first real run.
+
+**S-044 · Photo reveal on a locked, correct cell — frontend half (REQ-214)**
+Frontend half of S-043's backend work, delegated to `ui-implementer`
+separately per REQ-214's own status note; landed in parallel, same day.
+*Accept:* on a locked+correct, revealed cell (REQ-212), a photo shows
+alongside the already-revealed name whenever the backend response includes
+one; falls back to exactly today's text-only reveal (no broken-image icon,
+no loading/error state) whenever it doesn't; shows/hides in lockstep with
+REQ-212's existing reveal toggle, never a separate control; cell footprint
+identical whether or not a photo is shown; never shown on an incorrect
+guess.
+**Built as:** `CurrentRoundGuess`/`SubmitGuessResponse` (`frontend/src/lib/types.ts`)
+gained an optional `resolvedPlayerPhotoUrl?: string | null` field — written
+before the backend half's DTOs were confirmed, as a same-name guess
+mirroring `resolvedPlayerName`'s own naming; checked afterward against
+`CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl`/
+`SubmitGuessResponse.ResolvedPlayerPhotoUrl` (`XGArcade.Api`) and confirmed
+to match exactly under the default camelCase JSON policy, so no rename was
+needed. `GridCell.tsx` threads it through the same `guess.isCorrect` gate
+already used for the name. `CellState.tsx` renders it via a new
+`PlayerAvatar` subcomponent inside a `.cell-state__name-group` wrapper
+(grouping the avatar with the name so they wrap/reflow together) — `src`
+missing, `null`, or a same-session `onerror` all collapse to the identical
+"render nothing" branch, so the DOM is byte-for-byte identical to
+pre-REQ-214 output in every "no photo" case (asserted directly in tests,
+not just visually).
+**Sizing judgment call (recorded in `docs/design-document.md` §3's
+SCREEN-01a note, since no avatar token exists in §2):** no dedicated
+avatar/photo token exists yet — reused the already-shipped, already
+battle-tested `.category-label__badge--small` size (18px circle) the badge
+dock next to it already uses, rather than inventing a new value. Fixed
+literal `width`/`height` (not content-derived), `object-fit: cover`,
+`flex-shrink: 0` — the mechanism that guarantees a photo can never grow the
+row, since the box size never depends on the source image's own dimensions.
+**Test infrastructure change:** `vite.config.ts`'s `test` block gained
+`css: true` — without it, Vitest/jsdom don't apply real stylesheet rules at
+all (`getComputedStyle` returns browser defaults, e.g. `font-size: medium`
+regardless of the actual CSS), which would have made a genuine
+dimension-regression assertion impossible; verified this doesn't change any
+existing test's outcome (full suite re-run, all passing) before relying on
+it for REQ-214's new tests. jsdom still has no real layout engine (no box
+model), so even with `css: true` this can only assert the *CSS rules*
+enforcing fixed dimensions are in effect (literal pixel `width`/`height`,
+`flex-shrink: 0`, matched 1:1 against the badge dock's own already-shipped
+size) — not true rendered pixel bounding boxes, which would need a real
+browser. Real-browser verification (Playwright) was attempted and could not
+be completed in this sandbox: `npx playwright install chromium` failed with
+a 403 from the outbound proxy (`cdn.playwright.dev` not on the allowlist) —
+flagged here rather than silently skipped, per this story's own
+instructions. Added one E2E assertion to the existing REQ-212 reveal test
+(`tests/e2e/play-grid.spec.ts`) confirming the fallback path renders no
+`.cell-state__avatar` in a real browser via CI (the seed endpoint's players
+have no `PhotoUrl`, so only the fallback path — not the photo-shown path —
+is reachable through that seed today).
+Tests: `REQ-214`-tagged, in `CellState.test.tsx` (photo shown; three "no
+photo" cases — field absent, explicit null, load failure — all degrading
+identically, including a byte-for-byte DOM equality check between the
+absent-field and explicit-null cases; hides in lockstep with the reveal
+toggle; never shown on an incorrect guess; the dimension-regression
+assertions described above) and `GridCell.test.tsx` (end-to-end prop
+wiring through the same `isCorrect` gate the name already uses).
+
+**S-045 · Backfill `Player.PhotoUrl` for already-cached players (REQ-214)**
+S-043 shipped `Player.PhotoUrl`, but only ever sets it at the moment a
+`Player` row is first created (`WikidataLookupService
+.GetOrCreatePlayerAsync`) — an already-existing row (every `Player` created
+by a `warm-player-cache` run before S-043 shipped) is returned as-is and
+never revisited, so `PhotoUrl` stays `NULL` on it forever. The user had run
+`warm-player-cache` repeatedly since early July, leaving a large existing
+`Player` table with every row's `PhotoUrl` permanently `NULL`, and
+explicitly asked for a backfill rather than a destructive wipe-and-rerun
+(`purge-player-pool` + `warm-player-cache` would cascade into
+`PlayerAttribute`/`Guess`/`GridCell` history this codebase explicitly
+protects).
+*Accept:* a new `dotnet run -- backfill-player-photos` CLI verb (same
+ADR-0024 shape as `warm-player-cache` — no new ADR needed, flagged and
+confirmed squarely inside that existing decision) fills `Player.PhotoUrl`
+for every player with a `WikidataQid` and no photo yet, in batches, without
+touching any other table; idempotent and safe to re-run indefinitely — a
+second run touches nothing already backfilled.
+**Built as:** `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched,
+direct-by-QID SPARQL `VALUES` lookup (`BatchSize = 200`,
+`PlayerPhotoBackfillService`'s own constant), a different shape from the
+two intersection queries, with the same throw-on-failure
+(`WikidataQueryException`) contract as `QueryPlayerPoolBirthYearAsync`
+rather than the intersection queries' swallow-to-`[]` contract — per
+`docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline (a batch
+job whose success metric is a row count must not swallow a failure as
+"no data"). `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+`UpdatePlayerPhotosAsync` — a paged read and a batched write (one
+`SaveChangesAsync` per batch), never the whole table loaded at once.
+`PlayerPhotoBackfillService` (`XGArcade.DataSync.Wikidata`, same placement
+reasoning as `WikidataLookupService`/`PlayerNameIndexImporter` — it needs
+both `IWikidataClient` and `IPlayerStoreRepository`, and `XGArcade.Data`
+has no reference back to `XGArcade.DataSync`) — sequential, not concurrent
+(same `DbContext`-safety reasoning as `PlayerCacheWarmingService`),
+progress-logged periodically. Two judgment calls made and documented
+in-code: (1) per-batch failure handling is log-and-continue, not
+`PlayerNameIndexImporter`'s retry-then-fail-loud — a failed batch's players
+simply stay `PhotoUrl == NULL` and are picked up automatically by the next
+full re-run's own missing-photo query, so there's no equivalent "was this a
+failure or genuinely no data" ambiguity to fail loudly about; (2) the read
+cursor uses an in-run "already attempted" exclusion set rather than
+`Skip`/`Take` — `Guid` has no LINQ-translatable ordering to keyset-paginate
+on, and plain offset paging would silently skip untouched rows once a
+batch's successful writes shrink the underlying `WHERE PhotoUrl IS NULL`
+filter between calls. Accepted limitation (documented, same class as
+`PlayerCacheWarmingService`'s own "below `MinValidAnswers`, re-queried
+every run" note): a player with genuinely no Wikidata `P18` statement stays
+`PhotoUrl == NULL` forever and is re-queried on every future full run —
+there's no persisted "checked, genuinely no photo" signal distinct from
+"never checked." New workflow `backfill-player-photos.yml`
+(`workflow_dispatch` only, modeled directly on `warm-player-cache.yml`).
+Tests: `REQ214`-named, in `WikidataClientTests.cs` (batched VALUES query
+shape, throw-on-failure), `PlayerStoreRepositoryTests.cs` (the new
+repository methods), `PlayerPhotoBackfillServiceTests.cs` (missing-photo
+players backfilled; already-has-photo/no-QID players untouched and never
+queried; batching respects `BatchSize`; idempotent re-run touches nothing;
+a failed batch is logged and skipped without failing the run, and its
+players remain retryable on a later run). Full backend suite run in this
+environment (`dotnet`/`dotnet test` were both available, unlike prior
+stories under this constraint) — 409 tests passed, 0 failed, across all
+five backend test projects. No ADR added — confirmed this sits entirely
+inside ADR-0024's existing scope.
+
+**Bug found and fixed the same session, before merge:** the orchestrator
+independently installed Postgres and ran `backfill-player-photos` for real
+against a live database (this environment does have Docker/network access
+after all — the "no real Postgres" caveat above described an earlier,
+narrower attempt, not a hard sandbox limit) seeded with `/internal/test-
+data`-style QIDs (shape `Qtest-<guid>`). A malformed `Player.WikidataQid`
+crashed the *entire* run with an unhandled `ArgumentException` —
+`QueryPlayerPhotosByQidsAsync`'s upfront QID-format validation threw
+`ArgumentException`, not `WikidataQueryException`, so `BackfillAsync`'s
+`catch (WikidataQueryException)` never caught it, contradicting this
+story's own documented log-and-continue design. Fixed by extracting a
+shared `WikidataQid.IsValid` predicate (new file, `XGArcade.DataSync
+.Wikidata`) and having `PlayerPhotoBackfillService` pre-filter each batch
+through it — a malformed QID is now skipped-and-logged per player (not
+per whole batch) before it ever reaches the client, so the client's strict
+throw-on-malformed-input contract (unchanged, still used by the two
+intersection query methods too) is simply never exercised on this path.
+Two new `REQ214`-named regression tests in `PlayerPhotoBackfillServiceTests
+.cs` reproduce a mixed valid/malformed batch and an all-malformed batch.
+Full suite after the fix: 411/411. Independently re-run against the exact
+same live-database reproduction post-fix — completes cleanly (per-player
+warning logged, exit 0) instead of crashing. Both `architecture-reviewer`
+and `quality-architect` reviewed the fix clean, no blocking findings — see
+`docs/CHANGELOG.md` and `NOTES.md`'s 2026-07-18 entries for the fix.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

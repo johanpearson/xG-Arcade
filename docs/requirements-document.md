@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.59"
+version: "0.63"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -1240,6 +1240,83 @@ reveals a name)
 without losing in-progress state; contains text covering all six required
 content points — presence checks against required concepts, not exact
 wording)
+
+**REQ-214 – Photo reveal on a locked, correct cell**
+> As a player, I want to see the guessed player's photo, when one is
+> available, alongside their name when I reveal a solved cell, so I can
+> visually confirm my own answer, not just read it as text.
+
+- **Status: Implemented (Tier 1, pulled forward by deliberate choice,
+  2026-07-18 — see `MVP-SCOPE.md`, `docs/backlog.md` S-043/S-044).** The
+  trigger for this pull-forward is not an observed pain point — it's a
+  direct idea request, recorded plainly rather than invented as something
+  else. The backend half (S-043) carries Wikidata's `P18` through
+  `WikidataClient`'s existing intersection queries into a new
+  `Player.PhotoUrl` column and exposes it, additive, alongside
+  `ResolvedPlayerName` in both reveal responses (`POST .../guesses`'
+  `SubmitGuessResponse.ResolvedPlayerPhotoUrl` and `GET /rounds/current`'s
+  `CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl`). The frontend half
+  (S-044) landed in parallel and confirmed the field name matched exactly
+  (camelCase JSON: `resolvedPlayerPhotoUrl`) — see S-044 for the full "built
+  as" note, including the fixed-size avatar-slot approach that satisfies the
+  no-layout-change/no-broken-image-icon constraints below.
+- **Scope note:** this is a display-only addition to the correctness side
+  of player data (`Player`/`PlayerAttribute`, COMP-06) — specifically,
+  carrying Wikidata's `P18` (image) property through the cell-resolution
+  query that REQ-101/102 already run and already cache, so a photo is
+  available wherever `ResolvedPlayerName` (REQ-303) already is. It does
+  not add a new query trigger and does not change REQ-211/ADR-0018's
+  guess-time live-lookup behavior in any way. It is explicitly unrelated
+  to `PlayerNameIndex`/autocomplete (REQ-207, COMP-10): that data source
+  is for autocomplete and name matching only, per ADR-0007's boundary rule,
+  and stays out of scope here exactly as it was for the S-032 `PhotoUrl`
+  field that was built and then dropped from `PlayerNameIndex` — this
+  requirement does not reintroduce that column or revisit that decision.
+- **Backfill addendum (S-045, 2026-07-18):** `Player.PhotoUrl` is only ever
+  set at the moment a `Player` row is first created
+  (`WikidataLookupService.GetOrCreatePlayerAsync`) — a row created by an
+  earlier `warm-player-cache` run, before this requirement's `P18` addition
+  shipped, has `PhotoUrl` permanently `NULL` with no other code path that
+  will ever revisit it, so this requirement's acceptance criteria ("a photo
+  shows … whenever one is available") were silently unmet for every
+  already-cached player. `PlayerPhotoBackfillService` (`XGArcade.DataSync`),
+  run via the `backfill-player-photos` CLI verb, closes that gap: batched,
+  idempotent, safe to re-run — see `implementation-document.md`'s CLI-verb
+  section for the full shape. Not a new requirement — this is implementation
+  detail supporting REQ-214's existing acceptance criteria for players that
+  predate it, not a new user-facing behavior.
+  Club crests (`ClubCrest`, Tier 2) are also out of scope.
+- Given a cell that is locked (REQ-210) and the player's own guess for it
+  was correct — i.e. state 1 (correct, round still active) or state 4
+  (correct, round closed), the same condition REQ-212 already covers
+- And the player reveals the cell via the click/tap toggle REQ-212 defines
+- When the resolved player has a Wikidata photo available
+- Then the photo is displayed alongside the canonical name already revealed
+  by REQ-212, within the same cell, for as long as the cell stays revealed
+- And the cell's rendered width and height are identical whether or not a
+  photo is shown — this is a testable layout constraint, not a visual
+  preference: revealing a photo must never change the cell's footprint
+  compared to today's text-only reveal, and must never push or resize
+  neighboring cells in the grid
+- Given the resolved player has no Wikidata photo available
+- Then the reveal falls back to exactly today's text-only presentation
+  (REQ-212) — no broken-image icon, no visible error or loading state, and
+  no difference in cell footprint from the case where a photo is shown
+- And toggling the cell back to hidden (REQ-212's same toggle) hides the
+  photo along with the name — the photo is part of the same reveal/hide
+  toggle, not a separate control or a separate state
+- And a locked cell whose guess was incorrect is unaffected — no photo is
+  ever shown for an incorrect guess, unchanged from REQ-212's existing rule
+  for names
+
+**Test level:** Unit/UI (photo displays when available and hides/reveals in
+sync with the name via the same toggle; no photo available degrades to
+today's text-only reveal with no broken-image icon and no visible error
+state; rendered cell width/height are identical across a photo-shown case,
+a no-photo case, and today's pre-existing text-only case — regression test
+against the cell's own bounding box, not a visual snapshot alone, given
+REQ-212's prior finding that a real layout bug was missed by tests and
+only caught by required manual browser verification)
 
 ---
 

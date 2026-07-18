@@ -138,4 +138,37 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             .AsNoTracking()
             .AnyAsync(pa => pa.PlayerId == playerId && pa.AttributeType == attributeType && pa.AttributeValue == attributeValue, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Player>> GetPlayersMissingPhotoAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Players
+            .AsNoTracking()
+            .Where(p => p.WikidataQid != null && p.PhotoUrl == null);
+
+        if (excludingPlayerIds.Count > 0)
+            query = query.Where(p => !excludingPlayerIds.Contains(p.Id));
+
+        return await query
+            .OrderBy(p => p.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task UpdatePlayerPhotosAsync(
+        IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default)
+    {
+        if (photoUrlByPlayerId.Count == 0)
+            return;
+
+        var playerIds = photoUrlByPlayerId.Keys.ToList();
+        var players = await dbContext.Players
+            .Where(p => playerIds.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var player in players)
+            player.PhotoUrl = photoUrlByPlayerId[player.Id];
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -316,4 +316,96 @@ public class PlayerStoreRepositoryTests
 
         Assert.That(deleted, Is.False);
     }
+
+    // ---- GetPlayersMissingPhotoAsync / UpdatePlayerPhotosAsync -------------
+    // REQ-214 backfill (S-045): PlayerPhotoBackfillService's read/write pair.
+
+    [Test]
+    public async Task REQ214_GetPlayersMissingPhotoAsync_ReturnsOnlyPlayersWithQidAndNoPhoto()
+    {
+        var missingPhoto = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var alreadyHasPhoto = new Player { Id = Guid.NewGuid(), FullName = "Didier Drogba", WikidataQid = "Q42233", PhotoUrl = "https://example.com/drogba.jpg" };
+        var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
+        await _repository.AddPlayerAsync(missingPhoto);
+        await _repository.AddPlayerAsync(alreadyHasPhoto);
+        await _repository.AddPlayerAsync(noQid);
+
+        var result = await _repository.GetPlayersMissingPhotoAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { missingPhoto.Id }));
+    }
+
+    [Test]
+    public async Task REQ214_GetPlayersMissingPhotoAsync_RespectsBatchSize()
+    {
+        for (var i = 0; i < 5; i++)
+            await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+
+        var result = await _repository.GetPlayersMissingPhotoAsync([], batchSize: 3);
+
+        Assert.That(result, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ214_GetPlayersMissingPhotoAsync_ExcludesGivenPlayerIds()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _repository.AddPlayerAsync(first);
+        await _repository.AddPlayerAsync(second);
+
+        var result = await _repository.GetPlayersMissingPhotoAsync([first.Id], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { second.Id }));
+    }
+
+    [Test]
+    public async Task REQ214_GetPlayersMissingPhotoAsync_NoMissingPhotoPlayers_ReturnsEmpty()
+    {
+        var result = await _repository.GetPlayersMissingPhotoAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ214_UpdatePlayerPhotosAsync_SetsPhotoUrl_ForEveryGivenPlayer()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _repository.AddPlayerAsync(first);
+        await _repository.AddPlayerAsync(second);
+
+        await _repository.UpdatePlayerPhotosAsync(new Dictionary<Guid, string>
+        {
+            [first.Id] = "https://example.com/a.jpg",
+            [second.Id] = "https://example.com/b.jpg",
+        });
+
+        Assert.That((await _repository.GetPlayerByIdAsync(first.Id))!.PhotoUrl, Is.EqualTo("https://example.com/a.jpg"));
+        Assert.That((await _repository.GetPlayerByIdAsync(second.Id))!.PhotoUrl, Is.EqualTo("https://example.com/b.jpg"));
+    }
+
+    [Test]
+    public async Task REQ214_UpdatePlayerPhotosAsync_EmptyDictionary_DoesNothing()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.UpdatePlayerPhotosAsync(new Dictionary<Guid, string>());
+
+        Assert.That((await _repository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ214_UpdatePlayerPhotosAsync_UnknownPlayerId_IsSilentlySkipped()
+    {
+        // Best-effort backfill of already-cached data, not a
+        // correctness-critical write — a player deleted between the read
+        // and this write (e.g. by purge-player-pool) must not fail the
+        // whole batch.
+        Assert.DoesNotThrowAsync(() => _repository.UpdatePlayerPhotosAsync(new Dictionary<Guid, string>
+        {
+            [Guid.NewGuid()] = "https://example.com/unknown.jpg",
+        }));
+    }
 }

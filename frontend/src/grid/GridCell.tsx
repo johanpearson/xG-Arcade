@@ -40,6 +40,11 @@ export function GridCell({ cell, roundStatus, submittedThisSession, onOpenGuess 
         // resolvedPlayerName is the canonical Player.FullName, never the raw
         // as-typed submittedName. An incorrect guess passes no name at all.
         playerName={guess.isCorrect ? (guess.resolvedPlayerName ?? undefined) : undefined}
+        // REQ-214: same isCorrect gate as the name above — an incorrect
+        // guess never gets a photo, regardless of what the API happens to
+        // send (see CurrentRoundGuess.resolvedPlayerPhotoUrl for the
+        // confirmed backend field this maps to).
+        photoUrl={guess.isCorrect ? guess.resolvedPlayerPhotoUrl : undefined}
         isCorrect={guess.isCorrect}
         attemptCount={guess.attemptCount}
         locked={guess.locked}

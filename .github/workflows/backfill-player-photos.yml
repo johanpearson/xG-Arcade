@@ -1,0 +1,38 @@
+name: backfill-player-photos
+
+# REQ-214 backfill (S-045): fills Player.PhotoUrl for every Player row that
+# predates REQ-214's P18 addition to WikidataClient's intersection queries
+# — WikidataLookupService.GetOrCreatePlayerAsync only ever sets PhotoUrl at
+# the moment a Player row is first created, so any row created by an
+# earlier warm-player-cache run has PhotoUrl permanently NULL with no other
+# code path that will ever revisit it. See PlayerPhotoBackfillService's own
+# doc comment for the full reasoning.
+#
+# A plain CLI job (`dotnet run -- backfill-player-photos`), not an HTTP
+# endpoint — same ADR-0024 reasoning as warm-player-cache.yml: this can
+# take a while (one live Wikidata call per 200-player batch), and a
+# GitHub Actions job has a generous default timeout unlike the deployed
+# backend's own HTTP ingress (~240s).
+#
+# Manual trigger only, no recurring schedule — idempotent and safe to
+# re-run at any time (only ever writes rows still missing a photo), so
+# there's no need for a fixed cadence; run it once to clear the existing
+# backlog, and again later only if a fresh warm-player-cache run created
+# more Player rows in the meantime.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill-player-photos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Backfill player photos
+        run: dotnet run --project backend/src/XGArcade.Api -- backfill-player-photos
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

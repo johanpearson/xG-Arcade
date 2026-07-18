@@ -4,18 +4,60 @@ namespace XGArcade.DataSync.Tests.Wikidata;
 
 // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
 // "don't over-mock" — same pattern as FakeHttpMessageHandler/
-// FakeWikidataLookupService elsewhere in this repo). Only
-// QueryPlayerPoolBirthYearAsync is configurable — PlayerNameIndexImporterTests
-// is the only current caller, and it never touches the intersection-query
-// methods. An unconfigured year returns [] (a genuinely empty year, per the
-// real method's contract); FailFor scripts WikidataQueryException throws
+// FakeWikidataLookupService elsewhere in this repo).
+// QueryPlayerPoolBirthYearAsync and QueryPlayerPhotosByQidsAsync are
+// configurable (PlayerNameIndexImporterTests and
+// PlayerPhotoBackfillServiceTests respectively); the two intersection-query
+// methods are never touched by either caller, so they stay stubbed to an
+// empty result. An unconfigured year returns [] (a genuinely empty year, per
+// the real method's contract); FailFor scripts WikidataQueryException throws
 // before (or instead of) success, mirroring the real method's fail-loud
-// contract.
+// contract. Same shape for photo batches: an unconfigured QID is simply
+// absent from the result (a real "no P18 statement"), and
+// FailNextPhotoBatches scripts a whole-call WikidataQueryException.
 internal sealed class FakeWikidataClient : IWikidataClient
 {
     private readonly Dictionary<int, IReadOnlyList<WikidataNameIndexEntry>> _entriesByYear = new();
     private readonly Dictionary<int, int> _remainingFailuresByYear = new();
     private readonly Dictionary<int, CancellationTokenSource> _cancelCallerTokenByYear = new();
+
+    // REQ-214 backfill (S-045): QueryPlayerPhotosByQidsAsync support.
+    // Configured per-QID (SetPhoto), plus one shared "fail the next N
+    // calls" counter — PlayerPhotoBackfillServiceTests only needs "this
+    // whole batch call fails," never a per-QID failure, since the real
+    // method's error contract is call-level (an HTTP/timeout/parse failure
+    // fails the whole batch, not individual QIDs within it).
+    private readonly Dictionary<string, string> _photosByQid = new();
+    private int _remainingBatchFailures;
+
+    // Every batch queried, in call order, as the exact QID list passed in —
+    // lets a test assert both the batch size and which QIDs were grouped
+    // together.
+    public List<IReadOnlyList<string>> QueriedPhotoBatches { get; } = [];
+
+    public void SetPhoto(string wikidataQid, string photoUrl) => _photosByQid[wikidataQid] = photoUrl;
+
+    // The next `batches` calls to QueryPlayerPhotosByQidsAsync throw
+    // WikidataQueryException instead of returning a result.
+    public void FailNextPhotoBatches(int batches) => _remainingBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, string>> QueryPlayerPhotosByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedPhotoBatches.Add(wikidataQids);
+
+        if (_remainingBatchFailures > 0)
+        {
+            _remainingBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a player-photo batch");
+        }
+
+        IReadOnlyDictionary<string, string> result = wikidataQids
+            .Where(qid => _photosByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _photosByQid[qid]);
+
+        return Task.FromResult(result);
+    }
 
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];

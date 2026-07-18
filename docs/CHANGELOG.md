@@ -13,6 +13,115 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `docs/backlog.md` — added an addendum to S-045's entry
+  covering the malformed-QID crash and fix below (`quality-architect`
+  flagged the entry as reading like the story shipped clean when it
+  actually had a crash-and-fix history across two commits); also corrected
+  the entry's stale "no real Postgres/no network available" caveat — this
+  session did independently verify both live (Postgres install + a real
+  Wikidata-network-blocked reproduction), that just hadn't happened yet
+  when S-045's own entry was written
+- 2026-07-18 — `NOTES.md` only (no requirements/architecture/implementation
+  doc changed — this is a bug fix, not a behavior/acceptance-criteria
+  change) — fixed a crash in `backfill-player-photos` (REQ-214, S-045)
+  found by running it against a real Postgres database seeded with
+  `/internal/test-data` fixtures: a malformed `Player.WikidataQid` made
+  `WikidataClient.QueryPlayerPhotosByQidsAsync` throw a plain
+  `ArgumentException`, which `PlayerPhotoBackfillService.BackfillAsync`'s
+  `catch (WikidataQueryException)` never caught, crashing the whole run
+  instead of the documented log-and-continue behavior. Extracted QID-format
+  validation into a shared `WikidataQid.IsValid` helper
+  (`XGArcade.DataSync.Wikidata`) and had `PlayerPhotoBackfillService`
+  pre-filter each batch with it before calling
+  `QueryPlayerPhotosByQidsAsync`, logging one warning per skipped player,
+  rather than a whole batch paying for one bad row.
+  `WikidataClient`'s own `ArgumentException` contract on all three
+  QID-validating methods is unchanged. New tests:
+  `PlayerPhotoBackfillServiceTests
+  .REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
+  and `..._EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.
+  Full backend suite re-run in this environment: 411 passed, 0 failed,
+  0 skipped, across all five backend test projects — REQ-214
+- 2026-07-18 — `requirements-document.md` (v0.63), `implementation-document.md`
+  (v0.57), `backlog.md` (S-045) — added a one-off `backfill-player-photos`
+  CLI verb (`PlayerPhotoBackfillService`, `XGArcade.DataSync.Wikidata`) to
+  fill `Player.PhotoUrl` for every already-existing player row REQ-214's
+  P18 addition never revisits (`WikidataLookupService
+  .GetOrCreatePlayerAsync` only sets it at row-creation time) — an
+  idempotent backfill instead of the destructive `purge-player-pool` +
+  `warm-player-cache` wipe-and-rerun the user explicitly rejected. New
+  `IWikidataClient.QueryPlayerPhotosByQidsAsync` (batched, direct-by-QID
+  SPARQL VALUES lookup, throws `WikidataQueryException` on failure per
+  `docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline) and
+  new `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+  `UpdatePlayerPhotosAsync`. Squarely inside ADR-0024's existing "CLI verb,
+  never HTTP/background task" decision — no new ADR. New workflow
+  `backfill-player-photos.yml` (`workflow_dispatch` only). Tests:
+  `REQ214`-named, added to `WikidataClientTests.cs`,
+  `PlayerStoreRepositoryTests.cs`, and a new `PlayerPhotoBackfillServiceTests.cs`.
+  Full backend suite run in this environment: 409 passed, 0 failed, across
+  all five backend test projects (`dotnet`/`dotnet test` were available
+  this session, unlike some prior stories) — no real Postgres available, so
+  only the InMemory-provider path was exercised; the new SPARQL query shape
+  could not be verified against live `wikidata.org` (no network access) —
+  REQ-214
+- 2026-07-18 — no docs touched (code-only refactor) — extracted
+  `WikidataClient`'s two intersection query builders' shared SPARQL
+  header/predicates/footer into a new `BuildIntersectionQuery(candidateClauses)`
+  helper, per `quality-architect`'s REQ-214 quality-gate suggestion: both
+  builders had to be hand-edited identically to add `P18`, which is exactly
+  the kind of place a future addition could silently land in only one.
+  `BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery` now
+  supply only the candidate-matching clauses that actually differ between
+  them. Verified via the existing `WikidataClientTests` query-content
+  assertions (all still pass unmodified) rather than new tests, since this
+  is a pure internal refactor with no behavior change — REQ-101/103/113/214
+- 2026-07-18 — `architecture-document.md` (v0.37), `docs/decisions/0028-*.md`
+  (new) — added ADR-0028, formalizing REQ-214's `Player.PhotoUrl` (not
+  `PlayerAttribute`) placement decision per `architecture-reviewer`'s
+  quality-gate ruling: single-valued Wikidata properties belong on `Player`
+  going forward, with the accepted trade-off spelled out explicitly (no
+  `PlayerOverride` correction path for `Player`-level fields, acceptable
+  here only because a photo carries no correctness weight) — REQ-214,
+  COMP-06
+- 2026-07-18 — `requirements-document.md`, `backlog.md`, `design-document.md`
+  — REQ-214 (photo reveal on a locked, correct cell) frontend half (S-044),
+  landed in parallel with the backend half (S-043): `CellState.tsx`/
+  `GridCell.tsx` render an optional player photo alongside the REQ-212 name
+  reveal, in a fixed 18px avatar slot reusing the existing badge-dock
+  "small" size (no dedicated avatar token exists in §2 yet — flagged as an
+  open item, not invented ad hoc); falls back to exactly today's text-only
+  reveal with no broken-image icon whenever no photo is available.
+  `frontend/src/lib/types.ts`'s `resolvedPlayerPhotoUrl` field name was
+  written before the backend DTO was confirmed and checked afterward to
+  match exactly. `vite.config.ts` test config gained `css: true` so
+  Vitest/jsdom assertions can check real computed CSS dimensions (needed
+  for a genuine layout-regression test, not just a snapshot) — verified
+  this doesn't change any existing test's outcome first. Real-browser
+  (Playwright) verification was attempted and could not complete in this
+  sandbox (chromium download blocked by the outbound proxy), flagged rather
+  than silently skipped — REQ-214/S-043/S-044
+
+- 2026-07-18 — `requirements-document.md` (v0.61), `implementation-document.md`
+  (v0.56), `backlog.md` — REQ-214 backend half (S-043): `WikidataClient`'s
+  two intersection query builders now fetch Wikidata's `P18` (image)
+  `OPTIONAL`, carried through `WikidataPlayerMatch` and
+  `WikidataLookupService` into a new `Player.PhotoUrl` column
+  (`AddPlayerPhotoUrl` migration), exposed additively alongside
+  `ResolvedPlayerName` in both `POST .../guesses`' and `GET /rounds/current`'s
+  reveal responses. Deliberately a `Player` column, not `PlayerAttribute` —
+  see `Player.PhotoUrl`'s doc comment and S-043's backlog entry for why;
+  flagged for `architecture-reviewer` as a placement decision that could
+  reasonably have gone the other way. Frontend rendering is a separate,
+  not-yet-delegated task. `P18`'s Special:FilePath URL shape and the
+  migration are both unverified against a live environment (no
+  `wikidata.org`/`dotnet` access) — flagged for manual verification —
+  REQ-214
+- 2026-07-18 — `docs/legal/privacy-policy-draft.md` (v0.5) — added a
+  Wikimedia Commons third-party-CDN disclosure (same shape as the existing
+  Google Fonts entry) ahead of REQ-214's frontend half actually shipping,
+  since the backend now stores/serves a photo URL that a browser will
+  eventually load directly from `commons.wikimedia.org`
 - 2026-07-18 — `coding-guidelines.md` (v0.5) — new error-handling
   guideline: swallow-to-empty external-client contracts are only valid
   where failure and no-data must be treated identically (interactive

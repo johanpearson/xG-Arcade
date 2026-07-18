@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.55"
+version: "0.57"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -282,6 +282,16 @@ public class Player
     // Nullable only for a future non-Wikidata source (Tier 1); unique
     // index where not null.
     public string WikidataQid { get; set; }
+    // REQ-214 (S-043, backend half): Wikidata's P18 (image), carried
+    // through the same intersection queries as FullName/WikidataQid and
+    // set once at player creation — never re-synced on a later lookup,
+    // same as FullName. Null whenever Wikidata has no P18 for this player
+    // (a normal case, never an error). Deliberately a Player column, NOT a
+    // PlayerAttribute row — PlayerAttribute's composite key holds many
+    // rows per player (one per career club/nationality/trophy), so a
+    // per-player scalar has no natural "which row owns it" answer there.
+    // Migration: AddPlayerPhotoUrl.
+    public string PhotoUrl { get; set; }
 }
 
 // PlayerData, PlayerOverride, and PlayerAttribute below each carry a
@@ -342,8 +352,10 @@ public class PlayerNameIndex
     // PhotoUrl was sketched here originally and shipped in S-032, then
     // dropped 2026-07-18 (RemovePlayerNameIndexPhotoUrl migration): the
     // autocomplete contract never exposed a photo, so fetching P18 and
-    // storing the column was dead weight. Re-add deliberately if a photo
-    // feature ever exists.
+    // storing the column was dead weight. The photo feature that
+    // eventually did ship (REQ-214, S-043) lives on Player.PhotoUrl
+    // (COMP-06) instead, not here — this column stays gone; do not
+    // re-add it without a new, real autocomplete-photo requirement.
 }
 
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
@@ -887,6 +899,81 @@ filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
 
+**REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
+moment a `Player` row is first created
+(`WikidataLookupService.GetOrCreatePlayerAsync`, see §6/REQ-214's own note
+above) — a row created by an earlier `warm-player-cache` run, before the
+`P18` addition shipped, has `PhotoUrl` permanently `NULL` with no other
+code path that will ever revisit it. `PlayerPhotoBackfillService`
+(`XGArcade.DataSync.Wikidata`, same project as `WikidataLookupService`/
+`PlayerNameIndexImporter` — it needs both `IWikidataClient` and
+`IPlayerStoreRepository`, and `XGArcade.Data` has no reference back to
+`XGArcade.DataSync`, so it can't live in `XGArcade.Data`) closes that gap
+without a destructive wipe-and-rerun — a full `purge-player-pool` +
+`warm-player-cache` cycle would cascade into `PlayerAttribute`/`Guess`/
+`GridCell` history this codebase explicitly protects (REQ-710's
+anonymize-never-hard-delete precedent is the same instinct applied to a
+different table). It's a sixth `dotnet run --` CLI verb,
+`backfill-player-photos`, same shape as every verb above (builds its
+dependencies directly, reuses `ConfigureWikidataHttpClient`), run manually
+via `backfill-player-photos.yml` (`workflow_dispatch` only) — squarely
+inside ADR-0024's existing "CLI verb, never an HTTP endpoint or background
+task" decision, not a new one.
+
+Two new members support it:
+- `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched, direct-by-QID
+  lookup, a fundamentally different SPARQL shape from the two intersection
+  queries (`SELECT ?player ?photo WHERE { VALUES ?player { wd:Q1 wd:Q2 ... }
+  OPTIONAL { ?player wdt:P18 ?photo. } }`, no candidate-matching pattern, no
+  male/date-of-birth re-filter — every QID in the batch is already a real
+  `Player` row this codebase created). Same throw-on-failure contract as
+  `QueryPlayerPoolBirthYearAsync` (`WikidataQueryException` on timeout/HTTP/
+  parse failure), per `docs/coding-guidelines.md`'s 2026-07-18
+  error-handling guideline: this is a batch job whose success metric is a
+  backfilled-row count, so a swallowed failure would be indistinguishable
+  from "none of these QIDs have a photo."
+- `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+  `UpdatePlayerPhotosAsync` — a paged read (`WikidataQid IS NOT NULL AND
+  PhotoUrl IS NULL`, bounded by a batch size, never the whole table) and a
+  batch write (one `SaveChangesAsync` per batch, load-then-save per
+  `docs/coding-guidelines.md`, never `ExecuteUpdateAsync`).
+
+`PlayerPhotoBackfillService.BackfillAsync` loops: fetch up to `BatchSize`
+(200 — a conservative batch for the VALUES-clause query, safely inside
+§6a's "few-thousand-row, no ORDER BY/LIMIT/OFFSET" bounded-query class)
+missing-photo players, query Wikidata for that batch, write back whichever
+QIDs resolved to a photo. Each call to `GetPlayersMissingPhotoAsync` also
+takes an `excludingPlayerIds` set that the service grows with every player
+ID it has already attempted **this run** (success or failure) — needed
+because Guid has no LINQ-translatable ordering to keyset-paginate on, and a
+plain `Skip`/`Take` can't be used either: a successfully-backfilled batch
+removes rows from the query's own `WHERE PhotoUrl IS NULL` filter between
+calls, which would silently skip untouched rows on the next page. The
+exclusion set is what guarantees the loop terminates instead of re-fetching
+a failed batch forever.
+
+Two deliberate, documented judgment calls (both in
+`PlayerPhotoBackfillService`'s own doc comment):
+- **Per-batch failure handling: log-and-continue, not
+  `PlayerNameIndexImporter`'s retry-then-fail-loud.** The two jobs'
+  failure-detection problem differs in kind: `PlayerNameIndexImporter`
+  needs to fail loudly because an empty year result is genuinely ambiguous
+  with a swallowed failure unless it's tracked and reported. Here, a
+  failed batch just leaves those players' `PhotoUrl` `NULL`, and the very
+  next full re-run's `GetPlayersMissingPhotoAsync` call surfaces them again
+  automatically — there is no equivalent ambiguity to fail loudly about,
+  so failing the whole run over one transient batch failure would cost an
+  operator a manual re-run for no extra signal a log line doesn't already
+  give them.
+- **Accepted limitation, same class as `PlayerCacheWarmingService`'s own
+  "below `MinValidAnswers`, re-queried every run" note:** a player who
+  genuinely has no Wikidata `P18` statement stays `PhotoUrl == NULL`
+  forever (correctly — nothing to backfill), so every future full re-run
+  re-queries Wikidata for that player again. There is no persisted
+  "already checked, genuinely has no photo" signal distinct from "never
+  checked." Accepted because this job is meant to run occasionally, not on
+  a tight recurring schedule.
+
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
 missing combination typically means fetching a club's squad history (a
@@ -1200,6 +1287,24 @@ Four rules that make this query correct, not just functional:
   for those, best-rank semantics match product intent. Deprecated rank is
   still excluded: it's Wikidata's "recorded but wrong" marker, not a
   historical spell.
+- **`P18` (image) is fetched `OPTIONAL`, same shape as `alias`** (REQ-214,
+  S-043, backend half) — added to both intersection query builders
+  (`BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery`),
+  never the birth-year bulk-import query below (that one deliberately
+  still has no `P18`, unchanged from the 2026-07-18
+  `RemovePlayerNameIndexPhotoUrl` decision — see that migration's note a
+  few paragraphs down). `wdt:P18` is a `commonsMedia`-typed property, so
+  Wikidata's SPARQL endpoint resolves it directly to a fully-qualified
+  Special:FilePath URL, not an entity QID — unlike `?player`, there is no
+  `/entity/Qnnn` suffix to split off; the raw binding value is the usable
+  photo URL. Parsed into `WikidataPlayerMatch.PhotoUrl` (nullable, "first
+  non-null seen" per QID, same as the alias/nationality grouping elsewhere
+  in this file) and persisted once at player creation into a new
+  `Player.PhotoUrl` column (`AddPlayerPhotoUrl` migration) — never a
+  `PlayerAttribute` row; see Player's own doc comment in §5 for why. This
+  shape could not be verified against a live Wikidata query when built (no
+  network access in that environment) — flagged for manual verification,
+  same precedent as prior QID/property additions (S-036/S-037).
 
 **S-032 addition, revised 2026-07-18 — `PlayerNameIndex`'s bulk import
 slices by birth year, never by `LIMIT`/`OFFSET`.** `WikidataClient

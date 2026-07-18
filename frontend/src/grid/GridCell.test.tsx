@@ -187,6 +187,67 @@ describe('GridCell', () => {
     expect(screen.getByText('Henry')).toBeInTheDocument();
   });
 
+  // REQ-214: end-to-end wiring check that GridCell actually forwards the
+  // guess's photo field down to CellState/the reveal — CellState.test.tsx
+  // covers the rendering/fallback rules themselves via constructed props
+  // directly, this just confirms GridCell doesn't drop the field on the way
+  // through the same isCorrect gate it already applies to the name.
+  it('REQ-214: clicking a locked+correct cell with a resolvedPlayerPhotoUrl reveals the photo alongside the name', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
+            resolvedPlayerPhotoUrl: 'https://example.test/henry.jpg',
+            uniquePercent: 0.12,
+            livePoints: 12,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+
+    await user.click(cell);
+    expect(screen.getByText('Henry')).toBeInTheDocument();
+    const img = container.querySelector('.cell-state__avatar img');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
+  });
+
+  it('REQ-214: a locked, incorrect cell never renders a photo even if the guess somehow carries a resolvedPlayerPhotoUrl, unchanged from the name rule (state 3, non-interactive)', () => {
+    const { container } = render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: false,
+            attemptCount: 2,
+            locked: true,
+            submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
+            resolvedPlayerPhotoUrl: 'https://example.test/should-never-show.jpg',
+            uniquePercent: null,
+            livePoints: null,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+  });
+
   it('REQ-212: an incorrect, out-of-attempts cell (state 3) remains a non-interactive aria-disabled div, is never a click target for reveal, and exposes no aria-expanded/button role at all', async () => {
     const user = userEvent.setup();
     render(

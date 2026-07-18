@@ -44,9 +44,9 @@ public class GuessSubmissionServiceTests
     private GuessSubmissionService BuildService() =>
         new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerStoreRepository, new FixedTimeProvider(Now));
 
-    private async Task<Guid> SeedPlayerAsync(string fullName)
+    private async Task<Guid> SeedPlayerAsync(string fullName, string? photoUrl = null)
     {
-        var player = new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = $"Qtest-{Guid.NewGuid()}" };
+        var player = new Player { Id = Guid.NewGuid(), FullName = fullName, WikidataQid = $"Qtest-{Guid.NewGuid()}", PhotoUrl = photoUrl };
         _dbContext.Players.Add(player);
         await _dbContext.SaveChangesAsync();
         return player.Id;
@@ -167,6 +167,47 @@ public class GuessSubmissionServiceTests
         var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Wrong Guess");
 
         Assert.That(result.ResolvedPlayerName, Is.Null);
+    }
+
+    // ---- REQ-214: photo reveal alongside the resolved player name ---------
+
+    [Test]
+    public async Task REQ214_SubmitGuess_Correct_ReturnsResolvedPlayerPhotoUrl_WhenPlayerHasPhoto()
+    {
+        var round = await SeedActiveRoundAsync();
+        var playerAnswerId = await SeedPlayerAsync("Thierry Henry", photoUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg");
+        SetNextResult(_gameModule, isCorrect: true, playerAnswerId);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "thierry henry");
+
+        Assert.That(result.ResolvedPlayerPhotoUrl, Is.EqualTo("https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
+    }
+
+    [Test]
+    public async Task REQ214_SubmitGuess_Correct_ResolvedPlayerPhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var round = await SeedActiveRoundAsync();
+        var playerAnswerId = await SeedPlayerAsync("Thierry Henry", photoUrl: null);
+        SetNextResult(_gameModule, isCorrect: true, playerAnswerId);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "thierry henry");
+
+        Assert.That(result.ResolvedPlayerName, Is.EqualTo("Thierry Henry"), "REQ-212's name reveal must be unaffected by a missing photo");
+        Assert.That(result.ResolvedPlayerPhotoUrl, Is.Null, "no photo is a normal case, never an error");
+    }
+
+    [Test]
+    public async Task REQ214_SubmitGuess_Incorrect_ResolvedPlayerPhotoUrlIsNull()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Wrong Guess");
+
+        Assert.That(result.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, same rule as ResolvedPlayerName");
     }
 
     // ---- REQ-202: guess locking (allow_guess_change) -----------------------

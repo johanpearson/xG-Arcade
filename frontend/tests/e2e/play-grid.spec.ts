@@ -268,6 +268,30 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
     await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
 
+    // REQ-214: both guesses above missed cache (the seed only provides 2
+    // candidate players, under GridGenerationOptions.MinValidAnswers's
+    // threshold of 5), so each paid ADR-0018's live-lookup cost via
+    // GridGameModule.RefreshCellFromLiveLookupAsync — REQ-211's Tier-0
+    // fallback, which has no PlayerNameIndex gate yet and runs on any
+    // cache-miss guess. That live lookup now also fetches Wikidata's P18
+    // (photo) as part of the same query. In a networked CI environment the
+    // seed's real player names can resolve to a real, photo-bearing
+    // Wikidata record, so whether an avatar actually renders here is
+    // genuinely non-deterministic (confirmed against real CI logs, not a
+    // flake) — this suite can't assert its presence or absence either way.
+    // What REQ-214 actually promises, and what holds regardless of a photo
+    // being found, is that the cell's footprint never changes because of
+    // it (CellState.test.tsx's "fixed slot" test covers the equivalent
+    // deterministic, unit-level check). So instead of asserting on
+    // '.cell-state__avatar' at all, capture the cell's box right after the
+    // reveal click, let the network settle (covers an in-flight photo
+    // finishing its load, if one was found), and confirm the box didn't
+    // move — true whether or not a photo showed up this run.
+    const revealedBox = await cell.boundingBox()
+    await page.waitForLoadState('networkidle')
+    const settledBox = await cell.boundingBox()
+    expect(settledBox).toEqual(revealedBox)
+
     // Clicking again hides the name/badges (a toggle, not a one-way reveal).
     await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
