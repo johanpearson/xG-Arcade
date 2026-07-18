@@ -1985,11 +1985,16 @@ button's own padding so the photo bleeds to the cell's actual corners
 `.cell-state__overlay` band (the `overlay-scrim` background) sits above the
 photo via `z-index`, holding the same `Row`/points markup the no-photo case
 uses unchanged — `Row` no longer takes a `photoUrl` prop at all. The
-CSS-cascade-tie note from S-013's darkened-token additions applies again
-here: the new `.cell-state--photo` color overrides are placed *after* the
-existing `.cell-state--correct`/`.cell-state__icon--correct` rules in
-`CellState.css` specifically so they win the same-specificity tie, not by
-being more specific.
+CSS-cascade-tie note from S-013's darkened-token additions partially
+applies again here: `.cell-state--photo .cell-state__meta` genuinely ties
+`.cell-state--correct .cell-state__meta` on specificity, so it's placed
+*after* in `CellState.css` specifically to win that tie by source order.
+`.cell-state--photo .cell-state__icon--correct` is already strictly more
+specific than the bare `.cell-state__icon--correct` rule and would win
+regardless of placement — kept alongside the other override for
+readability, not because it also depends on source order (an inaccuracy
+in this entry's first pass, caught by `quality-architect`'s review and
+corrected in both `CellState.css`'s own comment and here).
 Tests: `REQ-214`-tagged, `CellState.test.tsx`'s photo-reveal describe block
 rewritten (photo shows at rest with no click; reveal adds the name without
 touching the photo; hiding again leaves the photo showing; no-photo/null/
