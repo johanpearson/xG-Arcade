@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `requirements-document.md` (v0.63), `implementation-document.md`
+  (v0.57), `backlog.md` (S-045) — added a one-off `backfill-player-photos`
+  CLI verb (`PlayerPhotoBackfillService`, `XGArcade.DataSync.Wikidata`) to
+  fill `Player.PhotoUrl` for every already-existing player row REQ-214's
+  P18 addition never revisits (`WikidataLookupService
+  .GetOrCreatePlayerAsync` only sets it at row-creation time) — an
+  idempotent backfill instead of the destructive `purge-player-pool` +
+  `warm-player-cache` wipe-and-rerun the user explicitly rejected. New
+  `IWikidataClient.QueryPlayerPhotosByQidsAsync` (batched, direct-by-QID
+  SPARQL VALUES lookup, throws `WikidataQueryException` on failure per
+  `docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline) and
+  new `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+  `UpdatePlayerPhotosAsync`. Squarely inside ADR-0024's existing "CLI verb,
+  never HTTP/background task" decision — no new ADR. New workflow
+  `backfill-player-photos.yml` (`workflow_dispatch` only). Tests:
+  `REQ214`-named, added to `WikidataClientTests.cs`,
+  `PlayerStoreRepositoryTests.cs`, and a new `PlayerPhotoBackfillServiceTests.cs`.
+  Full backend suite run in this environment: 409 passed, 0 failed, across
+  all five backend test projects (`dotnet`/`dotnet test` were available
+  this session, unlike some prior stories) — no real Postgres available, so
+  only the InMemory-provider path was exercised; the new SPARQL query shape
+  could not be verified against live `wikidata.org` (no network access) —
+  REQ-214
 - 2026-07-18 — no docs touched (code-only refactor) — extracted
   `WikidataClient`'s two intersection query builders' shared SPARQL
   header/predicates/footer into a new `BuildIntersectionQuery(candidateClauses)`

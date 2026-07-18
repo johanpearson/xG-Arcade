@@ -47,4 +47,35 @@ public interface IWikidataClient
     Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear,
         CancellationToken cancellationToken = default);
+
+    // REQ-214 backfill (S-045): PlayerPhotoBackfillService's batched,
+    // direct-by-QID lookup for `Player` rows that predate the P18 addition
+    // to the two intersection queries above (WikidataLookupService.
+    // GetOrCreatePlayerAsync only ever sets PhotoUrl at row-creation time,
+    // never on a later lookup — see Player.cs's own comment — so every
+    // Player created before REQ-214 shipped has PhotoUrl permanently NULL
+    // with no code-path that will ever revisit it). A fundamentally
+    // different query shape from the intersection queries: a SPARQL
+    // `VALUES` clause over a bounded batch of QIDs
+    // (`SELECT ?player ?photo WHERE { VALUES ?player { wd:Q1 wd:Q2 ... }
+    // OPTIONAL { ?player wdt:P18 ?photo. } }`), not a candidate-matching
+    // intersection — callers are expected to keep each batch within the
+    // "few-thousand-row, no ORDER BY/LIMIT/OFFSET" bounded-query class
+    // implementation-document.md §6a already establishes as safe on WDQS
+    // (PlayerPhotoBackfillService.BatchSize = 200). Returns a dictionary
+    // keyed by QID, present only for QIDs that resolved to a photo — a QID
+    // with no P18 statement, or one WDQS didn't return a row for at all, is
+    // simply absent from the result, never an error.
+    //
+    // Error contract — same as QueryPlayerPoolBirthYearAsync above, NOT the
+    // intersection queries' swallow-to-[] contract: this is a batch job
+    // whose success metric is a row/backfill count
+    // (docs/coding-guidelines.md's 2026-07-18 error-handling guideline,
+    // promoted from the S-032 incident), so a swallowed failure here would
+    // be indistinguishable from "none of these players have a photo" and
+    // silently under-backfill forever. Throws WikidataQueryException on
+    // timeout/HTTP/parse failure instead.
+    Task<IReadOnlyDictionary<string, string>> QueryPlayerPhotosByQidsAsync(
+        IReadOnlyList<string> wikidataQids,
+        CancellationToken cancellationToken = default);
 }

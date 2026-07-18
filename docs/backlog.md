@@ -1847,6 +1847,75 @@ toggle; never shown on an incorrect guess; the dimension-regression
 assertions described above) and `GridCell.test.tsx` (end-to-end prop
 wiring through the same `isCorrect` gate the name already uses).
 
+**S-045 · Backfill `Player.PhotoUrl` for already-cached players (REQ-214)**
+S-043 shipped `Player.PhotoUrl`, but only ever sets it at the moment a
+`Player` row is first created (`WikidataLookupService
+.GetOrCreatePlayerAsync`) — an already-existing row (every `Player` created
+by a `warm-player-cache` run before S-043 shipped) is returned as-is and
+never revisited, so `PhotoUrl` stays `NULL` on it forever. The user had run
+`warm-player-cache` repeatedly since early July, leaving a large existing
+`Player` table with every row's `PhotoUrl` permanently `NULL`, and
+explicitly asked for a backfill rather than a destructive wipe-and-rerun
+(`purge-player-pool` + `warm-player-cache` would cascade into
+`PlayerAttribute`/`Guess`/`GridCell` history this codebase explicitly
+protects).
+*Accept:* a new `dotnet run -- backfill-player-photos` CLI verb (same
+ADR-0024 shape as `warm-player-cache` — no new ADR needed, flagged and
+confirmed squarely inside that existing decision) fills `Player.PhotoUrl`
+for every player with a `WikidataQid` and no photo yet, in batches, without
+touching any other table; idempotent and safe to re-run indefinitely — a
+second run touches nothing already backfilled.
+**Built as:** `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched,
+direct-by-QID SPARQL `VALUES` lookup (`BatchSize = 200`,
+`PlayerPhotoBackfillService`'s own constant), a different shape from the
+two intersection queries, with the same throw-on-failure
+(`WikidataQueryException`) contract as `QueryPlayerPoolBirthYearAsync`
+rather than the intersection queries' swallow-to-`[]` contract — per
+`docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline (a batch
+job whose success metric is a row count must not swallow a failure as
+"no data"). `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+`UpdatePlayerPhotosAsync` — a paged read and a batched write (one
+`SaveChangesAsync` per batch), never the whole table loaded at once.
+`PlayerPhotoBackfillService` (`XGArcade.DataSync.Wikidata`, same placement
+reasoning as `WikidataLookupService`/`PlayerNameIndexImporter` — it needs
+both `IWikidataClient` and `IPlayerStoreRepository`, and `XGArcade.Data`
+has no reference back to `XGArcade.DataSync`) — sequential, not concurrent
+(same `DbContext`-safety reasoning as `PlayerCacheWarmingService`),
+progress-logged periodically. Two judgment calls made and documented
+in-code: (1) per-batch failure handling is log-and-continue, not
+`PlayerNameIndexImporter`'s retry-then-fail-loud — a failed batch's players
+simply stay `PhotoUrl == NULL` and are picked up automatically by the next
+full re-run's own missing-photo query, so there's no equivalent "was this a
+failure or genuinely no data" ambiguity to fail loudly about; (2) the read
+cursor uses an in-run "already attempted" exclusion set rather than
+`Skip`/`Take` — `Guid` has no LINQ-translatable ordering to keyset-paginate
+on, and plain offset paging would silently skip untouched rows once a
+batch's successful writes shrink the underlying `WHERE PhotoUrl IS NULL`
+filter between calls. Accepted limitation (documented, same class as
+`PlayerCacheWarmingService`'s own "below `MinValidAnswers`, re-queried
+every run" note): a player with genuinely no Wikidata `P18` statement stays
+`PhotoUrl == NULL` forever and is re-queried on every future full run —
+there's no persisted "checked, genuinely no photo" signal distinct from
+"never checked." New workflow `backfill-player-photos.yml`
+(`workflow_dispatch` only, modeled directly on `warm-player-cache.yml`).
+Tests: `REQ214`-named, in `WikidataClientTests.cs` (batched VALUES query
+shape, throw-on-failure), `PlayerStoreRepositoryTests.cs` (the new
+repository methods), `PlayerPhotoBackfillServiceTests.cs` (missing-photo
+players backfilled; already-has-photo/no-QID players untouched and never
+queried; batching respects `BatchSize`; idempotent re-run touches nothing;
+a failed batch is logged and skipped without failing the run, and its
+players remain retryable on a later run). Full backend suite run in this
+environment (`dotnet`/`dotnet test` were both available, unlike prior
+stories under this constraint) — 409 tests passed, 0 failed, across all
+five backend test projects. No real Postgres available (no Docker daemon,
+per this repo's standing constraint) — only the InMemory-provider path was
+exercised; the new `Wikidata QueryPlayerPhotosByQidsAsync` SPARQL query
+shape and the `P18`→URL parsing could not be verified against live
+`wikidata.org` (no network access in this environment) — flagged for
+manual verification, same precedent as every prior QID/property addition
+in this backlog (S-036/S-037/S-043). No ADR added — confirmed this sits
+entirely inside ADR-0024's existing scope.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

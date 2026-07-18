@@ -165,6 +165,51 @@ if (args is ["import-player-name-index"])
     return;
 }
 
+// REQ-214 backfill (S-045): `dotnet run -- backfill-player-photos` is a
+// sixth distinct CLI verb — same shape as warm-player-cache above (builds
+// its dependencies directly rather than the full DI container, since it
+// runs before WebApplication.CreateBuilder), run manually via its own
+// workflow (backfill-player-photos.yml, workflow_dispatch only). See
+// PlayerPhotoBackfillService's own doc comment for the full "why a CLI
+// verb, not an HTTP endpoint or background task" reasoning — squarely
+// inside ADR-0024's existing decision, not a new one.
+if (args is ["backfill-player-photos"])
+{
+    var backfillConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var backfillConnectionString = backfillConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var backfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(backfillConnectionString)
+        .Options;
+
+    using var backfillLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
+    var backfillPlayerStoreRepository = new PlayerStoreRepository(backfillDbContext);
+
+    using var backfillHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(backfillHttpClient);
+    var backfillWikidataClient = new WikidataClient(
+        backfillHttpClient, logger: backfillLoggerFactory.CreateLogger<WikidataClient>());
+
+    var backfillService = new PlayerPhotoBackfillService(
+        backfillPlayerStoreRepository, backfillWikidataClient,
+        backfillLoggerFactory.CreateLogger<PlayerPhotoBackfillService>());
+
+    var backfillResult = await backfillService.BackfillAsync();
+
+    Console.WriteLine(
+        $"backfill-player-photos: complete — {backfillResult.BatchesProcessed} batch(es) processed, " +
+        $"{backfillResult.PlayersBackfilled} player(s) backfilled, {backfillResult.BatchesFailed} batch(es) failed.");
+    return;
+}
+
 // S-037: `dotnet run -- clean-stale-club-attributes "<comma-separated club names>"`
 // is a third distinct CLI verb — see StaleClubAttributeCleaner's own doc
 // comment for the full reasoning (why this exists, and why it's manual and

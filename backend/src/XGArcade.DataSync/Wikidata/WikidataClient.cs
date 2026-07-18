@@ -320,6 +320,110 @@ public partial class WikidataClient(
             .ToList();
     }
 
+    // REQ-214 backfill (S-045): batched, direct-by-QID photo lookup — see
+    // IWikidataClient's own doc comment for why this is a different query
+    // shape from the intersection queries above and why its error contract
+    // (throw, not swallow-to-empty) matches QueryPlayerPoolBirthYearAsync
+    // rather than them.
+    public async Task<IReadOnlyDictionary<string, string>> QueryPlayerPhotosByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (wikidataQids.Count == 0)
+            return new Dictionary<string, string>();
+
+        foreach (var qid in wikidataQids)
+        {
+            if (!QidPattern().IsMatch(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
+        }
+
+        var query = BuildPlayerPhotosByQidsQuery(wikidataQids);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        // Same throw-on-failure contract as QueryPlayerPoolBirthYearAsync
+        // (see that method's own comment) — the opposite of the
+        // intersection queries' swallow-to-[] contract, deliberately: this
+        // is a batch job whose success metric is a backfilled-row count, so
+        // a swallowed failure would be indistinguishable from "none of
+        // these QIDs have a photo."
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParsePhotoBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player-photo batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player-photo batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
+        }
+    }
+
+    // A VALUES clause over the batch, not a candidate-matching pattern —
+    // deliberately no male/date-of-birth/occupation filter here, unlike
+    // every other query in this file: every QID in the batch is already a
+    // real Player row this codebase itself created via the intersection
+    // queries (which DID apply those filters at the time), so re-filtering
+    // here would only risk a false negative if Wikidata's own P21/P569 data
+    // changed since. No LIMIT/ORDER BY/OFFSET, same bounded-query
+    // discipline as every other query here — the caller
+    // (PlayerPhotoBackfillService) is responsible for keeping each batch
+    // small (BatchSize = 200), not this method.
+    private static string BuildPlayerPhotosByQidsQuery(IReadOnlyList<string> qids)
+    {
+        var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?photo WHERE {
+              VALUES ?player { {{valuesClause}} }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+            }
+            """;
+    }
+
+    // Keyed by QID (not grouped/deduped the way ParseBindings's byQid
+    // dictionary is) — VALUES + OPTIONAL yields exactly one row per QID in
+    // the batch regardless of match, so there is no multi-row-per-player
+    // grouping concern here the way there is for the intersection queries'
+    // alias fetch. Still takes the first non-null value seen per QID (same
+    // defensive shape as ParseBindings/ParseNameIndexBindings) in case a
+    // player somehow has more than one P18 statement. A QID with no "photo"
+    // binding (no P18 statement) is simply absent from the result — never
+    // an error, never a placeholder entry.
+    private static IReadOnlyDictionary<string, string> ParsePhotoBindings(SparqlResponse? response)
+    {
+        var photoUrlsByQid = new Dictionary<string, string>();
+        if (response?.Results?.Bindings is null)
+            return photoUrlsByQid;
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+            if (!binding.TryGetValue("photo", out var photoValue) || string.IsNullOrWhiteSpace(photoValue.Value))
+                continue;
+
+            var qid = playerValue.Value.Split('/').Last();
+            photoUrlsByQid.TryAdd(qid, photoValue.Value);
+        }
+
+        return photoUrlsByQid;
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

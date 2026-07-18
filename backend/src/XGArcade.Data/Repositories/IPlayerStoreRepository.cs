@@ -63,4 +63,35 @@ public interface IPlayerStoreRepository
     // integrity row).
     Task<bool> HasEffectiveAttributeAsync(
         Guid playerId, string attributeType, string attributeValue, CancellationToken cancellationToken = default);
+
+    // REQ-214 backfill (S-045): PlayerPhotoBackfillService's read cursor.
+    // Every `Player` row created before REQ-214 shipped has PhotoUrl
+    // permanently NULL — WikidataLookupService.GetOrCreatePlayerAsync only
+    // ever sets it at row-creation time, never on a later lookup — so this
+    // is the query that finds the backlog. excludingPlayerIds accumulates
+    // every player ID the caller has already attempted THIS RUN (whether
+    // that attempt succeeded or failed) so repeated calls make guaranteed
+    // progress toward an empty result and the caller's loop terminates:
+    // Guid has no LINQ-translatable ordering operator to keyset-paginate
+    // on the way PlayerNameIndex's string-keyed queries can, and a plain
+    // Skip/Take here would silently skip untouched rows on the next page —
+    // each successfully-backfilled batch removes rows from this query's own
+    // WHERE PhotoUrl IS NULL filter, shrinking the underlying set between
+    // calls. Fine at Tier 0's player-pool scale (a few thousand rows);
+    // revisit if the pool grows enough that a SQL IN list of that size
+    // becomes a real cost. Never loads the whole table — bounded by
+    // batchSize per call.
+    Task<IReadOnlyList<Player>> GetPlayersMissingPhotoAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default);
+
+    // REQ-214 backfill (S-045): batch write, one SaveChangesAsync call for
+    // the whole dictionary — not one round-trip per player. Load-then-
+    // SaveChangesAsync (docs/coding-guidelines.md), never
+    // ExecuteUpdateAsync — the InMemory test provider can't translate it.
+    // A playerId with no matching row (already deleted, e.g. by
+    // purge-player-pool, between the read and this write) is silently
+    // skipped rather than throwing — this is a best-effort backfill of
+    // already-cached data, not a correctness-critical write.
+    Task UpdatePlayerPhotosAsync(
+        IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default);
 }

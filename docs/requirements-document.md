@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.62"
+version: "0.63"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -1272,6 +1272,19 @@ wording)
   and stays out of scope here exactly as it was for the S-032 `PhotoUrl`
   field that was built and then dropped from `PlayerNameIndex` — this
   requirement does not reintroduce that column or revisit that decision.
+- **Backfill addendum (S-045, 2026-07-18):** `Player.PhotoUrl` is only ever
+  set at the moment a `Player` row is first created
+  (`WikidataLookupService.GetOrCreatePlayerAsync`) — a row created by an
+  earlier `warm-player-cache` run, before this requirement's `P18` addition
+  shipped, has `PhotoUrl` permanently `NULL` with no other code path that
+  will ever revisit it, so this requirement's acceptance criteria ("a photo
+  shows … whenever one is available") were silently unmet for every
+  already-cached player. `PlayerPhotoBackfillService` (`XGArcade.DataSync`),
+  run via the `backfill-player-photos` CLI verb, closes that gap: batched,
+  idempotent, safe to re-run — see `implementation-document.md`'s CLI-verb
+  section for the full shape. Not a new requirement — this is implementation
+  detail supporting REQ-214's existing acceptance criteria for players that
+  predate it, not a new user-facing behavior.
   Club crests (`ClubCrest`, Tier 2) are also out of scope.
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
