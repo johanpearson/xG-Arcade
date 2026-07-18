@@ -306,8 +306,10 @@ is written as something you can actually observe, not a vague feeling:
   autocomplete UI never displayed it; that column stays gone, and
   `PlayerNameIndex`/autocomplete (REQ-207, ADR-0007) is untouched by this
   item. See REQ-214 for the acceptance criteria, including the
-  no-layout-change and no-broken-image-icon constraints. Not yet built —
-  backend/frontend implementation are separate, not-yet-delegated tasks.
+  no-layout-change and no-broken-image-icon constraints. **Built,
+  2026-07-18** (`docs/backlog.md` S-043 backend, S-044 frontend) — see
+  ADR-0028 for the `Player.PhotoUrl` (not `PlayerAttribute`) placement
+  decision made along the way.
 - ~~**Trophy category** (REQ-108, plus `CountryDefinition`/`ClubDefinition`'s
   full external-ID resolution, ADR-0012) — trigger: Country×Club has been
   played enough rounds that it feels repetitive, a subjective call but one

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.22"
+version: "0.23"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -770,13 +770,8 @@ Unchanged from v0.1:
   client-side same-session cache (`GridScreen`'s `knownPlayerNames`) is kept
   only as the immediate-feedback path, since `POST .../guesses`' own
   response still doesn't echo the name back.
-- **REQ-214's photo field name is still provisional.** The frontend half
-  landed (`CellState.tsx`'s photo-reveal avatar, SCREEN-01a note above)
-  ahead of the backend half confirming what the additive DTO field is
-  actually called — the frontend guessed `resolvedPlayerPhotoUrl` (mirroring
-  `resolvedPlayerName`'s own naming) on `CurrentRoundGuess`/
-  `SubmitGuessResponse` (`frontend/src/lib/types.ts`), typed optional so a
-  real response that omits it entirely still degrades safely to "no photo."
-  Whoever lands the real backend DTO should rename the frontend field to
-  match exactly (`GridCell.tsx`'s `photoUrl` prop threads straight through)
-  and remove this note along with the inline comments flagging it.
+- ~~REQ-214's photo field name is still provisional~~ — **resolved**: the
+  frontend's `resolvedPlayerPhotoUrl` guess (`CurrentRoundGuess`/
+  `SubmitGuessResponse`, `frontend/src/lib/types.ts`) was checked against
+  the backend's `ResolvedPlayerPhotoUrl` once it landed and matches
+  exactly under the default camelCase JSON policy — no rename needed.

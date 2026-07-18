@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `architecture-document.md` (v0.37), `docs/decisions/0028-*.md`
+  (new) — added ADR-0028, formalizing REQ-214's `Player.PhotoUrl` (not
+  `PlayerAttribute`) placement decision per `architecture-reviewer`'s
+  quality-gate ruling: single-valued Wikidata properties belong on `Player`
+  going forward, with the accepted trade-off spelled out explicitly (no
+  `PlayerOverride` correction path for `Player`-level fields, acceptable
+  here only because a photo carries no correctness weight) — REQ-214,
+  COMP-06
 - 2026-07-18 — `requirements-document.md`, `backlog.md`, `design-document.md`
   — REQ-214 (photo reveal on a locked, correct cell) frontend half (S-044),
   landed in parallel with the backend half (S-043): `CellState.tsx`/

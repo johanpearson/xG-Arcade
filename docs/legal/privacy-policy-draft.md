@@ -1,7 +1,7 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.5"
+version: "0.6"
 status: draft — NOT LEGALLY REVIEWED
 last_updated: 2026-07-18
 ---
@@ -61,11 +61,9 @@ last_updated: 2026-07-18
   directly from Wikimedia's own CDN (`commons.wikimedia.org`), the same
   third-party-CDN exposure as Google Fonts above (your IP address and
   browser details, nothing else). We store and serve only the image's
-  URL, never the image file itself. This feature's backend half shipped
-  2026-07-18 (`docs/backlog.md` S-043); the frontend half that actually
-  triggers this browser request had not shipped as of that date — this
-  entry is written ahead of that so the disclosure isn't left to drift out
-  of sync once it does.
+  URL, never the image file itself. Shipped 2026-07-18 (`docs/backlog.md`
+  S-043 backend, S-044 frontend) — this browser request is live whenever a
+  solved cell with a photo is revealed.
 - We do not sell your data to anyone, for any reason.
 
 ## How long we keep it

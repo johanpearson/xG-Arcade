@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.36"
+version: "0.37"
 status: draft
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -880,6 +880,7 @@ new ADR that references the old one.
 | ADR-0025 | Player pool restricted to male footballers born in 1939 or later | Accepted |
 | ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 | ADR-0027 | Configuration-bound `RoundDuration` + daily safety-poll cron (replaces the Tue+Fri cadence's hand-matched coupling) | Accepted |
+| ADR-0028 | Single-valued Wikidata properties (e.g. a player's photo) live on `Player`, not `PlayerAttribute` | Accepted |
 
 ## 11. Glossary
 
