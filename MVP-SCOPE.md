@@ -294,6 +294,20 @@ is written as something you can actually observe, not a vague feeling:
 - **Disambiguation UI** (REQ-209) — trigger: you actually observe two real
   players with the same normalized name both satisfying one cell (log this
   case even in the simplified Tier 0 handling, so you'd notice if it happened)
+- **Player photo on cell reveal** (REQ-214) — **Pulled forward by
+  deliberate choice, 2026-07-18.** No trigger fired — there was no observed
+  complaint or pain point; this was pulled forward because the idea was
+  raised directly and judged worth doing now, recorded plainly rather than
+  dressed up as a discovered need. Reads Wikidata's `P18` (image) through
+  the correctness-side query REQ-101/102 already run and cache
+  (`Player`/`PlayerAttribute`, COMP-06) — explicitly not a repeat of the
+  `PlayerNameIndex.PhotoUrl` field built in S-032 and dropped 2026-07-18
+  (`RemovePlayerNameIndexPhotoUrl` migration) once it turned out the
+  autocomplete UI never displayed it; that column stays gone, and
+  `PlayerNameIndex`/autocomplete (REQ-207, ADR-0007) is untouched by this
+  item. See REQ-214 for the acceptance criteria, including the
+  no-layout-change and no-broken-image-icon constraints. Not yet built —
+  backend/frontend implementation are separate, not-yet-delegated tasks.
 - ~~**Trophy category** (REQ-108, plus `CountryDefinition`/`ClubDefinition`'s
   full external-ID resolution, ADR-0012) — trigger: Country×Club has been
   played enough rounds that it feels repetitive, a subjective call but one
