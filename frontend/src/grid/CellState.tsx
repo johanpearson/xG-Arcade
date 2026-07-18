@@ -14,13 +14,15 @@ export interface CellStateProps {
   // as-typed text. Falls back to a plain, non-fabricated label if somehow
   // absent for a correct guess, rather than inventing a name.
   playerName?: string;
-  // REQ-214: a nullable Wikidata photo URL for the resolved player, shown
-  // alongside `playerName` once revealed — see the CurrentRoundGuess type's
-  // own doc comment for the confirmed backend field this maps to. `undefined`
-  // (field never sent), `null` (backend confirmed no photo exists), and a
-  // same-session image load failure are all treated identically: fall back
-  // to exactly today's text-only reveal, no broken-image icon, no error
-  // state. Only ever meaningful for a correct guess, same as playerName.
+  // REQ-214 (2026-07-18 status note): a nullable Wikidata photo URL for the
+  // resolved player, shown automatically at rest, filling the cell —
+  // independent of `revealed` below, unlike playerName. See the
+  // CurrentRoundGuess type's own doc comment for the confirmed backend
+  // field this maps to. `undefined` (field never sent), `null` (backend
+  // confirmed no photo exists), and a same-session image load failure are
+  // all treated identically: fall back to exactly today's text-only,
+  // no-photo at-rest display, no broken-image icon, no error state. Only
+  // ever meaningful for a correct guess, same as playerName.
   photoUrl?: string | null;
   isCorrect: boolean;
   attemptCount: number;
@@ -168,6 +170,16 @@ export function CellState({
   const name = playerName ?? 'Guess submitted';
   const revealToken = useRevealToken(revealed);
   const shakeToken = useShakeToken(attemptCount, isCorrect, submittedThisSession);
+  // REQ-214 (2026-07-18 status note): whether the photo layer is currently
+  // showing — true whenever a photoUrl was given and hasn't failed to load
+  // this session, false otherwise (missing/null field, or a load failure
+  // already observed). Deliberately NOT gated by `revealed` — that's the
+  // whole point of this status note superseding the original click-gated
+  // shipped version. Hoisted to this top level (rather than living inside
+  // Row/a nested component the way the old 18px-avatar version did) because
+  // the photo is now rendered whether or not the cell is revealed, so its
+  // failure state needs to survive independently of the reveal toggle.
+  const [photoFailed, setPhotoFailed] = useState(false);
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -180,19 +192,39 @@ export function CellState({
   // points value is shown.
   if (isCorrect) {
     const points = roundStatus === 'closed' ? finalPoints : livePoints;
-    return (
-      // key={revealToken}: forces a remount (not just a class toggle) so
-      // the badge-dock slide-in restarts on every reveal, even a second
-      // reveal after the player closed and reopened it (same className
-      // string both times, which a mere re-render wouldn't restart).
-      <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
-        <Row
-          name={revealed ? name : undefined}
-          photoUrl={revealed ? photoUrl : undefined}
-          correct
-          badges={revealed ? badges : undefined}
-        />
+    const hasPhoto = Boolean(photoUrl) && !photoFailed;
+
+    // The name/badge dock stays gated by `revealed` (REQ-212, unchanged) —
+    // only the photo's own visibility (handled below) was decoupled from it.
+    const overlayContent = (
+      <>
+        <Row name={revealed ? name : undefined} correct badges={revealed ? badges : undefined} />
         {points != null && <p className="cell-state__meta mono-figure">{points} pts</p>}
+      </>
+    );
+
+    if (hasPhoto) {
+      return (
+        // key={revealToken}: forces a remount (not just a class toggle) so
+        // the badge-dock slide-in restarts on every reveal, even a second
+        // reveal after the player closed and reopened it (same className
+        // string both times, which a mere re-render wouldn't restart). The
+        // photo layer itself is unaffected by this remount — it isn't
+        // driven by revealToken at all, so it doesn't flicker/reload just
+        // because the name was toggled.
+        <div
+          key={revealToken}
+          className={`cell-state cell-state--correct cell-state--photo ${revealed ? 'cell-state--reveal' : ''}`}
+        >
+          <CellPhoto src={photoUrl as string} onError={() => setPhotoFailed(true)} />
+          <div className="cell-state__overlay">{overlayContent}</div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
+        {overlayContent}
       </div>
     );
   }
@@ -242,16 +274,15 @@ export function CellState({
 
 function Row({
   name,
-  photoUrl,
   correct,
   badges,
 }: {
   // Absent for an incorrect guess (states 2/3) — no name is shown at all,
-  // only that the guess was wrong.
+  // only that the guess was wrong. Also absent for a correct-but-unrevealed
+  // cell (REQ-212) — unaffected by whether a photo (REQ-214) is showing,
+  // since the caller no longer threads photo data through this component at
+  // all (see CellPhoto below, rendered by CellState directly).
   name?: string;
-  // REQ-214: only ever rendered alongside a present `name` (see the
-  // `name &&` guard below) — never shown on its own.
-  photoUrl?: string | null;
   correct: boolean;
   badges?: { row: CategoryRef; col: CategoryRef };
 }) {
@@ -266,12 +297,7 @@ function Row({
           <CategoryGlyph categoryType={badges.row.categoryType} value={badges.row.value} size="small" />
         </span>
       )}
-      {name && (
-        <span className="cell-state__name-group">
-          <PlayerAvatar src={photoUrl} />
-          <span className="cell-state__name">{name}</span>
-        </span>
-      )}
+      {name && <span className="cell-state__name">{name}</span>}
       {badges && (
         <span
           className="cell-state__badge-dock cell-state__badge-dock--col"
@@ -291,28 +317,25 @@ function Row({
   );
 }
 
-// REQ-214: a fixed-size circular avatar slot, sized to match the badge
-// dock's own "small" glyph (design-document.md §2/SCREEN-02's small-avatar
-// precedent — no dedicated avatar token exists yet, so this reuses the
-// nearest already-verified-safe size rather than inventing one) so a photo
-// can never grow the cell beyond the footprint the row already reserves for
-// its badges. Renders nothing at all — not a placeholder box, not a
-// broken-image icon, not a loading state — for every "no photo" case: `src`
-// missing/null (no photo field, or backend confirmed none exists) and a
-// same-session image load failure both collapse to the identical "render
-// nothing" branch, so the reveal falls back to exactly today's text-only
-// presentation either way (REQ-214's explicit acceptance criterion).
-// Decorative only (`alt=""`, `aria-hidden`) — the adjacent name text is
-// already the accessible identifier, same pairing rule §6 applies to the
-// flag/badge glyphs above.
-function PlayerAvatar({ src }: { src?: string | null }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!src || failed) return null;
-
-  return (
-    <span className="cell-state__avatar">
-      <img src={src} alt="" aria-hidden="true" onError={() => setFailed(true)} />
-    </span>
-  );
+// REQ-214 (2026-07-18 status note): the resolved player's photo, filling
+// the cell's full footprint at rest — superseding the prior shipped version
+// (PR #79), which rendered a small 18px circular avatar nested inside the
+// revealed name row via a component then called `PlayerAvatar`. That name
+// and shape are both gone: this now renders full-bleed via
+// `.cell-state__photo-img` (absolutely positioned by CellState.css,
+// deliberately outside `.grid-cell`'s own padding box — see that
+// stylesheet's comment for why that's the mechanism that keeps the cell's
+// footprint fixed regardless of the photo, the same guarantee the old
+// fixed-18px-box used to provide a different way). Renders unconditionally
+// once mounted (CellState only mounts this when `hasPhoto` is true, i.e. a
+// src was given and hasn't failed to load this session yet) — this
+// component's own `onError` is what flips that state back to false one
+// level up, causing CellState to fall back to exactly today's no-photo,
+// no-scrim at-rest display on the next render, no broken-image icon ever
+// shown in between. Decorative only (`alt=""`, `aria-hidden`) — the
+// checkmark/points (and name, once revealed) overlaid on top already carry
+// the accessible content, same pairing rule §6 applies to the flag/badge
+// glyphs elsewhere in this file.
+function CellPhoto({ src, onError }: { src: string; onError: () => void }) {
+  return <img className="cell-state__photo-img" src={src} alt="" aria-hidden="true" onError={onError} />;
 }

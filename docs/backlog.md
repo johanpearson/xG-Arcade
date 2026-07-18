@@ -1935,6 +1935,86 @@ warning logged, exit 0) instead of crashing. Both `architecture-reviewer`
 and `quality-architect` reviewed the fix clean, no blocking findings — see
 `docs/CHANGELOG.md` and `NOTES.md`'s 2026-07-18 entries for the fix.
 
+**S-046 · Decouple the photo from REQ-212's click/tap reveal — photo shows at rest (REQ-214)**
+Direct product feedback on S-044's shipped result (PR #79, same-day): the
+user asked, right after seeing the click-gated 18px avatar live, for the
+photo to show automatically the instant a cell locks correct, filling the
+cell, with no click/tap needed — REQ-212's reveal toggle should keep
+governing only the name/badge dock, independently.
+*Accept:* a correct, locked cell's photo (when the resolved player has one)
+fills the cell at rest, no click/tap required; REQ-212's click/tap toggle
+continues to reveal/hide only the name and badge dock, on top of the photo
+when present, and no longer gates the photo at all; checkmark/points stay
+overlaid on the photo (legible against it, not just against a plain
+background); cell footprint identical whether or not a photo is shown, now
+checked at rest rather than only on reveal; no-photo cells and the
+incorrect-guess case are both fully unaffected.
+**Design-doc gap closed as part of this story (not left for a follow-up):**
+`design-document.md`'s REQ-214 status note explicitly flagged that §2 had
+no overlay/scrim token for text-or-icon-on-photo contrast, and asked
+whoever implemented this to add a real token rather than leaving
+`CellState.css` with a bare `rgba()` value. Added `overlay-scrim`
+(`rgba(26, 31, 28, 0.94)` — same hue as `text-primary`, 94% opacity chosen
+so a worst-case pure-white photo showing through the remaining 6% still
+can't push the effective backdrop light enough to fail contrast; measured
+~5.5:1 in that worst case, well over the 4.5:1 floor). Documented, and
+initially missed a second consequence of the same math: the darkened
+`accent-gold-text`/near-black `text-primary` pairing this document uses
+everywhere else is calibrated for a *light* (`surface-card`/white)
+background, and both fail contrast on this new *dark* one — the lighter,
+undarkened `accent-gold` is what actually clears 4.5:1 here (reused
+directly, no new token needed for the checkmark/points), and the revealed
+name (no correct/incorrect color of its own) needed `surface-card`/white
+instead of `text-primary`. The `accent-gold` half was caught by contrast
+math up front; the name's `text-primary`-is-illegible-here half was only
+caught by this story's own required real-browser verification (a data-URI
+test photo, since this sandbox has no network path to Wikidata to exercise
+the real live-lookup) — flagged explicitly here rather than treated as a
+minor fix, since it's exactly the kind of gap contrast math alone can miss.
+**Built as:** the old `PlayerAvatar` subcomponent (S-044, 18px circle
+nested inside the revealed name row, gated by `revealed`) is gone —
+replaced by `CellPhoto` (`.cell-state__photo-img`), rendered by
+`CellState` itself whenever `photoUrl` is present and hasn't failed to
+load this session, entirely independent of `revealed`. Mechanically, the
+photo layer (`.cell-state--photo`) is taken out of `.cell-state`'s normal
+flex flow via `position: absolute; inset: 0`, positioned against
+`.grid-cell`'s padding edge (`Grid.css` gained `position: relative` on
+`.grid-cell` as the positioning context) — deliberately ignoring that
+button's own padding so the photo bleeds to the cell's actual corners
+(`border-radius: inherit` + `overflow: hidden` clip it to match). A
+`.cell-state__overlay` band (the `overlay-scrim` background) sits above the
+photo via `z-index`, holding the same `Row`/points markup the no-photo case
+uses unchanged — `Row` no longer takes a `photoUrl` prop at all. The
+CSS-cascade-tie note from S-013's darkened-token additions applies again
+here: the new `.cell-state--photo` color overrides are placed *after* the
+existing `.cell-state--correct`/`.cell-state__icon--correct` rules in
+`CellState.css` specifically so they win the same-specificity tie, not by
+being more specific.
+Tests: `REQ-214`-tagged, `CellState.test.tsx`'s photo-reveal describe block
+rewritten (photo shows at rest with no click; reveal adds the name without
+touching the photo; hiding again leaves the photo showing; no-photo/null/
+load-failure cases re-verified byte-for-byte unaffected; the
+`accent-gold`/`surface-card` on-scrim color pairing verified against the
+no-photo case's `accent-gold-text`/`text-primary`; declared-CSS mechanism
+tests — `position: absolute`, `inset: 0`, `object-fit: cover` — replacing
+the old fixed-18px-slot assertions, same "check the layout-affecting
+properties, not a snapshot" reasoning as before, since jsdom still has no
+real layout engine) and `GridCell.test.tsx` (photo shows immediately after
+lock, before any click; reveal/hide toggles the name only). E2E
+(`tests/e2e/play-grid.spec.ts`): the dimension-invariance bounding-box
+check now runs right after the cell locks (the new at-rest photo moment)
+in addition to after the reveal click, both against a real Chromium via
+Playwright. Full Vitest suite (116 tests) and full Playwright E2E suite (4
+tests) both run for real in this environment (Postgres installed directly,
+API started with `Auth__Mode=local-e2e`) — all green. Real-browser
+verification of the photo-filled cell was done directly (a locally
+generated data-URI test image set on a seeded player row, since this
+sandbox's outbound network has no path to Wikidata) rather than only
+trusted to automated assertions, per this story's own visual-change
+verification requirement — confirmed the photo fills the cell edge-to-edge,
+the scrim band stays legible under the checkmark/points/name in both the
+at-rest and revealed states, and the no-photo case is visually unchanged.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

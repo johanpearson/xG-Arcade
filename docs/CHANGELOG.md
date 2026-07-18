@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `design-document.md` (v0.25), `backlog.md` (S-046) —
+  implemented REQ-214's
+  photo-decoupled-from-reveal status note (frontend half, same day as the
+  requirements-doc revision): `CellState.tsx`/`CellState.css` now show a
+  correct cell's photo automatically at rest, filling the cell, independent
+  of REQ-212's click/tap reveal (which continues to gate only the name/badge
+  dock). Closed the open gap the requirements revision flagged — §2 had no
+  overlay/scrim token for text-or-icon-on-photo contrast — by adding
+  `overlay-scrim` (`rgba(26, 31, 28, 0.94)`, verified against a worst-case
+  pure-white photo showing through), and documented that on this dark
+  backdrop the *lighter* `accent-gold`/`surface-card` tokens (not the
+  darkened `accent-gold-text`/near-black `text-primary` used everywhere else
+  in this document) are the ones that actually clear the contrast floor —
+  the `surface-card`-for-the-revealed-name half of that was found only via
+  this session's own required real-browser verification (name was
+  illegible against the scrim with `text-primary`), not the initial
+  contrast-math pass, which only covered the checkmark/points explicitly
+  named in REQ-214's acceptance criteria. §7's matching open question marked
+  resolved. Also renamed the old `.cell-state__avatar` 18px-circle class to
+  `.cell-state__photo-img` (full-cell-bleed, absolutely positioned against
+  `.grid-cell`'s padding edge so it ignores that button's own padding and
+  fills to its actual corners) — `Grid.css`'s `.grid-cell` gained
+  `position: relative` as the positioning context this needs.
+  `CellState.test.tsx`/`GridCell.test.tsx`'s REQ-214 blocks rewritten for
+  the new independent-of-`revealed` behavior (photo-at-rest-without-a-click,
+  reveal-adds-name-without-touching-photo, hide-again-photo-stays,
+  no-photo/null/load-failure cases re-verified unaffected, declared-CSS
+  mechanism tests replacing the old fixed-18px-slot ones);
+  `tests/e2e/play-grid.spec.ts`'s dimension-invariance check now captures
+  the cell's box right after lock (the new at-rest photo moment) in
+  addition to after reveal. Full Vitest suite (116 tests) and full
+  Playwright E2E suite (4 tests, real Postgres + real Chromium) both green;
+  real-browser check of the photo-filled cell (data-URI test photo, since
+  this sandbox has no network path to Wikidata) confirmed visually — REQ-214
 - 2026-07-18 — `docs/backlog.md` — added an addendum to S-045's entry
   covering the malformed-QID crash and fix below (`quality-architect`
   flagged the entry as reading like the story shipped clean when it

@@ -250,7 +250,38 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
     await expect(cell).toBeEnabled()
 
-    // REQ-212: clicking the cell reveals the guessed player's name.
+    // REQ-214 (2026-07-18 status note): both guesses above missed cache (the
+    // seed only provides 2 candidate players, under
+    // GridGenerationOptions.MinValidAnswers's threshold of 5), so each paid
+    // ADR-0018's live-lookup cost via
+    // GridGameModule.RefreshCellFromLiveLookupAsync — REQ-211's Tier-0
+    // fallback, which has no PlayerNameIndex gate yet and runs on any
+    // cache-miss guess. That live lookup also fetches Wikidata's P18
+    // (photo) as part of the same query. In a networked CI environment the
+    // seed's real player names can resolve to a real, photo-bearing
+    // Wikidata record, so whether a photo actually renders here is
+    // genuinely non-deterministic (confirmed against real CI logs, not a
+    // flake) — this suite can't assert its presence or absence either way.
+    // What REQ-214 actually promises, and what holds regardless of a photo
+    // being found, is that the cell's footprint never changes because of
+    // it (CellState.test.tsx's declared-CSS-mechanism tests cover the
+    // equivalent deterministic, unit-level check). So instead of asserting
+    // on '.cell-state__photo-img' (the now full-cell-bleed photo layer —
+    // renamed from the old '.cell-state__avatar' 18px circle this comment
+    // used to reference, since the photo no longer lives inside the
+    // revealed-name markup at all, or depends on it being revealed) here,
+    // capture the cell's box right after the lock above — this is now the
+    // moment a photo, if one is found, would already be showing, unlike
+    // before this status note when it only ever appeared on reveal — let
+    // the network settle (covers an in-flight photo finishing its load),
+    // and confirm the box didn't move.
+    const lockedBox = await cell.boundingBox()
+    await page.waitForLoadState('networkidle')
+    const settledLockedBox = await cell.boundingBox()
+    expect(settledLockedBox).toEqual(lockedBox)
+
+    // REQ-212: clicking the cell reveals the guessed player's name — this is
+    // unaffected by whether a photo happens to be showing underneath it.
     await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).toBeVisible()
 
@@ -268,31 +299,20 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
     await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
 
-    // REQ-214: both guesses above missed cache (the seed only provides 2
-    // candidate players, under GridGenerationOptions.MinValidAnswers's
-    // threshold of 5), so each paid ADR-0018's live-lookup cost via
-    // GridGameModule.RefreshCellFromLiveLookupAsync — REQ-211's Tier-0
-    // fallback, which has no PlayerNameIndex gate yet and runs on any
-    // cache-miss guess. That live lookup now also fetches Wikidata's P18
-    // (photo) as part of the same query. In a networked CI environment the
-    // seed's real player names can resolve to a real, photo-bearing
-    // Wikidata record, so whether an avatar actually renders here is
-    // genuinely non-deterministic (confirmed against real CI logs, not a
-    // flake) — this suite can't assert its presence or absence either way.
-    // What REQ-214 actually promises, and what holds regardless of a photo
-    // being found, is that the cell's footprint never changes because of
-    // it (CellState.test.tsx's "fixed slot" test covers the equivalent
-    // deterministic, unit-level check). So instead of asserting on
-    // '.cell-state__avatar' at all, capture the cell's box right after the
-    // reveal click, let the network settle (covers an in-flight photo
-    // finishing its load, if one was found), and confirm the box didn't
-    // move — true whether or not a photo showed up this run.
+    // REQ-214: revealing the name (which, unlike the photo, IS gated by
+    // REQ-212's click/tap toggle, and adds the scrim-backed overlay content
+    // on top of any at-rest photo) must also never change the cell's
+    // footprint — same guarantee as the at-rest check above, re-verified
+    // here since this is a second, independent moment new content (the
+    // name/badge dock) gets layered on top of whatever was already showing.
     const revealedBox = await cell.boundingBox()
     await page.waitForLoadState('networkidle')
-    const settledBox = await cell.boundingBox()
-    expect(settledBox).toEqual(revealedBox)
+    const settledRevealedBox = await cell.boundingBox()
+    expect(settledRevealedBox).toEqual(revealedBox)
 
-    // Clicking again hides the name/badges (a toggle, not a one-way reveal).
+    // Clicking again hides the name/badges (a toggle, not a one-way reveal)
+    // — a photo, if one was found, is unaffected either way; there's no
+    // assertion on it directly, per the non-determinism note above.
     await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
   })
