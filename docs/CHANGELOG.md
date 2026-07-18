@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `coding-guidelines.md` (v0.5) — new error-handling
+  guideline: swallow-to-empty external-client contracts are only valid
+  where failure and no-data must be treated identically (interactive
+  REQ-103-style paths); batch jobs whose success metric is the row count
+  must throw. Promoted from the S-032 `import-player-name-index`
+  silent-exit-0 incident (NOTES.md 2026-07-18), per the doc's own
+  "recurring review comment becomes a guideline" trigger — REQ-207
 - 2026-07-18 — `implementation-document.md`, `requirements-document.md`,
   `backlog.md`, `MVP-SCOPE.md`, `NOTES.md` — S-032 bug follow-up:
   `import-player-name-index`
