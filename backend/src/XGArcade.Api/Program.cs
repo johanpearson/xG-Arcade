@@ -132,20 +132,30 @@ if (args is ["import-player-name-index"])
 
     using var importHttpClient = new HttpClient();
     ConfigureWikidataHttpClient(importHttpClient);
-    // Longer than WikidataClient's 15s default (ADR-0011, tuned for the
-    // narrow per-cell country/club intersection queries): the unfiltered
-    // player-pool page query this importer issues has no club/country
-    // filter at all, so it's a much heavier WDQS query than anything
-    // ADR-0011's 9-27s evidence covers. This is a manually-triggered batch
-    // job with no request-latency constraint (PlayerNameIndexImporter's own
-    // doc comment already expects the whole run to take far longer than an
-    // HTTP request would tolerate), so there's no cost to waiting longer
-    // per page before treating it as an empty/failed page.
+    // 60s, deliberately kept after the 2026-07-18 birth-year-slicing fix
+    // (NOTES.md): WDQS enforces its own hard ~60s SERVER-side timeout, so a
+    // client timeout above 60s can never help — 60s means this client only
+    // gives up when WDQS itself would. The bounded one-year slice queries
+    // normally answer well inside WikidataClient's 15s default (ADR-0011,
+    // tuned for the per-cell intersection queries), but the densest recent
+    // birth years return tens of thousands of label-joined rows and this is
+    // a manually-triggered batch job with no request-latency constraint —
+    // waiting the full server budget per slice costs nothing, while a
+    // too-tight client timeout would spuriously fail slices the server was
+    // still going to answer. Do NOT raise this above 60s: the server cap
+    // binds first, so a larger number is pure self-deception (that mistake
+    // was already made once — see NOTES.md's 2026-07-17/18 entries).
     var importWikidataClient = new WikidataClient(
         importHttpClient,
         queryTimeout: TimeSpan.FromSeconds(60),
         logger: importLoggerFactory.CreateLogger<WikidataClient>());
 
+    // No timeProvider/retryBackoff overrides: TimeProvider.System bounds the
+    // year range (fine for a CLI job) and the default retry backoff applies.
+    // ImportAsync THROWS if any birth-year slice fails all its retries —
+    // deliberately unhandled here so the process exits nonzero and the
+    // import-player-name-index.yml run goes red instead of "exit 0,
+    // imported 0" (the 2026-07-18 incident).
     var importer = new PlayerNameIndexImporter(
         importWikidataClient, importRepository, importLoggerFactory.CreateLogger<PlayerNameIndexImporter>());
 

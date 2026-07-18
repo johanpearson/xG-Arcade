@@ -9,9 +9,13 @@ name: import-player-name-index
 # A plain CLI job (`dotnet run -- import-player-name-index`), not an HTTP
 # endpoint against the deployed backend — same "long-running bulk job is a
 # CLI verb, never a fire-and-forget background task or a long HTTP endpoint"
-# reasoning as warm-player-cache.yml (ADR-0024): this query pages through
-# many thousands of rows (5,000 at a time) and can run far longer than the
-# deployed backend's ~240s HTTP ingress timeout allows.
+# reasoning as warm-player-cache.yml (ADR-0024): the import runs one bounded
+# Wikidata query per birth year (1939 → current year, ~90 queries with
+# per-slice retries) and can run far longer than the deployed backend's
+# ~240s HTTP ingress timeout allows. Fail-loud contract (2026-07-18): if any
+# birth-year slice still fails after its retries, the verb exits nonzero and
+# this run goes red — a red run means "re-run the job" (it's idempotent),
+# NOT "raise a timeout"; see NOTES.md's 2026-07-17/18 entries.
 #
 # Manual trigger only, no recurring schedule — ADR-0007's own follow-up note
 # says start with a manual/periodic refresh and tighten only if names are

@@ -30,7 +30,7 @@ public class PlayerNameIndexRepositoryTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
-    private static PlayerNameIndex BuildEntry(string primaryName, int? birthYear = null, string? nationality = null, string? photoUrl = null) =>
+    private static PlayerNameIndex BuildEntry(string primaryName, int? birthYear = null, string? nationality = null) =>
         new()
         {
             PlayerId = Guid.NewGuid(),
@@ -38,7 +38,6 @@ public class PlayerNameIndexRepositoryTests
             NormalizedName = PlayerNameNormalizer.Normalize(primaryName),
             BirthYear = birthYear,
             PrimaryNationality = nationality,
-            PhotoUrl = photoUrl,
         };
 
     [Test]

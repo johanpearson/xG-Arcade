@@ -274,8 +274,11 @@ is written as something you can actually observe, not a vague feeling:
   choice, 2026-07-12, and built, 2026-07-17 (`docs/backlog.md` S-032).**
   The trigger itself never strictly fired (no unprompted complaint was
   ever observed) — building it now was chosen anyway. `PlayerNameIndex`
-  (COMP-10) is populated via `PlayerNameIndexImporter`'s bulk, paginated
-  Wikidata query (`P106` = association football player), run through the
+  (COMP-10) is populated via `PlayerNameIndexImporter`'s bulk,
+  birth-year-sliced Wikidata query (`P106` = association football player;
+  originally `LIMIT`/`OFFSET`-paged, replaced 2026-07-18 after every page
+  timed out server-side in production — `implementation-document.md` §6a,
+  NOTES.md 2026-07-18), run through the
   `import-player-name-index` CLI verb/workflow, `workflow_dispatch`-only,
   no schedule yet — exactly the mechanism ADR-0007 already specified, no
   new ADR needed, this is that ADR's own design being built. `GET

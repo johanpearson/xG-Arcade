@@ -830,7 +830,7 @@ and a manual `import-player-name-index` run completed (exit 0) with it
 present. Don't be alarmed by it; revisit once Npgsql publishes a
 10.0.10-tracking patch (should make the warning disappear on its own), and
 only chase it earlier if something actually breaks. **Unrelated** to the
-`import-player-name-index` timeout entry below — that job's 0-rows outcome
+`import-player-name-index` timeout entries below — that job's 0-rows outcome
 was a separate pre-existing issue that just happened to surface in the
 same log, not caused by this warning.
 
@@ -851,3 +851,34 @@ client ADR-0011 governs, so the interactive guess-time/grid-generation
 paths keep their 15s default unchanged). If 60s still isn't enough, the
 next step is checking whether WDQS's own server-side timeout (~60s) is the
 real ceiling, not just raising the client-side number further.
+
+**Superseded by the 2026-07-18 entry below — the 60s bump did not and
+could not fix it.**
+
+### 2026-07-18 — `import-player-name-index` 0-rows root cause: WDQS's ~60s SERVER-side cap; `ORDER BY` over the whole pool was the real cost — never "fix" this by raising a client timeout
+The 60s client timeout above changed nothing: every player-pool page query
+still timed out, because the binding limit was never the client's. WDQS
+enforces a hard ~60-second **server-side** query timeout that no
+client-side setting can raise, and the paged query's inner
+`SELECT DISTINCT ?player ... ORDER BY ?player LIMIT 5000 OFFSET n` forced
+WDQS to materialize and sort the ENTIRE unfiltered male-footballer pool
+(hundreds of thousands of items) on every single page request — so every
+page blew the server cap, `QueryPlayerPoolPageAsync`'s swallow-to-`[]`
+contract turned the timeout into a phantom empty page, the importer read
+it as end-of-data, and the job exited 0 having imported nothing. (The
+S-032 quality review had flagged exactly this empty-page/failure ambiguity;
+it was the 100% case, not an edge case.) Fixed 2026-07-18 by replacing
+OFFSET pagination with birth-year slicing — one bounded one-year `P569`
+window per query (1939 → current year), no `ORDER BY`/`LIMIT`/`OFFSET`,
+same size class as the intersection queries that work fine — plus a
+fail-loud contract: the slice method throws `WikidataQueryException` on
+failure (empty year ≠ failure), the importer retries a slice up to 3 times
+and fails the whole run (red workflow) if any slice still fails.
+Two lessons worth keeping: (1) if a WDQS query times out at ~60s, the
+query shape is the problem — bumping any client timeout past 60s is
+self-deception because the server cap binds first; (2) a "never throws,
+returns empty" client contract is wrong for a bulk job whose success
+metric IS the row count — that contract belongs only to the interactive
+intersection queries, where REQ-103 genuinely wants failure to look like
+no-match. `PhotoUrl`/P18 was dropped in the same fix (nothing ever read
+it; `RemovePlayerNameIndexPhotoUrl` migration).

@@ -919,6 +919,33 @@ migrations add`, not hand-written. New Wikidata QIDs: none — this story
 reuses `Q937857`/`Q6581097` (already in use elsewhere in `WikidataClient`),
 no new QID introduced.
 
+**Bug follow-up (2026-07-18): the pagination strategy above was wrong in
+production — replaced with birth-year slicing + fail-loud.** Every real
+run of `import-player-name-index.yml` upserted 0 rows and exited 0: the
+paged query's `ORDER BY ?player` over the entire unfiltered pool forced
+WDQS to sort hundreds of thousands of items per page, hitting WDQS's hard
+~60s *server-side* timeout on every page (PR #77's 60s client-timeout bump
+couldn't help — the server cap binds first), and the swallow-to-`[]`
+client contract made the importer read the first timed-out page as
+end-of-data. The S-032 quality review's "silent truncation ambiguity"
+finding turned out to be the 100% case. Fix:
+`WikidataClient.QueryPlayerPoolBirthYearAsync` replaces
+`QueryPlayerPoolPageAsync` — one bounded one-year `P569`-window query per
+birth year (1939 → current year, no `ORDER BY`/`LIMIT`/`OFFSET`/subquery),
+throwing `WikidataQueryException` on failure so an empty year is
+distinguishable from a failed query; `PlayerNameIndexImporter` iterates
+the years, retries a failed slice (3 attempts, backoff), finishes the
+remaining years, then throws (red workflow) if any slice failed — the
+"partial import is an accepted trade-off" paragraph is reversed. `P18`
+photo fetching and the `PhotoUrl` column were dropped
+(`RemovePlayerNameIndexPhotoUrl` migration) — the autocomplete contract
+never exposed a photo. The intersection queries' never-throw contract and
+the autocomplete endpoint/repository are untouched. Backend suite after
+the change: 365/365 across all five test projects. See
+`implementation-document.md` §6a and NOTES.md 2026-07-18; recorded as a
+bug fix within COMP-07's existing responsibility, no ADR (same precedent
+as S-042's truthy-P54 fix).
+
 **S-033 · Show point value on the "incorrect, no attempts left" cell state (REQ-204)**
 Frontend-only gap, flagged and left unfixed three times (originally around
 S-011, again at S-028): `CellState.tsx`'s state 3 (SCREEN-01a's "Incorrect,

@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `implementation-document.md`, `requirements-document.md`,
+  `backlog.md`, `MVP-SCOPE.md`, `NOTES.md` — S-032 bug follow-up:
+  `import-player-name-index`
+  imported 0 rows in production because the player-pool query's
+  `ORDER BY`/`OFFSET` pagination hit WDQS's hard ~60s server-side timeout
+  on every page and the swallowed timeout read as end-of-data. Replaced
+  with birth-year slicing (`QueryPlayerPoolBirthYearAsync`, 1939 → current
+  year, no `ORDER BY`/`LIMIT`/`OFFSET`) plus a fail-loud contract
+  (`WikidataQueryException`, per-slice retries, run fails red if any slice
+  fails); dropped the never-read `PhotoUrl` column/P18 fetch
+  (`RemovePlayerNameIndexPhotoUrl` migration). Bug fix within COMP-07's
+  existing responsibility — no ADR, per the S-042 truthy-P54 precedent —
+  REQ-207/ADR-0007/ADR-0025
 - 2026-07-17 — `MVP-SCOPE.md` — doc-sync pass over the S-032 diff
   (REQ-207/ADR-0007/COMP-10): the Tier 0 "Guessing" bullet still said
   "plain text input, no autocomplete... defer `PlayerNameIndex`/ADR-0007

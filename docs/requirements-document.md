@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.58"
+version: "0.59"
 status: draft
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -929,8 +929,11 @@ indicator of any kind, no percent)
   Builds exactly what ADR-0007 already specifies — a new `PlayerNameIndex`
   table (COMP-10, `IPlayerNameIndexRepository`/`PlayerNameIndexRepository`,
   never merged with `IPlayerStoreRepository`/COMP-06), populated via
-  `PlayerNameIndexImporter`'s bulk, paginated Wikidata query for `P106`
-  (association football player) — the `import-player-name-index` CLI verb
+  `PlayerNameIndexImporter`'s bulk, birth-year-sliced Wikidata query for
+  `P106` (association football player; originally `LIMIT`/`OFFSET`-paged,
+  replaced 2026-07-18 after every page timed out server-side in production
+  — see `implementation-document.md` §6a) — the `import-player-name-index`
+  CLI verb
   (ADR-0024), workflow_dispatch-only, no schedule yet, per ADR-0007's own
   follow-up note. `GET /players/autocomplete?query=&limit=` (bearer-token
   authenticated) queries `PlayerNameIndex` only; a query under 2 characters

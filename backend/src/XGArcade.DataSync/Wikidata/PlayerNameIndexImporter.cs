@@ -41,52 +41,111 @@ namespace XGArcade.DataSync.Wikidata;
 public class PlayerNameIndexImporter(
     IWikidataClient wikidataClient,
     IPlayerNameIndexRepository repository,
-    ILogger<PlayerNameIndexImporter> logger)
+    ILogger<PlayerNameIndexImporter> logger,
+    TimeProvider? timeProvider = null,
+    TimeSpan? retryBackoff = null)
 {
-    // WDQS has its own result-size/time limits regardless of this app's own
-    // concerns (ADR-0011's evidence of 9-27s query times under load) — this
-    // is a much larger, unfiltered result set than the per-cell intersection
-    // queries (a handful to a few hundred rows), so a single unbounded query
-    // is not an option here the way it deliberately is for those (see
-    // WikidataClient.BuildCountryClubIntersectionQuery's own comment on why
-    // THAT query has no LIMIT). 5,000 is comfortably inside WDQS's usual
-    // per-request row ceiling while keeping the number of round-trips for a
-    // "many thousands of players" pool manageable.
-    public const int PageSize = 5000;
+    // Revised 2026-07-18: iterates one bounded birth-year slice at a time
+    // (1939 → current year) instead of LIMIT/OFFSET paging — the original
+    // paged query's ORDER BY over the whole unfiltered pool hit WDQS's hard
+    // ~60s server-side timeout on EVERY page, the swallow-to-[] client
+    // contract turned that into a phantom "end of data," and the job exited
+    // 0 having imported nothing (NOTES.md 2026-07-18). Two consequences,
+    // both deliberate:
+    // - a genuinely empty year (real for sparse early years) just continues;
+    // - a slice that still fails after MaxAttemptsPerYear retries is
+    //   recorded, the remaining years still run (each successful slice is
+    //   upserted immediately, so a re-run only has to redo the failed ones),
+    //   and ImportAsync then THROWS so the CLI job / GitHub Actions run goes
+    //   red. Silent partial import is no longer an accepted trade-off — the
+    //   job is idempotent and manually re-run, so failing loudly and
+    //   re-running is strictly better than "exit 0, imported 0."
+    public const int MaxAttemptsPerYear = 3;
+
+    // TimeProvider only bounds the year range (a CLI job, so
+    // TimeProvider.System by default — Program.cs's verb block passes
+    // nothing); optional ctor params (same style as WikidataClient's
+    // queryTimeout) so tests can pin the current year and zero the backoff.
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TimeSpan _retryBackoff = retryBackoff ?? TimeSpan.FromSeconds(5);
 
     public async Task<int> ImportAsync(CancellationToken cancellationToken = default)
     {
         var totalUpserted = 0;
-        var offset = 0;
+        var failedYears = new List<int>();
+        var currentYear = _timeProvider.GetUtcNow().Year;
 
-        // Loops until a page comes back empty — QueryPlayerPoolPageAsync
-        // never throws (same "never blocks on a Wikidata failure" contract
-        // as the intersection queries), so a transient WDQS failure on one
-        // page surfaces as an empty page and this loop simply stops early
-        // rather than looping forever or crashing the whole import. A
-        // partial import (rather than an all-or-nothing one) is an accepted
-        // trade-off for a manually re-run, idempotent job: re-running
-        // ImportAsync later resumes coverage for players missed on an
-        // earlier interrupted page, at the cost of re-fetching (harmlessly)
-        // every page before it.
-        while (!cancellationToken.IsCancellationRequested)
+        for (var year = WikidataClient.FirstEligibleBirthYear; year <= currentYear; year++)
         {
-            var page = await wikidataClient.QueryPlayerPoolPageAsync(offset, PageSize, cancellationToken);
-            if (page.Count == 0)
-                break;
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var entries = page.Select(ToIndexEntry).ToList();
+            var slice = await QuerySliceWithRetryAsync(year, cancellationToken);
+            if (slice is null)
+            {
+                failedYears.Add(year);
+                continue;
+            }
+
+            if (slice.Count == 0)
+                continue; // A sparse year with no eligible players — normal, not a failure.
+
+            // A player with two P569 statements in different years appears
+            // in two slices — the deterministic PlayerId below makes the
+            // second slice's upsert update the first's row in place rather
+            // than duplicating it.
+            var entries = slice.Select(ToIndexEntry).ToList();
             await repository.UpsertManyAsync(entries, cancellationToken);
 
             totalUpserted += entries.Count;
             logger.LogInformation(
-                "import-player-name-index: upserted {PageCount} entries at offset {Offset} (running total {Total}).",
-                entries.Count, offset, totalUpserted);
+                "import-player-name-index: upserted {SliceCount} entries for birth year {BirthYear} (running total {Total}).",
+                entries.Count, year, totalUpserted);
+        }
 
-            offset += PageSize;
+        if (failedYears.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"import-player-name-index: {failedYears.Count} birth-year slice(s) failed after " +
+                $"{MaxAttemptsPerYear} attempts each ({string.Join(", ", failedYears)}). " +
+                $"{totalUpserted} entries were still upserted from the successful slices; " +
+                "the job is idempotent — re-run it to fill in the failed years.");
         }
 
         return totalUpserted;
+    }
+
+    // Returns null when the slice failed all attempts (the caller records
+    // the year and fails the run at the end) — never null for an empty
+    // year, which is a successful [] result.
+    private async Task<IReadOnlyList<WikidataNameIndexEntry>?> QuerySliceWithRetryAsync(
+        int birthYear, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= MaxAttemptsPerYear; attempt++)
+        {
+            try
+            {
+                return await wikidataClient.QueryPlayerPoolBirthYearAsync(birthYear, cancellationToken);
+            }
+            catch (WikidataQueryException ex)
+            {
+                if (attempt < MaxAttemptsPerYear)
+                {
+                    var backoff = _retryBackoff * attempt;
+                    logger.LogWarning(ex,
+                        "import-player-name-index: birth year {BirthYear} failed (attempt {Attempt}/{MaxAttempts}); retrying in {Backoff}.",
+                        birthYear, attempt, MaxAttemptsPerYear, backoff);
+                    await Task.Delay(backoff, cancellationToken);
+                }
+                else
+                {
+                    logger.LogError(ex,
+                        "import-player-name-index: birth year {BirthYear} failed all {MaxAttempts} attempts; continuing with the remaining years, but this run WILL fail at the end.",
+                        birthYear, MaxAttemptsPerYear);
+                }
+            }
+        }
+
+        return null;
     }
 
     private static PlayerNameIndex ToIndexEntry(WikidataNameIndexEntry entry) => new()
@@ -96,7 +155,6 @@ public class PlayerNameIndexImporter(
         NormalizedName = PlayerNameNormalizer.Normalize(entry.FullName),
         BirthYear = entry.BirthYear,
         PrimaryNationality = entry.Nationality,
-        PhotoUrl = entry.PhotoUrl,
     };
 
     // MD5's 16-byte digest maps directly onto a Guid's 16-byte layout — the

@@ -396,45 +396,65 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryClubClubIntersectionAsync(ClubAQid, "Barcelona"));
     }
 
-    // ---- QueryPlayerPoolPageAsync (S-032/ADR-0007/REQ-207) -----------------
+    // ---- QueryPlayerPoolBirthYearAsync (S-032/ADR-0007/REQ-207, ------------
+    // revised 2026-07-18: birth-year slicing replaced LIMIT/OFFSET paging,
+    // and this method's error contract is deliberately the OPPOSITE of the
+    // intersection queries' — it throws on failure so the import job can
+    // never mistake a swallowed timeout for end-of-data again).
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_SentQuery_ContainsLimitAndOffset()
+    public async Task QueryPlayerPoolBirthYearAsync_SentQuery_ContainsBoundedOneYearWindow()
     {
-        // Unlike the two intersection queries above (which never LIMIT —
-        // see those tests' own comments), this bulk-import query MUST page:
-        // the unfiltered "association football player" pool is far larger
-        // than WDQS can safely return in one request.
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
 
-        await client.QueryPlayerPoolPageAsync(offset: 10000, pageSize: 5000);
+        await client.QueryPlayerPoolBirthYearAsync(1977);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
-        Assert.That(sentQuery, Does.Contain("LIMIT 5000"));
-        Assert.That(sentQuery, Does.Contain("OFFSET 10000"));
+        Assert.That(sentQuery, Does.Contain("?dateOfBirth >= \"1977-01-01T00:00:00Z\"^^xsd:dateTime"));
+        Assert.That(sentQuery, Does.Contain("?dateOfBirth < \"1978-01-01T00:00:00Z\"^^xsd:dateTime"),
+            "the window's upper bound must be exclusive at the next year's Jan 1");
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_SentQuery_FiltersToMaleOnlyAndBornOnOrAfter1939()
+    public async Task QueryPlayerPoolBirthYearAsync_SentQuery_NeverContainsOrderByLimitOffsetOrSubquery()
+    {
+        // The heart of the 2026-07-18 fix: the original paged query's
+        // `ORDER BY ?player LIMIT/OFFSET` over an inner subquery forced WDQS
+        // to sort the ENTIRE unfiltered pool on every page, blowing its hard
+        // ~60s server-side timeout on every single request — so every run
+        // imported zero rows. A birth-year slice needs none of them.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolBirthYearAsync(1977);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("ORDER BY"));
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+        Assert.That(sentQuery, Does.Not.Contain("OFFSET"));
+        Assert.That(sentQuery, Does.Not.Contain("SELECT DISTINCT"), "no inner subquery — one flat bounded pattern");
+    }
+
+    [Test]
+    public async Task QueryPlayerPoolBirthYearAsync_SentQuery_FiltersToMaleOnly()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
 
-        await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+        await client.QueryPlayerPoolBirthYearAsync(1977);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P21 wd:Q6581097"));
-        Assert.That(sentQuery, Does.Contain("\"1939-01-01T00:00:00Z\"^^xsd:dateTime"));
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_SentQuery_QueriesBroadOccupationWithNoClubOrCountryFilter()
+    public async Task QueryPlayerPoolBirthYearAsync_SentQuery_QueriesBroadOccupationWithNoClubCountryOrImageFetch()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
 
-        await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+        await client.QueryPlayerPoolBirthYearAsync(1977);
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
@@ -443,10 +463,13 @@ public class WikidataClientTests
         // country filter at all, unlike the two intersection queries above.
         Assert.That(sentQuery, Does.Not.Contain("P54"));
         Assert.That(sentQuery, Does.Not.Contain("P27 wd:"));
+        // P18 (photo) was dropped 2026-07-18: the autocomplete contract
+        // never exposes a photo, so fetching it was pure join/row cost.
+        Assert.That(sentQuery, Does.Not.Contain("P18"));
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_ParsesBirthYearNationalityAndPhotoUrl()
+    public async Task QueryPlayerPoolBirthYearAsync_ParsesBirthYearAndNationality()
     {
         const string json = """
             {
@@ -456,8 +479,7 @@ public class WikidataClientTests
                     "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
                     "playerLabel": { "type": "literal", "value": "Thierry Henry" },
                     "birthYear": { "type": "literal", "datatype": "http://www.w3.org/2001/XMLSchema#integer", "value": "1977" },
-                    "countryLabel": { "type": "literal", "value": "France" },
-                    "image": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" }
+                    "countryLabel": { "type": "literal", "value": "France" }
                   }
                 ]
               }
@@ -465,23 +487,21 @@ public class WikidataClientTests
             """;
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
 
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+        var result = await client.QueryPlayerPoolBirthYearAsync(1977);
 
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
         Assert.That(result[0].FullName, Is.EqualTo("Thierry Henry"));
         Assert.That(result[0].BirthYear, Is.EqualTo(1977));
         Assert.That(result[0].Nationality, Is.EqualTo("France"));
-        Assert.That(result[0].PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_MultipleRowsForSamePlayer_GroupsIntoOneEntry_KeepingFirstNonNullNationality()
+    public async Task QueryPlayerPoolBirthYearAsync_MultipleRowsForSamePlayer_GroupsIntoOneEntry_KeepingFirstNonNullNationality()
     {
-        // A player with more than one P27 citizenship (or P18 image)
-        // produces more than one binding row for the same ?player — these
-        // must collapse into one WikidataNameIndexEntry, not one row per
-        // citizenship.
+        // A player with more than one P27 citizenship produces more than one
+        // binding row for the same ?player — these must collapse into one
+        // WikidataNameIndexEntry, not one row per citizenship.
         const string json = """
             {
               "results": {
@@ -504,68 +524,61 @@ public class WikidataClientTests
             """;
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
 
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+        var result = await client.QueryPlayerPoolBirthYearAsync(1977);
 
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].Nationality, Is.EqualTo("France"), "the first non-null nationality seen wins, rather than producing a duplicate row per citizenship");
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_NoBindings_ReturnsEmptyWithoutThrowing()
+    public async Task QueryPlayerPoolBirthYearAsync_NoBindings_ReturnsEmptyWithoutThrowing()
     {
+        // An empty year is a genuinely valid result (sparse early years) —
+        // NOT a failure. Only actual timeout/HTTP/parse failures throw.
         const string json = """{ "results": { "bindings": [] } }""";
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
 
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
-
-        Assert.That(result, Is.Empty, "an empty page is the importer's loop-termination signal");
-    }
-
-    [Test]
-    public async Task QueryPlayerPoolPageAsync_HttpErrorStatus_ReturnsEmptyWithoutThrowing()
-    {
-        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
-
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
+        var result = await client.QueryPlayerPoolBirthYearAsync(1939);
 
         Assert.That(result, Is.Empty);
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_Timeout_ReturnsEmptyWithoutThrowing()
+    public void QueryPlayerPoolBirthYearAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        // Opposite of the intersection queries' swallow-to-[] contract — a
+        // swallowed failure here is what made the import job exit 0 having
+        // imported nothing (NOTES.md 2026-07-18).
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolBirthYearAsync(1977));
+    }
+
+    [Test]
+    public void QueryPlayerPoolBirthYearAsync_Timeout_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
             queryTimeout: TimeSpan.FromMilliseconds(50));
 
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
-
-        Assert.That(result, Is.Empty);
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolBirthYearAsync(1977));
     }
 
     [Test]
-    public async Task QueryPlayerPoolPageAsync_MalformedJson_ReturnsEmptyWithoutThrowing()
+    public void QueryPlayerPoolBirthYearAsync_MalformedJson_ThrowsWikidataQueryException()
     {
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
 
-        var result = await client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 100);
-
-        Assert.That(result, Is.Empty);
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolBirthYearAsync(1977));
     }
 
     [Test]
-    public void QueryPlayerPoolPageAsync_RejectsNegativeOffset()
+    public void QueryPlayerPoolBirthYearAsync_RejectsBirthYearBeforePoolFloor()
     {
+        // ADR-0025's 1939 pool floor, enforced at the client so a buggy
+        // caller can't silently widen the pool.
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
-        Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolPageAsync(offset: -1, pageSize: 100));
-    }
-
-    [Test]
-    public void QueryPlayerPoolPageAsync_RejectsNonPositivePageSize()
-    {
-        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
-
-        Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolPageAsync(offset: 0, pageSize: 0));
+        Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolBirthYearAsync(1938));
     }
 }
