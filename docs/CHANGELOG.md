@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `docs/backlog.md` — added an addendum to S-045's entry
+  covering the malformed-QID crash and fix below (`quality-architect`
+  flagged the entry as reading like the story shipped clean when it
+  actually had a crash-and-fix history across two commits); also corrected
+  the entry's stale "no real Postgres/no network available" caveat — this
+  session did independently verify both live (Postgres install + a real
+  Wikidata-network-blocked reproduction), that just hadn't happened yet
+  when S-045's own entry was written
 - 2026-07-18 — `NOTES.md` only (no requirements/architecture/implementation
   doc changed — this is a bug fix, not a behavior/acceptance-criteria
   change) — fixed a crash in `backfill-player-photos` (REQ-214, S-045)

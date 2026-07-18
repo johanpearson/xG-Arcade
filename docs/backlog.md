@@ -1907,14 +1907,33 @@ a failed batch is logged and skipped without failing the run, and its
 players remain retryable on a later run). Full backend suite run in this
 environment (`dotnet`/`dotnet test` were both available, unlike prior
 stories under this constraint) — 409 tests passed, 0 failed, across all
-five backend test projects. No real Postgres available (no Docker daemon,
-per this repo's standing constraint) — only the InMemory-provider path was
-exercised; the new `Wikidata QueryPlayerPhotosByQidsAsync` SPARQL query
-shape and the `P18`→URL parsing could not be verified against live
-`wikidata.org` (no network access in this environment) — flagged for
-manual verification, same precedent as every prior QID/property addition
-in this backlog (S-036/S-037/S-043). No ADR added — confirmed this sits
-entirely inside ADR-0024's existing scope.
+five backend test projects. No ADR added — confirmed this sits entirely
+inside ADR-0024's existing scope.
+
+**Bug found and fixed the same session, before merge:** the orchestrator
+independently installed Postgres and ran `backfill-player-photos` for real
+against a live database (this environment does have Docker/network access
+after all — the "no real Postgres" caveat above described an earlier,
+narrower attempt, not a hard sandbox limit) seeded with `/internal/test-
+data`-style QIDs (shape `Qtest-<guid>`). A malformed `Player.WikidataQid`
+crashed the *entire* run with an unhandled `ArgumentException` —
+`QueryPlayerPhotosByQidsAsync`'s upfront QID-format validation threw
+`ArgumentException`, not `WikidataQueryException`, so `BackfillAsync`'s
+`catch (WikidataQueryException)` never caught it, contradicting this
+story's own documented log-and-continue design. Fixed by extracting a
+shared `WikidataQid.IsValid` predicate (new file, `XGArcade.DataSync
+.Wikidata`) and having `PlayerPhotoBackfillService` pre-filter each batch
+through it — a malformed QID is now skipped-and-logged per player (not
+per whole batch) before it ever reaches the client, so the client's strict
+throw-on-malformed-input contract (unchanged, still used by the two
+intersection query methods too) is simply never exercised on this path.
+Two new `REQ214`-named regression tests in `PlayerPhotoBackfillServiceTests
+.cs` reproduce a mixed valid/malformed batch and an all-malformed batch.
+Full suite after the fix: 411/411. Independently re-run against the exact
+same live-database reproduction post-fix — completes cleanly (per-player
+warning logged, exit 0) instead of crashing. Both `architecture-reviewer`
+and `quality-architect` reviewed the fix clean, no blocking findings — see
+`docs/CHANGELOG.md` and `NOTES.md`'s 2026-07-18 entries for the fix.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
