@@ -123,40 +123,31 @@ public partial class WikidataClient(
         }
     }
 
+    // Shared shape between the two intersection query builders below —
+    // extracted after REQ-214's P18 addition had to be hand-duplicated into
+    // both (flagged in quality-gate review as exactly the kind of place
+    // that's easy to silently diverge on next time). `candidateClauses` is
+    // the one thing that actually differs per builder: which
+    // country/club(s) a player must match. Everything else — the shared
+    // predicates and the OPTIONAL/SERVICE footer — lives here so a future
+    // addition (another OPTIONAL property, say) can only land once.
+    //
     // No LIMIT — non-negotiable, see implementation-document.md §6a: the
     // result set IS the cell's complete answer key. Fetches skos:altLabel
     // in the same query so aliases cost nothing extra (REQ-208's alias
     // value, free). P106 = occupation (association football player),
-    // P27 = country of citizenship, P54 = member of sports team, P21 = sex
-    // or gender, P569 = date of birth (ADR-0025's male-only/born-1939-
-    // or-later player pool restriction — REQ-112), P18 = image (REQ-214's
-    // photo reveal — OPTIONAL, same as alias, so a player with no photo
-    // still matches the rest of the query instead of being dropped).
-    //
-    // P54 deliberately uses the full statement path (p:P54/ps:P54,
-    // excluding only deprecated rank), NOT the truthy wdt:P54 shortcut the
-    // other properties use — do not "simplify" it back. Wikidata's truthy
-    // wdt: graph contains only best-rank statements: the moment any P54
-    // statement on a player is marked preferred rank (editors routinely
-    // mark the *current* club preferred), every normal-rank historical
-    // club silently vanishes from wdt:P54. That turned "ever played for
-    // this club" into "currently plays for this club" for exactly those
-    // players (e.g. Sandro Tonali x AC Milan), leaving the persisted
-    // answer key incomplete and correct guesses scored incorrect
-    // (REQ-113's ever-played-for semantics, REQ-101/REQ-203's correctness
-    // contract). Both grid generation and REQ-211's guess-time live
-    // lookup route through these two builders, so the statement path
-    // covers both. P106/P27/P21/P569 stay truthy on purpose: for those,
+    // P21 = sex or gender, P569 = date of birth (ADR-0025's male-only/
+    // born-1939-or-later player pool restriction — REQ-112), P18 = image
+    // (REQ-214's photo reveal — OPTIONAL, same as alias, so a player with
+    // no photo still matches the rest of the query instead of being
+    // dropped). P106/P21/P569 stay truthy (wdt:) on purpose: for those,
     // best-rank semantics match product intent (current citizenship, the
-    // best-supported date of birth) and the preferred-rank trap doesn't
-    // change the answer to the question being asked.
-    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) => $$"""
+    // best-supported date of birth) — see each caller's own comment for why
+    // P54 (club membership) can't use the same truthy shortcut.
+    private static string BuildIntersectionQuery(string candidateClauses) => $$"""
         SELECT ?player ?playerLabel ?alias ?photo WHERE {
           ?player wdt:P106 wd:Q937857.
-          ?player wdt:P27 wd:{{countryQid}}.
-          ?player p:P54 ?clubStatement.
-          ?clubStatement ps:P54 wd:{{clubQid}}.
-          MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+        {{candidateClauses}}
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
           ?player wdt:P569 ?dateOfBirth.
           FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
@@ -169,33 +160,43 @@ public partial class WikidataClient(
         }
         """;
 
+    // P54 deliberately uses the full statement path (p:P54/ps:P54,
+    // excluding only deprecated rank), NOT the truthy wdt:P54 shortcut
+    // BuildIntersectionQuery's shared predicates use — do not "simplify" it
+    // back. Wikidata's truthy wdt: graph contains only best-rank
+    // statements: the moment any P54 statement on a player is marked
+    // preferred rank (editors routinely mark the *current* club
+    // preferred), every normal-rank historical club silently vanishes from
+    // wdt:P54. That turned "ever played for this club" into "currently
+    // plays for this club" for exactly those players (e.g. Sandro Tonali x
+    // AC Milan), leaving the persisted answer key incomplete and correct
+    // guesses scored incorrect (REQ-113's ever-played-for semantics,
+    // REQ-101/REQ-203's correctness contract). Both grid generation and
+    // REQ-211's guess-time live lookup route through both builders below,
+    // so the statement path covers both.
+    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) =>
+        BuildIntersectionQuery($$"""
+              ?player wdt:P27 wd:{{countryQid}}.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:{{clubQid}}.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+            """);
+
     // S-030: "ever played for both clubs" — P54 checked twice instead of
-    // once against P27, same no-LIMIT/altLabel-in-one-query/male-only/
-    // born-1939-or-later rules as above, and the same
-    // full-statement-path-not-truthy P54 rule (see the comment on
-    // BuildCountryClubIntersectionQuery for why wdt:P54 is wrong here).
-    // Two distinct statement variables, one per club — a single shared
-    // variable could never bind (one statement can't point at two clubs).
-    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) => $$"""
-        SELECT ?player ?playerLabel ?alias ?photo WHERE {
-          ?player wdt:P106 wd:Q937857.
-          ?player p:P54 ?clubAStatement.
-          ?clubAStatement ps:P54 wd:{{clubAQid}}.
-          MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
-          ?player p:P54 ?clubBStatement.
-          ?clubBStatement ps:P54 wd:{{clubBQid}}.
-          MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
-          ?player wdt:P21 wd:{{MaleWikidataQid}}.
-          ?player wdt:P569 ?dateOfBirth.
-          FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
-          OPTIONAL {
-            ?player skos:altLabel ?alias.
-            FILTER(LANG(?alias) = "en")
-          }
-          OPTIONAL { ?player wdt:P18 ?photo. }
-          SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-        }
-        """;
+    // once against P27, same full-statement-path-not-truthy P54 rule as
+    // BuildCountryClubIntersectionQuery above (see its comment for why
+    // wdt:P54 is wrong here). Two distinct statement variables, one per
+    // club — a single shared variable could never bind (one statement
+    // can't point at two clubs).
+    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) =>
+        BuildIntersectionQuery($$"""
+              ?player p:P54 ?clubAStatement.
+              ?clubAStatement ps:P54 wd:{{clubAQid}}.
+              MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
+              ?player p:P54 ?clubBStatement.
+              ?clubBStatement ps:P54 wd:{{clubBQid}}.
+              MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
+            """);
 
     public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear, CancellationToken cancellationToken = default)

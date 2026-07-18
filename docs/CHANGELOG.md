@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — no docs touched (code-only refactor) — extracted
+  `WikidataClient`'s two intersection query builders' shared SPARQL
+  header/predicates/footer into a new `BuildIntersectionQuery(candidateClauses)`
+  helper, per `quality-architect`'s REQ-214 quality-gate suggestion: both
+  builders had to be hand-edited identically to add `P18`, which is exactly
+  the kind of place a future addition could silently land in only one.
+  `BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery` now
+  supply only the candidate-matching clauses that actually differ between
+  them. Verified via the existing `WikidataClientTests` query-content
+  assertions (all still pass unmodified) rather than new tests, since this
+  is a pure internal refactor with no behavior change — REQ-101/103/113/214
 - 2026-07-18 — `architecture-document.md` (v0.37), `docs/decisions/0028-*.md`
   (new) — added ADR-0028, formalizing REQ-214's `Player.PhotoUrl` (not
   `PlayerAttribute`) placement decision per `architecture-reviewer`'s
