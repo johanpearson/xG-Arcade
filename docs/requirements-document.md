@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.63"
+version: "0.64"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -1286,37 +1286,70 @@ wording)
   detail supporting REQ-214's existing acceptance criteria for players that
   predate it, not a new user-facing behavior.
   Club crests (`ClubCrest`, Tier 2) are also out of scope.
+- **Status note (2026-07-18): photo trigger decoupled from the click/tap
+  reveal, requested directly by the user after seeing the click-gated
+  version live.** Supersedes the click-gated presentation described in the
+  acceptance criteria below (the version shipped same-day, PR #79, commit
+  `2a8b40d`) — the photo now shows automatically, filling the cell, the
+  moment a correct guess locks the cell, with no click/tap required. This
+  is strictly a change to the photo's own trigger condition. **REQ-212
+  itself is unchanged**: the guessed player's name (and badge dock) is
+  still click/tap-gated exactly as REQ-212 defines, on the same cell, and
+  that toggle now operates independently of the photo rather than
+  revealing it — a photo, when available, is visible whether the name is
+  currently shown or hidden. The layout-invariance constraint (cell
+  footprint must not change) carries forward unchanged from the prior
+  version — it previously guarded the revealed state only and now guards
+  the at-rest state, since that's where the photo now appears. The
+  no-photo case is unaffected by this note: it already fell back to
+  today's checkmark+points-only display and continues to.
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
-  (correct, round closed), the same condition REQ-212 already covers
-- And the player reveals the cell via the click/tap toggle REQ-212 defines
-- When the resolved player has a Wikidata photo available
-- Then the photo is displayed alongside the canonical name already revealed
-  by REQ-212, within the same cell, for as long as the cell stays revealed
+  (correct, round closed)
+- And the resolved player has a Wikidata photo available
+- When the cell renders, regardless of whether the player has clicked/
+  tapped it (REQ-212's reveal state)
+- Then the photo displays automatically, filling the cell, at rest — no
+  click/tap is required to show it, and clicking/tapping the cell (REQ-212)
+  neither shows nor hides the photo, only the name and badge dock
+- And the cell's existing checkmark and points value are overlaid on top
+  of the photo, in the same position they occupy in the no-photo case, and
+  remain legible (a contrast-safe scrim/shadow treatment behind them)
+  regardless of the photo's own colors — this is testable: the checkmark
+  and points text must meet the same contrast floor as `SCREEN-01a`'s
+  no-photo case, against the photo shown, not just against a plain
+  background
 - And the cell's rendered width and height are identical whether or not a
   photo is shown — this is a testable layout constraint, not a visual
-  preference: revealing a photo must never change the cell's footprint
-  compared to today's text-only reveal, and must never push or resize
-  neighboring cells in the grid
+  preference: a photo filling the cell at rest must never change the
+  cell's footprint compared to today's no-photo display, and must never
+  push or resize neighboring cells in the grid
+- And REQ-212's click/tap toggle still applies on top of this exactly as
+  before — clicking/tapping the cell reveals the canonical name and badge
+  dock (over the photo, when one is present), and clicking/tapping again
+  hides them again; the photo's own visibility is unaffected either way
 - Given the resolved player has no Wikidata photo available
-- Then the reveal falls back to exactly today's text-only presentation
-  (REQ-212) — no broken-image icon, no visible error or loading state, and
-  no difference in cell footprint from the case where a photo is shown
-- And toggling the cell back to hidden (REQ-212's same toggle) hides the
-  photo along with the name — the photo is part of the same reveal/hide
-  toggle, not a separate control or a separate state
+- Then the cell falls back to exactly today's existing at-rest display —
+  checkmark and points value only (`SCREEN-01a` state 1/state 4) — no
+  broken-image icon, no visible error or loading state, and no difference
+  in cell footprint from the case where a photo is shown
+- And REQ-212's click/tap reveal of the name and badge dock still applies
+  on top of this, exactly as before this note
 - And a locked cell whose guess was incorrect is unaffected — no photo is
-  ever shown for an incorrect guess, unchanged from REQ-212's existing rule
-  for names
+  ever shown for an incorrect guess, unchanged from the existing rule for
+  names
 
-**Test level:** Unit/UI (photo displays when available and hides/reveals in
-sync with the name via the same toggle; no photo available degrades to
-today's text-only reveal with no broken-image icon and no visible error
-state; rendered cell width/height are identical across a photo-shown case,
-a no-photo case, and today's pre-existing text-only case — regression test
-against the cell's own bounding box, not a visual snapshot alone, given
-REQ-212's prior finding that a real layout bug was missed by tests and
-only caught by required manual browser verification)
+**Test level:** Unit/UI (photo displays automatically at rest when
+available, independent of the cell's click/tap-revealed state; checkmark/
+points remain present and meet the contrast floor against a photo
+background; REQ-212's name/badge-dock toggle still reveals and hides
+independently of the photo; no photo available degrades to today's
+checkmark+points-only at-rest display with no broken-image icon and no
+visible error state; rendered cell width/height are identical across a
+photo-shown case, a no-photo case, and a revealed-name-over-photo case —
+regression test against the cell's own bounding box, not a visual
+snapshot alone, given REQ-212's prior finding that a real layout bug was
+missed by tests and only caught by required manual browser verification)
 
 ---
 

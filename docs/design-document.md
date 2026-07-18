@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.23"
+version: "0.24"
 status: draft
 last_updated: 2026-07-18
 owner: Johan
@@ -229,18 +229,59 @@ revealed immediately (REQ-203), separate from whether the round has closed:
 still live until round close):
 
 ```
-At rest (default):
+At rest, no photo (default when the resolved player has none):
 ┌─────────────────────────┐
 │                     ✓     │   ← gold checkmark — no dot, no "live" text,
 │  12 pts                   │     no name until clicked/tapped
 └─────────────────────────┘
 
-Revealed (click/tap the cell — toggles closed again on a second click/tap):
+At rest, photo available (2026-07-18 — REQ-214 status note):
+┌─────────────────────────┐
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│    ← photo fills the cell automatically —
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│      no click/tap needed, unlike the name
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │    ← checkmark, overlaid bottom, on a
+│▓ 12 pts                   │      scrim strip for contrast — see note
+└─────────────────────────┘        below (still no name here — that's
+                                     still REQ-212's click/tap gate,
+                                     unaffected by this note)
+
+Revealed, no photo (click/tap the cell — toggles closed again on a
+second click/tap; unchanged from before this note):
 ┌─────────────────────────┐
 │  Henry                ✓   │
-│  12 pts                   │   ← unchanged at-rest line, stays visible
+│  12 pts                   │
+└─────────────────────────┘
+
+Revealed, photo available (same click/tap toggle; the photo itself does
+not react to the toggle — only the name/badge dock do):
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← same scrim strip, now also carrying
+│▓ Henry              ✓    │      the revealed name
+│▓ 12 pts                   │
 └─────────────────────────┘
 ```
+
+**REQ-214 status note (2026-07-18): photo decoupled from the click/tap
+reveal.** Supersedes this section's own "Revealed, photo available" mock as
+it read immediately after REQ-214 first shipped (photo appearing only once
+revealed, alongside the name) — requested directly by the user after seeing
+that version live. The photo now shows automatically at rest, filling the
+cell, whenever the resolved player has one; the click/tap toggle (REQ-212,
+unchanged) continues to govern only the name and badge dock, and no longer
+gates the photo at all. Practically: a correct cell with a photo now shows
+that photo immediately once locked, before the player has clicked/tapped
+anything; clicking/tapping it afterward adds the name on top (and over the
+photo, if present) exactly as REQ-212 already specified, without changing
+whether the photo itself is showing. The checkmark and points value are
+overlaid on the photo (a scrim/shadow strip behind them, shown as the `▓`
+band above) rather than sitting on a plain card background — see this
+section's REQ-214 implementation note below for why no dedicated overlay
+token exists yet for this treatment. The no-photo mock and behavior above
+are unaffected by this note.
 
 **S-041 redesign (supersedes S-040's mock above):** further direct product
 feedback found the live/final distinction S-040 preserved (a pulsing dot,
@@ -340,42 +381,68 @@ Prior outcome: correct (at rest)      Prior outcome: incorrect
                                              same MaxPointsPerCell state
                                              3 shows, per today's fix
 
-Prior outcome: correct (revealed — click/tap the cell)
+Prior outcome: correct, no photo (revealed — click/tap the cell)
 ┌─────────────────────────┐
 │  Henry                ✓   │
 │  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
 
-Prior outcome: correct (revealed, photo available — REQ-214)
+Prior outcome: correct, photo available (at rest — 2026-07-18 status note;
+photo shows automatically, no click/tap needed)
 ┌─────────────────────────┐
-│  (●) Henry             ✓  │   ← (●) = fixed 18px circular photo, cropped
-│  88 pts                   │     to fit; layout otherwise identical to the
-└─────────────────────────┘      text-only mock directly above
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │   ← same scrim-backed checkmark treatment
+│▓ 88 pts                   │     as state 1's at-rest photo mock above
+└─────────────────────────┘
+
+Prior outcome: correct, photo available (revealed — click/tap adds the
+name on top, same REQ-212 toggle; photo itself unaffected by the toggle)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Henry              ✓    │
+│▓ 88 pts                   │
+└─────────────────────────┘
 ```
 
-**REQ-214 implementation note (frontend half, 2026-07-18):** when the
-resolved player has a Wikidata photo, it's shown as a small circular avatar
-directly beside the name, appearing/disappearing with the exact same
-click/tap reveal toggle REQ-212 already defines — never a separate control.
-No dedicated avatar/photo token exists in §2 (open gap, same kind as the
-spacing/type-scale gaps §7 already flags), so this reuses the nearest
-already-shipped, already-verified-safe precedent instead of inventing a new
-size: `.category-label__badge--small`'s existing 18px circle (the club
-badge glyph docked beside the name via S-015/S-041's badge dock), plus
-SCREEN-02's own "small silhouette/placeholder avatar" note above (designed
-for the autocomplete list, never shipped there per that section's S-032
-note, but the closest prior spec for "a small round avatar next to a
-player's name" in this document). Fixed 18px × 18px, `border-radius: 50%`,
-`object-fit: cover`, `flex-shrink: 0` — the slot's size is a literal
-constant, never derived from the source image's own dimensions, so the cell
-footprint cannot change whether a photo is shown, absent, or fails to load;
-this is a hard, testable constraint (REQ-214), not a visual preference. No
+**REQ-214 implementation note (frontend half, 2026-07-18, as first
+shipped) — superseded, kept for history:** the paragraph that originally
+stood here described the photo as a small 18px circular avatar shown
+*beside* the name, appearing/disappearing with REQ-212's click/tap reveal
+toggle exactly like the name did (reusing `.category-label__badge--small`'s
+existing 18px circle token, since no dedicated avatar/photo token existed).
+That presentation is no longer current — see the "Photo decoupled from the
+click/tap reveal" status note above state 2 and the mocks directly above
+this note. The 18px-circle reuse and its "appears/disappears with the
+name" behavior are both superseded by the fill-the-cell, always-at-rest
+treatment now specified; this paragraph is kept only so the prior shipped
+behavior isn't lost from the record.
+
+**REQ-214 implementation note (fill-cell treatment, 2026-07-18 status
+note):** the photo now fills the cell's full footprint at rest — same
+fixed cell width/height as the no-photo case, `object-fit: cover` so the
+source image crops to fill rather than distorting or resizing the cell.
+**No overlay/scrim token exists in §2 for text-or-icon-on-photo contrast**
+(open gap, same kind as the spacing/type-scale gaps §7 already flags, and
+distinct from the now-superseded 18px avatar-circle gap above — this is a
+new kind of gap, not the same one). The `▓` band in the mocks above stands
+for that missing treatment (a bottom-anchored gradient or solid scrim
+behind the checkmark/points, dark enough to guarantee the same contrast
+floor §6 already requires for gold-on-white/green-on-white text, verified
+against a photo background rather than `surface-card`) — this document
+does not invent a color/opacity value for it. Whoever formalizes this
+(`ui-implementer`, or a follow-up pass on this document) should add a real
+§2 token for it rather than leaving `CellState.css` to pick a bare
+`rgba()` value with no named token behind it, the same caution already
+recorded for the 18px avatar size and the spacing/type/radius scales. No
 broken-image icon, no loading spinner, and no error text for a missing/
-failed photo — that state is visually and behaviorally identical to today's
-pre-REQ-214 text-only reveal (same DOM shape, verified in
-`CellState.test.tsx`). If/when §7's spacing-scale gap is ever resolved with
-a real token row, this 18px value should become a named token at the same
-time rather than staying a bare pixel value in `CellState.css`.
+failed photo — that state is visually and behaviorally identical to
+today's no-photo at-rest display (same DOM shape). Cell footprint (width/
+height) is a literal constant regardless of whether a photo is present,
+absent, or fails to load — this is a hard, testable constraint (REQ-214),
+not a visual preference.
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
@@ -775,3 +842,16 @@ Unchanged from v0.1:
   `SubmitGuessResponse`, `frontend/src/lib/types.ts`) was checked against
   the backend's `ResolvedPlayerPhotoUrl` once it landed and matches
   exactly under the default camelCase JSON policy — no rename needed.
+- **§2 has no overlay/scrim token for text-or-icon-on-photo contrast**
+  (2026-07-18, REQ-214's fill-cell status note). Now that a correct cell's
+  photo fills the cell at rest with the checkmark/points overlaid on top
+  (SCREEN-01a states 1 and 4), something has to guarantee those stay
+  legible against an arbitrary photo — a gradient or solid scrim behind
+  them, dark/opaque enough to clear the same contrast floor §6 already
+  requires for gold-on-white/green-on-white text, but measured against a
+  photo rather than `surface-card`. No such token exists yet; SCREEN-01a's
+  mocks use a placeholder `▓` band rather than a specified value. Needs a
+  real §2 token (or an explicit decision that per-component judgment is
+  fine here) before `ui-implementer` builds this, the same open-gap
+  discipline already applied to the spacing/type/radius scales above and
+  to the now-superseded 18px avatar-circle size.
