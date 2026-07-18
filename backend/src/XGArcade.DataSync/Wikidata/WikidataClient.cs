@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -11,7 +10,7 @@ namespace XGArcade.DataSync.Wikidata;
 // from the REST clients elsewhere in DataSync.Clients (implementation-
 // document.md §6a). Injected via HttpClient with BaseAddress
 // https://query.wikidata.org/ (see Program.cs's AddHttpClient registration).
-public partial class WikidataClient(
+public class WikidataClient(
     HttpClient httpClient,
     TimeSpan? queryTimeout = null,
     ILogger<WikidataClient>? logger = null) : IWikidataClient
@@ -57,9 +56,9 @@ public partial class WikidataClient(
         string clubWikidataQid,
         CancellationToken cancellationToken = default)
     {
-        if (!QidPattern().IsMatch(countryWikidataQid))
+        if (!WikidataQid.IsValid(countryWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
-        if (!QidPattern().IsMatch(clubWikidataQid))
+        if (!WikidataQid.IsValid(clubWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
@@ -71,9 +70,9 @@ public partial class WikidataClient(
         string clubBWikidataQid,
         CancellationToken cancellationToken = default)
     {
-        if (!QidPattern().IsMatch(clubAWikidataQid))
+        if (!WikidataQid.IsValid(clubAWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubAWikidataQid}'", nameof(clubAWikidataQid));
-        if (!QidPattern().IsMatch(clubBWikidataQid))
+        if (!WikidataQid.IsValid(clubBWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
@@ -333,7 +332,7 @@ public partial class WikidataClient(
 
         foreach (var qid in wikidataQids)
         {
-            if (!QidPattern().IsMatch(qid))
+            if (!WikidataQid.IsValid(qid))
                 throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
         }
 
@@ -463,9 +462,6 @@ public partial class WikidataClient(
 
         return byQid.Select(kv => new WikidataPlayerMatch(kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl)).ToList();
     }
-
-    [GeneratedRegex(@"^Q\d+$")]
-    private static partial Regex QidPattern();
 
     private sealed record SparqlResponse([property: JsonPropertyName("results")] SparqlResults? Results);
 

@@ -194,4 +194,52 @@ public class PlayerPhotoBackfillServiceTests
         Assert.That(result.BatchesFailed, Is.EqualTo(0));
         Assert.That(_wikidataClient.QueriedPhotoBatches, Is.Empty);
     }
+
+    // Regression test: a malformed Player.WikidataQid used to propagate a
+    // raw ArgumentException out of WikidataClient.QueryPlayerPhotosByQidsAsync,
+    // uncaught by BackfillAsync's `catch (WikidataQueryException)`, crashing
+    // the whole `backfill-player-photos` process instead of being
+    // log-and-continued like every other failure mode this service handles.
+    // Reproduced against a real Postgres database seeded with this repo's own
+    // `/internal/test-data` E2E fixture QIDs (shaped like
+    // "Qtest-<guid>", which fail the real "^Q\d+$" QID pattern) — not a
+    // hypothetical input.
+    [Test]
+    public async Task REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing()
+    {
+        var goodPlayer = await SeedPlayerAsync("Q1519");
+        _wikidataClient.SetPhoto("Q1519", "https://example.com/henry.jpg");
+        var badPlayer = await SeedPlayerAsync("Qtest-99195db1-cbff-4491-8007-8d497b926a65");
+
+        PlayerPhotoBackfillResult result = null!;
+        Assert.DoesNotThrowAsync(async () => result = await BuildService().BackfillAsync());
+
+        Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
+        Assert.That(result.BatchesFailed, Is.EqualTo(0),
+            "a malformed QID on one player is a per-player skip, not a whole-batch failure");
+        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(goodPlayer.Id))!.PhotoUrl,
+            Is.EqualTo("https://example.com/henry.jpg"));
+        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
+        Assert.That(_wikidataClient.QueriedPhotoBatches, Has.Count.EqualTo(1));
+        Assert.That(_wikidataClient.QueriedPhotoBatches[0], Does.Not.Contain(badPlayer.WikidataQid),
+            "the malformed QID must be filtered out before the batch is sent to Wikidata, not just after");
+    }
+
+    // Same bug, edge case: every player in the batch has a malformed QID —
+    // the filtered batch sent to Wikidata is empty, which must still be
+    // handled gracefully (QueryPlayerPhotosByQidsAsync's own empty-list
+    // short-circuit) rather than crashing or looping forever.
+    [Test]
+    public async Task REQ214_BackfillAsync_EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing()
+    {
+        var badPlayer = await SeedPlayerAsync("not-a-qid");
+
+        PlayerPhotoBackfillResult result = null!;
+        Assert.DoesNotThrowAsync(async () => result = await BuildService().BackfillAsync());
+
+        Assert.That(result.BatchesProcessed, Is.EqualTo(1));
+        Assert.That(result.PlayersBackfilled, Is.EqualTo(0));
+        Assert.That(result.BatchesFailed, Is.EqualTo(0));
+        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
+    }
 }

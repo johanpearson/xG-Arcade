@@ -882,3 +882,33 @@ metric IS the row count — that contract belongs only to the interactive
 intersection queries, where REQ-103 genuinely wants failure to look like
 no-match. `PhotoUrl`/P18 was dropped in the same fix (nothing ever read
 it; `RemovePlayerNameIndexPhotoUrl` migration).
+
+### 2026-07-18 — `backfill-player-photos` crashed on a malformed `WikidataQid`: `ArgumentException` isn't a `WikidataQueryException`, so the batch loop's `catch` never saw it
+A real `dotnet run -- backfill-player-photos` run against a live Postgres
+database (seeded with this repo's own `/internal/test-data` E2E fixtures,
+whose `Player.WikidataQid` values look like `Qtest-<guid>`) crashed with an
+unhandled `System.ArgumentException: Not a valid Wikidata QID: '...'`
+instead of completing. `WikidataClient.QueryPlayerPhotosByQidsAsync`
+validates every QID in the batch up front and throws a plain
+`ArgumentException` on the first bad one (same pattern the two
+intersection-query methods use, where that's correct — their QIDs come
+from hand-curated `CategoryValueRepository` data, so a bad one really is a
+caller bug worth crashing loudly for in development).
+`PlayerPhotoBackfillService.BackfillAsync`'s per-batch loop only catches
+`WikidataQueryException`, so the `ArgumentException` propagated straight
+through `Program.cs` and killed the whole run — the opposite of the
+service's own documented log-and-continue design (a batch that fails to
+fetch photos is supposed to just leave those players' `PhotoUrl` NULL for
+the next run to retry). Fixed by extracting the QID-format check into a
+shared `WikidataQid.IsValid` helper and having `PlayerPhotoBackfillService`
+pre-filter each batch with it *before* calling
+`QueryPlayerPhotosByQidsAsync`, logging one warning per skipped player,
+rather than wrapping the exception at the client (which would have
+sacrificed the other up-to-199 valid QIDs in the same batch to one bad
+row). `WikidataClient`'s own `ArgumentException` contract on all three
+validating methods is unchanged — this fix is entirely about never letting
+an arbitrary DB row's data quality reach that validation in the first
+place. Regression tests:
+`PlayerPhotoBackfillServiceTests.REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
+and the all-malformed edge case,
+`REQ214_BackfillAsync_EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.

@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-18 — `NOTES.md` only (no requirements/architecture/implementation
+  doc changed — this is a bug fix, not a behavior/acceptance-criteria
+  change) — fixed a crash in `backfill-player-photos` (REQ-214, S-045)
+  found by running it against a real Postgres database seeded with
+  `/internal/test-data` fixtures: a malformed `Player.WikidataQid` made
+  `WikidataClient.QueryPlayerPhotosByQidsAsync` throw a plain
+  `ArgumentException`, which `PlayerPhotoBackfillService.BackfillAsync`'s
+  `catch (WikidataQueryException)` never caught, crashing the whole run
+  instead of the documented log-and-continue behavior. Extracted QID-format
+  validation into a shared `WikidataQid.IsValid` helper
+  (`XGArcade.DataSync.Wikidata`) and had `PlayerPhotoBackfillService`
+  pre-filter each batch with it before calling
+  `QueryPlayerPhotosByQidsAsync`, logging one warning per skipped player,
+  rather than a whole batch paying for one bad row.
+  `WikidataClient`'s own `ArgumentException` contract on all three
+  QID-validating methods is unchanged. New tests:
+  `PlayerPhotoBackfillServiceTests
+  .REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
+  and `..._EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.
+  Full backend suite re-run in this environment: 411 passed, 0 failed,
+  0 skipped, across all five backend test projects — REQ-214
 - 2026-07-18 — `requirements-document.md` (v0.63), `implementation-document.md`
   (v0.57), `backlog.md` (S-045) — added a one-off `backfill-player-photos`
   CLI verb (`PlayerPhotoBackfillService`, `XGArcade.DataSync.Wikidata`) to

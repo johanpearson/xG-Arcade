@@ -64,6 +64,15 @@ namespace XGArcade.DataSync.Wikidata;
 // re-detection is free, failing the whole run loudly over one transient
 // batch failure would only cost an operator a manual re-run for no
 // additional signal a log line doesn't already give them.
+//
+// Same judgment call, finer grain: a MALFORMED Player.WikidataQid (a bad
+// manual edit, a future data-source bug — not hypothetical, an early real
+// run crashed on exactly this hitting test-fixture rows) is filtered out of
+// its batch and logged BEFORE the batch is sent to WikidataClient, rather
+// than being allowed to fail (or, pre-fix, crash) the whole batch — see
+// BackfillAsync's own comment at the filtering step. One bad row costs only
+// that one player a delayed backfill, never the up-to-BatchSize other,
+// perfectly valid QIDs sharing its batch.
 public class PlayerPhotoBackfillService(
     IPlayerStoreRepository playerStoreRepository,
     IWikidataClient wikidataClient,
@@ -111,8 +120,42 @@ public class PlayerPhotoBackfillService(
                 attemptedPlayerIds.Add(player.Id);
 
             // Safe: GetPlayersMissingPhotoAsync's own WHERE clause only
-            // ever returns rows with WikidataQid != null.
-            var qids = batch.Select(p => p.WikidataQid!).ToList();
+            // ever returns rows with WikidataQid != null — but NOT
+            // necessarily well-formed (a bad manual edit, a future
+            // data-source bug, etc. can still produce a non-null value that
+            // isn't a real QID). QueryPlayerPhotosByQidsAsync validates the
+            // whole batch up front and throws ArgumentException — not
+            // WikidataQueryException — on the first malformed value, which
+            // this loop deliberately does NOT catch (see the catch clause
+            // below): an ArgumentException here means a caller bug, and
+            // letting one bad row silently poison an otherwise-fine batch of
+            // up to BatchSize valid QIDs would cost the other players in the
+            // batch a wasted round-trip for no benefit. So malformed QIDs
+            // are filtered out and logged BEFORE the batch is sent, one
+            // warning per skipped player — same log-and-continue judgment
+            // call as a failed batch (see this method's own doc comment),
+            // just at per-player instead of per-batch granularity. A skipped
+            // player's PhotoUrl simply stays NULL and (since it was already
+            // added to attemptedPlayerIds above) isn't retried again THIS
+            // run — but, like any other never-backfilled player, it's
+            // retried automatically by the very next full re-run.
+            var qids = new List<string>(batch.Count);
+            foreach (var player in batch)
+            {
+                if (WikidataQid.IsValid(player.WikidataQid!))
+                {
+                    qids.Add(player.WikidataQid!);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "backfill-player-photos: player {PlayerId} has a malformed WikidataQid " +
+                        "('{WikidataQid}') and is being skipped rather than failing its whole batch. " +
+                        "This is a data-quality issue on the Player row, not a transient failure — it " +
+                        "will keep being skipped on every future run until the row is corrected.",
+                        player.Id, player.WikidataQid);
+                }
+            }
 
             IReadOnlyDictionary<string, string> photoUrlsByQid;
             try
