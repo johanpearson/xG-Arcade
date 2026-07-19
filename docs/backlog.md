@@ -2313,6 +2313,141 @@ No ADR — CSS/layout-only polish on already-implemented REQ-204/REQ-212/
 REQ-214, same precedent as S-040/S-041/S-047/S-048's own no-ADR calls for
 this kind of change.
 
+**S-050 · Photo doesn't reach the cell's own border — real gap between the
+photo and the bottom edge, on both breakpoints (REQ-214, SCREEN-01a, §4)**
+Fourth round of direct user feedback on the same `/grid` screen, this time
+with real screenshots of the live deployed app at both a normal mobile
+view and a "Request desktop site" view: "see how they are not tall
+enough to show full pictures.. we need to make sure that the pictures
+actually fits the cell." Explicitly root-caused via real-browser DOM
+measurement before any CSS was touched (not guessed from reading the
+stylesheet — a prior static read of `Grid.css`/`CellState.css` found
+nothing obviously wrong, since the mechanism as documented *should* work).
+*Accept:* the actual gap measured via `getBoundingClientRect` on a real
+Chromium render at both a mobile (~390px) and a desktop (~1280px)
+viewport, using a genuinely non-square (portrait) test photo and a mixed
+grid of different row-header wrap heights (matching the user's own
+screenshot); root cause identified and recorded with real numbers before
+any fix; fix verified by re-measuring the same boxes after, at both
+breakpoints; REQ-214's fixed-cell-footprint guarantee (including its
+"regardless of load failure" clause) re-verified, not just assumed
+unaffected; `design-document.md` updated with the actual mechanism found
+(not just "gap fixed").
+**Built as:** matches the plan above.
+- **Diagnostic:** a temporary, not-committed Vite entry + Playwright script
+  (same pattern S-047/S-048/S-049 each used — this sandbox has Chromium at
+  `/opt/pw-browsers`, no `dotnet`/Postgres, so a full backend-backed E2E
+  run wasn't available) rendered the real `Grid`/`GridCell`/`CellState`/CSS
+  with constructed correct-photo cells (an inline SVG data-URI portrait
+  photo, 300×450, genuinely non-square) alongside an incorrect cell and
+  row headers of different wrapped-line-counts ("Real Sociedad" 2 lines,
+  "Paris Saint-Germain" 3 lines, matching the user's own screenshot),
+  measuring `.grid-cell` (the button), `.cell-state--photo`, and
+  `.cell-state__photo-img`'s `getBoundingClientRect()`s directly.
+- **Measured root cause (before any fix):** the photo's rendered box was
+  **pixel-identical to `.grid-cell`'s own box** in every case tested — the
+  existing REQ-214/S-047 mechanism (`.cell-state--photo`'s `inset: 0`
+  bleeding through `.grid-cell`'s own padding) worked exactly as documented.
+  The real gap was one level further out: `.grid-table__cell` (the `<td>`
+  itself) has its own, *separate* padding (`var(--space-1)` = 4px below
+  960px, `var(--space-3)` = 12px at/above it) wrapping the button, which
+  nothing before this story ever bypassed. Measured gap between the photo
+  and the `<td>`'s actual border, **symmetric on all four sides** (not
+  literally bottom-only as described — checked explicitly): 4.5px at
+  390px viewport (4px padding + ~0.5px sub-pixel/border rounding), 12.5px
+  at 1280px (12px padding + rounding) — confirmed identical top/right/
+  bottom/left in every cell checked, including the mixed-row-header-height
+  ones (61px/76px/120px row heights all showed the same proportional gap).
+  Most plausible reading of the user's "bottom" framing: two photo cells
+  stacked vertically compound this same gap across their shared row
+  border (bottom padding + 1px border + next row's top padding), reading
+  as a noticeably wider blank band there than the isolated left/right gaps
+  of a single cell — a real, verified account for why the report singled
+  out the bottom edge even though the underlying cause is uniform.
+- **Fix attempted and rejected, recorded rather than silently discarded:**
+  a `.grid-table__cell:has(.cell-state--photo) { padding: 0; }` override,
+  scoped to only `<td>`s that actually contain a photo layer. This closed
+  the measured gap (re-verified: 0.5px remaining on every side, exactly
+  the `<td>`'s own 1px border) but a second, real bug was found during
+  this same story's required re-verification pass before shipping it:
+  `.grid-cell`'s own rendered size would then depend on whether
+  `.cell-state--photo` is *currently* in the DOM, which `CellState.tsx`
+  ties to photo **load success**, not just URL presence (a failed image
+  load unmounts `.cell-state--photo` entirely, falling back to the
+  no-photo branch). Confirmed via a deliberately-broken photo URL: the
+  button visibly resized (95×95 → smaller) the moment `onError` fired
+  after already rendering at the larger, gap-closed size — exactly the
+  shift REQ-214's "constant regardless of... fails to load" guarantee
+  forbids, and exactly what `play-grid.spec.ts`'s existing pre/post-
+  `networkidle` `cell.boundingBox()` equality check would have caught
+  non-deterministically in a real network environment (only when a real
+  Wikidata photo URL actually failed to load). Rejected before shipping.
+- **Fix shipped:** move the `position: relative` that establishes
+  `.cell-state--photo`'s abs-positioning containing block from `.grid-cell`
+  (the button) up to `.grid-table__cell` (the `<td>`) itself — one DOM
+  level further out, past *both* padding layers. `.grid-cell`'s own CSS is
+  otherwise completely unchanged (same `width`/`height`/padding as before
+  this story), so its own rendered box is now governed solely by those
+  unconditional rules regardless of whether a photo is showing, loading,
+  or failed — verified directly: `.grid-cell`'s computed `width`/`height`/
+  `padding` are identical whether or not its child renders
+  `.cell-state--photo`, and its `getBoundingClientRect()` is
+  pixel-identical before and after the same deliberately-broken-photo-URL
+  failure scenario above (95×95 both times). The photo layer itself, no
+  longer constrained by the button's own box at all, now fills
+  `.grid-table__cell`'s full padding box independently — measured gap
+  after the fix: **0.5px on every side at both breakpoints**, exactly this
+  rule's own 1px border split by sub-pixel rounding, i.e. the cell's actual
+  visible edge, not a leftover gap. Re-verified with the same asymmetric
+  test photo and mixed-row-header-height grid as the diagnostic, at both
+  breakpoints, plus the revealed (name+points overlay) state (unaffected —
+  CellState.css needed no change at all for this fix) and a deliberately
+  long name ("Ricardo Izecson dos Santos Leite," still clamps to one
+  ellipsis-truncated line as S-047 established). Screenshot-reviewed
+  before/after at both breakpoints: photo now visibly flush with the grid
+  lines, incorrect (no-photo) cells' own padding completely unaffected.
+- **Mechanically:** `Grid.css`'s `.grid-table__cell` rule gains
+  `position: relative;`; `.grid-cell`'s own `position: relative;` is
+  removed (comment rewritten to explain why, pointing at
+  `.grid-table__cell`'s new comment for the full mechanism).
+  `CellState.css`'s `.cell-state--photo` doc comment and `CellState.tsx`'s
+  `CellPhoto` doc comment both updated to describe the new containing
+  block accurately (no CSS changes needed in either file — the fix is
+  entirely in `Grid.css`). No new design tokens; no change to
+  `.cell-state__photo-img`'s `object-fit: cover` (confirmed, not assumed,
+  to be the right tool per this story's own scoping note — the bug was
+  always about which box the image fills, never the fit mode).
+- **Tests:** `Grid.test.tsx` gained a new describe block (2 tests,
+  replacing an earlier draft written against the rejected `:has()` fix
+  before it was reverted) — a raw-stylesheet-source check
+  (`.grid-table__cell` contains `position: relative`, `.grid-cell` does
+  not contain a `position: relative;` *declaration*, distinguished from
+  this same comment's own prose mention of that phrase by requiring the
+  trailing `;`) and a rendered-DOM check confirming `.grid-cell`'s
+  computed `width`/`height`/`padding` are identical with and without a
+  photo present. Full Vitest suite: **128/128 passing** (was 126 before
+  this story — 2 net new). `tsc -b --noEmit` and `oxlint` both clean.
+  Real-browser verification: done via the temporary harness described
+  above; harness files deleted before this diff was finalized, not part
+  of the shipped change. No `play-grid.spec.ts` changes needed — its
+  `cell.boundingBox()` assertions target `.grid-cell` (via
+  `data-testid="grid-cell-..."`), the exact element this fix keeps
+  load-outcome-independent; confirmed by reading the file and by the
+  deliberately-broken-photo-URL check above, not assumed. Logic-reviewed
+  only, not executed here (no `dotnet`/Postgres in this sandbox, same gap
+  every prior story in this chain already recorded for this file).
+  `requirements-document.md` gets a matching 2026-07-19 status note under
+  REQ-214 (the "filling the cell" acceptance criterion was, in the
+  shipped-through-S-049 version, only true up to this same measured gap);
+  no acceptance criterion's *substance* changed — the footprint-invariance
+  bullet already existing there is what this story re-verifies more
+  thoroughly (including the load-failure transition), not a new rule.
+  No ADR — CSS-only fix (plus doc-comment accuracy updates) to
+  already-implemented REQ-214, same precedent as S-040/S-041/S-047/S-048/
+  S-049's own no-ADR calls for this kind of change; the rejected `:has()`
+  approach never shipped, so there's nothing to revert in an ADR sense
+  either.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

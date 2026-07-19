@@ -42,20 +42,31 @@
 /* REQ-214 (2026-07-18 status note): the correct cell's resolved-player
    photo, filling the cell's full footprint at rest — replaces the prior
    shipped 18px-circle-inside-the-name-row treatment entirely (see
-   CellState.tsx's CellPhoto doc comment for the full history). `.grid-cell`
-   (Grid.css) is the positioned ancestor this is absolutely placed against;
-   `inset: 0` there resolves to that button's *padding* edge (the CSS spec's
+   CellState.tsx's CellPhoto doc comment for the full history).
+
+   S-050 update: the positioned ancestor this is absolutely placed against
+   is `.grid-table__cell` (Grid.css, the `<td>` itself), not `.grid-cell`
+   (the button) as originally shipped — real-browser measurement found the
+   original version left a real, visible gap between the photo and the
+   cell's actual bordered edge, exactly the size of `.grid-table__cell`'s
+   own separate padding layer, which nothing bypassed (see that rule's own
+   S-050 comment for the full before/after numbers and why the containing
+   block moved up a level rather than just zeroing that padding). `inset: 0`
+   here resolves to `.grid-table__cell`'s *padding* edge (the CSS spec's
    containing-block rule for absolutely positioned descendants), which is
-   deliberately outside/ignoring `.grid-cell`'s own padding — that's the
+   deliberately outside/ignoring that element's own padding — that's the
    mechanism that lets the photo bleed to the cell's actual edges the way
-   the design mock shows, while `.grid-cell` itself never changes size
-   because of it (padding shifts what's *inside* the border-box, never the
-   border-box's own width/height under this app's global
-   `box-sizing: border-box`). `width: auto; height: auto` explicitly
+   the design mock shows, while neither `.grid-table__cell` nor `.grid-cell`
+   ever change size because of it (padding shifts what's *inside* the
+   border-box, never the border-box's own width/height under this app's
+   global `box-sizing: border-box`). `width: auto; height: auto` explicitly
    override `.cell-state`'s own `width: 100%` above so the two don't
    conflict with the `inset: 0` sizing. `overflow: hidden` +
    `border-radius: inherit` clip the image to `.grid-cell`'s own rounded
-   corners, since the photo now extends all the way to them. */
+   corners (still inherited from the button via normal DOM-tree CSS
+   inheritance, completely unrelated to which element serves as the
+   *positioning* containing block above), since the photo now extends all
+   the way to them. */
 .cell-state--photo {
   position: absolute;
   inset: 0;

@@ -122,6 +122,100 @@ function extractBraceBlock(source: string, openBraceIndex: number): string {
   throw new Error('unbalanced braces: no matching close brace found');
 }
 
+// S-050 (root cause verified via getBoundingClientRect on a real Chromium
+// render at both breakpoints, not guessed — see backlog.md's S-050 entry
+// for the full before/after numbers): a correct cell's photo used to stop
+// short of the cell's actual bordered edge by exactly `.grid-table__cell`'s
+// (the `<td>`'s) own `padding` value, on every side, because
+// `.cell-state--photo`'s `inset: 0` (CellState.css) only ever bled through
+// `.grid-cell`'s (the button's) own padding — `.grid-table__cell`'s
+// separate, outer padding layer was never bypassed. Fixed by moving the
+// `position: relative` that establishes the abs-positioning containing
+// block from `.grid-cell` up to `.grid-table__cell` itself, rather than
+// (the first approach tried, then rejected after real-browser
+// verification) a `:has(.cell-state--photo)`-scoped padding override on
+// the `<td>` — that would have made `.grid-cell`'s own rendered size
+// depend on whether a photo is *currently* showing, which `CellState.tsx`
+// ties to load success, reintroducing exactly the "button resizes if an
+// already-shown photo fails to load" bug REQ-214's fixed-footprint
+// guarantee forbids. See `Grid.css`'s own `.grid-table__cell`/`.grid-cell`
+// comments for the full mechanism.
+function photoCorrectCell(hasPhoto: boolean): CurrentRoundCell {
+  return {
+    cellId: 'cell-photo',
+    row: 0,
+    col: 0,
+    rowCategoryType: 'country',
+    rowCategoryValue: 'France',
+    colCategoryType: 'club',
+    colCategoryValue: 'Arsenal',
+    guess: {
+      isCorrect: true,
+      attemptCount: 1,
+      locked: true,
+      submittedName: 'Thierry Henry',
+      resolvedPlayerName: 'Thierry Henry',
+      uniquePercent: 50,
+      livePoints: 5,
+      resolvedPlayerPhotoUrl: hasPhoto ? 'https://example.com/photo.jpg' : null,
+    },
+  };
+}
+
+describe('Grid photo fills to the cell edge (S-050)', () => {
+  it('.grid-table__cell (the <td>) is the positioned ancestor now, not .grid-cell (the button) — the mechanism that lets the photo bleed through both padding layers instead of just one', () => {
+    const tdRuleIndex = gridCss.indexOf('.grid-table__cell {');
+    expect(tdRuleIndex, 'expected to find the base .grid-table__cell rule').toBeGreaterThanOrEqual(0);
+    const tdRule = extractBraceBlock(gridCss, tdRuleIndex + '.grid-table__cell '.length);
+    expect(tdRule).toContain('position: relative');
+
+    const buttonRuleIndex = gridCss.indexOf('.grid-cell {');
+    expect(buttonRuleIndex, 'expected to find the base .grid-cell rule').toBeGreaterThanOrEqual(0);
+    const buttonRule = extractBraceBlock(gridCss, buttonRuleIndex + '.grid-cell '.length);
+    // Not a `position: relative;` *declaration* anymore — S-050 moved it up
+    // to the <td> above so the button's own rendered size never depends on
+    // whether a photo happens to be in the DOM (see this describe block's
+    // own top-of-file comment for why that distinction matters). Checking
+    // for the declaration with its trailing `;` (not just the bare phrase)
+    // so this assertion isn't defeated by this same rule's own explanatory
+    // comment mentioning that phrase in prose.
+    expect(buttonRule).not.toContain('position: relative;');
+  });
+
+  it("renders .grid-cell (the button) at the identical DOM structure regardless of photo presence — the button itself never gates on hasPhoto, only CellState's internal branch does, so its own box is governed solely by Grid.css's unconditional rules either way", () => {
+    const withPhoto = render(
+      <Grid
+        cells={[photoCorrectCell(true)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    const photoButton = withPhoto.container.querySelector('.grid-cell') as HTMLElement;
+    expect(photoButton.querySelector('.cell-state--photo')).toBeInTheDocument();
+    const photoButtonStyle = getComputedStyle(photoButton);
+    withPhoto.unmount();
+
+    const withoutPhoto = render(
+      <Grid
+        cells={[photoCorrectCell(false)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    const noPhotoButton = withoutPhoto.container.querySelector('.grid-cell') as HTMLElement;
+    expect(noPhotoButton.querySelector('.cell-state--photo')).not.toBeInTheDocument();
+    const noPhotoButtonStyle = getComputedStyle(noPhotoButton);
+
+    // Same declared width/height/padding either way — nothing on .grid-cell
+    // itself varies based on whether its child happens to render a photo.
+    expect(photoButtonStyle.width).toBe(noPhotoButtonStyle.width);
+    expect(photoButtonStyle.height).toBe(noPhotoButtonStyle.height);
+    expect(photoButtonStyle.padding).toBe(noPhotoButtonStyle.padding);
+  });
+});
+
 describe('Grid desktop cell target size (S-049)', () => {
   it("gives .grid-table__cell a real target size at ≥960px (120px), not just S-047/S-040's 64px floor — extracted from the raw stylesheet since jsdom can't apply media-scoped computed styles (see this file's own import comment)", () => {
     const mediaOpenIndex = gridCss.indexOf('@media (min-width: 960px) {');

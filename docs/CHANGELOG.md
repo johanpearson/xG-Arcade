@@ -13,6 +13,65 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `requirements-document.md` (v0.67, new REQ-214 status note),
+  `design-document.md` (v0.31, new S-050 note under §4's "Grid cell photo
+  fill" heading), `docs/backlog.md` (new S-050 entry with full before/after
+  measurements), `frontend/src/grid/{Grid.css,CellState.css,CellState.tsx,
+  Grid.test.tsx}` — S-050, a fourth round of direct user feedback on
+  `/grid`, this time with real screenshots at both a mobile and a "Request
+  desktop site" viewport: "see how they are not tall enough to show full
+  pictures.. we need to make sure that the pictures actually fits the
+  cell." Root-caused via `getBoundingClientRect` on a real Chromium render
+  before any CSS was touched (a prior static read of `Grid.css`/
+  `CellState.css` found nothing obviously wrong, since the S-047/REQ-214
+  mechanism as documented *should* work). Actual cause, one level further
+  out than expected: a correct cell's photo (`.cell-state--photo`,
+  `CellState.css`) bled through `.grid-cell`'s (the button's) own padding
+  exactly as already documented, but `.grid-cell` itself sits inside
+  `.grid-table__cell` (the `<td>`), which has its own, separate,
+  never-bypassed padding — so the photo always stopped short of the cell's
+  actual bordered edge by exactly that amount, symmetric on all four sides
+  (4px below 960px, 12px at/above it), not literally bottom-only as first
+  described (most visually obvious where two photo cells stack vertically
+  and that gap doubles across the shared row border). A first fix
+  (`.grid-table__cell:has(.cell-state--photo) { padding: 0; }`) was tried
+  and rejected after real-browser verification found it would tie
+  `.grid-cell`'s own rendered size to whether a photo is *currently*
+  showing — `CellState.tsx` unmounts `.cell-state--photo` on image load
+  failure, so that approach would have made the button visibly resize the
+  moment an already-shown photo failed to load, exactly the shift REQ-214's
+  "constant footprint regardless of load failure" guarantee forbids
+  (confirmed via a deliberately-broken photo URL before rejecting it).
+  Shipped fix instead: move `position: relative` (the abs-positioning
+  containing block for `.cell-state--photo`'s `inset: 0`) from `.grid-cell`
+  up to `.grid-table__cell` — one DOM level further out, past both padding
+  layers — with no change to either element's own `width`/`height`/padding
+  rules, so `.grid-cell`'s own box stays governed solely by its own
+  unconditional CSS regardless of photo presence/load outcome (verified:
+  identical computed width/height/padding with and without a photo
+  present, and pixel-identical `getBoundingClientRect()` before/after the
+  same broken-photo-URL scenario). Remaining gap after the fix: 0.5px on
+  every side at both breakpoints — this rule's own 1px border split by
+  sub-pixel rounding, i.e. the cell's actual visible edge. `CellState.css`
+  and `CellState.tsx` changes in this diff are comments only, describing
+  the new containing block accurately — no property/behavior change in
+  either file. No `architecture-document.md`/`implementation-document.md`
+  change (CSS-only, no component boundary or data flow touched) and no ADR
+  (same CSS/layout-only precedent as S-040/S-041/S-047/S-048/S-049; the
+  rejected `:has()` approach never shipped, so there's nothing to revert in
+  an ADR sense either). `requirements-document.md`'s new REQ-214 status
+  note clarifies the "filling the cell" acceptance criterion was, through
+  S-049, only true up to this same measured gap, and that the
+  footprint-invariance bullet's load-failure clause was re-verified (not
+  just assumed unaffected) as part of this fix. `Grid.test.tsx` gained 2
+  new tests (a raw-stylesheet check that `.grid-table__cell` now carries
+  `position: relative` and `.grid-cell` no longer does, and a rendered-DOM
+  check that `.grid-cell`'s computed width/height/padding are identical
+  with and without a photo). Full Vitest suite 128/128 passing (was 126);
+  `tsc -b --noEmit` and `oxlint` both clean. No `tests/e2e/play-grid.spec.ts`
+  change needed — its `cell.boundingBox()` assertions target `.grid-cell`
+  via `data-testid`, the exact element this fix keeps load-outcome-
+  independent (confirmed by reading the file). REQ-214 ref.
 - 2026-07-19 — `design-document.md` (v0.30, new S-049 note extending §4's
   S-047 aspect-ratio rule with a concrete desktop target size),
   `docs/backlog.md` (new S-049 entry), `frontend/src/grid/{Grid.css,
