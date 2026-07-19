@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.31"
+version: "0.32"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -469,9 +469,19 @@ behavior isn't lost from the record.
 
 **REQ-214 implementation note (fill-cell treatment, 2026-07-18 status
 note):** the photo now fills the cell's full footprint at rest — same
-fixed cell width/height as the no-photo case, `object-fit: cover` so the
-source image crops to fill rather than distorting or resizing the cell.
-Mechanically, the photo layer is taken out of the cell's own normal-flow
+fixed cell width/height as the no-photo case. **Superseded (2026-07-19,
+S-051 — see this section's own S-051 status note below state 4 for the
+full detail):** this note originally said `object-fit: cover` here "so
+the source image crops to fill rather than distorting or resizing the
+cell" — that's now `object-fit: contain` instead, a direct user choice to
+show the whole photo (never cropping it) at the cost of possible
+letterboxing, not a distortion/resizing concern either mode ever had
+(neither `cover` nor `contain` ever distorts an image's own aspect
+ratio — only `cover` crops it to avoid empty space, and `contain` avoids
+cropping at the cost of empty space; "resizing the cell" was never
+actually at stake for either value, since the cell's own box is sized
+independently of the image either way, per the mechanism the rest of this
+note describes). Mechanically, the photo layer is taken out of the cell's own normal-flow
 box (absolutely positioned, filling the button's full box edge-to-edge,
 deliberately ignoring the button's own padding so the photo can bleed to
 the cell's corners as the mock shows) rather than being sized by its own
@@ -632,6 +642,78 @@ it didn't, in the version shipped through S-049, by a real, measured,
 symmetric margin. See §4's "Grid cell photo fill" note for the root cause
 and fix (CSS-only, `Grid.css`); nothing in this section's own mocks or
 click/tap behavior changed.
+
+**S-051 status note (2026-07-19) — direct product decision, not a bug
+fix.** The user asked directly: "I want the full picture to be visible
+within the cells, so they are not cut off," referring to `object-fit:
+cover`'s crop-to-fill behavior (every mock in this section showing a
+uniform `▒` fill implied a photo that reaches every edge with nothing
+cropped away, but `cover` actually crops whatever doesn't fit the cell's
+own aspect ratio — the two aren't the same thing, and the shipped
+behavior was the latter). Asked to choose between "Crop photo to fill the
+cell completely (today's behavior)" and "Show full photo, allow empty
+space (letterbox)," after being told the trade-off explicitly (a
+differently-shaped photo may leave a thin background strip on two
+opposite sides of the cell) — the user chose the letterbox option.
+`object-fit: contain` (was `cover`) on `.cell-state__photo-img`
+(`CellState.css`) is the mechanical change: the whole photo now always
+renders, scaled down to fit entirely within the cell, at the cost of
+empty space appearing on two opposite sides whenever the photo's aspect
+ratio doesn't match the cell's own (roughly square, per §4) — top/bottom
+for a wider-than-cell (landscape) photo, left/right for a
+taller-than-cell (portrait) one. Every `▒▒▒▒▒▒` fill-block mock in this
+section (states 1 and 4, at rest and revealed) should now be read as "the
+photo, scaled to fit, possibly with a plain background strip on two
+sides" rather than a literal uniform fill — the mocks are ASCII art and
+were never going to show this distinction precisely either way, so they
+are not redrawn here.
+- **Letterbox background:** `.cell-state--photo` (the box the image sits
+  in) now has its own explicit `background-color: var(--color-surface-card)`
+  (`CellState.css`) — before this story it had none, and relied on
+  `.grid-cell`'s (the button behind it, `Grid.css`) own
+  `background: var(--color-surface-card)` showing through its transparent
+  box. That fallthrough happened to already be the right, clean color
+  (confirmed via real-browser screenshots at both a mobile and a desktop
+  viewport, with a genuinely non-square test photo at each orientation:
+  the letterbox strip reads as a plain white card background, not a
+  visible seam or an obviously "wrong" color) — but it was incidental, not
+  guaranteed: nothing tied the two together, so a future change to
+  `.grid-cell`'s own background (e.g. a new hover/selected-state treatment)
+  could have silently changed what letterboxing looks like without anyone
+  touching the photo code at all. Made explicit on `.cell-state--photo`
+  itself instead, now that this box's own background is actually visible
+  and load-bearing (never true when `cover` guaranteed the image reached
+  every edge). Same token, same value — this is a robustness fix to *how*
+  the color is guaranteed, not a visual change.
+- **Overlay contrast over the letterbox, re-verified rather than
+  assumed:** `overlay-scrim`'s existing contrast math (§2 above) was
+  calibrated against "the worst case: a pure-white photo showing through
+  the remaining 11%." `--color-surface-card` (`frontend/src/index.css`) is
+  `#FFFFFF` — literally pure white, not an off-white tint — so a landscape
+  photo's bottom letterbox strip (the case that can land directly behind
+  the bottom-anchored overlay) presents the scrim with *exactly* the same
+  underlying color the existing math already treats as the worst case,
+  not merely a similar one: alpha-blending is agnostic to whether the
+  white behind it is "a very light photo" or "an opaque background
+  color," so the same `rgb(51, 56, 53)` blended value, the same 4.65:1
+  (`accent-gold`) and 11.99:1 (`surface-card`/white, the revealed name's
+  color) ratios already recorded under `overlay-scrim` apply unchanged.
+  **No new token or contrast math was needed** — confirmed by checking the
+  actual token value (not assumed), and re-confirmed visually via
+  real-browser screenshots of a revealed landscape-oriented photo cell
+  (bottom letterbox landing behind the overlay): the name and points text
+  remained clearly legible against the scrim in that exact scenario. A
+  portrait-oriented photo's letterbox lands left/right, never behind the
+  bottom-anchored overlay at all, so it was never a contrast concern to
+  begin with.
+- **Unaffected by this change, re-confirmed rather than assumed:** the
+  fixed-cell-footprint guarantee (REQ-214) — the mechanism is the
+  absolutely-positioned box's own `inset: 0`/explicit `width`/`height`,
+  never the fit mode, and real-browser measurement across landscape and
+  portrait photos at both breakpoints (mobile/desktop) showed identical
+  cell dimensions regardless of photo orientation or fit mode; and the
+  no-photo/load-failure at-rest display, which only ever concerns a
+  *successfully loading* photo's own presentation and is untouched here.
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
@@ -989,9 +1071,16 @@ Unchanged from v0.1 — built "equally both" from the start:
   and a 5×5 at ~787×646px at a 1280px viewport, both comfortably inside the
   1200px desktop cap with cells reading square (~1.14:1, within the
   existing 1:1–1.3:1 bound above) and no overflow or horizontal-scroll
-  fallback triggering. `object-fit: cover` on `.cell-state__photo-img`
-  (unchanged) scales the photo cleanly to the larger footprint with no
-  distortion. The 481-959px shrink-to-fit range and the ≤480px
+  fallback triggering. `object-fit: cover` on `.cell-state__photo-img`, as
+  it stood at the time this note was written, scaled the photo cleanly to
+  the larger footprint with no distortion. **Superseded (2026-07-19,
+  S-051):** the fit mode is now `object-fit: contain` (a direct user
+  choice, see SCREEN-01a's S-051 status note) — this note's own point
+  still holds regardless of fit mode (neither `cover` nor `contain` ever
+  distorts the image; the larger footprint scales either mode's output
+  cleanly), so nothing about this story's own 120px-floor change needed
+  re-verification when the fit mode changed separately. The 481-959px
+  shrink-to-fit range and the ≤480px
   `table-layout: fixed` range are both unaffected — this change is scoped
   to the existing `≥960px` breakpoint only. No change to REQ-214's
   fixed-cell-footprint constraint — this is a target-size increase within

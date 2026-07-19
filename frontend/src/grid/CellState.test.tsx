@@ -691,13 +691,49 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     const img = container.querySelector('.cell-state__photo-img');
     expect(img).toBeInTheDocument();
     const imgStyle = getComputedStyle(img as Element);
-    // The image inside is cropped to fill the fixed box (object-fit: cover)
-    // rather than the box growing to fit the image — never sized by its own
-    // intrinsic dimensions (no width:auto/height:auto here).
+    // S-051: the image inside is scaled to fit entirely within the fixed box
+    // (object-fit: contain, was cover pre-S-051 — see that story's design
+    // doc/backlog entries for the direct product decision behind the
+    // change) rather than the box growing to fit the image — never sized by
+    // its own intrinsic dimensions (no width:auto/height:auto here). The
+    // fixed-footprint mechanism itself (position/inset/width/height) is
+    // unaffected by which fit mode is used.
     expect(imgStyle.position).toBe('absolute');
-    expect(imgStyle.objectFit).toBe('cover');
+    expect(imgStyle.objectFit).toBe('contain');
     expect(imgStyle.width).toBe('100%');
     expect(imgStyle.height).toBe('100%');
+  });
+
+  // S-051 (2026-07-19, direct user choice — "Show full photo, allow empty
+  // space (letterbox)" — not a bug fix): object-fit: contain means the photo
+  // no longer necessarily reaches every edge of `.cell-state--photo`'s own
+  // box, so that box's own background is now what actually shows in the
+  // resulting letterbox strip. Asserted explicitly here rather than left to
+  // fall through incidentally from `.grid-cell`'s own background (Grid.css)
+  // — see this story's own CellState.css comment for why that dependency is
+  // now made explicit instead of implicit.
+  it('S-051: the photo layer has its own explicit surface-card background, so a letterboxed edge (object-fit: contain) shows a deliberate, known color rather than whatever happens to be behind it', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed={false}
+      />,
+    );
+
+    const photoLayer = container.querySelector('.cell-state--photo');
+    expect(photoLayer).toBeInTheDocument();
+    // Declared as the `background-color` longhand (not the `background`
+    // shorthand) specifically so this is assertable here — jsdom's CSSOM
+    // resolves a var()-only `background` shorthand to its initial value
+    // rather than preserving the token reference, same longhand-over-
+    // shorthand workaround this file's padding assertions already use.
+    expect(getComputedStyle(photoLayer as Element).backgroundColor).toBe('var(--color-surface-card)');
   });
 
   it('REQ-214: the no-photo (`.cell-state` without `--photo`) case is never absolutely positioned — only the photo path uses the fill-the-cell mechanism, the plain text-only at-rest display is unaffected', () => {

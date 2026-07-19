@@ -66,7 +66,31 @@
    corners (still inherited from the button via normal DOM-tree CSS
    inheritance, completely unrelated to which element serves as the
    *positioning* containing block above), since the photo now extends all
-   the way to them. */
+   the way to them.
+
+   S-051 (2026-07-19, direct user choice, not a bug fix — see
+   design-document.md SCREEN-01a's S-051 status note): `background-color:
+   var(--color-surface-card)` added here, explicitly. Before this story this
+   element had no background of its own and relied on `.grid-cell`'s (the
+   button's) own `background: var(--color-surface-card)` (Grid.css) showing
+   through its transparent box in the areas the photo doesn't cover — true,
+   but incidental: nothing tied the two together, so a future change to
+   `.grid-cell`'s background (e.g. a new hover/state treatment) could
+   silently change what letterboxing looks like without anyone touching this
+   file. Now load-bearing here on purpose: `object-fit: contain` below (was
+   `cover`) means the photo no longer necessarily reaches every edge of this
+   box, so this background is what shows in the resulting letterbox strip
+   whenever the photo's aspect ratio doesn't match the cell's. Same token,
+   same value (`#ffffff`) either way — this change makes the dependency
+   explicit rather than changing what's actually painted. Written as the
+   `background-color` longhand rather than the `background` shorthand —
+   same reasoning as `.cell-state__overlay`'s padding longhands further down
+   this file: jsdom's CSSOM resolves a var()-only `background` shorthand to
+   its initial value (`rgba(0, 0, 0, 0)`) rather than preserving the token
+   reference the way a real browser's pending-substitution-value handling
+   does, which would make this un-assertable from a Vitest test; the
+   `background-color` longhand alone doesn't have that problem and renders
+   identically in a real browser either way. */
 .cell-state--photo {
   position: absolute;
   inset: 0;
@@ -77,22 +101,39 @@
   justify-content: flex-end;
   overflow: hidden;
   border-radius: inherit;
+  background-color: var(--color-surface-card);
 }
 
 /* The image itself is a second absolutely-positioned layer (relative to
    .cell-state--photo, which establishes its own positioning context via the
    rule above) so it's removed from that container's flex flow entirely —
-   sized purely by `inset: 0` + `object-fit: cover`, never by the image's
-   own intrinsic dimensions, so an unusually tall/wide source photo still
-   can't change the cell's footprint (same guarantee the old fixed-18px-box
-   used to provide, just at full-cell scale now). z-index: 0 keeps it behind
-   .cell-state__overlay below. */
+   sized purely by `inset: 0` + `object-fit`, never by the image's own
+   intrinsic dimensions, so an unusually tall/wide source photo still can't
+   change the cell's footprint (same guarantee the old fixed-18px-box used
+   to provide, just at full-cell scale now). z-index: 0 keeps it behind
+   .cell-state__overlay below.
+
+   S-051 (2026-07-19): `object-fit: contain` (was `cover`) — a direct,
+   explicit product decision, not a bug fix: the user asked "I want the full
+   picture to be visible within the cells, so they are not cut off," was
+   shown the trade-off (a differently-shaped photo may leave a thin
+   background strip on two sides of the cell), and chose "Show full photo,
+   allow empty space (letterbox)" over a crop-to-fill alternative. `contain`
+   scales the photo down to fit entirely within this box, preserving the
+   whole image — never crops it — at the cost of empty space (showing
+   `.cell-state--photo`'s own background above, now explicit) on two
+   opposite sides whenever the photo's aspect ratio doesn't match the cell's
+   (top/bottom for a wider-than-cell/landscape photo, left/right for a
+   taller-than-cell/portrait one). This is purely a fit-mode change — the
+   box itself is still sized by `inset: 0` + `width/height: 100%` below,
+   never by the image's own dimensions, so REQ-214's fixed-cell-footprint
+   guarantee is completely unaffected either way. */
 .cell-state__photo-img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   z-index: 0;
   display: block;
 }
