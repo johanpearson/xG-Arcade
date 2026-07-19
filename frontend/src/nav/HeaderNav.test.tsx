@@ -52,6 +52,24 @@ describe('HeaderNav', () => {
     expect(toggle).toHaveAttribute('aria-controls', 'header-nav-menu');
   });
 
+  // REQ-712's "reachable via Tab" clause is deliberately NOT tested here:
+  // HeaderNav.css hides the toggle via its un-media-queried base rule
+  // (`display: none`) outside the `@media (max-width: 480px)` block, and
+  // jsdom in this project never evaluates `@media` (no `window.matchMedia`
+  // at all — see App.test.tsx's REQ-712 comment, which documents the same
+  // limitation). `user.tab()` correctly refuses to focus a display:none
+  // element, exactly as a real browser would above the breakpoint, so
+  // Tab-reachability can only be verified where the toggle is actually
+  // visible: a real narrow viewport. See
+  // tests/e2e/header-nav.spec.ts's "reachable via Tab and activates via
+  // Enter/Space" test for that coverage. Keyboard *activation* semantics
+  // (Enter/Space triggering onClick) fall out of using a real
+  // `<button type="button">` — already asserted by the "real, focusable
+  // button" test above — so no jsdom-level Enter/Space test is added here
+  // either; faking Tab/focus in jsdom (e.g. calling `.focus()` directly, or
+  // stubbing `matchMedia`) would pass regardless of real Tab-reachability
+  // and so would not actually cover the acceptance criterion.
+
   it('REQ-712/REQ-713: clicking "Leaderboard" calls onSelectLeaderboard and closes the menu (selectAndClose)', async () => {
     const { onSelectLeaderboard, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
