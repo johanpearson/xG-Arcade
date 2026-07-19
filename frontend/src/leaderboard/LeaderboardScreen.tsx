@@ -336,22 +336,36 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
 
   // ---- Live scope (REQ-407/ADR-0031) ------------------------------------
 
-  // Fetched once, on first selection of this scope — not eagerly on mount,
+  // Fetched on every *transition into* this scope — not eagerly on mount,
   // and not on a poll interval, unlike the all-time scope above. ADR-0031
   // makes this read materially more expensive (every participant × every
   // active-round cell, recomputed in full on every call), so this only ever
   // fetches on an explicit action (selecting the tab, or "Load more"), never
   // ambiently in the background.
   //
-  // Guarded with a ref, not `liveState.phase` in the dependency array: the
+  // Guarded by comparing against the *previous* scope (tracked in a ref),
+  // not `liveState.phase` in the dependency array: the
   // `setLiveState({ phase: 'loading' })` call below changes that phase,
   // which would otherwise re-trigger this very effect (cleanup — setting
   // `cancelled = true` — racing the in-flight fetch's own resolution) before
-  // the fetch had a chance to complete.
-  const hasFetchedLiveRef = useRef(false);
+  // the fetch had a chance to complete. Tracking the previous scope instead
+  // means the effect still only fires on a genuine tab change, but — unlike
+  // a permanent "have we ever fetched" latch — fires again every time the
+  // user re-enters "live" after visiting a different scope, which is the
+  // whole point of REQ-407's "check back once one starts" / "come back to
+  // see the update" promise: a stale response with no visual staleness
+  // indicator would otherwise sit there for the component's entire mounted
+  // lifetime. Re-entry deliberately shows the loading state again (below),
+  // rather than leaving the previous, possibly-stale rows on screen while
+  // fetching silently — for a scope whose whole value proposition is "check
+  // back for something more current," a brief loading flash is the more
+  // honest signal than quietly leaving stale data up with no cue that a
+  // refresh is even happening.
+  const prevScopeForLiveRef = useRef<Scope>(scope);
   useEffect(() => {
-    if (scope !== 'live' || hasFetchedLiveRef.current) return;
-    hasFetchedLiveRef.current = true;
+    const isEnteringLive = scope === 'live' && prevScopeForLiveRef.current !== 'live';
+    prevScopeForLiveRef.current = scope;
+    if (!isEnteringLive) return;
     let cancelled = false;
     setLiveState({ phase: 'loading' });
 
@@ -417,13 +431,15 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
 
   // ---- Past rounds scope (REQ-408) --------------------------------------
 
-  // The round-selection list, fetched once on first selection of this
-  // scope — same "idle until picked" reasoning, and same ref-guard-rather-
-  // than-phase-in-deps fix, as the live scope above.
-  const hasFetchedPastListRef = useRef(false);
+  // The round-selection list, fetched on every transition into this
+  // scope — same "idle until picked" and "re-entry, not a one-time latch"
+  // reasoning, and same prev-scope-ref-rather-than-phase-in-deps fix, as the
+  // live scope above.
+  const prevScopeForPastListRef = useRef<Scope>(scope);
   useEffect(() => {
-    if (scope !== 'past' || hasFetchedPastListRef.current) return;
-    hasFetchedPastListRef.current = true;
+    const isEnteringPast = scope === 'past' && prevScopeForPastListRef.current !== 'past';
+    prevScopeForPastListRef.current = scope;
+    if (!isEnteringPast) return;
     let cancelled = false;
     setPastListState({ phase: 'loading' });
 

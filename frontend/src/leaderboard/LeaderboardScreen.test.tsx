@@ -784,5 +784,243 @@ describe('LeaderboardScreen', () => {
       expect(screen.getByText('Alex')).toBeInTheDocument();
       expect(screen.getByText('10 pts')).toBeInTheDocument();
     });
+
+    // Regression test for the "hasFetchedLiveRef never resets" bug
+    // (quality-architect/architecture-reviewer finding): the live scope
+    // must issue a fresh request every time it's re-entered, not just once
+    // for the component's entire mounted lifetime — otherwise REQ-407's
+    // "check back once one starts"/"come back to see the update" promise is
+    // moot, since the frontend would never actually issue that later
+    // request.
+    it('REQ407: re-selecting "This round (live)" after switching away fetches again, replacing the previously shown rows', async () => {
+      let activeRoundCallCount = 0;
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => {
+            activeRoundCallCount += 1;
+            if (activeRoundCallCount === 1) {
+              return jsonResponse({
+                rows: [row(1, 'user-1', 'Alex', 12)],
+                requestingUserRow: null,
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            return jsonResponse({
+              rows: [row(1, 'user-2', 'Blair', 25)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            });
+          },
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      // First entry into "live".
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+      // Away, then back — this is the exact "check back later" scenario
+      // REQ-407 promises works, and the bug broke.
+      fireEvent.click(screen.getByRole('tab', { name: 'All-time' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+
+      // Second, fresh response lands — proving a second real request was
+      // made, not the first response silently reused.
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+      expect(screen.queryByText('Alex')).not.toBeInTheDocument();
+
+      expect(activeRoundCallCount).toBe(2);
+    });
+
+    // Regression test for the "hasFetchedPastListRef never resets" bug —
+    // same shape as the live-scope test above, for the past-rounds list.
+    it('REQ408: re-selecting "Past rounds" after switching away fetches the closed-rounds list again', async () => {
+      let closedRoundsCallCount = 0;
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () => {
+            closedRoundsCallCount += 1;
+            if (closedRoundsCallCount === 1) {
+              return jsonResponse({
+                rounds: [
+                  {
+                    roundId: 'round-1',
+                    startTime: '2026-07-05T00:00:00Z',
+                    endTime: '2026-07-05T18:00:00Z',
+                    closedAt: '2026-07-05T18:05:00Z',
+                  },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            }
+            return jsonResponse({
+              rounds: [
+                {
+                  roundId: 'round-2',
+                  startTime: '2026-07-12T00:00:00Z',
+                  endTime: '2026-07-12T18:00:00Z',
+                  closedAt: '2026-07-12T18:05:00Z',
+                },
+              ],
+              nextCursor: null,
+              hasMore: false,
+            });
+          },
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      // First entry into "past".
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+
+      // Away, then back.
+      fireEvent.click(screen.getByRole('tab', { name: 'All-time' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+
+      // Second, fresh response lands — proving a second real request was
+      // made, not the first list silently reused.
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-12T18:05:00Z')).toBeInTheDocument());
+      expect(screen.queryByText('Closed 2026-07-05T18:05:00Z')).not.toBeInTheDocument();
+
+      expect(closedRoundsCallCount).toBe(2);
+    });
+
+    // Near-identical to the well-tested REQ-607 `handleLoadMore` pattern
+    // above, but exercising `handleLoadMoreLive` by name — flagged by the
+    // quality-architect review as unverified.
+    it('REQ407: "Load more" on the live scope fetches the next page via the previous nextCursor and appends below the existing rows', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          (() => {
+            let call = 0;
+            return () => {
+              call += 1;
+              if (call === 1) {
+                return jsonResponse({
+                  rows: [row(1, 'user-1', 'Alex', 10)],
+                  requestingUserRow: null,
+                  nextCursor: 50,
+                  hasMore: true,
+                });
+              }
+              return jsonResponse({
+                rows: [row(2, 'user-2', 'Blair', 20)],
+                requestingUserRow: null,
+                nextCursor: null,
+                hasMore: false,
+              });
+            };
+          })(),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+      const rows = screen.getAllByRole('listitem');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent('Alex');
+      expect(rows[1]).toHaveTextContent('Blair');
+
+      const activeRoundCalls = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/leagues/global/leaderboard/active-round'),
+      );
+      expect(activeRoundCalls).toHaveLength(2);
+      expect(String(activeRoundCalls[1][0])).toContain('cursor=50');
+    });
+
+    // Near-identical to the well-tested REQ-607 `handleLoadMore` pattern
+    // above, but exercising `handleLoadMoreRoundDetail` by name — flagged
+    // by the quality-architect review as unverified.
+    it('REQ408: "Load more" on a selected past round\'s detail view fetches the next page via the previous nextCursor', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds/round-1',
+          (() => {
+            let call = 0;
+            return () => {
+              call += 1;
+              if (call === 1) {
+                return jsonResponse({
+                  rows: [row(1, 'user-1', 'Alex', 10)],
+                  requestingUserRow: null,
+                  nextCursor: 50,
+                  hasMore: true,
+                });
+              }
+              return jsonResponse({
+                rows: [row(2, 'user-2', 'Blair', 20)],
+                requestingUserRow: null,
+                nextCursor: null,
+                hasMore: false,
+              });
+            };
+          })(),
+        ],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () =>
+            jsonResponse({
+              rounds: [
+                {
+                  roundId: 'round-1',
+                  startTime: '2026-07-05T00:00:00Z',
+                  endTime: '2026-07-05T18:00:00Z',
+                  closedAt: '2026-07-05T18:05:00Z',
+                },
+              ],
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+      const rows = screen.getAllByRole('listitem');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent('Alex');
+      expect(rows[1]).toHaveTextContent('Blair');
+
+      const detailCalls = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/leagues/global/leaderboard/closed-rounds/round-1'),
+      );
+      expect(detailCalls).toHaveLength(2);
+      expect(String(detailCalls[1][0])).toContain('cursor=50');
+    });
   });
 });
