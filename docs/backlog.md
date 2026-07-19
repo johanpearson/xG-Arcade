@@ -2124,6 +2124,99 @@ recorded for this file). No ADR — CSS/layout-only polish on
 already-implemented REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041's
 own no-ADR calls for this kind of change.
 
+**S-048 · Photo cell: nothing overlaid at rest, name+points-only overlay on
+reveal (REQ-204/212/214, SCREEN-01a)**
+Direct user feedback after seeing S-047 live, judged a further, deliberate
+simplification rather than another coverage tweak: "at rest, only picture.
+on click name + points only in an overlay." Scoped to the photo case only —
+a correct cell without a photo is completely unaffected and keeps its
+always-visible checkmark+points at rest (REQ-204's original behavior) and
+its name+badge-dock reveal (REQ-212's original behavior).
+*Accept:* `design-document.md`'s SCREEN-01a mock and status notes updated
+first, including a plainly-recorded trade-off note (a photo cell loses its
+always-visible-without-clicking score signal — only "this cell is done,"
+via the photo's own presence, survives at rest) since this is the first
+story to affect REQ-204's always-visible-at-rest guarantee itself, not just
+what reveal shows; `requirements-document.md` gets matching status notes
+under REQ-204, REQ-212, and REQ-214; `CellState.tsx`'s photo branch renders
+only `<CellPhoto>` at rest (no `.cell-state__overlay` at all) and, once
+`revealed`, an overlay with only the name and points (no checkmark, no
+badge dock — S-047's badge-dock drop stays dropped); no-photo branch
+untouched; dead CSS (the photo-variant checkmark/row/badge-dock-hide rules
+that can no longer ever match once the checkmark/Row/badge markup is never
+rendered there) removed, not left orphaned; real-browser verification at
+mobile and desktop widths, not just passing tests.
+**Built as:** matches the plan above. `CellState.tsx`'s `isCorrect` branch
+now has two distinct sub-branches instead of one shared `overlayContent`
+for both photo and no-photo cases: the no-photo path is byte-for-byte
+unchanged (still `Row` + always-visible points, `revealed` gating only the
+name/badges); the photo path no longer builds or reuses `overlayContent`
+at all — it renders `<CellPhoto>` unconditionally and, only when
+`revealed`, a `.cell-state__overlay` containing a plain
+`<span className="cell-state__name">` and the existing
+`<p className="cell-state__meta">` points paragraph, with no `Row` call at
+all (so no checkmark, no badge dock — both are structurally absent, not
+merely CSS-hidden, a stronger guarantee than S-047's `display: none`
+approach for the badge dock). `CellState.css` changes: removed
+`.cell-state--photo .cell-state__row` (S-047's tighter row gap — dead, no
+`.cell-state__row` is ever rendered inside `.cell-state--photo` anymore),
+`.cell-state--photo .cell-state__icon` and
+`.cell-state--photo .cell-state__icon--correct` (S-047's smaller size and
+the 2026-07-19 `accent-green-scrim` color exception — both dead, no
+checkmark is ever rendered inside `.cell-state--photo` anymore), and
+`.cell-state--photo .cell-state__badge-dock { display: none; }` (S-047's
+defensive hide — dead for the same reason; a removal note was left in each
+spot pointing back at this story rather than silently deleting history).
+`.cell-state--photo .cell-state__meta`/`.cell-state--photo
+.cell-state__name` (S-047's smaller type/line-clamp) are kept unchanged —
+still needed, since the name and points still render, just only once
+revealed. `--color-accent-green-scrim` itself (design-document.md §2,
+`index.css`) is kept defined but is now documented as dormant (its
+calibrated checkmark no longer renders anywhere) rather than deleted, per
+this repo's own "document, don't silently drop" pattern for superseded
+values — reversible in one line if a checkmark is ever deliberately
+reintroduced to this overlay.
+Tests: `CellState.test.tsx`'s photo-reveal describe block rewritten in
+place — every assertion that expected a checkmark/points visible at rest
+on a photo cell, or a checkmark/row/badge-dock structure once revealed, was
+replaced (not left stale, the S-029 lesson) with the new invariant (nothing
+overlaid at rest; name+points-only, no checkmark, no badge dock, once
+revealed). New/rewritten tests: at-rest overlays-nothing, revealed overlay
+content, revealed→hidden removes the whole overlay, structural absence
+(not just CSS `display: none`) of `.cell-state__row`/icon/badge-dock on a
+photo cell, and a checkmark-presence check confirming a photo cell never
+renders one in either state while the no-photo case still does. Full
+Vitest suite: 124/124 passing (unchanged count from S-047's own final
+tally — tests were rewritten in place, not net-added, since this story
+narrows behavior more than it adds new surface). `tsc -b --noEmit` and
+`oxlint` both clean. Real-browser verification: done via a temporary,
+not-committed Playwright + Vite harness (same approach S-047 used — this
+sandbox has Chromium at `/opt/pw-browsers` and no `dotnet`/Postgres, so a
+full backend-backed E2E run wasn't available here), rendering `CellState`
+directly with an inline SVG data-URI test photo, at both a 390px mobile and
+a 1280px desktop viewport: confirmed a photo cell shows only the picture at
+rest, confirmed click reveals a legible name+points overlay with no
+checkmark and no badge dock (including for a deliberately long name,
+correctly clamped to one line), and confirmed the cell's bounding box is
+pixel-identical before and after the reveal click (the fixed-footprint
+guarantee, REQ-214, still holds). No min-height was needed on
+`.cell-state__overlay` — two lines of text (name + points) fill it
+comfortably at a realistic ~100px mobile cell size, doesn't collapse or
+look empty. Harness files deleted before this diff was finalized, not part
+of the shipped change. `frontend/tests/e2e/play-grid.spec.ts` needed no
+behavioral assertion changes — it already avoided asserting on
+checkmark/points visibility for the photo case specifically (its
+`hasPhoto` branch only ever asserted on the badge dock and the name), so
+S-048's changes fall within what that test already tolerated; one
+descriptive comment (near the wrong-guess/correct-guess flow) was updated
+for accuracy since it generically described "checkmark plus points at
+rest" for any correct cell, which is no longer true for the photo case.
+Logic-reviewed only, not executed here (no `dotnet`/Postgres in this
+sandbox, same gap S-041/S-047's own entries already recorded for this
+file). No ADR — CSS/component-internal simplification of already-implemented
+REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041/S-047's own no-ADR
+calls for this kind of change.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
