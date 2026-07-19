@@ -17,6 +17,7 @@ public class AuthController(
     IUserRepository userRepository,
     ILeagueRepository leagueRepository,
     IAccountDeletionService accountDeletionService,
+    IConfiguration configuration,
     ILogger<AuthController> logger) : ControllerBase
 {
     [HttpPost("signup")]
@@ -152,7 +153,12 @@ public class AuthController(
             return NotFound();
         }
 
-        return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed));
+        // REQ-504: the frontend's only way to know whether to show the admin
+        // nav entry point — same Admin:UserIds check the "Admin"
+        // authorization policy itself uses (AdminAuthorizationHandler).
+        var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
+
+        return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed, isAdmin));
     }
 
     // REQ-710: self-service account deletion. Irreversible, so the request

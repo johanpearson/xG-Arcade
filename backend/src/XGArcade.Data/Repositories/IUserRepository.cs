@@ -28,6 +28,12 @@ public interface IUserRepository
     // call the same reusable service.
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
+    // REQ-506: an admin identifies the user to delete by email (the only
+    // identifier an admin actually has to hand — User.Id is opaque), then
+    // resolves it to the local User.Id AccountDeletionService needs.
+    // Case-insensitive, matching how Supabase Auth itself treats email.
+    Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+
     // REQ-710: permanently removes the local profile row. Callers must
     // anonymize this user's Guess rows (AnonymizeByUserIdAsync) and remove
     // their LeagueMembership rows (ILeagueRepository.RemoveMembershipsByUserIdAsync)
