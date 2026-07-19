@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `docs/requirements-document.md` (0.54 → 0.55),
+  `docs/architecture-document.md` (0.33 → 0.34) — doc-sync for S-026 (admin
+  UI page + round control + user deletion), which was fully implemented,
+  tested, and merged with REQ-504/505/506 still marked "Proposed." Flipped
+  all three to `Status: Implemented (Tier 0, S-026)` and described what was
+  actually built: `AdminScreen.tsx`'s three sections and Production-absence
+  detection (REQ-504); `AdminManagementEndpoints`' round-control routes,
+  their reuse of `IRoundCloseService` (REQ-205), and a noted deliberate
+  deviation from the drafted criteria (the active-round probe returns `200
+  {hasActiveRound, round}` rather than a not-found response, REQ-505); and
+  the user-deletion endpoint's reuse of `IAccountDeletionService`
+  (REQ-710, REQ-506). Architecture doc gained status notes recording
+  `AdminManagementEndpoints` as a second caller of COMP-01's
+  `IAccountDeletionService` and a third caller of COMP-03's
+  `IRoundCloseService` (no new data-access path either way), plus a §7 note
+  that ADR-0006's fail-closed pattern has, for the first time, been reused
+  by an admin-facing (not test-only) endpoint group — a growth in scope of
+  an existing decision, not a new one, so no new ADR. `docs/design-document.md`
+  (0.19 → 0.20) was already updated earlier in the same branch (SCREEN-04's
+  mock rewritten to match what was actually built) — noted here for the
+  record, not re-touched. `docs/backlog.md`'s S-026 entry also gained its
+  own "Built as" paragraph, matching every other completed story's
+  convention. REQ-504/505/506.
 - 2026-07-14 — `docs/requirements-document.md` (0.53 → 0.54),
   `docs/design-document.md` (0.18 → 0.19), `docs/backlog.md` — same
   feedback round as the S-033/REQ-206 fix below, two follow-up requests.
