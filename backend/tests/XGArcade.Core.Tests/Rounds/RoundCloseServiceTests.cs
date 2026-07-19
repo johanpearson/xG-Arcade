@@ -119,4 +119,54 @@ public class RoundCloseServiceTests
         Assert.That(secondCloseResult!.ClosedAt, Is.EqualTo(firstClosedAt),
             "first close wins, same idempotent pattern as the EndTime pull-forward");
     }
+
+    // Regression test: quality-architect's pre-merge review of the REQ-408
+    // diff found ClosedAt was being persisted BEFORE LockRoundScoresAsync ran
+    // to completion — a window where LeaderboardService.GetClosedRoundLeaderboardAsync
+    // (which gates purely on ClosedAt being non-null) could see a round as
+    // closed/complete while scores were still unlocked, or would stay stuck
+    // that way forever if locking failed partway through. CloseRoundAsync
+    // must never persist ClosedAt unless LockRoundScoresAsync completed
+    // without throwing.
+    [Test]
+    public async Task REQ408_CloseRoundAsync_LockRoundScoresAsyncThrows_ClosedAtIsNeverPersisted()
+    {
+        var now = new DateTime(2026, 7, 19, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: now.AddDays(-2), endTime: now.AddDays(2));
+        var fakeScoreLockingService = new FakeScoreLockingService
+        {
+            ThrowOnLock = new InvalidOperationException("simulated partial locking failure"),
+        };
+        var service = new RoundCloseService(_roundRepository, fakeScoreLockingService);
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await service.CloseRoundAsync(round.Id, now));
+
+        var persisted = await _roundRepository.GetByIdAsync(round.Id);
+        Assert.That(persisted!.ClosedAt, Is.Null,
+            "a round must never look closed/complete to readers while LockRoundScoresAsync hasn't succeeded");
+    }
+
+    // Companion to the failure case above: once locking DOES succeed (even
+    // on a retry after a prior failed attempt), ClosedAt must still get set —
+    // the fix must close the unlocked-scores window without breaking the
+    // ordinary success path.
+    [Test]
+    public async Task REQ408_CloseRoundAsync_LockRoundScoresAsyncSucceedsAfterPriorFailure_ClosedAtIsSetOnRetry()
+    {
+        var now = new DateTime(2026, 7, 19, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: now.AddDays(-2), endTime: now.AddDays(2));
+        var fakeScoreLockingService = new FakeScoreLockingService
+        {
+            ThrowOnLock = new InvalidOperationException("simulated partial locking failure"),
+        };
+        var service = new RoundCloseService(_roundRepository, fakeScoreLockingService);
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await service.CloseRoundAsync(round.Id, now));
+
+        fakeScoreLockingService.ThrowOnLock = null;
+        var closed = await service.CloseRoundAsync(round.Id, now);
+
+        Assert.That(closed!.ClosedAt, Is.EqualTo(now));
+        var persisted = await _roundRepository.GetByIdAsync(round.Id);
+        Assert.That(persisted!.ClosedAt, Is.EqualTo(now));
+    }
 }

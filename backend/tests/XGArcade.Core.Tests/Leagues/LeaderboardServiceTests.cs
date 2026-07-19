@@ -517,4 +517,37 @@ public class LeaderboardServiceTests
         Assert.That(result.Page!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }));
         Assert.That(result.Page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 30, ScoringRules.MaxPointsPerCell }));
     }
+
+    // Pagination *within* one closed round's participant list — distinct
+    // from REQ408_GetClosedRoundsAsync_PageSizeSmallerThanCount_ above, which
+    // pages the round-list itself. Goes through the same already-tested
+    // private Paginate helper as every other scope in this service, but
+    // hadn't been exercised directly for this method.
+    [Test]
+    public async Task REQ408_GetClosedRoundLeaderboardAsync_PageSizeSmallerThanParticipantCount_ReturnsCappedPageWithUsableCursor()
+    {
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1));
+        var participants = new List<User>();
+        for (var i = 0; i < 3; i++)
+        {
+            var participant = await SeedMemberAsync($"Participant{i}");
+            participants.Add(participant);
+            await SeedGuessAsync(round.Id, participant.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: i * 10);
+        }
+
+        var firstPage = await _service.GetClosedRoundLeaderboardAsync(round.Id, participants[0].Id, cursor: 0, pageSize: 2);
+        Assert.That(firstPage.Status, Is.EqualTo(ClosedRoundLeaderboardStatus.Found));
+        Assert.That(firstPage.Page!.Rows, Has.Count.EqualTo(2));
+        Assert.That(firstPage.Page.HasMore, Is.True);
+        Assert.That(firstPage.Page.NextCursor, Is.EqualTo(2));
+
+        var secondPage = await _service.GetClosedRoundLeaderboardAsync(round.Id, participants[0].Id, cursor: firstPage.Page.NextCursor!.Value, pageSize: 2);
+        Assert.That(secondPage.Status, Is.EqualTo(ClosedRoundLeaderboardStatus.Found));
+        Assert.That(secondPage.Page!.Rows, Has.Count.EqualTo(1));
+        Assert.That(secondPage.Page.HasMore, Is.False);
+        Assert.That(secondPage.Page.NextCursor, Is.Null);
+
+        var allUserIds = firstPage.Page.Rows.Concat(secondPage.Page.Rows).Select(r => r.UserId).ToList();
+        Assert.That(allUserIds, Is.EquivalentTo(participants.Select(p => p.Id)));
+    }
 }
