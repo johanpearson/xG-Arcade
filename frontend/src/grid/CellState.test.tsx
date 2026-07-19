@@ -727,7 +727,41 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(noPhotoRow?.children.length).toBe(photoRow?.children.length);
   });
 
-  it('REQ-214: the overlaid checkmark/points use accent-gold (not accent-gold-text) on the photo\'s scrim, the token pairing design-document.md §2\'s overlay-scrim entry specifies for this dark backdrop', () => {
+  it('REQ-214: the overlaid points value uses accent-gold (not accent-gold-text) on the photo\'s scrim, the token pairing design-document.md §2\'s overlay-scrim entry specifies for this dark backdrop', () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+      />,
+    );
+
+    const meta = container.querySelector('.cell-state__meta');
+    expect(meta).toBeInTheDocument();
+    expect(getComputedStyle(meta as Element).color).toBe('var(--color-accent-gold)');
+
+    // Compare against a no-photo correct cell's own meta color — the two
+    // must differ, since the no-photo case is the one that should keep
+    // using accent-gold-text (its background is surface-card, not the
+    // scrim).
+    const { container: noPhotoContainer } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} />,
+    );
+    const noPhotoMeta = noPhotoContainer.querySelector('.cell-state__meta');
+    expect(getComputedStyle(meta as Element).color).not.toBe(getComputedStyle(noPhotoMeta as Element).color);
+  });
+
+  // (2026-07-19, REQ-214, direct user feedback): the checkmark glyph
+  // specifically — not the points value covered above — is a deliberate,
+  // one-off exception: accent-green-scrim, not accent-gold, on this same
+  // scrim. design-document.md §2's `accent-green-scrim` row documents why
+  // neither existing green token clears contrast here and records this as
+  // an acknowledged break from "green means live, gold means settled."
+  it('REQ-214: the overlaid checkmark specifically uses accent-green-scrim (a deliberate exception to the gold "correct" convention), while the points value beside it stays accent-gold', () => {
     const { container } = render(
       <CellState
         playerName="Henry"
@@ -744,12 +778,14 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     const meta = container.querySelector('.cell-state__meta');
     expect(icon).toBeInTheDocument();
     expect(meta).toBeInTheDocument();
-    expect(getComputedStyle(icon as Element).color).toBe(getComputedStyle(meta as Element).color);
+    expect(getComputedStyle(icon as Element).color).toBe('var(--color-accent-green-scrim)');
+    expect(getComputedStyle(meta as Element).color).toBe('var(--color-accent-gold)');
+    expect(getComputedStyle(icon as Element).color).not.toBe(getComputedStyle(meta as Element).color);
 
     // Compare against a no-photo correct cell's own icon color — the two
-    // must differ, since the no-photo case is the one that should keep
-    // using accent-gold-text (its background is surface-card, not the
-    // scrim).
+    // must differ, since the no-photo case keeps using accent-gold-text
+    // (its background is surface-card, not the scrim) and is unaffected by
+    // this photo-only exception.
     const { container: noPhotoContainer } = render(
       <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} />,
     );

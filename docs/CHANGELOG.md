@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `design-document.md` (v0.27), `frontend/src/index.css`,
+  `frontend/src/grid/CellState.css`, `frontend/src/grid/CellState.test.tsx` —
+  REQ-214, direct user feedback: the checkmark overlaid on a correct cell's
+  photo scrim is now green, not gold (the points value beside it, and every
+  other correct-checkmark instance in the app, stays gold — this is a
+  narrow, one-off exception, not a general recolor). Neither existing green
+  token cleared WCAG AA's 4.5:1 floor against the scrim's worst-case
+  blended background (`accent-green` measures 3.49:1; `accent-green-text`,
+  being darker, fails further) — added a new token, `accent-green-scrim`
+  (`#23B874`, same hue/saturation as `accent-green`, lightness raised to
+  43%), measured at 4.65:1 against the same `rgb(51, 56, 53)` backdrop
+  `overlay-scrim`'s own gold math uses (one point of lightness lower, 42%,
+  drops to 4.46:1 and fails). `design-document.md` §2 documents the full
+  derivation plus a plain acknowledgment that this breaks the "green means
+  live, gold means settled/correct" convention for this one glyph,
+  deliberately, at the user's explicit request. `CellState.css`'s merged
+  `.cell-state--photo .cell-state__icon--correct, .cell-state--photo
+  .cell-state__meta` rule (from the immediately-preceding 94%→89% cleanup
+  commit) is split back into two — the icon gets the new green token, the
+  meta rule keeps `accent-gold`. `CellState.test.tsx`'s REQ-214
+  gold-pairing test updated to check the points value alone; a new test
+  added asserting the icon/meta colors now differ and the icon specifically
+  uses `accent-green-scrim`. Full Vitest suite passes (117/117). Verified in
+  a real Chromium browser: seeded a test round via
+  `/internal/test-data/seed-guessable-round`, submitted the correct guess
+  via the API, injected a data-URI test photo directly via SQL
+  (`UPDATE "Players" SET "PhotoUrl" = ...`), and screenshotted both at-rest
+  and revealed states — checkmark reads clearly green against the scrim,
+  distinct from the still-gold points value beside it, not a jarring
+  mismatch.
 - 2026-07-18 — `design-document.md` (v0.26), `frontend/src/index.css` —
   lightened REQ-214's `overlay-scrim` token from `rgba(26, 31, 28, 0.94)` to
   `rgba(26, 31, 28, 0.89)` after direct user visual feedback that the

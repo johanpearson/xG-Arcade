@@ -148,18 +148,30 @@
 
 /* design-document.md §2's `overlay-scrim` token doc comment: on this dark
    backdrop, `accent-gold` (not `accent-gold-text`) is the variant that
-   actually clears the contrast floor — the reverse of every other
-   correct-state color rule above. Placed after those rules on purpose:
-   `.cell-state--photo .cell-state__meta` (0,2,0) ties
+   actually clears the contrast floor for the points value — the reverse of
+   every other correct-state color rule above. Placed after those rules on
+   purpose: `.cell-state--photo .cell-state__meta` (0,2,0) ties
    `.cell-state--correct .cell-state__meta` (0,2,0) above, so source order
    is what makes this one win — reordering it earlier would silently lose
-   the tie. `.cell-state--photo .cell-state__icon--correct` (0,2,0) is
-   already strictly more specific than `.cell-state__icon--correct` (0,1,0)
-   alone and would win regardless of placement; kept alongside the other
-   rule for readability, not because it also depends on source order. */
-.cell-state--photo .cell-state__icon--correct,
+   the tie. */
 .cell-state--photo .cell-state__meta {
   color: var(--color-accent-gold);
+}
+
+/* Exception (2026-07-19, REQ-214, direct user feedback): the checkmark
+   glyph specifically — not the points value above, which stays
+   accent-gold — uses --color-accent-green-scrim instead, a deliberate,
+   one-off break from "green means live, gold means settled/correct" made
+   at the user's explicit request. Neither --color-accent-green nor
+   --color-accent-green-text clears WCAG AA's 4.5:1 floor against this
+   scrim; --color-accent-green-scrim is a new value calibrated specifically
+   for this backdrop — see design-document.md §2's `accent-green-scrim` row
+   for the contrast math. `.cell-state--photo .cell-state__icon--correct`
+   (0,2,0) is already strictly more specific than `.cell-state__icon--correct`
+   (0,1,0) alone and would win regardless of rule order; kept here, after
+   the points-value rule above, for readability. */
+.cell-state--photo .cell-state__icon--correct {
+  color: var(--color-accent-green-scrim);
 }
 
 /* The revealed name itself (REQ-212, unrelated to the icon/meta pair above)
