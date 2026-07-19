@@ -234,6 +234,38 @@ public class AdminEndpointTests
         Assert.That(row.Confidence, Is.EqualTo("unverified"));
     }
 
+    // Regression: the endpoint used to resolve PlayerFullName with one
+    // GetPlayerByIdAsync call per row inside a loop — correct for a single
+    // row, but an N+1 query storm against real Wikidata-sync volume
+    // (thousands of unverified rows) that made this endpoint hang once
+    // S-026 gave it a real UI caller. Now resolves every row's player in
+    // one batched GetPlayersByIdsAsync call; this asserts multiple distinct
+    // players' names still resolve correctly under the batched path, not
+    // just a single-row case that a broken batch lookup could still pass.
+    [Test]
+    public async Task REQ503_GetUnverifiedPlayerData_ResolvesEachRowsPlayerFullName_ForMultipleDistinctPlayers()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var henry = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = $"Q-{Guid.NewGuid()}" };
+            var pires = new Player { Id = Guid.NewGuid(), FullName = "Robert Pires", WikidataQid = $"Q-{Guid.NewGuid()}" };
+            dbContext.Players.AddRange(henry, pires);
+            dbContext.PlayerData.AddRange(
+                new PlayerData { Id = Guid.NewGuid(), PlayerId = henry.Id, Field = "club", Value = "Arsenal", Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow },
+                new PlayerData { Id = Guid.NewGuid(), PlayerId = pires.Id, Field = "club", Value = "Arsenal", Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow });
+            await dbContext.SaveChangesAsync();
+        }
+        var client = CreateAdminClient();
+
+        var response = await client.GetAsync("/admin/player-data/unverified");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<List<UnverifiedPlayerDataResponse>>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Select(r => r.PlayerFullName), Is.EquivalentTo(new[] { "Thierry Henry", "Robert Pires" }));
+    }
+
     // ---- REQ-501: PlayerOverride CRUD --------------------------------------
 
     [Test]

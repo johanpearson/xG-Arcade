@@ -14,21 +14,29 @@ public static class AdminEndpoints
     public static void MapAdminEndpoints(this WebApplication app)
     {
         // REQ-502/503: the review view's candidate list, with source and
-        // confidence visible for each row.
+        // confidence visible for each row. Resolves every row's player name
+        // in one batched query (GetPlayersByIdsAsync) rather than one
+        // GetPlayerByIdAsync call per row — the original per-row loop was
+        // fine against S-012's tiny test fixtures but became an N+1 query
+        // storm once real Wikidata-sync volume built up (thousands of
+        // unverified rows), which is what made this endpoint hang once
+        // S-026 gave it a real UI caller. Same bulk-lookup shape
+        // RoundEndpoints.cs already uses for the identical reason.
         app.MapGet("/admin/player-data/unverified", async (
             IPlayerStoreRepository playerStoreRepository,
             CancellationToken cancellationToken) =>
         {
             var unverified = await playerStoreRepository.GetUnverifiedPlayerDataAsync(cancellationToken);
 
-            var responses = new List<UnverifiedPlayerDataResponse>(unverified.Count);
-            foreach (var data in unverified)
-            {
-                var player = await playerStoreRepository.GetPlayerByIdAsync(data.PlayerId, cancellationToken);
-                responses.Add(new UnverifiedPlayerDataResponse(
-                    data.Id, data.PlayerId, player?.FullName ?? string.Empty,
-                    data.Field, data.Value, data.Source, data.Confidence, data.SyncedAt));
-            }
+            var playerIds = unverified.Select(data => data.PlayerId).Distinct().ToList();
+            var playersById = await playerStoreRepository.GetPlayersByIdsAsync(playerIds, cancellationToken);
+
+            var responses = unverified
+                .Select(data => new UnverifiedPlayerDataResponse(
+                    data.Id, data.PlayerId,
+                    playersById.TryGetValue(data.PlayerId, out var player) ? player.FullName : string.Empty,
+                    data.Field, data.Value, data.Source, data.Confidence, data.SyncedAt))
+                .ToList();
 
             return Results.Ok(responses);
         }).RequireAuthorization("Admin");
