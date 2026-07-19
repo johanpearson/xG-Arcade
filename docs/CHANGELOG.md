@@ -13,6 +13,89 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `design-document.md` (v0.27), `frontend/src/index.css`,
+  `frontend/src/grid/CellState.css`, `frontend/src/grid/CellState.test.tsx` —
+  REQ-214, direct user feedback: the checkmark overlaid on a correct cell's
+  photo scrim is now green, not gold (the points value beside it, and every
+  other correct-checkmark instance in the app, stays gold — this is a
+  narrow, one-off exception, not a general recolor). Neither existing green
+  token cleared WCAG AA's 4.5:1 floor against the scrim's worst-case
+  blended background (`accent-green` measures 3.49:1; `accent-green-text`,
+  being darker, fails further) — added a new token, `accent-green-scrim`
+  (`#23B874`, same hue/saturation as `accent-green`, lightness raised to
+  43%), measured at 4.65:1 against the same `rgb(51, 56, 53)` backdrop
+  `overlay-scrim`'s own gold math uses (one point of lightness lower, 42%,
+  drops to 4.46:1 and fails). `design-document.md` §2 documents the full
+  derivation plus a plain acknowledgment that this breaks the "green means
+  live, gold means settled/correct" convention for this one glyph,
+  deliberately, at the user's explicit request. `CellState.css`'s merged
+  `.cell-state--photo .cell-state__icon--correct, .cell-state--photo
+  .cell-state__meta` rule (from the immediately-preceding 94%→89% cleanup
+  commit) is split back into two — the icon gets the new green token, the
+  meta rule keeps `accent-gold`. `CellState.test.tsx`'s REQ-214
+  gold-pairing test updated to check the points value alone; a new test
+  added asserting the icon/meta colors now differ and the icon specifically
+  uses `accent-green-scrim`. Full Vitest suite passes (117/117). Verified in
+  a real Chromium browser: seeded a test round via
+  `/internal/test-data/seed-guessable-round`, submitted the correct guess
+  via the API, injected a data-URI test photo directly via SQL
+  (`UPDATE "Players" SET "PhotoUrl" = ...`), and screenshotted both at-rest
+  and revealed states — checkmark reads clearly green against the scrim,
+  distinct from the still-gold points value beside it, not a jarring
+  mismatch.
+- 2026-07-18 — `design-document.md` (v0.26), `frontend/src/index.css` —
+  lightened REQ-214's `overlay-scrim` token from `rgba(26, 31, 28, 0.94)` to
+  `rgba(26, 31, 28, 0.89)` after direct user visual feedback that the
+  original 94% opacity read as a heavy black shadow over the photo rather
+  than a scrim. Re-did the relative-luminance contrast math for the new
+  value against the same worst-case backdrop (pure-white photo showing
+  through): at 89%, the blended background is `rgb(51, 56, 53)`, giving
+  `accent-gold` (the checkmark/points color) a 4.65:1 contrast ratio and
+  `surface-card`/white (the revealed-name color) 11.99:1 — both still clear
+  the 4.5:1 AA floor; `accent-gold` is the binding constraint and 89% is the
+  lightest whole-percent value that clears it (88% measures 4.49:1 and
+  fails). `CellState.css`/`CellState.tsx` unchanged — they reference
+  `--color-overlay-scrim` and the `accent-gold`/`surface-card` pairing
+  directly, no hardcoded opacity to update there. Full Vitest suite
+  unaffected (`CellState.test.tsx`'s REQ-214 contrast-pairing tests assert
+  token/pairing usage, not a hardcoded opacity number). Verified visually in
+  a real Chromium browser against a seeded test round with a data-URI photo
+  — scrim reads noticeably lighter, checkmark/points and revealed name both
+  still clearly legible.
+- 2026-07-18 — `design-document.md` (v0.25), `backlog.md` (S-046) —
+  implemented REQ-214's
+  photo-decoupled-from-reveal status note (frontend half, same day as the
+  requirements-doc revision): `CellState.tsx`/`CellState.css` now show a
+  correct cell's photo automatically at rest, filling the cell, independent
+  of REQ-212's click/tap reveal (which continues to gate only the name/badge
+  dock). Closed the open gap the requirements revision flagged — §2 had no
+  overlay/scrim token for text-or-icon-on-photo contrast — by adding
+  `overlay-scrim` (`rgba(26, 31, 28, 0.94)`, verified against a worst-case
+  pure-white photo showing through), and documented that on this dark
+  backdrop the *lighter* `accent-gold`/`surface-card` tokens (not the
+  darkened `accent-gold-text`/near-black `text-primary` used everywhere else
+  in this document) are the ones that actually clear the contrast floor —
+  the `surface-card`-for-the-revealed-name half of that was found only via
+  this session's own required real-browser verification (name was
+  illegible against the scrim with `text-primary`), not the initial
+  contrast-math pass, which only covered the checkmark/points explicitly
+  named in REQ-214's acceptance criteria. §7's matching open question marked
+  resolved. Also renamed the old `.cell-state__avatar` 18px-circle class to
+  `.cell-state__photo-img` (full-cell-bleed, absolutely positioned against
+  `.grid-cell`'s padding edge so it ignores that button's own padding and
+  fills to its actual corners) — `Grid.css`'s `.grid-cell` gained
+  `position: relative` as the positioning context this needs.
+  `CellState.test.tsx`/`GridCell.test.tsx`'s REQ-214 blocks rewritten for
+  the new independent-of-`revealed` behavior (photo-at-rest-without-a-click,
+  reveal-adds-name-without-touching-photo, hide-again-photo-stays,
+  no-photo/null/load-failure cases re-verified unaffected, declared-CSS
+  mechanism tests replacing the old fixed-18px-slot ones);
+  `tests/e2e/play-grid.spec.ts`'s dimension-invariance check now captures
+  the cell's box right after lock (the new at-rest photo moment) in
+  addition to after reveal. Full Vitest suite (116 tests) and full
+  Playwright E2E suite (4 tests, real Postgres + real Chromium) both green;
+  real-browser check of the photo-filled cell (data-URI test photo, since
+  this sandbox has no network path to Wikidata) confirmed visually — REQ-214
 - 2026-07-18 — `docs/backlog.md` — added an addendum to S-045's entry
   covering the malformed-QID crash and fix below (`quality-architect`
   flagged the entry as reading like the story shipped clean when it

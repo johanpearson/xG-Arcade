@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.23"
+version: "0.27"
 status: draft
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -78,10 +78,12 @@ entirely.
 | `text-muted` | `#6B7570` | Secondary text, labels, captions |
 | `border-hairline` | `#E4E6E3` | All dividers and card borders — thin, quiet, never a heavy box |
 | `accent-green` | `#1E9E63` | Live/active states, primary actions — a clean pitch green, crisp rather than dark/muted. Non-text/decorative use only (live-dot, focus ring, tab underline) — see `accent-green-text` below for text/icon/button-label use |
-| `accent-gold` | `#C99A2E` | Reserved for future non-text/decorative correct/locked-final use (e.g. a Phase 2 badge fill) — see `accent-gold-text` below for text/icon use, which is everywhere Tier 0 actually paints "correct" today |
+| `accent-gold` | `#C99A2E` | Reserved for future non-text/decorative correct/locked-final use (e.g. a Phase 2 badge fill) — see `accent-gold-text` below for text/icon use, which is everywhere Tier 0 actually paints "correct" today on a light background. **Exception (2026-07-18, REQ-214):** this token, not `accent-gold-text`, is the correct choice for the checkmark/points text/icon overlaid on the `overlay-scrim` token below — see that row for why the darker/lighter split flips on a dark backdrop |
 | `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red. Passes text contrast as-is (~4.9:1 on white) — no separate text variant needed |
 | `accent-green-text` | `#187E4F` | **(S-013)** Green text/icon labels, and white-on-green button-label backgrounds (`.guess-input__submit`, `.auth-screen__submit`) — `accent-green` itself measures ~3.4:1 against `surface-card`/white, below WCAG AA's 4.5:1 for normal text; this darkened variant measures ~5.1:1 |
 | `accent-gold-text` | `#8D6C20` | **(S-013)** Correct/locked-final text and icons (`CellState`'s correct icon + meta line) — `accent-gold` itself measures ~2.6:1 against `surface-card`/white, failing even the 3:1 floor for large text/icons; this darkened variant measures ~4.9:1 |
+| `accent-green-scrim` | `#23B874` | **Exception (2026-07-19, REQ-214, direct user feedback on the shipped photo-fill-cell treatment):** the color of the checkmark glyph only (never the points value beside it, which stays `accent-gold` per the `overlay-scrim` row below) when it's overlaid on a correct cell's at-rest photo. Neither existing green token clears WCAG AA's 4.5:1 floor against the scrim's own worst-case blended background (`rgb(51, 56, 53)` — see `overlay-scrim`'s row for the full derivation): `accent-green` (`#1E9E63`) measures **3.49:1**, and `accent-green-text` (`#187E4F`), being darker still, measures even lower — both fail. This is therefore a new value, not a reuse of an existing token: same hue as `accent-green` (152°), same saturation (68%), lightness raised to 43% (from `accent-green`'s 37%) — `#23B874` — measured at **4.65:1** against the same `rgb(51, 56, 53)` worst-case backdrop, ~3% above the 4.5:1 floor as a safety margin against rendering variance, matching the margin `overlay-scrim`'s own gold math targets. One percentage point of HSL lightness lower (42%, `#22B470`) drops to 4.45:1 and fails — 43% is the practical floor at whole-percent lightness granularity, the same style of verification `overlay-scrim`'s 89%-vs-88% check used. **This is a deliberate, one-off semantic exception, not a new general-purpose "correct" color:** every other correct-state signal in the app — this table's `accent-gold-text`, and `accent-gold` on this very scrim for the points value sitting right beside this same checkmark — is gold, per "Green means live/active, gold means settled/correct" below. The user explicitly asked for this one checkmark, and only this one, to render green instead, after seeing the shipped gold-on-photo treatment; it does not extend to any other correct-checkmark instance in the app (the non-photo checkmark elsewhere in this table remains `accent-gold-text`, unchanged) and must not be reused elsewhere as a general "correct" color without the same explicit, direct call. |
+| `overlay-scrim` | `rgba(26, 31, 28, 0.89)` | **(2026-07-18, REQ-214; lightened same day after visual feedback that the original 94% read as a heavy black shadow, not a scrim)** Backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`. Opacity was chosen as the *lightest* value (most photo showing through) that still clears WCAG AA's 4.5:1 contrast floor for both overlaid foreground colors, measured against the *worst case* (a pure-white photo showing through the remaining 11%), not a typical photo — relative-luminance formula, `rgb(26, 31, 28)` alpha-blended over `#FFFFFF`: at 89%, the blended backdrop is `rgb(51, 56, 53)`, giving `accent-gold` (`#C99A2E`) a contrast ratio of **4.65:1** and `surface-card`/white a ratio of **11.99:1** against it — both clear 4.5:1, with `accent-gold` (the tighter of the two) landing ~3% above the floor rather than exactly on it, as a safety margin against rendering variance (anti-aliasing, photo compression artifacts) rather than relying on an exact knife-edge value. One point lower, at 88%, `accent-gold` drops to 4.49:1 and fails — 89% is therefore the practical floor at whole-percent granularity. Against a typical (non-white) photo the effective contrast is higher still, since most real photos are darker than pure white. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background; `accent-gold-text` would under-perform here (calibrated the opposite direction) and must not be reused on this token. **(2026-07-19 update)** the checkmark glyph specifically no longer follows this same gold pairing — see `accent-green-scrim` above, added the same day after direct user feedback asking for the checkmark (not the points value) to be green on this scrim; the gold pairing described in this paragraph still governs the points value and remains correct for it. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is: use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. |
 
 Green means "live/active," gold means "settled/correct" — same semantic
 split as before, just recolored for a light surface. This distinction is
@@ -89,6 +91,19 @@ load-bearing (REQ-205) so it must stay consistent everywhere. Flags and
 badges bring in their own natural colors on top of this neutral shell —
 the UI is deliberately quiet so those images read clearly, not muddied by
 a busy background.
+
+**Acknowledged exception (2026-07-19, REQ-214):** the checkmark overlaid
+on a correct cell's at-rest photo is `accent-green-scrim` (see §2's table
+row above), not gold — a direct, explicit user request scoped to that one
+glyph, made after seeing the shipped gold-on-photo treatment. This breaks
+the green/gold split described in this paragraph for that single instance:
+the photo-overlay checkmark still means "correct," same as everywhere
+else, but is rendered in the "live" hue. It is recorded here plainly as a
+deliberate one-off, not a reinterpretation of the rule — every other
+correct-checkmark instance in the app (including the points value sitting
+directly beside this same checkmark) is still gold, and any future
+correct-state color choice should still default to gold unless someone
+makes the same kind of explicit call again.
 
 **Text vs. decorative contrast (S-013, resolves §6's former open
 item):** §6's contrast floor requires verifying gold-on-white and
@@ -229,18 +244,59 @@ revealed immediately (REQ-203), separate from whether the round has closed:
 still live until round close):
 
 ```
-At rest (default):
+At rest, no photo (default when the resolved player has none):
 ┌─────────────────────────┐
 │                     ✓     │   ← gold checkmark — no dot, no "live" text,
 │  12 pts                   │     no name until clicked/tapped
 └─────────────────────────┘
 
-Revealed (click/tap the cell — toggles closed again on a second click/tap):
+At rest, photo available (2026-07-18 — REQ-214 status note):
+┌─────────────────────────┐
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│    ← photo fills the cell automatically —
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│      no click/tap needed, unlike the name
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │    ← checkmark, overlaid bottom, on a
+│▓ 12 pts                   │      scrim strip for contrast — see note
+└─────────────────────────┘        below (still no name here — that's
+                                     still REQ-212's click/tap gate,
+                                     unaffected by this note)
+
+Revealed, no photo (click/tap the cell — toggles closed again on a
+second click/tap; unchanged from before this note):
 ┌─────────────────────────┐
 │  Henry                ✓   │
-│  12 pts                   │   ← unchanged at-rest line, stays visible
+│  12 pts                   │
+└─────────────────────────┘
+
+Revealed, photo available (same click/tap toggle; the photo itself does
+not react to the toggle — only the name/badge dock do):
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← same scrim strip, now also carrying
+│▓ Henry              ✓    │      the revealed name
+│▓ 12 pts                   │
 └─────────────────────────┘
 ```
+
+**REQ-214 status note (2026-07-18): photo decoupled from the click/tap
+reveal.** Supersedes this section's own "Revealed, photo available" mock as
+it read immediately after REQ-214 first shipped (photo appearing only once
+revealed, alongside the name) — requested directly by the user after seeing
+that version live. The photo now shows automatically at rest, filling the
+cell, whenever the resolved player has one; the click/tap toggle (REQ-212,
+unchanged) continues to govern only the name and badge dock, and no longer
+gates the photo at all. Practically: a correct cell with a photo now shows
+that photo immediately once locked, before the player has clicked/tapped
+anything; clicking/tapping it afterward adds the name on top (and over the
+photo, if present) exactly as REQ-212 already specified, without changing
+whether the photo itself is showing. The checkmark and points value are
+overlaid on the photo (a scrim/shadow strip behind them, shown as the `▓`
+band above) rather than sitting on a plain card background — see this
+section's REQ-214 implementation note below for why no dedicated overlay
+token exists yet for this treatment. The no-photo mock and behavior above
+are unaffected by this note.
 
 **S-041 redesign (supersedes S-040's mock above):** further direct product
 feedback found the live/final distinction S-040 preserved (a pulsing dot,
@@ -340,42 +396,74 @@ Prior outcome: correct (at rest)      Prior outcome: incorrect
                                              same MaxPointsPerCell state
                                              3 shows, per today's fix
 
-Prior outcome: correct (revealed — click/tap the cell)
+Prior outcome: correct, no photo (revealed — click/tap the cell)
 ┌─────────────────────────┐
 │  Henry                ✓   │
 │  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
 
-Prior outcome: correct (revealed, photo available — REQ-214)
+Prior outcome: correct, photo available (at rest — 2026-07-18 status note;
+photo shows automatically, no click/tap needed)
 ┌─────────────────────────┐
-│  (●) Henry             ✓  │   ← (●) = fixed 18px circular photo, cropped
-│  88 pts                   │     to fit; layout otherwise identical to the
-└─────────────────────────┘      text-only mock directly above
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │   ← same scrim-backed checkmark treatment
+│▓ 88 pts                   │     as state 1's at-rest photo mock above
+└─────────────────────────┘
+
+Prior outcome: correct, photo available (revealed — click/tap adds the
+name on top, same REQ-212 toggle; photo itself unaffected by the toggle)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Henry              ✓    │
+│▓ 88 pts                   │
+└─────────────────────────┘
 ```
 
-**REQ-214 implementation note (frontend half, 2026-07-18):** when the
-resolved player has a Wikidata photo, it's shown as a small circular avatar
-directly beside the name, appearing/disappearing with the exact same
-click/tap reveal toggle REQ-212 already defines — never a separate control.
-No dedicated avatar/photo token exists in §2 (open gap, same kind as the
-spacing/type-scale gaps §7 already flags), so this reuses the nearest
-already-shipped, already-verified-safe precedent instead of inventing a new
-size: `.category-label__badge--small`'s existing 18px circle (the club
-badge glyph docked beside the name via S-015/S-041's badge dock), plus
-SCREEN-02's own "small silhouette/placeholder avatar" note above (designed
-for the autocomplete list, never shipped there per that section's S-032
-note, but the closest prior spec for "a small round avatar next to a
-player's name" in this document). Fixed 18px × 18px, `border-radius: 50%`,
-`object-fit: cover`, `flex-shrink: 0` — the slot's size is a literal
-constant, never derived from the source image's own dimensions, so the cell
-footprint cannot change whether a photo is shown, absent, or fails to load;
-this is a hard, testable constraint (REQ-214), not a visual preference. No
-broken-image icon, no loading spinner, and no error text for a missing/
-failed photo — that state is visually and behaviorally identical to today's
-pre-REQ-214 text-only reveal (same DOM shape, verified in
-`CellState.test.tsx`). If/when §7's spacing-scale gap is ever resolved with
-a real token row, this 18px value should become a named token at the same
-time rather than staying a bare pixel value in `CellState.css`.
+**REQ-214 implementation note (frontend half, 2026-07-18, as first
+shipped) — superseded, kept for history:** the paragraph that originally
+stood here described the photo as a small 18px circular avatar shown
+*beside* the name, appearing/disappearing with REQ-212's click/tap reveal
+toggle exactly like the name did (reusing `.category-label__badge--small`'s
+existing 18px circle token, since no dedicated avatar/photo token existed).
+That presentation is no longer current — see the "Photo decoupled from the
+click/tap reveal" status note above state 2 and the mocks directly above
+this note. The 18px-circle reuse and its "appears/disappears with the
+name" behavior are both superseded by the fill-the-cell, always-at-rest
+treatment now specified; this paragraph is kept only so the prior shipped
+behavior isn't lost from the record.
+
+**REQ-214 implementation note (fill-cell treatment, 2026-07-18 status
+note):** the photo now fills the cell's full footprint at rest — same
+fixed cell width/height as the no-photo case, `object-fit: cover` so the
+source image crops to fill rather than distorting or resizing the cell.
+Mechanically, the photo layer is taken out of the cell's own normal-flow
+box (absolutely positioned, filling the button's full box edge-to-edge,
+deliberately ignoring the button's own padding so the photo can bleed to
+the cell's corners as the mock shows) rather than being sized by its own
+content — the same "the image can never grow the box" guarantee the
+now-superseded 18px avatar-circle used a fixed pixel size for, just
+achieved differently now that the photo fills the whole cell instead of a
+small slot. **§2 now has a real `overlay-scrim` token** (added the same
+day this note was written) for the text-or-icon-on-photo contrast problem
+this note used to flag as an open gap — a solid, near-opaque bottom band
+behind the checkmark/points (and the name/badge dock, once revealed), not
+a wash across the whole photo; see that token's own row for the exact
+value, the worst-case-photo contrast verification, and the
+`accent-gold`-not-`accent-gold-text` foreground-color call that goes with
+it (the two darkened/lightened token pairs in this document are calibrated
+for opposite background directions — light `surface-card` vs. this dark
+scrim — so the "always use the darkened `-text` variant" habit that holds
+everywhere else in this document is specifically wrong on this one token).
+No broken-image icon, no loading spinner, and no error text for a missing/
+failed photo — that state is visually and behaviorally identical to
+today's no-photo at-rest display (same DOM shape, no scrim/overlay layer
+rendered at all in that case). Cell footprint (width/height) is a literal
+constant regardless of whether a photo is present, absent, or fails to
+load — this is a hard, testable constraint (REQ-214), not a visual
+preference.
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
@@ -775,3 +863,18 @@ Unchanged from v0.1:
   `SubmitGuessResponse`, `frontend/src/lib/types.ts`) was checked against
   the backend's `ResolvedPlayerPhotoUrl` once it landed and matches
   exactly under the default camelCase JSON policy — no rename needed.
+- ~~§2 has no overlay/scrim token for text-or-icon-on-photo contrast~~ —
+  **resolved (2026-07-18, same session as the photo-decoupled-from-reveal
+  status note; opacity lightened later the same day from 94% to 89% after
+  visual feedback that 94% read as a heavy black shadow — see the
+  `overlay-scrim` row above for the updated contrast math):**
+  `overlay-scrim` (§2) is a band behind the checkmark/points/name overlay,
+  calibrated against the worst case (a pure-white photo showing through)
+  rather than a typical photo, at the lightest opacity that still clears
+  the 4.5:1 floor for both overlaid foreground colors — pairs with
+  `accent-gold` (not `accent-gold-text`) as the foreground color
+  specifically on this token, the reverse of every other gold text/icon use
+  in this document, since the darkened/lightened split is calibrated
+  per-background-direction, not universally "always use the darkened one."
+  `CellState.css`/`CellState.tsx` implement against this token directly —
+  no bare `rgba()` value left untracked.

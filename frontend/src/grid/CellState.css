@@ -23,19 +23,6 @@
   min-width: 0;
 }
 
-/* REQ-214: groups the (optional) avatar with the name so they wrap/reflow
-   as one unit and stay adjacent. min-width: 0 for the same reason
-   .cell-state__row/.cell-state__meta already need it (S-041's comment
-   below) — without it, this group's *own* automatic flex-item minimum
-   width would be its content's unbroken width, defeating .cell-state__name's
-   overflow-wrap: anywhere before it ever gets a chance to wrap. */
-.cell-state__name-group {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
 /* S-041: no longer `overflow: hidden` + `white-space: nowrap` + ellipsis —
    in a narrow revealed cell (badges + name + checkmark all in one row,
    flag/badge/checkmark are flex-shrink: 0 so they never yield space), an
@@ -52,29 +39,70 @@
   overflow-wrap: anywhere;
 }
 
-/* REQ-214: a fixed 18px circle — deliberately the same literal size as
-   .category-label__badge--small (CategoryLabel.css) so a revealed photo can
-   never make this row taller/wider than the badge dock beside it already
-   makes it. flex-shrink: 0 so it's never compressed away either; the image
-   itself is cropped to fill this fixed box (object-fit: cover) rather than
-   the box growing to fit the image, so an unusually tall/wide source photo
-   still can't change the cell's footprint. */
-.cell-state__avatar {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+/* REQ-214 (2026-07-18 status note): the correct cell's resolved-player
+   photo, filling the cell's full footprint at rest — replaces the prior
+   shipped 18px-circle-inside-the-name-row treatment entirely (see
+   CellState.tsx's CellPhoto doc comment for the full history). `.grid-cell`
+   (Grid.css) is the positioned ancestor this is absolutely placed against;
+   `inset: 0` there resolves to that button's *padding* edge (the CSS spec's
+   containing-block rule for absolutely positioned descendants), which is
+   deliberately outside/ignoring `.grid-cell`'s own padding — that's the
+   mechanism that lets the photo bleed to the cell's actual edges the way
+   the design mock shows, while `.grid-cell` itself never changes size
+   because of it (padding shifts what's *inside* the border-box, never the
+   border-box's own width/height under this app's global
+   `box-sizing: border-box`). `width: auto; height: auto` explicitly
+   override `.cell-state`'s own `width: 100%` above so the two don't
+   conflict with the `inset: 0` sizing. `overflow: hidden` +
+   `border-radius: inherit` clip the image to `.grid-cell`'s own rounded
+   corners, since the photo now extends all the way to them. */
+.cell-state--photo {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   overflow: hidden;
-  flex-shrink: 0;
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border-hairline);
+  border-radius: inherit;
 }
 
-.cell-state__avatar img {
+/* The image itself is a second absolutely-positioned layer (relative to
+   .cell-state--photo, which establishes its own positioning context via the
+   rule above) so it's removed from that container's flex flow entirely —
+   sized purely by `inset: 0` + `object-fit: cover`, never by the image's
+   own intrinsic dimensions, so an unusually tall/wide source photo still
+   can't change the cell's footprint (same guarantee the old fixed-18px-box
+   used to provide, just at full-cell scale now). z-index: 0 keeps it behind
+   .cell-state__overlay below. */
+.cell-state__photo-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  z-index: 0;
   display: block;
+}
+
+/* design-document.md §2's `overlay-scrim` token (2026-07-18, REQ-214): a
+   solid, near-opaque band anchored to the bottom of the cell, behind the
+   checkmark/points (and name/badge dock, once revealed) — not a wash across
+   the whole photo, only behind the row of content that needs to stay
+   legible. `position: relative` + `z-index: 1` keeps it (and everything
+   inside it) stacked above .cell-state__photo-img. The only normal-flow
+   child of .cell-state--photo's column-flex layout, so
+   `justify-content: flex-end` above is what pins it to the bottom rather
+   than the top. */
+.cell-state__overlay {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--color-overlay-scrim);
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:
@@ -116,6 +144,46 @@
 
 .cell-state--incorrect .cell-state__meta {
   color: var(--color-accent-red);
+}
+
+/* design-document.md §2's `overlay-scrim` token doc comment: on this dark
+   backdrop, `accent-gold` (not `accent-gold-text`) is the variant that
+   actually clears the contrast floor for the points value — the reverse of
+   every other correct-state color rule above. Placed after those rules on
+   purpose: `.cell-state--photo .cell-state__meta` (0,2,0) ties
+   `.cell-state--correct .cell-state__meta` (0,2,0) above, so source order
+   is what makes this one win — reordering it earlier would silently lose
+   the tie. */
+.cell-state--photo .cell-state__meta {
+  color: var(--color-accent-gold);
+}
+
+/* Exception (2026-07-19, REQ-214, direct user feedback): the checkmark
+   glyph specifically — not the points value above, which stays
+   accent-gold — uses --color-accent-green-scrim instead, a deliberate,
+   one-off break from "green means live, gold means settled/correct" made
+   at the user's explicit request. Neither --color-accent-green nor
+   --color-accent-green-text clears WCAG AA's 4.5:1 floor against this
+   scrim; --color-accent-green-scrim is a new value calibrated specifically
+   for this backdrop — see design-document.md §2's `accent-green-scrim` row
+   for the contrast math. `.cell-state--photo .cell-state__icon--correct`
+   (0,2,0) is already strictly more specific than `.cell-state__icon--correct`
+   (0,1,0) alone and would win regardless of rule order; kept here, after
+   the points-value rule above, for readability. */
+.cell-state--photo .cell-state__icon--correct {
+  color: var(--color-accent-green-scrim);
+}
+
+/* The revealed name itself (REQ-212, unrelated to the icon/meta pair above)
+   has no correct/incorrect semantic color of its own — it normally uses
+   --color-text-primary (near-black), which is illegible against this same
+   near-black scrim (confirmed visually, real-browser check). --color-surface-card
+   (white) is the closest already-defined token with the right luminance for
+   this dark backdrop, reused here the same way --color-accent-gold is reused
+   above rather than inventing a new token for what's really just "the
+   lightest neutral already in the system." */
+.cell-state--photo .cell-state__name {
+  color: var(--color-surface-card);
 }
 
 /* design-document.md §2 "Signature element: badge dock" — the row/column

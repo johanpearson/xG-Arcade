@@ -187,12 +187,42 @@ describe('GridCell', () => {
     expect(screen.getByText('Henry')).toBeInTheDocument();
   });
 
-  // REQ-214: end-to-end wiring check that GridCell actually forwards the
-  // guess's photo field down to CellState/the reveal — CellState.test.tsx
-  // covers the rendering/fallback rules themselves via constructed props
-  // directly, this just confirms GridCell doesn't drop the field on the way
-  // through the same isCorrect gate it already applies to the name.
-  it('REQ-214: clicking a locked+correct cell with a resolvedPlayerPhotoUrl reveals the photo alongside the name', async () => {
+  // REQ-214 (2026-07-18 status note): end-to-end wiring check that GridCell
+  // actually forwards the guess's photo field down to CellState, and that
+  // the photo shows at rest (no click) while the name stays click/tap-gated
+  // — CellState.test.tsx covers the rendering/fallback rules themselves via
+  // constructed props directly, this just confirms GridCell doesn't drop
+  // the field on the way through, and that GridCell's own `revealed` state
+  // (which it owns, unlike the photo) doesn't accidentally gate the photo
+  // too.
+  it('REQ-214: a locked+correct cell with a resolvedPlayerPhotoUrl shows the photo immediately at rest, before any click — the name stays hidden until clicked', () => {
+    const { container } = render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            submittedName: 'henry',
+            resolvedPlayerName: 'Henry',
+            resolvedPlayerPhotoUrl: 'https://example.test/henry.jpg',
+            uniquePercent: 0.12,
+            livePoints: 12,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const img = container.querySelector('.cell-state__photo-img');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+  });
+
+  it('REQ-214: clicking a locked+correct cell with a resolvedPlayerPhotoUrl reveals the name over the already-showing photo; a second click hides the name again but the photo stays', async () => {
     const user = userEvent.setup();
     const { container } = render(
       <GridCell
@@ -215,13 +245,20 @@ describe('GridCell', () => {
     );
 
     const cell = screen.getByTestId('grid-cell-cell-1');
-    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__photo-img')).toBeInTheDocument();
 
     await user.click(cell);
     expect(screen.getByText('Henry')).toBeInTheDocument();
-    const img = container.querySelector('.cell-state__avatar img');
+    let img = container.querySelector('.cell-state__photo-img');
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
+
+    await user.click(cell);
+    expect(screen.queryByText('Henry')).not.toBeInTheDocument();
+    // The photo is unaffected by the second click — it was never gated by
+    // this toggle in the first place.
+    img = container.querySelector('.cell-state__photo-img');
+    expect(img).toBeInTheDocument();
   });
 
   it('REQ-214: a locked, incorrect cell never renders a photo even if the guess somehow carries a resolvedPlayerPhotoUrl, unchanged from the name rule (state 3, non-interactive)', () => {
@@ -245,7 +282,7 @@ describe('GridCell', () => {
       />,
     );
 
-    expect(container.querySelector('.cell-state__avatar img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
   });
 
   it('REQ-212: an incorrect, out-of-attempts cell (state 3) remains a non-interactive aria-disabled div, is never a click target for reveal, and exposes no aria-expanded/button role at all', async () => {

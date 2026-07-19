@@ -151,6 +151,16 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  /* REQ-214 (2026-07-18 status note): the positioning context
+     CellState.css's `.cell-state--photo` needs — a correct cell's at-rest
+     photo is absolutely positioned against this button's own padding edge
+     (deliberately ignoring this element's own `padding` above, so the
+     photo can bleed to the button's actual corners) rather than being sized
+     by its own content. This button's own width/height are unaffected
+     either way (`box-sizing: border-box`, set globally in index.css) — this
+     rule only establishes *where* an absolutely positioned descendant
+     measures its offsets from, it doesn't change this element's own box. */
+  position: relative;
 }
 
 /* S-040: same fixed-width squeeze as the row/col headers above, applied to

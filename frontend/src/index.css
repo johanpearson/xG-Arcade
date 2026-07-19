@@ -19,6 +19,30 @@
      at that weight (design-document.md §2, S-013 accessibility pass). */
   --color-accent-green-text: #187e4f;
   --color-accent-gold-text: #8d6c20;
+  /* Exception (2026-07-19, REQ-214, design-document.md §2's `accent-green-scrim`
+     row): the checkmark only (not the points value beside it, which stays
+     --color-accent-gold) overlaid on a correct cell's photo scrim. Neither
+     --color-accent-green (3.49:1) nor --color-accent-green-text (darker
+     still) clears WCAG AA's 4.5:1 floor against the scrim's blended
+     background — this is a new, brighter-still same-hue value (HSL 152°,
+     68%, 43%) that measures 4.65:1 there. A deliberate, one-off exception to
+     "green means live, gold means settled/correct" — see design-document.md
+     §2 for the full contrast derivation and why it doesn't generalize. */
+  --color-accent-green-scrim: #23b874;
+  /* REQ-214 (2026-07-18, lightened same day after visual feedback that 94%
+     read as a heavy black shadow): scrim behind text/icons overlaid on a
+     correct cell's at-rest photo — same hue as --color-text-primary, 89%
+     opacity, the lightest value that still keeps both overlaid foreground
+     colors (--color-accent-gold and --color-surface-card) at or above
+     WCAG AA's 4.5:1 against the *worst case* (a pure-white photo showing
+     through the remaining 11%) — see design-document.md §2's
+     `overlay-scrim` token for the contrast math. Use --color-accent-gold
+     (not --color-accent-gold-text) as the foreground on this token
+     specifically — see that token's doc comment for why the pairing
+     reverses here. (2026-07-19 update: the checkmark specifically no
+     longer uses --color-accent-gold — see --color-accent-green-scrim
+     above.) */
+  --color-overlay-scrim: rgba(26, 31, 28, 0.89);
 
   /* Type */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
