@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.27"
+version: "0.28"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -159,6 +159,14 @@ visual meaning ("badges settle beside a newly-visible name"), just tied to
 the new trigger that's actually meaningful under S-041's interaction model.
 Respects `prefers-reduced-motion`: badges appear already docked, no slide,
 with a brief background color flash (green→gold) instead.
+
+**S-047 exception:** on a correct cell that has a photo (SCREEN-01a's
+fill-cell photo treatment), the badge dock is hidden on reveal instead of
+docking beside the name — real-browser verification found the confined
+photo-overlay scrim genuinely doesn't have room for both badges and a
+legible name at a typical Tier-0 mobile cell width. See SCREEN-01a's
+S-047 status note for the full finding and fix. The no-photo case
+described above is completely unaffected.
 
 **Rejected-guess cue (S-020).** When a submitted guess is rejected, the
 cell gives a literal, immediate "no match" cue: a brief lateral shake
@@ -465,6 +473,91 @@ constant regardless of whether a photo is present, absent, or fails to
 load — this is a hard, testable constraint (REQ-214), not a visual
 preference.
 
+**S-047 status note (2026-07-19, direct user feedback on the shipped
+fill-cell photo treatment — the overlay covers too much of the photo on
+mobile):** real screenshots (mobile, cells roughly 90-110px tall in a
+Tier-0 3x3 grid) showed the `▓` scrim band above covering roughly 40-45%
+of the cell — the checkmark/points row plus, once REQ-212's click/tap
+reveal also puts the name/badges into that same row, the wrapped second
+line that typically forces on a narrow cell — well past this section's
+own original mock, which implied roughly 30% (≈2 of 6 ASCII rows). Fixed
+primarily by shrinking the overlay's own footprint at rest (the common
+case, no clipping involved) — see the last bullet below for the revealed
+case, which needed a different, clipping-based fix after real-browser
+verification found the original no-clip plan didn't hold up:
+- The overlay's padding drops from a uniform `--space-2` (8px) to
+  `--space-1` `--space-2` (4px vertical / 8px horizontal) — reusing the
+  existing spacing tokens, no new value.
+- The photo variant specifically (extending the existing
+  `.cell-state--photo .cell-state__meta`/`.cell-state--photo
+  .cell-state__icon--correct` override pattern) renders smaller than the
+  no-photo case: checkmark 11px (was 14px), points/meta text 10px (was
+  11px), and the revealed name 12px with a tightened 1.2 line-height
+  (was an un-set ~16px/1.5 browser default) — the no-photo cell's type
+  sizes are unchanged.
+- The row's internal gap (badges/name/icon) tightens from `--space-2`
+  (8px) to `--space-1` (4px) on the photo variant only, so wrapping is
+  less likely and less tall when it does happen.
+- **Numeric target:** at rest (checkmark + points only, the common case),
+  the overlay should occupy no more than **~35% of the cell's height** on
+  a typical mobile cell in the 90-110px range. These are targets achieved
+  through the padding/type reductions above. No change to `overlay-scrim`'s
+  color/opacity or the `accent-gold`/`accent-green-scrim`/`surface-card`
+  foreground pairings above — shrinking padding/type size doesn't change
+  any contrast ratio, so none of that math needed re-verification.
+- **Revealed state — two further bugs found during this story's own
+  required real-browser verification, corrected before shipping (not
+  anticipated in the original bug description; the plan below this bullet
+  was the original intent, superseded by what's described after it):**
+  the plan was to let a revealed photo cell's overlay grow up to ~55% of
+  the cell's height (badges + wrapped name + checkmark/points) without a
+  hard clip, on the reasoning that clipping via `overflow: hidden` risked
+  cutting off a long name worse than a slightly-oversized overlay. Real-
+  browser verification showed this was wrong on both counts:
+  1. `.cell-state--photo`'s own `overflow: hidden` (needed so the *photo*
+     doesn't bleed past the cell's rounded corners) already clips
+     anything inside it that grows taller than the cell — there was no
+     way to opt out of clipping for the overlay specifically while keeping
+     it for the photo, so "avoid clipping" was never actually achievable
+     with this structure. Worse, since the overlay is bottom-anchored and
+     content grows *upward* out of view, clipping happened from the
+     *top*, which for a 2-line name showed an unpredictable *middle*
+     fragment (e.g. "izecson..." from "Ricardo Izecson dos Santos Leite")
+     rather than the name's actual beginning.
+  2. At a typical Tier-0 mobile cell's content width (~65-80px), the
+     revealed row's four flex items (row badge, name, column badge,
+     checkmark) didn't fit on one line for *any* real name, not just long
+     ones — "Thierry Henry" rendered completely invisible, not just
+     tightly cropped.
+  **Fixed by, on the photo variant only:** hiding both badge-dock glyphs
+  once revealed (they're decorative/`aria-hidden` and already redundant
+  with the row/column category headers shown above/left of the whole
+  grid), and clamping the name to a single line with a trailing ellipsis
+  (`-webkit-line-clamp: 1`) instead of letting it wrap. This narrows (does
+  not remove) the "signature badge-dock" element described above to the
+  no-photo case — a deliberate, explicitly-recorded one-off in the same
+  spirit as `accent-green-scrim`'s checkmark-color exception, made because
+  the confined photo-overlay context genuinely can't fit all four elements
+  legibly at Tier-0 mobile widths, not a change of mind about the
+  badge-dock's value generally. The no-photo case's badge dock (and its
+  slide-in animation) is completely unaffected. A one-line, ellipsis-
+  truncated name is an accepted trade-off — the full name remains in the
+  DOM (so nothing is lost to assistive tech), and showing "Ricardo..."
+  reliably beats showing a random unreadable fragment or nothing at all.
+- **A gradient fade (the user's other suggested option, "gradient/
+  bottom-bar treatment instead of a solid block") was considered and
+  rejected for this pass:** the existing `overlay-scrim` contrast math is
+  verified against one flat, worst-case alpha value (89%, see that
+  token's own row); a gradient would need per-point contrast
+  re-verification anywhere text could sit within the fading region, which
+  is exactly the kind of subtle regression this file has already had to
+  correct twice (the 94%→89% opacity change and the checkmark's
+  green-scrim exception). Shrinking the solid band's footprint gets the
+  same "covers less of the photo" outcome the user asked for without
+  reopening that contrast math. Revisit a gradient treatment later if
+  product feedback specifically asks for the softer visual edge, not just
+  less coverage.
+
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
 a closed cell from a still-live one (a player can't tell which from the
@@ -766,6 +859,33 @@ Unchanged from v0.1 — built "equally both" from the start:
   instead (`Grid.css`); the cell floor and the horizontal-scroll fallback
   itself are unchanged for whatever is still too wide (a larger grid, or a
   longer name still).
+- **Grid cell aspect ratio (added S-047, closing a gap this document never
+  specified numerically):** a data cell (`.grid-cell`) must render
+  square-ish — width:height between **1:1 and ~1.3:1** — at every
+  viewport from 481px up through desktop, for a Tier-0-sized grid (≤5
+  columns). This was violated in practice: `.grid-table` used
+  `width: 100%` unconditionally, which — combined with the browser's
+  default `table-layout: auto` above 480px, and `.grid-table__cell`'s
+  explicit `height` acting as a floor, not a ceiling, on row height —
+  stretched a 3-column Tier-0 grid's cells to fill however wide the
+  viewport happened to be (reproducible on any real desktop browser, not
+  only via a phone's "Request desktop site," which just happens to report
+  a similar ~980-1200px CSS viewport). Fixed by letting the table use its
+  own intrinsic (shrink-to-fit) width above 480px instead of forcing
+  `width: 100%` — per the CSS2.1 automatic table-layout algorithm, an
+  auto-width table only fills its container when a column's own content
+  genuinely needs that width; otherwise columns size from their own
+  content/`min-width` floor (the existing 44px/64px touch-target tokens),
+  which is what keeps them close to square. A grid that genuinely has
+  enough columns or long enough names to need the full container width
+  still gets it, unchanged — the horizontal-scroll fallback above remains
+  the backstop either way. Below 480px, S-040's `table-layout: fixed` +
+  explicit `<colgroup>` widths remain exactly as they were (that
+  breakpoint's own problem — header text wrapping — needs a deliberate
+  full-width fixed layout, not shrink-to-fit) — this rule does not apply
+  there. REQ-214's "cell footprint is a literal constant regardless of
+  photo presence" constraint is unaffected — this is a table/column-width
+  fix, not a per-cell content change.
 
 ## 5. Copy and voice
 

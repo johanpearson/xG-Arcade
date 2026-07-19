@@ -8,9 +8,32 @@
   overflow-x: auto;
 }
 
+/* S-047 (root cause verified, not guessed — see design-document.md §4's
+   "Grid cell aspect ratio" note): this used to be `width: 100%`
+   unconditionally, which — combined with the browser's default
+   `table-layout: auto` above 480px, and .grid-table__cell's explicit
+   `height` below acting as a floor, not a ceiling, on row height —
+   stretched a Tier-0 (3-column) grid's cells to fill however wide the
+   viewport happened to be, producing flat/short rectangles instead of
+   square-ish cells. Reproduces on any real desktop browser with a small
+   grid, not only via a phone's "Request desktop site" (which just reports
+   a similarly wide CSS viewport). `margin: 0 auto` + no explicit `width`
+   lets the table use its own intrinsic (shrink-to-fit) width instead: per
+   the CSS2.1 automatic table-layout algorithm, an auto-width table only
+   grows to fill its containing block when a column's own content
+   genuinely needs that width — otherwise each column sizes from its own
+   content/min-width floor (.grid-table__cell's 44px/64px touch-target
+   tokens below), which is what keeps cells close to square. A grid with
+   enough columns or long enough names to need the full container width
+   still gets it, unchanged — .grid-scroll's horizontal-scroll fallback
+   remains the backstop either way. The ≤480px block below re-establishes
+   `width: 100%` alongside `table-layout: fixed` — that breakpoint's own
+   fix (S-040, header-text-wrapping) deliberately needs full-width fixed
+   layout instead of shrink-to-fit, and is unaffected by this change. */
 .grid-table {
   border-collapse: collapse;
-  width: 100%;
+  width: auto;
+  margin: 0 auto;
 }
 
 .grid-table__corner {
@@ -74,6 +97,13 @@
 @media (max-width: 480px) {
   .grid-table {
     table-layout: fixed;
+    /* S-047: re-establish the full-width sizing the base rule above no
+       longer sets unconditionally — this breakpoint's own fix (S-040)
+       genuinely needs the table to fill the viewport combined with fixed
+       layout + explicit <colgroup> widths, unlike the shrink-to-fit
+       behavior now used above 480px. margin: 0 auto is a no-op once width
+       is 100%, left inherited from the base rule rather than overridden. */
+    width: 100%;
   }
 
   .grid-table__row-header-col {

@@ -2020,6 +2020,110 @@ verification requirement — confirmed the photo fills the cell edge-to-edge,
 the scrim band stays legible under the checkmark/points/name in both the
 at-rest and revealed states, and the no-photo case is visually unchanged.
 
+**S-047 · Photo overlay covers too much of the photo; grid cells stretch into
+flat rectangles at wide viewports (SCREEN-01a, §4)**
+Two real UI/UX problems reported directly via phone screenshots, both
+root-caused before scoping (not guessed): (1) `CellState.css`'s
+`.cell-state__overlay` (the scrim behind a correct photo cell's checkmark/
+points/name) covers ~40-45% of the cell on a real mobile screenshot,
+against the design doc's own original ~30% intent — a solid `--space-2`
+(8px) uniform padding plus un-tightened photo-variant type sizes on a
+genuinely small (~90-110px) mobile cell. (2) `Grid.css`'s `.grid-table` used
+`width: 100%` unconditionally, which combined with the browser's default
+`table-layout: auto` above 480px and `.grid-table__cell`'s explicit `height`
+(a CSS floor, not a ceiling) stretched a Tier-0 3-column grid's cells into
+flat, short rectangles at any wide viewport (a real desktop, or a phone
+reporting a similar CSS viewport via "Request desktop site") — same root
+cause either way, not two separate bugs.
+*Accept:* `design-document.md` gets a concrete, numeric overlay-coverage
+target and a concrete cell-aspect-ratio rule (§4) before implementation,
+per this repo's design-then-build discipline; the overlay's padding/type
+size shrink on the photo variant only (no-photo cells and `overlay-scrim`'s
+color/contrast math are unaffected); `.grid-table` no longer force-stretches
+above 480px, so Tier-0 cells stay close to square at any viewport width;
+S-040's ≤480px mobile header-fix (`table-layout: fixed` + `<colgroup>`) and
+REQ-214's fixed-cell-footprint constraint are both unregressed; real-browser
+verification at both a narrow and a wide viewport, not just passing tests.
+**Built as:** matches the plan above, plus two real bugs found and fixed
+during this story's own required real-browser verification, neither
+anticipated in the original bug description (same "found and fixed in the
+same session" precedent as S-041/REQ-214's own verification passes):
+1. A revealed photo cell's name could get silently clipped by
+   `.cell-state--photo`'s pre-existing `overflow: hidden` (needed so the
+   photo itself doesn't bleed past the cell's rounded corners) — since the
+   overlay is bottom-anchored and grows *upward*, a wrapped 2-line name got
+   clipped from the *top*, in the worst case showing an unreadable *middle*
+   fragment (e.g. "izecson..." from "Ricardo Izecson dos Santos Leite").
+2. Worse: at a typical Tier-0 mobile cell's content width (~65-80px), the
+   revealed row's four flex items (row badge, name, column badge, checkmark)
+   didn't fit on one line for *any* real name, not just long ones —
+   "Thierry Henry," an entirely ordinary name, rendered completely
+   invisible once revealed on a photo cell, not just tightly cropped.
+   Fixed by, on the photo variant only: hiding both badge-dock glyphs once
+   revealed (decorative/`aria-hidden`, already redundant with the row/
+   column headers shown above/left of the whole grid) and clamping the
+   name to a single ellipsis-truncated line (`-webkit-line-clamp: 1`)
+   instead of letting it wrap. This narrows (does not remove)
+   design-document.md §2's "signature badge-dock" element to the no-photo
+   case — recorded there and in SCREEN-01a as a deliberate, one-off
+   exception, the same style of call as `accent-green-scrim`'s
+   checkmark-color exception, not a change of mind about the badge dock
+   generally. The no-photo case's badge dock (including its slide-in
+   animation) is completely unaffected either way.
+Mechanically: `CellState.css`'s `.cell-state__overlay` padding rewritten as
+four explicit longhands (`padding-top`/`-bottom`/`-left`/`-right`) rather
+than the shorthand `padding: var(--space-1) var(--space-2)` — discovered
+mid-story that jsdom's CSSOM (unlike a real browser) doesn't expand a
+multi-value shorthand containing `var()` into longhands at all, which would
+have made the padding tightening untestable; longhands are equally valid
+CSS and render identically in a real browser. `Grid.css`'s `.grid-table`
+drops its unconditional `width: 100%` for `width: auto; margin: 0 auto;`
+(letting the browser's own automatic table-layout algorithm shrink-to-fit
+when a grid's columns don't genuinely need the full container width), and
+re-establishes `width: 100%` inside the existing `@media (max-width: 480px)`
+block alongside S-040's `table-layout: fixed`, unchanged there. No new
+design tokens — every color/spacing value reused from `docs/design-
+document.md` §2's existing table; only new literal values are font sizes
+(11px/10px/12px icon/meta/name on the photo variant) and the `-webkit-
+line-clamp: 1` truncation, both un-tokenized in the same acknowledged way
+this doc's own §7 already flags for type scale generally.
+Tests: `CellState.test.tsx` gained computed-style assertions (overlay
+padding longhands, photo-variant font-size reductions, tightened row gap,
+badge-dock `display: none` on the photo variant vs. visible on no-photo,
+`-webkit-line-clamp`/`overflow` on the photo variant's name vs. absent on
+no-photo) — the same "check the CSS mechanism, not a pixel snapshot"
+approach REQ-214's own footprint tests already established for jsdom's lack
+of a real layout engine. New `Grid.test.tsx` (2 tests) checks `.grid-table`'s
+declared `width`/`margin` and every data cell's shared min-width/height
+floor at jsdom's default (>480px) viewport. Full Vitest suite: 124/124
+passing (was 116 before this story). `tsc -b --noEmit` and `oxlint` both
+clean. Real-browser verification: done directly via a temporary,
+not-committed Playwright + Vite harness (this sandbox has Chromium at
+`/opt/pw-browsers` and no `dotnet`/Postgres, so a full backend-backed E2E
+run wasn't available here — the harness rendered the real `Grid`/
+`GridCell`/`CellState`/CSS with constructed props and an inline SVG data-URI
+test photo instead, the same "no network path to a real photo host" workaround
+prior sessions used) at both a 390px mobile viewport and a 1280px desktop
+viewport, plus a 360px narrow-phone check confirming S-040's ≤480px header
+wrap is unregressed — confirmed cells render square-ish at all three widths,
+the overlay is visibly tighter against the photo, and (after the two fixes
+above) a revealed name is legible in every case checked, including the
+deliberately pathological long-name case. Harness files deleted before this
+diff was finalized, not part of the shipped change.
+`frontend/tests/e2e/play-grid.spec.ts`'s existing REQ-212/S-015 reveal
+assertions unconditionally expected the badge dock visible after a reveal —
+updated (not left for CI to find, the S-029 lesson) to branch on whether
+`.cell-state--photo` is present on the cell (the same live-lookup-driven
+non-determinism this test already handles for photo presence generally),
+asserting the badge dock hidden on a photo cell and visible otherwise; the
+revealed-name assertion itself needed no change, since `-webkit-line-clamp`
+is a paint-only effect that doesn't touch the DOM text Playwright's
+`getByText` matches against. Logic-reviewed only, not executed here (no
+`dotnet`/Postgres in this sandbox, same gap S-041's own entry already
+recorded for this file). No ADR — CSS/layout-only polish on
+already-implemented REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041's
+own no-ADR calls for this kind of change.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

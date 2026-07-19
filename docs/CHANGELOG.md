@@ -13,6 +13,54 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `requirements-document.md` (v0.65), `docs/backlog.md`,
+  `design-document.md` (v0.28, by the implementing session — see that
+  entry's own note), `frontend/src/grid/{CellState.css,CellState.test.tsx,
+  Grid.css}`, new `frontend/src/grid/Grid.test.tsx`,
+  `frontend/tests/e2e/play-grid.spec.ts` — S-047, two direct-user-feedback
+  UI fixes on `/grid`, both root-caused before scoping: (1) REQ-214's photo
+  overlay (`.cell-state__overlay`) covered ~40-45% of a real mobile cell
+  (90-110px), against the design doc's original ~30% intent — tightened
+  padding (`--space-1`/`--space-2`, down from a uniform `--space-2`) and
+  smaller photo-variant type (checkmark 11px, meta 10px, name 12px/1.2)
+  bring the at-rest overlay toward a ~35% target. (2) `Grid.css`'s
+  `.grid-table` used `width: 100%` unconditionally, which combined with the
+  browser's default `table-layout: auto` above 480px stretched a Tier-0
+  3-column grid's cells into flat rectangles at any wide viewport (desktop,
+  or a phone's "Request desktop site") — fixed with `width: auto; margin: 0
+  auto`, letting the table shrink-to-fit per CSS2.1's automatic table-layout
+  algorithm; the ≤480px breakpoint keeps S-040's `width: 100%` +
+  `table-layout: fixed` unchanged. Two further, more severe bugs were found
+  during this story's own required real-browser verification and fixed in
+  the same pass, and are the reason this entry touches
+  `requirements-document.md` (not just visual polish): at a typical Tier-0
+  mobile photo cell's content width, the revealed row's four flex items
+  (row badge, name, column badge, checkmark) didn't fit on one line for
+  *any* real name — "Thierry Henry" rendered completely invisible once
+  revealed, and a longer name could get silently clipped from the *top* by
+  `.cell-state--photo`'s pre-existing `overflow: hidden`, showing an
+  unreadable middle fragment. Fixed, on the photo variant only, by hiding
+  the badge dock on reveal and clamping the name to a single
+  ellipsis-truncated line (`-webkit-line-clamp: 1`) — this is a genuine
+  narrowing of REQ-212's "reveals the canonical name and its badge dock"
+  acceptance criterion for the photo case specifically (the no-photo case
+  is unaffected), not pure implementation detail, so both REQ-212 and
+  REQ-214 got a dated status note recording the supersession rather than
+  silently editing the existing Given/When/Then text away. No
+  `architecture-document.md` or `implementation-document.md` change —
+  frontend-component-internal CSS/layout only, no component
+  responsibility, data flow, or data-model/tech-stack change; confirmed
+  against both docs' own `update_when` triggers. No ADR —
+  `architecture-reviewer` already ran during the story's own quality gate
+  and found no `XGArcade.Core`/game-module boundary or data-flow touched,
+  same precedent as S-040/S-041. Full Vitest suite 124/124 passing (was
+  116 before this story per `docs/backlog.md`'s S-047 entry); `tsc -b
+  --noEmit` and `oxlint` both clean; `play-grid.spec.ts`'s existing
+  REQ-212 badge-dock assertion updated to branch on photo presence rather
+  than unconditionally expecting the badge dock visible after reveal (not
+  executed in this sandbox — no `dotnet`/Postgres available here, logic-
+  reviewed only, same gap recorded for this file in S-041's entry).
+  REQ-212, REQ-214.
 - 2026-07-19 — `design-document.md` (v0.27), `frontend/src/index.css`,
   `frontend/src/grid/CellState.css`, `frontend/src/grid/CellState.test.tsx` —
   REQ-214, direct user feedback: the checkmark overlaid on a correct cell's

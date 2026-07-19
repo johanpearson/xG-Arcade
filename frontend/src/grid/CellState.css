@@ -94,15 +94,46 @@
    inside it) stacked above .cell-state__photo-img. The only normal-flow
    child of .cell-state--photo's column-flex layout, so
    `justify-content: flex-end` above is what pins it to the bottom rather
-   than the top. */
+   than the top.
+
+   S-047 (direct user feedback: "covers too much of the photo" on mobile —
+   see design-document.md's SCREEN-01a S-047 status note for the full
+   before/after numbers): padding tightened from a uniform --space-2 (8px)
+   to --space-1 vertical / --space-2 horizontal (4px/8px) — this alone,
+   plus the photo-variant-specific smaller type below, is what shrinks the
+   overlay's total footprint toward the ~35%-at-rest/~55%-revealed target,
+   without touching --color-overlay-scrim's own color/opacity (unchanged —
+   shrinking padding/type doesn't affect contrast, so none of that math
+   needed re-verification) and without a hard max-height/overflow:hidden
+   clip (rejected — see the design doc note for why clipping a long
+   revealed name is worse than a slightly-larger overlay). Written as four
+   explicit longhands rather than the `padding: var(--space-1) var(--space-2)`
+   shorthand — jsdom's CSSOM (unlike a real browser) doesn't expand a
+   multi-value shorthand containing var() references into its longhands at
+   all, which would make this un-assertable from a test the way
+   `CellState.test.tsx`'s S-047 padding test needs; longhands are
+   equally valid CSS and render identically in a real browser either way. */
 .cell-state__overlay {
   position: relative;
   z-index: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-2);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
   background: var(--color-overlay-scrim);
+}
+
+/* S-047: the photo variant's own row (badge dock / name / checkmark) gets a
+   tighter horizontal gap than the base .cell-state__row's --space-2 (8px)
+   below — less wasted width means the revealed name is less likely to wrap
+   onto a second line, and shorter when it does. The no-photo case (which
+   also uses .cell-state__row) is unaffected — this selector only matches
+   inside .cell-state--photo. */
+.cell-state--photo .cell-state__row {
+  gap: var(--space-1);
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:
@@ -153,9 +184,26 @@
    purpose: `.cell-state--photo .cell-state__meta` (0,2,0) ties
    `.cell-state--correct .cell-state__meta` (0,2,0) above, so source order
    is what makes this one win — reordering it earlier would silently lose
-   the tie. */
+   the tie.
+
+   S-047: font-size drops to 10px here (from the base .cell-state__meta's
+   11px above) — one of this story's overlay-coverage reductions (design
+   doc's SCREEN-01a S-047 status note); the no-photo case keeps the base
+   11px unchanged. Color is unaffected by this addition. */
 .cell-state--photo .cell-state__meta {
   color: var(--color-accent-gold);
+  font-size: 10px;
+}
+
+/* S-047: the photo variant's checkmark/cross renders smaller than the
+   no-photo case's 14px (.cell-state__icon above) — one of this story's
+   overlay-coverage reductions. Specificity (0,2,0) is equal to
+   .cell-state__icon--correct's own color rule below, both under
+   .cell-state--photo — kept as a separate, size-only rule (not merged into
+   .cell-state__icon--correct) so it also applies to a photo cell's
+   incorrect icon, if that combination is ever reachable. */
+.cell-state--photo .cell-state__icon {
+  font-size: 11px;
 }
 
 /* Exception (2026-07-19, REQ-214, direct user feedback): the checkmark
@@ -182,8 +230,44 @@
    this dark backdrop, reused here the same way --color-accent-gold is reused
    above rather than inventing a new token for what's really just "the
    lightest neutral already in the system." */
+/* S-047: font-size/line-height tightened here too (12px/1.2, down from the
+   base .cell-state__name's un-set ~16px/1.5 browser default) — the revealed
+   name is the piece most likely to force the row to wrap on a narrow photo
+   cell, so it's the biggest single contributor to the overlay's height once
+   revealed; the no-photo case is unaffected.
+
+   S-047 bug found during this story's own required real-browser
+   verification (not anticipated in the original bug description, the same
+   class of gap S-041/REQ-214's own real-browser checks each found once
+   before): `.cell-state--photo` clips its content to the cell's rounded
+   corners (`overflow: hidden`, needed so the photo itself doesn't bleed
+   past them) — but the revealed name is bottom-anchored inside that same
+   clipped box (`justify-content: flex-end`), so a wrapped name grew taller
+   than the cell itself and had its *top* silently clipped away; in the
+   worst observed case, a genuinely long name (e.g. a full Brazilian name)
+   with 2 lines allowed left only a fragment from the *middle* of the name
+   visible (the top line clipped away, the bottom line's own tail already
+   truncated) — worse than showing nothing meaningful. `-webkit-line-clamp: 1`
+   (paired with `display: -webkit-box`/`-webkit-box-orient: vertical`, the
+   standard multi-line-truncation pattern, supported in every evergreen
+   browser despite the vendor-prefixed property name) caps the name to a
+   single line with a trailing ellipsis instead — always shows the
+   *beginning* of the name (however much fits) rather than an
+   unpredictable, clipping-dependent middle fragment, and its one-line
+   height reliably fits the available space once the badge dock is hidden
+   below. Tried with a 2-line clamp first; switched to 1 after real-browser
+   verification showed 2 lines could still exceed the remaining space and
+   get clipped from the top the same way, whereas 1 line's height is small
+   enough to actually fit alongside the checkmark/points line in every case
+   observed. */
 .cell-state--photo .cell-state__name {
   color: var(--color-surface-card);
+  font-size: 12px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
 }
 
 /* design-document.md §2 "Signature element: badge dock" — the row/column
@@ -199,6 +283,33 @@
   align-items: center;
   font-size: 14px;
   flex-shrink: 0;
+}
+
+/* S-047 bug found during this story's own required real-browser
+   verification, more severe than the name-clipping fix above and not
+   anticipated in the original bug description: at a typical Tier-0 mobile
+   cell width (~65-80px of content area once padding is subtracted), the
+   revealed row's four competing flex items (row badge, name, column badge,
+   checkmark) don't fit on one line for *any* real name, not just an
+   unusually long one — confirmed with "Thierry Henry," an ordinary-length
+   name, which rendered with the name 100% clipped (zero visible
+   characters) inside a photo cell's fixed-footprint box, leaving only the
+   badges/checkmark. Both badges are decorative/`aria-hidden` and already
+   redundant with the row/column category headers shown above/left of the
+   whole grid (design-document.md §3's own pairing rule — imagery is never
+   the sole identifier), so on a photo cell specifically, once revealed,
+   they're hidden to give the name the width it actually needs to be
+   legible — the one thing this specific reveal interaction exists to show.
+   This narrows (does not remove) design-document.md §2's "signature
+   badge-dock" element to the no-photo case, the same kind of deliberate,
+   explicitly-recorded, real-browser-driven one-off this file already has
+   precedent for (`accent-green-scrim`'s checkmark-color exception above).
+   The animation/keyframes themselves are untouched — they simply have
+   nothing to animate here now, the same "absent while hidden, nothing to
+   animate" reasoning the doc comment above already uses for the
+   before-reveal case. */
+.cell-state--photo .cell-state__badge-dock {
+  display: none;
 }
 
 .cell-state--reveal .cell-state__badge-dock--row {
