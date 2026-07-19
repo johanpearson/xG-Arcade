@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.28"
+version: "0.29"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -82,8 +82,8 @@ entirely.
 | `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red. Passes text contrast as-is (~4.9:1 on white) — no separate text variant needed |
 | `accent-green-text` | `#187E4F` | **(S-013)** Green text/icon labels, and white-on-green button-label backgrounds (`.guess-input__submit`, `.auth-screen__submit`) — `accent-green` itself measures ~3.4:1 against `surface-card`/white, below WCAG AA's 4.5:1 for normal text; this darkened variant measures ~5.1:1 |
 | `accent-gold-text` | `#8D6C20` | **(S-013)** Correct/locked-final text and icons (`CellState`'s correct icon + meta line) — `accent-gold` itself measures ~2.6:1 against `surface-card`/white, failing even the 3:1 floor for large text/icons; this darkened variant measures ~4.9:1 |
-| `accent-green-scrim` | `#23B874` | **Exception (2026-07-19, REQ-214, direct user feedback on the shipped photo-fill-cell treatment):** the color of the checkmark glyph only (never the points value beside it, which stays `accent-gold` per the `overlay-scrim` row below) when it's overlaid on a correct cell's at-rest photo. Neither existing green token clears WCAG AA's 4.5:1 floor against the scrim's own worst-case blended background (`rgb(51, 56, 53)` — see `overlay-scrim`'s row for the full derivation): `accent-green` (`#1E9E63`) measures **3.49:1**, and `accent-green-text` (`#187E4F`), being darker still, measures even lower — both fail. This is therefore a new value, not a reuse of an existing token: same hue as `accent-green` (152°), same saturation (68%), lightness raised to 43% (from `accent-green`'s 37%) — `#23B874` — measured at **4.65:1** against the same `rgb(51, 56, 53)` worst-case backdrop, ~3% above the 4.5:1 floor as a safety margin against rendering variance, matching the margin `overlay-scrim`'s own gold math targets. One percentage point of HSL lightness lower (42%, `#22B470`) drops to 4.45:1 and fails — 43% is the practical floor at whole-percent lightness granularity, the same style of verification `overlay-scrim`'s 89%-vs-88% check used. **This is a deliberate, one-off semantic exception, not a new general-purpose "correct" color:** every other correct-state signal in the app — this table's `accent-gold-text`, and `accent-gold` on this very scrim for the points value sitting right beside this same checkmark — is gold, per "Green means live/active, gold means settled/correct" below. The user explicitly asked for this one checkmark, and only this one, to render green instead, after seeing the shipped gold-on-photo treatment; it does not extend to any other correct-checkmark instance in the app (the non-photo checkmark elsewhere in this table remains `accent-gold-text`, unchanged) and must not be reused elsewhere as a general "correct" color without the same explicit, direct call. |
-| `overlay-scrim` | `rgba(26, 31, 28, 0.89)` | **(2026-07-18, REQ-214; lightened same day after visual feedback that the original 94% read as a heavy black shadow, not a scrim)** Backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`. Opacity was chosen as the *lightest* value (most photo showing through) that still clears WCAG AA's 4.5:1 contrast floor for both overlaid foreground colors, measured against the *worst case* (a pure-white photo showing through the remaining 11%), not a typical photo — relative-luminance formula, `rgb(26, 31, 28)` alpha-blended over `#FFFFFF`: at 89%, the blended backdrop is `rgb(51, 56, 53)`, giving `accent-gold` (`#C99A2E`) a contrast ratio of **4.65:1** and `surface-card`/white a ratio of **11.99:1** against it — both clear 4.5:1, with `accent-gold` (the tighter of the two) landing ~3% above the floor rather than exactly on it, as a safety margin against rendering variance (anti-aliasing, photo compression artifacts) rather than relying on an exact knife-edge value. One point lower, at 88%, `accent-gold` drops to 4.49:1 and fails — 89% is therefore the practical floor at whole-percent granularity. Against a typical (non-white) photo the effective contrast is higher still, since most real photos are darker than pure white. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background; `accent-gold-text` would under-perform here (calibrated the opposite direction) and must not be reused on this token. **(2026-07-19 update)** the checkmark glyph specifically no longer follows this same gold pairing — see `accent-green-scrim` above, added the same day after direct user feedback asking for the checkmark (not the points value) to be green on this scrim; the gold pairing described in this paragraph still governs the points value and remains correct for it. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is: use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. |
+| `accent-green-scrim` | `#23B874` | **Exception (2026-07-19, REQ-214, direct user feedback on the shipped photo-fill-cell treatment):** the color of the checkmark glyph only (never the points value beside it, which stays `accent-gold` per the `overlay-scrim` row below) when it's overlaid on a correct cell's at-rest photo. Neither existing green token clears WCAG AA's 4.5:1 floor against the scrim's own worst-case blended background (`rgb(51, 56, 53)` — see `overlay-scrim`'s row for the full derivation): `accent-green` (`#1E9E63`) measures **3.49:1**, and `accent-green-text` (`#187E4F`), being darker still, measures even lower — both fail. This is therefore a new value, not a reuse of an existing token: same hue as `accent-green` (152°), same saturation (68%), lightness raised to 43% (from `accent-green`'s 37%) — `#23B874` — measured at **4.65:1** against the same `rgb(51, 56, 53)` worst-case backdrop, ~3% above the 4.5:1 floor as a safety margin against rendering variance, matching the margin `overlay-scrim`'s own gold math targets. One percentage point of HSL lightness lower (42%, `#22B470`) drops to 4.45:1 and fails — 43% is the practical floor at whole-percent lightness granularity, the same style of verification `overlay-scrim`'s 89%-vs-88% check used. **This is a deliberate, one-off semantic exception, not a new general-purpose "correct" color:** every other correct-state signal in the app — this table's `accent-gold-text`, and `accent-gold` on this very scrim for the points value sitting right beside this same checkmark — is gold, per "Green means live/active, gold means settled/correct" below. The user explicitly asked for this one checkmark, and only this one, to render green instead, after seeing the shipped gold-on-photo treatment; it does not extend to any other correct-checkmark instance in the app (the non-photo checkmark elsewhere in this table remains `accent-gold-text`, unchanged) and must not be reused elsewhere as a general "correct" color without the same explicit, direct call. **Dormant as of 2026-07-19 (S-048):** the checkmark this token was calibrated for no longer renders anywhere on a photo cell (S-048 removed it from both the at-rest and revealed states, per direct user feedback — see `SCREEN-01a`'s S-048 status note). The token and its verification math are kept, not deleted — same "document, don't silently drop" approach as every other superseded value in this table — in case a checkmark is deliberately reintroduced to this overlay later; it must not be reused for any other purpose without a fresh explicit call, same as before. |
+| `overlay-scrim` | `rgba(26, 31, 28, 0.89)` | **(2026-07-18, REQ-214; lightened same day after visual feedback that the original 94% read as a heavy black shadow, not a scrim)** Backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`. Opacity was chosen as the *lightest* value (most photo showing through) that still clears WCAG AA's 4.5:1 contrast floor for both overlaid foreground colors, measured against the *worst case* (a pure-white photo showing through the remaining 11%), not a typical photo — relative-luminance formula, `rgb(26, 31, 28)` alpha-blended over `#FFFFFF`: at 89%, the blended backdrop is `rgb(51, 56, 53)`, giving `accent-gold` (`#C99A2E`) a contrast ratio of **4.65:1** and `surface-card`/white a ratio of **11.99:1** against it — both clear 4.5:1, with `accent-gold` (the tighter of the two) landing ~3% above the floor rather than exactly on it, as a safety margin against rendering variance (anti-aliasing, photo compression artifacts) rather than relying on an exact knife-edge value. One point lower, at 88%, `accent-gold` drops to 4.49:1 and fails — 89% is therefore the practical floor at whole-percent granularity. Against a typical (non-white) photo the effective contrast is higher still, since most real photos are darker than pure white. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background; `accent-gold-text` would under-perform here (calibrated the opposite direction) and must not be reused on this token. **(2026-07-19 update)** the checkmark glyph specifically no longer follows this same gold pairing — see `accent-green-scrim` above, added the same day after direct user feedback asking for the checkmark (not the points value) to be green on this scrim; the gold pairing described in this paragraph still governs the points value and remains correct for it. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is: use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. **(2026-07-19 update, S-048):** this scrim itself is now only ever painted once a photo cell is revealed (never at rest — see `SCREEN-01a`'s S-048 status note), and only ever carries the name and points — the checkmark no longer shares this backdrop at all, so `accent-green-scrim` above is currently unused; the `accent-gold`-for-points and `surface-card`-for-name pairings described in this paragraph remain exactly as verified. |
 
 Green means "live/active," gold means "settled/correct" — same semantic
 split as before, just recolored for a light surface. This distinction is
@@ -103,7 +103,12 @@ deliberate one-off, not a reinterpretation of the rule — every other
 correct-checkmark instance in the app (including the points value sitting
 directly beside this same checkmark) is still gold, and any future
 correct-state color choice should still default to gold unless someone
-makes the same kind of explicit call again.
+makes the same kind of explicit call again. **Dormant as of 2026-07-19
+(S-048):** the photo-overlay checkmark this paragraph describes no longer
+renders at all — S-048 (see `SCREEN-01a`'s status note) removed the
+checkmark from the photo overlay entirely, at rest and revealed alike, per
+further direct user feedback. This exception and its token are kept for
+the record, not deleted, in case a checkmark is reintroduced there later.
 
 **Text vs. decorative contrast (S-013, resolves §6's former open
 item):** §6's contrast floor requires verifying gold-on-white and
@@ -258,17 +263,18 @@ At rest, no photo (default when the resolved player has none):
 │  12 pts                   │     no name until clicked/tapped
 └─────────────────────────┘
 
-At rest, photo available (2026-07-18 — REQ-214 status note):
+At rest, photo available (2026-07-19, S-048 status note — supersedes the
+2026-07-18 mock this replaced, which showed a scrim-backed checkmark/points
+row here even at rest; see the S-048 status note after state 4 below for
+the full rationale and trade-off):
 ┌─────────────────────────┐
 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│    ← photo fills the cell automatically —
-│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│      no click/tap needed, unlike the name
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│    ← photo only — no checkmark, no points
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│      value, no scrim/overlay of any kind at
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│      rest — the picture is the only thing
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│      shown until the player clicks/taps
 │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │    ← checkmark, overlaid bottom, on a
-│▓ 12 pts                   │      scrim strip for contrast — see note
-└─────────────────────────┘        below (still no name here — that's
-                                     still REQ-212's click/tap gate,
-                                     unaffected by this note)
+└─────────────────────────┘
 
 Revealed, no photo (click/tap the cell — toggles closed again on a
 second click/tap; unchanged from before this note):
@@ -277,15 +283,17 @@ second click/tap; unchanged from before this note):
 │  12 pts                   │
 └─────────────────────────┘
 
-Revealed, photo available (same click/tap toggle; the photo itself does
-not react to the toggle — only the name/badge dock do):
+Revealed, photo available (2026-07-19, S-048 status note — same click/tap
+toggle; the photo itself does not react to the toggle, only the overlay
+below does):
 ┌─────────────────────────┐
 │▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
 │▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
-│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← same scrim strip, now also carrying
-│▓ Henry              ✓    │      the revealed name
-│▓ 12 pts                   │
-└─────────────────────────┘
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← scrim strip carrying only the name
+│▓ Henry                    │      and points — no checkmark here (S-048;
+│▓ 12 pts                   │      the no-photo case above still has one)
+└─────────────────────────┘        and no badge dock (already dropped,
+                                     S-047)
 ```
 
 **REQ-214 status note (2026-07-18): photo decoupled from the click/tap
@@ -304,7 +312,16 @@ overlaid on the photo (a scrim/shadow strip behind them, shown as the `▓`
 band above) rather than sitting on a plain card background — see this
 section's REQ-214 implementation note below for why no dedicated overlay
 token exists yet for this treatment. The no-photo mock and behavior above
-are unaffected by this note.
+are unaffected by this note. **Superseded in part by S-048 (2026-07-19,
+see that status note below):** the "checkmark and points value are
+overlaid on the photo" sentence above described the *at-rest* photo cell
+as first shipped — as of S-048 the checkmark/points no longer appear at
+rest on a photo cell at all, only the picture itself; the scrim/overlay
+treatment this paragraph describes now only ever appears once the cell is
+revealed, and carries the name and points, never the checkmark. The
+photo-decoupled-from-reveal mechanism this note is otherwise about (the
+photo shows automatically, independent of the click/tap toggle) is
+unchanged by S-048.
 
 **S-041 redesign (supersedes S-040's mock above):** further direct product
 feedback found the live/final distinction S-040 preserved (a pulsing dot,
@@ -317,7 +334,12 @@ checkmark plus the live point estimate, full stop — identical in structure
 to state 4 below (see that state's own note). A player cannot tell from
 the cell alone whether the shown value could still change before round
 close; that's now explained once, generally, by SCREEN-06's explainer
-(REQ-213), not repeated per cell. What the %-breakdown disclosure used to
+(REQ-213), not repeated per cell. **Exception (S-048, 2026-07-19):** this
+"checkmark plus points at rest" rule no longer holds for a correct cell
+that has a photo — see the S-048 status note after state 4 below for the
+photo-specific at-rest and revealed treatment, which now shows only the
+picture at rest and only the name/points once revealed. This paragraph's
+rule is otherwise unchanged for every cell without a photo. What the %-breakdown disclosure used to
 gate (the player name + badge dock) is now gated by a **click/tap
 anywhere on the cell** instead — replacing S-019's three-way click/hover/
 focus toggle on a small in-cell button with one interaction, the same on
@@ -410,23 +432,25 @@ Prior outcome: correct, no photo (revealed — click/tap the cell)
 │  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
 
-Prior outcome: correct, photo available (at rest — 2026-07-18 status note;
-photo shows automatically, no click/tap needed)
+Prior outcome: correct, photo available (at rest — 2026-07-19, S-048
+status note; photo shows automatically, no click/tap needed, and nothing
+else is overlaid — see the S-048 status note below)
 ┌─────────────────────────┐
 │▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
-│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│
-│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓✓    │   ← same scrim-backed checkmark treatment
-│▓ 88 pts                   │     as state 1's at-rest photo mock above
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│   ← picture only, same as state 1's at-rest
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│     photo mock above; no checkmark, no
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│     points, no scrim at rest
 └─────────────────────────┘
 
 Prior outcome: correct, photo available (revealed — click/tap adds the
-name on top, same REQ-212 toggle; photo itself unaffected by the toggle)
+name and points on top, same REQ-212 toggle; photo itself unaffected by
+the toggle; 2026-07-19, S-048 status note)
 ┌─────────────────────────┐
 │▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
 │▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
-│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
-│▓ Henry              ✓    │
-│▓ 88 pts                   │
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← no checkmark here either — same
+│▓ Henry                    │      name+points-only overlay as state 1's
+│▓ 88 pts                   │      revealed photo mock above
 └─────────────────────────┘
 ```
 
@@ -557,6 +581,50 @@ verification found the original no-clip plan didn't hold up:
   reopening that contrast math. Revisit a gradient treatment later if
   product feedback specifically asks for the softer visual edge, not just
   less coverage.
+
+**S-048 status note (2026-07-19, direct user feedback on the shipped S-047
+treatment — "at rest, only picture. on click name + points only in an
+overlay"):** a further, deliberate simplification of the photo case, not
+another coverage tweak — supersedes S-047's photo mocks above (and the
+checkmark's overlaid treatment generally) with a narrower rule:
+- **At rest, a correct cell with a photo now shows the photo and nothing
+  else** — no `.cell-state__overlay`, no scrim, no checkmark, no points
+  value. This is a change to the *at-rest* case specifically; the no-photo
+  at-rest treatment (checkmark + points, state 1/state 4's original mocks
+  at the top of this section) is completely unaffected.
+- **On click/tap (revealed), the overlay now shows only the player's name
+  and the points value** — no checkmark icon, and no badge dock (already
+  dropped by S-047; stays dropped, not reintroduced). The scrim/contrast
+  treatment behind them (`overlay-scrim`, `accent-gold` for points,
+  `surface-card` for the name) is unchanged — none of that math needed
+  re-verification, since it's the same two foreground colors on the same
+  backdrop, just without the checkmark sharing the row. The checkmark's
+  own `accent-green-scrim` exception (§2 above) is consequently unused as
+  of this story — see that token's row for the note recording this rather
+  than deleting the token outright, since it's still a documented,
+  intentional exception should a checkmark ever return to this overlay.
+- **Trade-off, recorded rather than silently assumed:** before this story,
+  a photo cell's checkmark+points was the only always-visible, at-a-glance
+  signal that the cell was "done" and roughly how well it scored, without
+  clicking each one — this was REQ-204's original point. A photo-filled
+  cell now carries none of that signal at rest; the only always-visible
+  fact is that the cell has a photo, which itself already implies a
+  correct, locked guess (an incorrect or unattempted cell never has one),
+  so a player can still infer "this one's solved" from the photo alone,
+  just not the score. This is the user's own explicit trade-off, made
+  directly ("at rest, only picture"), not a default this document is
+  inventing a justification for after the fact — recorded here plainly
+  per this repo's own discipline for exactly this kind of call. The
+  no-photo case keeps its always-visible checkmark+points exactly as
+  REQ-204 originally specified; this trade-off is scoped to the photo case
+  only.
+- **What stays exactly as-is:** the photo's own at-rest trigger (automatic,
+  independent of `revealed` — REQ-214's 2026-07-18 decoupling is
+  unaffected), the click/tap toggle mechanism itself (REQ-212, same
+  whole-cell target, same `aria-expanded`, same keyboard/mouse/touch
+  parity), the fixed-cell-footprint guarantee, and the overlay's own
+  padding/type-size treatment from S-047 (still applicable to the name and
+  points that do render on reveal).
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing

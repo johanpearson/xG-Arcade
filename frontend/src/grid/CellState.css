@@ -87,14 +87,19 @@
 }
 
 /* design-document.md §2's `overlay-scrim` token (2026-07-18, REQ-214): a
-   solid, near-opaque band anchored to the bottom of the cell, behind the
-   checkmark/points (and name/badge dock, once revealed) — not a wash across
-   the whole photo, only behind the row of content that needs to stay
-   legible. `position: relative` + `z-index: 1` keeps it (and everything
-   inside it) stacked above .cell-state__photo-img. The only normal-flow
-   child of .cell-state--photo's column-flex layout, so
+   solid, near-opaque band anchored to the bottom of the cell, behind
+   whatever's overlaid — not a wash across the whole photo, only behind the
+   content that needs to stay legible. `position: relative` + `z-index: 1`
+   keeps it (and everything inside it) stacked above .cell-state__photo-img.
+   The only normal-flow child of .cell-state--photo's column-flex layout, so
    `justify-content: flex-end` above is what pins it to the bottom rather
-   than the top.
+   than the top. **S-048 (2026-07-19):** this element is now only ever
+   mounted at all once `revealed` is true (CellState.tsx no longer renders
+   it at rest on a photo cell), and only ever carries the name and points —
+   no checkmark, no badge dock (see the removal notes further down this
+   file for both). Earlier stories' comments below, describing the
+   checkmark/badge-dock content that used to sit here, are kept for
+   history rather than rewritten.
 
    S-047 (direct user feedback: "covers too much of the photo" on mobile —
    see design-document.md's SCREEN-01a S-047 status note for the full
@@ -124,16 +129,6 @@
   padding-left: var(--space-2);
   padding-right: var(--space-2);
   background: var(--color-overlay-scrim);
-}
-
-/* S-047: the photo variant's own row (badge dock / name / checkmark) gets a
-   tighter horizontal gap than the base .cell-state__row's --space-2 (8px)
-   below — less wasted width means the revealed name is less likely to wrap
-   onto a second line, and shorter when it does. The no-photo case (which
-   also uses .cell-state__row) is unaffected — this selector only matches
-   inside .cell-state--photo. */
-.cell-state--photo .cell-state__row {
-  gap: var(--space-1);
 }
 
 /* S-040: margin-left: auto (not just the row's justify-content:
@@ -195,32 +190,20 @@
   font-size: 10px;
 }
 
-/* S-047: the photo variant's checkmark/cross renders smaller than the
-   no-photo case's 14px (.cell-state__icon above) — one of this story's
-   overlay-coverage reductions. Specificity (0,2,0) is equal to
-   .cell-state__icon--correct's own color rule below, both under
-   .cell-state--photo — kept as a separate, size-only rule (not merged into
-   .cell-state__icon--correct) so it also applies to a photo cell's
-   incorrect icon, if that combination is ever reachable. */
-.cell-state--photo .cell-state__icon {
-  font-size: 11px;
-}
-
-/* Exception (2026-07-19, REQ-214, direct user feedback): the checkmark
-   glyph specifically — not the points value above, which stays
-   accent-gold — uses --color-accent-green-scrim instead, a deliberate,
-   one-off break from "green means live, gold means settled/correct" made
-   at the user's explicit request. Neither --color-accent-green nor
-   --color-accent-green-text clears WCAG AA's 4.5:1 floor against this
-   scrim; --color-accent-green-scrim is a new value calibrated specifically
-   for this backdrop — see design-document.md §2's `accent-green-scrim` row
-   for the contrast math. `.cell-state--photo .cell-state__icon--correct`
-   (0,2,0) is already strictly more specific than `.cell-state__icon--correct`
-   (0,1,0) alone and would win regardless of rule order; kept here, after
-   the points-value rule above, for readability. */
-.cell-state--photo .cell-state__icon--correct {
-  color: var(--color-accent-green-scrim);
-}
+/* S-048 removal note (2026-07-19): this file used to carry two photo-variant
+   checkmark rules here — `.cell-state--photo .cell-state__icon { font-size:
+   11px; }` (S-047's size reduction) and `.cell-state--photo
+   .cell-state__icon--correct { color: var(--color-accent-green-scrim); }`
+   (the 2026-07-19 REQ-214 green-checkmark exception, design-document.md §2's
+   `accent-green-scrim` row) — both removed in this same story, not just
+   superseded, because the checkmark itself no longer renders anywhere inside
+   `.cell-state--photo` (CellState.tsx's photo branch no longer uses the
+   `Row` component at all — see "at rest, only picture; on click name +
+   points only" in that file). Left as dead, unreachable CSS would be worse
+   than removing it outright; `--color-accent-green-scrim` itself is kept
+   defined (design-document.md §2, `index.css`) as a documented-but-dormant
+   exception in case a checkmark is deliberately reintroduced to this overlay
+   later, per this repo's own history. */
 
 /* The revealed name itself (REQ-212, unrelated to the icon/meta pair above)
    has no correct/incorrect semantic color of its own — it normally uses
@@ -258,8 +241,10 @@
    below. Tried with a 2-line clamp first; switched to 1 after real-browser
    verification showed 2 lines could still exceed the remaining space and
    get clipped from the top the same way, whereas 1 line's height is small
-   enough to actually fit alongside the checkmark/points line in every case
-   observed. */
+   enough to actually fit alongside the points line in every case observed
+   (S-048, 2026-07-19: that points line no longer shares this overlay with
+   a checkmark at all — see the removal note above this section — but the
+   clamp/fit reasoning here is otherwise unchanged). */
 .cell-state--photo .cell-state__name {
   color: var(--color-surface-card);
   font-size: 12px;
@@ -285,32 +270,21 @@
   flex-shrink: 0;
 }
 
-/* S-047 bug found during this story's own required real-browser
-   verification, more severe than the name-clipping fix above and not
-   anticipated in the original bug description: at a typical Tier-0 mobile
-   cell width (~65-80px of content area once padding is subtracted), the
-   revealed row's four competing flex items (row badge, name, column badge,
-   checkmark) don't fit on one line for *any* real name, not just an
-   unusually long one — confirmed with "Thierry Henry," an ordinary-length
-   name, which rendered with the name 100% clipped (zero visible
-   characters) inside a photo cell's fixed-footprint box, leaving only the
-   badges/checkmark. Both badges are decorative/`aria-hidden` and already
-   redundant with the row/column category headers shown above/left of the
-   whole grid (design-document.md §3's own pairing rule — imagery is never
-   the sole identifier), so on a photo cell specifically, once revealed,
-   they're hidden to give the name the width it actually needs to be
-   legible — the one thing this specific reveal interaction exists to show.
-   This narrows (does not remove) design-document.md §2's "signature
-   badge-dock" element to the no-photo case, the same kind of deliberate,
-   explicitly-recorded, real-browser-driven one-off this file already has
-   precedent for (`accent-green-scrim`'s checkmark-color exception above).
-   The animation/keyframes themselves are untouched — they simply have
-   nothing to animate here now, the same "absent while hidden, nothing to
-   animate" reasoning the doc comment above already uses for the
-   before-reveal case. */
-.cell-state--photo .cell-state__badge-dock {
-  display: none;
-}
+/* S-048 removal note (2026-07-19): this file used to carry a defensive
+   `.cell-state--photo .cell-state__badge-dock { display: none; }` rule here
+   (S-047's fix for the badge dock crowding out the revealed name on a photo
+   cell). Removed, not just left in place "just in case": as of S-048,
+   CellState.tsx's photo branch never renders `Row` or any badge-dock markup
+   at all (only a plain name + points overlay), so `.cell-state__badge-dock`
+   can no longer exist anywhere inside `.cell-state--photo` in the first
+   place — the selector is provably unreachable, not merely redundant. If a
+   badge dock is ever deliberately reintroduced to the photo-revealed
+   overlay, that change would need to consciously re-decide this rule
+   alongside it, the same way it would need to re-decide the checkmark
+   removal noted above — kept here as a pointer for that future change
+   rather than speculative dead CSS today. The badge-dock hide behavior for
+   this story's no-photo case is unaffected: it never had one, and still
+   doesn't. */
 
 .cell-state--reveal .cell-state__badge-dock--row {
   animation: cell-state-badge-dock-in-row 0.4s ease-out;

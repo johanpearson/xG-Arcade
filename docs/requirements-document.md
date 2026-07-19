@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.65"
+version: "0.66"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -793,10 +793,32 @@ only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
   guessed player's name (REQ-212); this requirement (REQ-204) governs only
   the live/locked point *value* and its calculation, not the name-reveal
   interaction
+- **Status note (2026-07-19, `docs/backlog.md` S-048, direct user feedback
+  on the shipped photo treatment — "at rest, only picture"):** the
+  "Current behavior" bullet's "at rest, a locked+correct cell shows only a
+  checkmark plus a points value" claim is no longer true for a correct
+  cell that has a photo (REQ-214) — on a photo cell specifically, the
+  checkmark and points value are no longer shown at rest at all, only the
+  photo itself; they only appear (alongside the name, without a checkmark)
+  once the player clicks/taps the cell to reveal it (REQ-212). This is a
+  real, deliberate narrowing of what REQ-204 guarantees is always visible:
+  before this story, the checkmark+points was the one thing a player could
+  see about *every* correct cell without clicking, regardless of whether
+  it had a photo; that "always visible without clicking" guarantee no
+  longer holds for the photo case. The trade-off — a photo already implies
+  a correct, locked guess even without the points value, so some "this
+  cell is done" signal survives, just not the score — is the user's own
+  explicit choice, not one this document is inventing a justification for;
+  recorded here, and in `design-document.md` `SCREEN-01a`'s matching S-048
+  status note, rather than left as an undocumented behavior change. The
+  no-photo case is completely unaffected — it still shows the checkmark
+  plus points value at rest exactly as this requirement originally
+  specifies.
 
 **Test level:** Unit (calculation logic), API, UI (state 1 and state 4 at
 rest render identically in structure — checkmark + points, no live
-indicator of any kind, no percent)
+indicator of any kind, no percent — for a cell with no photo; a cell with
+a photo shows neither at rest as of S-048, see that status note)
 
 **REQ-205 – Score locking at round close**
 > As a player, I want my final score to be fixed once the round closes, so I
@@ -1156,6 +1178,24 @@ match with no attribute data and budget exhausted → fails closed), API
   specifies, with no clamp on the name. See `design-document.md` §2's
   matching S-047 exception note and SCREEN-01a's S-047 status note for the
   full before/after detail.
+- **Status note (2026-07-19, `docs/backlog.md` S-048, direct user feedback
+  — "on click name + points only in an overlay"):** on a photo cell
+  specifically, this requirement's click/tap toggle now also governs
+  whether the points value is shown — before this story, REQ-204's
+  points value was always visible at rest regardless of `revealed`, and
+  this requirement's toggle only ever affected the name/badge dock. As of
+  S-048, a photo cell shows *nothing* overlaid at rest (see REQ-204's
+  matching 2026-07-19 status note) — clicking/tapping the cell now reveals
+  the name **and** the points value together, still no checkmark icon (the
+  checkmark is dropped from the photo overlay entirely, not merely moved
+  behind the reveal toggle — see `design-document.md` §2's
+  `accent-green-scrim` token note on why that color choice is now
+  dormant), and still no badge dock (S-047's exception stands, unchanged).
+  The no-photo case is completely unaffected: click/tap there still
+  reveals only the name and badge dock exactly as this requirement's
+  acceptance criteria state, and the points value there remains
+  always-visible at rest as REQ-204 originally specifies, never gated by
+  this toggle.
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
   (correct, round closed)
@@ -1337,14 +1377,25 @@ wording)
   tapped it (REQ-212's reveal state)
 - Then the photo displays automatically, filling the cell, at rest — no
   click/tap is required to show it, and clicking/tapping the cell (REQ-212)
-  neither shows nor hides the photo, only the name and badge dock
-- And the cell's existing checkmark and points value are overlaid on top
-  of the photo, in the same position they occupy in the no-photo case, and
-  remain legible (a contrast-safe scrim/shadow treatment behind them)
-  regardless of the photo's own colors — this is testable: the checkmark
-  and points text must meet the same contrast floor as `SCREEN-01a`'s
-  no-photo case, against the photo shown, not just against a plain
-  background
+  neither shows nor hides the photo, only the name and (as of S-048) the
+  points value
+- **Superseded 2026-07-19 (`docs/backlog.md` S-048, kept for history):**
+  "the cell's existing checkmark and points value are overlaid on top of
+  the photo, in the same position they occupy in the no-photo case … at
+  rest." This was true as first shipped and through S-047's coverage
+  tightening, but is no longer current: as of S-048 (direct user feedback
+  — "at rest, only picture"), a photo cell overlays **nothing** at rest —
+  no checkmark, no points, no scrim. The checkmark and points move behind
+  REQ-212's click/tap toggle instead, and the checkmark is dropped
+  entirely (not merely relocated) — see REQ-204's and REQ-212's own
+  matching 2026-07-19 status notes, and `design-document.md` SCREEN-01a's
+  S-048 status note, for the full before/after and the recorded trade-off
+  (a photo cell no longer has an always-visible-without-clicking score
+  signal, only an always-visible "this cell is done" signal via the photo
+  itself). The contrast-floor testing requirement below is unaffected in
+  substance — it now applies to the name/points shown on reveal rather
+  than to an always-visible overlay, using the same already-verified
+  `overlay-scrim`/`accent-gold`/`surface-card` pairings.
 - And the cell's rendered width and height are identical whether or not a
   photo is shown — this is a testable layout constraint, not a visual
   preference: a photo filling the cell at rest must never change the

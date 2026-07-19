@@ -440,8 +440,18 @@ describe('CellState badge-dock reveal (S-015, re-keyed to the revealed prop by S
 // icon, no loading/error state, no footprint change) whenever no photo is
 // available, whether that's because the field is absent entirely, explicitly
 // null (backend confirmed no photo), or a same-session image load failure.
-describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap reveal)', () => {
-  it('REQ-214: a photo shows automatically at rest (revealed=false, no click/tap) — the name stays hidden, exactly as REQ-212 already specifies', () => {
+//
+// S-048 (2026-07-19, direct user feedback — "at rest, only picture. on
+// click name + points only in an overlay"): a further simplification on top
+// of the above, superseding several of this block's own at-rest/revealed
+// assertions (updated in place below, not left stale — the S-029 lesson).
+// At rest, a photo cell now overlays nothing at all (no checkmark, no
+// points, no scrim) — only once `revealed` does an overlay appear, and it
+// carries only the name and points, never a checkmark or badge dock. The
+// no-photo case is completely unaffected by S-048 and is covered by the
+// separate describe block above.
+describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap reveal; overlay content narrowed further by S-048, 2026-07-19)', () => {
+  it('S-048: a photo shows automatically at rest (revealed=false, no click/tap) with nothing overlaid — no checkmark, no points, no name, no scrim', () => {
     const { container } = render(
       <CellState
         playerName="Henry"
@@ -463,18 +473,17 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     const img = container.querySelector('.cell-state__photo-img');
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
-    // Decorative only — the checkmark/points overlaid on top already carry
-    // the accessible content, same pairing rule §6 already applies to the
-    // flag/badge glyphs.
+    // Decorative only.
     expect(img).toHaveAttribute('alt', '');
-    // The name is still click/tap-gated (REQ-212, unaffected by this note)
-    // — a photo showing at rest never implies the name is shown too.
+    // S-048: at rest, a photo cell overlays nothing — no overlay element at
+    // all, and none of its former contents (checkmark, points, name).
+    expect(container.querySelector('.cell-state__overlay')).not.toBeInTheDocument();
+    expect(screen.queryByText('✓')).not.toBeInTheDocument();
+    expect(screen.queryByText('12 pts')).not.toBeInTheDocument();
     expect(screen.queryByText('Henry')).not.toBeInTheDocument();
-    expect(screen.getByText('✓')).toBeInTheDocument();
-    expect(screen.getByText('12 pts')).toBeInTheDocument();
   });
 
-  it('REQ-214: clicking/tapping the cell (revealed -> true) reveals the name over the photo without affecting the photo\'s own visibility', () => {
+  it('S-048: clicking/tapping the cell (revealed -> true) reveals an overlay with the name and points only — no checkmark, no badge dock — without affecting the photo\'s own visibility', () => {
     const { container, rerender } = render(
       <CellState
         playerName="Henry"
@@ -484,6 +493,10 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         locked
         roundStatus="active"
         livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
         revealed={false}
       />,
     );
@@ -500,19 +513,32 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         locked
         roundStatus="active"
         livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
         revealed
       />,
     );
 
+    const overlay = container.querySelector('.cell-state__overlay');
+    expect(overlay).toBeInTheDocument();
     expect(screen.getByText('Henry')).toBeInTheDocument();
-    // Same photo `src`, still present — revealing the name did not remount
-    // or hide the photo layer.
+    expect(screen.getByText('12 pts')).toBeInTheDocument();
+    // No checkmark anywhere in the revealed photo overlay (dropped
+    // entirely, not merely hidden), and no badge dock either (S-047's
+    // exception stands — never reintroduced by S-048).
+    expect(screen.queryByText('✓')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__badge-dock')).not.toBeInTheDocument();
+    // Same photo `src`, still present — revealing the overlay did not
+    // remount or hide the photo layer.
     const img = container.querySelector('.cell-state__photo-img');
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', 'https://example.test/henry.jpg');
   });
 
-  it('REQ-214: clicking/tapping again (revealed -> false) hides the name but the photo stays', () => {
+  it('S-048: clicking/tapping again (revealed -> false) removes the whole overlay (name and points) but the photo stays', () => {
     const { container, rerender } = render(
       <CellState
         playerName="Henry"
@@ -527,6 +553,7 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     );
 
     expect(screen.getByText('Henry')).toBeInTheDocument();
+    expect(screen.getByText('12 pts')).toBeInTheDocument();
 
     rerender(
       <CellState
@@ -542,8 +569,10 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     );
 
     expect(screen.queryByText('Henry')).not.toBeInTheDocument();
-    // The photo, unlike the name, is unaffected by the toggle going back to
-    // false — it's still showing.
+    expect(screen.queryByText('12 pts')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__overlay')).not.toBeInTheDocument();
+    // The photo, unlike the overlay, is unaffected by the toggle going back
+    // to false — it's still showing.
     expect(container.querySelector('.cell-state__photo-img')).toBeInTheDocument();
   });
 
@@ -683,7 +712,14 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(style.position).not.toBe('absolute');
   });
 
-  it('REQ-214: cell-state__row itself renders with the identical class/structure whether or not a photo is present — badges/name/icon markup is untouched by the photo layer wrapping around it', () => {
+  // S-048 superseded this test's premise: before this story, both the
+  // no-photo and photo cases rendered a `.cell-state__row` (badges + name +
+  // icon) once revealed, wrapped differently but structurally identical.
+  // As of S-048, the photo case no longer renders `.cell-state__row` (or
+  // `Row`) at all — only a plain name + points overlay — so the two cases
+  // are now deliberately *not* structurally identical once revealed. This
+  // replaces the old equality check with the new, correct invariant.
+  it('S-048: a revealed photo cell renders no cell-state__row, no icon, and no badge dock at all — only the no-photo case still uses that structure', () => {
     const { container: noPhotoContainer } = render(
       <CellState
         playerName="Henry"
@@ -716,17 +752,24 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
       />,
     );
 
-    const noPhotoRow = noPhotoContainer.querySelector('.cell-state__row');
-    const photoRow = photoContainer.querySelector('.cell-state__row');
-    expect(getComputedStyle(noPhotoRow as Element).display).toBe(getComputedStyle(photoRow as Element).display);
-    expect(getComputedStyle(noPhotoRow as Element).flexWrap).toBe(getComputedStyle(photoRow as Element).flexWrap);
-    // Same number of direct flex-item children either way (row badge dock,
-    // name, col badge dock, icon) — the photo is an entirely separate layer
-    // (`.cell-state__photo-img` + `.cell-state__overlay`) that wraps around
-    // `.cell-state__row`, not a fifth item inside its own flex layout.
-    expect(noPhotoRow?.children.length).toBe(photoRow?.children.length);
+    // No-photo case: unaffected, still the full Row structure.
+    expect(noPhotoContainer.querySelector('.cell-state__row')).toBeInTheDocument();
+    expect(noPhotoContainer.querySelector('.cell-state__icon')).toBeInTheDocument();
+    expect(noPhotoContainer.querySelector('.cell-state__badge-dock')).toBeInTheDocument();
+
+    // Photo case (S-048): none of that structure exists — only the name and
+    // points, directly inside `.cell-state__overlay`.
+    expect(photoContainer.querySelector('.cell-state__row')).not.toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__badge-dock')).not.toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__overlay')).toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__name')).toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__meta')).toBeInTheDocument();
   });
 
+  // S-048: the points value is now only rendered once revealed (never at
+  // rest), so `revealed` must be passed for this element to exist at all —
+  // the contrast pairing itself is unchanged from before S-048.
   it('REQ-214: the overlaid points value uses accent-gold (not accent-gold-text) on the photo\'s scrim, the token pairing design-document.md §2\'s overlay-scrim entry specifies for this dark backdrop', () => {
     const { container } = render(
       <CellState
@@ -737,6 +780,7 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         locked
         roundStatus="active"
         livePoints={12}
+        revealed
       />,
     );
 
@@ -755,14 +799,15 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(getComputedStyle(meta as Element).color).not.toBe(getComputedStyle(noPhotoMeta as Element).color);
   });
 
-  // (2026-07-19, REQ-214, direct user feedback): the checkmark glyph
-  // specifically — not the points value covered above — is a deliberate,
-  // one-off exception: accent-green-scrim, not accent-gold, on this same
-  // scrim. design-document.md §2's `accent-green-scrim` row documents why
-  // neither existing green token clears contrast here and records this as
-  // an acknowledged break from "green means live, gold means settled."
-  it('REQ-214: the overlaid checkmark specifically uses accent-green-scrim (a deliberate exception to the gold "correct" convention), while the points value beside it stays accent-gold', () => {
-    const { container } = render(
+  // S-048 (2026-07-19, direct user feedback) superseded the checkmark
+  // exception this test used to cover: as of S-048, a photo cell never
+  // renders a checkmark at all, at rest or revealed — the
+  // `accent-green-scrim` token this test used to assert on is now dormant
+  // (design-document.md §2's matching note). Replaced with the correct
+  // current invariant: no checkmark anywhere on a photo cell, in either
+  // state, while the no-photo case keeps its checkmark exactly as before.
+  it('S-048: a photo cell never renders a checkmark icon, at rest or revealed — the no-photo case is unaffected and still shows one', () => {
+    const { container: restContainer } = render(
       <CellState
         playerName="Henry"
         photoUrl="https://example.test/henry.jpg"
@@ -771,26 +816,30 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         locked
         roundStatus="active"
         livePoints={12}
+        revealed={false}
+      />,
+    );
+    const { container: revealedContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
       />,
     );
 
-    const icon = container.querySelector('.cell-state__icon--correct');
-    const meta = container.querySelector('.cell-state__meta');
-    expect(icon).toBeInTheDocument();
-    expect(meta).toBeInTheDocument();
-    expect(getComputedStyle(icon as Element).color).toBe('var(--color-accent-green-scrim)');
-    expect(getComputedStyle(meta as Element).color).toBe('var(--color-accent-gold)');
-    expect(getComputedStyle(icon as Element).color).not.toBe(getComputedStyle(meta as Element).color);
+    expect(restContainer.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+    expect(revealedContainer.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+    expect(revealedContainer.querySelector('.cell-state__icon--correct')).not.toBeInTheDocument();
 
-    // Compare against a no-photo correct cell's own icon color — the two
-    // must differ, since the no-photo case keeps using accent-gold-text
-    // (its background is surface-card, not the scrim) and is unaffected by
-    // this photo-only exception.
     const { container: noPhotoContainer } = render(
       <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} />,
     );
-    const noPhotoIcon = noPhotoContainer.querySelector('.cell-state__icon--correct');
-    expect(getComputedStyle(icon as Element).color).not.toBe(getComputedStyle(noPhotoIcon as Element).color);
+    expect(noPhotoContainer.querySelector('.cell-state__icon--correct')).toBeInTheDocument();
   });
 
   // Found via this story's own real-browser verification (not caught by the
@@ -850,6 +899,8 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
   // not a rendered bounding box. See this story's own real-browser
   // verification for the pixel-level check this doesn't replace.
   it("S-047: the photo overlay's padding is tighter than the prior uniform --space-2 (8px) on every side — now --space-1 vertical / --space-2 horizontal", () => {
+    // S-048: the overlay only exists once revealed (never at rest), unlike
+    // when this test was first written — `revealed` is required here now.
     const { container } = render(
       <CellState
         playerName="Henry"
@@ -859,6 +910,7 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         locked
         roundStatus="active"
         livePoints={12}
+        revealed
       />,
     );
 
@@ -871,7 +923,13 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(style.paddingRight).toBe('var(--space-2)');
   });
 
-  it('S-047: the photo variant renders the checkmark, points, and (once revealed) the name smaller than the no-photo case — one of the changes that shrinks the overlay toward the design doc\'s coverage target', () => {
+  // S-048 superseded this test's checkmark comparison — a photo cell no
+  // longer renders a checkmark at all (see the dedicated S-048 test above),
+  // so there's nothing left to compare its font-size against; that
+  // assertion is dropped here rather than compared against a
+  // no-longer-existing element. The meta/name size comparisons are
+  // otherwise unaffected by S-048 (still the S-047 reductions).
+  it('S-047: the photo variant renders the points and (once revealed) the name smaller than the no-photo case — one of the changes that shrinks the overlay toward the design doc\'s coverage target', () => {
     const { container: photoContainer } = render(
       <CellState
         playerName="Henry"
@@ -887,11 +945,6 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     const { container: noPhotoContainer } = render(
       <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
     );
-
-    const photoIcon = photoContainer.querySelector('.cell-state__icon--correct');
-    const noPhotoIcon = noPhotoContainer.querySelector('.cell-state__icon--correct');
-    expect(getComputedStyle(photoIcon as Element).fontSize).toBe('11px');
-    expect(getComputedStyle(noPhotoIcon as Element).fontSize).toBe('14px');
 
     const photoMeta = photoContainer.querySelector('.cell-state__meta');
     const noPhotoMeta = noPhotoContainer.querySelector('.cell-state__meta');
@@ -907,7 +960,15 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(getComputedStyle(noPhotoName as Element).fontSize).not.toBe('12px');
   });
 
-  it("S-047: the photo variant's row (badge dock / name / checkmark) uses a tighter gap than the no-photo case's --space-2 (8px), reducing how often the revealed name wraps onto a second line", () => {
+  // S-048 removed the CSS rule this test used to check
+  // (`.cell-state--photo .cell-state__row`'s tighter gap) as dead code,
+  // since `.cell-state__row`/`Row` is no longer rendered inside a photo
+  // cell at all (see CellState.css's S-048 removal note). Replaced with an
+  // assertion of the current structure: the photo overlay's own gap (name
+  // line to points line) still uses the tightened --space-1 S-047
+  // introduced, just on `.cell-state__overlay` directly rather than a row
+  // nested inside it.
+  it("S-048: the photo overlay's own gap (name line to points line) uses the tightened --space-1, same value S-047 introduced, now applied directly rather than via a nested cell-state__row", () => {
     const { container: photoContainer } = render(
       <CellState
         playerName="Henry"
@@ -920,28 +981,28 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
         revealed
       />,
     );
+
+    const overlay = photoContainer.querySelector('.cell-state__overlay');
+    expect(overlay).toBeInTheDocument();
+    expect(getComputedStyle(overlay as Element).gap).toBe('var(--space-1)');
+
     const { container: noPhotoContainer } = render(
       <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
     );
-
-    const photoRow = photoContainer.querySelector('.cell-state__row');
     const noPhotoRow = noPhotoContainer.querySelector('.cell-state__row');
-    expect(getComputedStyle(photoRow as Element).gap).toBe('var(--space-1)');
     expect(getComputedStyle(noPhotoRow as Element).gap).toBe('var(--space-2)');
   });
 
-  // S-047: a real bug found via this story's own required real-browser
-  // verification, not anticipated in the original bug description — an
-  // ordinary-length real name (e.g. "Thierry Henry") rendered completely
-  // invisible (not just tightly cropped) once revealed on a photo cell,
-  // because the row's four competing flex items (row badge, name, column
-  // badge, checkmark) never fit a typical Tier-0 mobile cell's ~65-80px of
-  // content width on one line. Fixed by hiding both badge-dock glyphs on
-  // the photo variant specifically (they're decorative/aria-hidden and
-  // already redundant with the row/column headers above/left of the grid)
-  // so the name gets the width it needs. The no-photo case is unaffected —
-  // its badge dock still renders and still animates.
-  it('S-047: the badge dock (row and column glyphs) is hidden on a photo cell once revealed, freeing width for the name to actually be legible — the no-photo case keeps showing its badge dock unchanged', () => {
+  // S-047 originally fixed this by hiding both badge-dock glyphs via CSS
+  // (`display: none`) while leaving them in the DOM. S-048 goes further:
+  // CellState.tsx's photo branch no longer renders `Row`/badge-dock markup
+  // for a photo cell at all, in either state, so there's nothing left to
+  // hide via CSS — this test now asserts the badges are absent from the
+  // DOM entirely, not merely hidden. The underlying reason is unchanged
+  // (badges are decorative/redundant with the row/column headers, and the
+  // confined overlay doesn't have room for them at typical mobile widths)
+  // and the no-photo case's badge dock is still fully present and visible.
+  it('S-048: the badge dock (row and column glyphs) is entirely absent from a photo cell once revealed, not just hidden — the no-photo case keeps showing its badge dock unchanged', () => {
     const { container: photoContainer } = render(
       <CellState
         playerName="Henry"
@@ -974,13 +1035,9 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
       />,
     );
 
-    // Still rendered in the DOM (structure is unaffected, only visibility)
-    // — this is a CSS-only fix, not a change to what CellState/Row render.
-    const photoBadgeRow = photoContainer.querySelector('.cell-state__badge-dock--row');
-    expect(photoBadgeRow).toBeInTheDocument();
-    expect(getComputedStyle(photoBadgeRow as Element).display).toBe('none');
-    const photoBadgeCol = photoContainer.querySelector('.cell-state__badge-dock--col');
-    expect(getComputedStyle(photoBadgeCol as Element).display).toBe('none');
+    // S-048: not present in the DOM at all, unlike S-047's display:none.
+    expect(photoContainer.querySelector('.cell-state__badge-dock--row')).not.toBeInTheDocument();
+    expect(photoContainer.querySelector('.cell-state__badge-dock--col')).not.toBeInTheDocument();
 
     const noPhotoBadgeRow = noPhotoContainer.querySelector('.cell-state__badge-dock--row');
     expect(getComputedStyle(noPhotoBadgeRow as Element).display).not.toBe('none');

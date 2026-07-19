@@ -13,6 +13,65 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `requirements-document.md` (v0.66), `design-document.md`
+  (v0.29), `docs/backlog.md` (new S-048 entry, by the implementing
+  session — see that entry's own note), `frontend/src/grid/{CellState.tsx,
+  CellState.css,CellState.test.tsx}`, `frontend/src/index.css` (comments
+  only), `frontend/tests/e2e/play-grid.spec.ts` (comments only) — S-048,
+  a further direct-user-feedback simplification of REQ-214's photo-cell
+  overlay on top of S-047 (just merged): "at rest, only picture. on click
+  name + points only in an overlay." Before this story, a correct cell with
+  a photo showed a checkmark+points overlay unconditionally at rest
+  (S-041/S-047's shared behavior with the no-photo case) and only added the
+  name on click; after this story, a photo cell shows the bare photo and
+  nothing else at rest, and clicking/tapping it reveals an overlay with the
+  name and points only — no checkmark, ever, for a photo cell. This is a
+  real narrowing of what REQ-204 guarantees is always visible without
+  clicking (before: checkmark+points, for every correct cell, photo or not;
+  after: that guarantee no longer holds for the photo case, where the
+  photo's own presence is the only always-visible "this cell is done"
+  signal) and of what REQ-212's reveal shows for a photo cell specifically
+  (name+points, not name alone) — both got dated 2026-07-19 status notes
+  rather than a silent rewrite of the existing Given/When/Then text, and
+  `design-document.md` SCREEN-01a's mocks for both states 1 and 4's photo
+  case were redrawn to match, with the trade-off (score signal lost at
+  rest, "done" signal retained via the photo) recorded plainly as the
+  user's own explicit choice, not an invented justification. Verified this
+  against the actual code diff rather than trusting the implementing
+  agent's doc updates on faith: confirmed `CellState.tsx`'s photo branch no
+  longer builds or reuses the shared `overlayContent`, renders `<CellPhoto>`
+  unconditionally, and only mounts `.cell-state__overlay` (plain name span +
+  existing points `<p>`, no `Row` call, so structurally no checkmark and no
+  badge dock) when `revealed`; confirmed the no-photo branch is untouched;
+  confirmed `CellState.css` removed exactly the three now-unreachable
+  photo-variant rules (`.cell-state__row` gap, `.cell-state__icon`
+  size, `.cell-state__icon--correct` color) with removal notes rather than
+  silent deletion, while `--color-accent-green-scrim` (`index.css`,
+  design-document.md §2) is kept defined but now documented as dormant, not
+  deleted, per this repo's existing "document, don't drop" pattern for
+  superseded values; confirmed `CellState.test.tsx`'s photo-reveal describe
+  block was rewritten in place (not left stale) to assert the new
+  invariants — nothing overlaid at rest, name+points-only on reveal, no
+  checkmark in either state, structural (not merely CSS `display: none`)
+  absence of `.cell-state__row`/icon/badge-dock inside a photo cell; and
+  confirmed `play-grid.spec.ts`'s two descriptive-comment updates (the
+  correct-guess-at-rest assertion, and the S-047 badge-dock-hidden
+  assertion) accurately describe the new no-DOM-element mechanism rather
+  than S-047's CSS-hide mechanism — including one stale reference ("CSS-
+  hidden") the orchestrator corrected in the working tree after a
+  `quality-architect` pass flagged it, ahead of this doc-sync pass. No
+  `architecture-document.md` or `implementation-document.md` change:
+  checked both against their own `update_when` triggers directly against
+  the diff (frontend component-internal TSX/CSS + tests only, no new
+  library, no data-model/project-structure change, no component
+  responsibility or data-flow change) rather than deferring to the prior
+  no-op precedent alone. No ADR — the orchestrator's own read plus an
+  independent `architecture-reviewer` pass found no `XGArcade.Core`/game-
+  module boundary touched, same precedent as S-040/S-041/S-047. Full
+  Vitest suite 124/124 passing (unchanged count from S-047's own final
+  tally — tests rewritten in place, not net-added); `tsc -b --noEmit` and
+  `oxlint` both clean (verified by the orchestrator in this sandbox; not
+  re-run here). REQ-204, REQ-212, REQ-214.
 - 2026-07-19 — `requirements-document.md` (v0.65), `docs/backlog.md`,
   `design-document.md` (v0.28, by the implementing session — see that
   entry's own note), `frontend/src/grid/{CellState.css,CellState.test.tsx,

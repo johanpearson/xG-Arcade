@@ -242,10 +242,16 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // REQ-210: a correct answer locks the cell immediately, even though
     // only 1 of the 2 attempts was used for a wrong guess before it.
     await expect(page.getByRole('dialog')).not.toBeVisible()
-    // S-041 (REQ-204): a locked+correct cell shows only a checkmark plus a
-    // points value at rest — no name, no "live"/"final" text of any kind —
-    // until the player clicks/taps the cell to reveal it (REQ-212). Unlike
-    // a locked+incorrect cell, it stays a real, enabled button rather than
+    // S-041 (REQ-204): a locked+correct cell without a photo shows only a
+    // checkmark plus a points value at rest — no name, no "live"/"final"
+    // text of any kind — until the player clicks/taps the cell to reveal it
+    // (REQ-212). S-048 exception: if this guess resolves to a photo (see the
+    // non-determinism note below), the cell instead shows only the photo at
+    // rest — no checkmark, no points either — so this assertion only checks
+    // what's true regardless of a photo (the name itself stays hidden either
+    // way); it doesn't assert the checkmark/points are visible here, since
+    // that's no longer guaranteed for every correct cell. Unlike a
+    // locked+incorrect cell, it stays a real, enabled button rather than
     // aria-disabled, since that click is exactly what reveals the name.
     await expect(cell.getByText(seed.correctPlayerName)).not.toBeVisible()
     await expect(cell).toBeEnabled()
@@ -303,13 +309,18 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // concerns neither suite asserts on, since driving an in-flight CSS
     // animation here would be brittle/flaky and jsdom doesn't run real
     // animations — verified visually against the design mock instead.
-    // S-047: this only holds for the no-photo case — on a photo cell, the
-    // badge dock is deliberately hidden on reveal (design-document.md §2's
-    // S-047 exception to the signature badge-dock element) so the name has
-    // room to be legible at a typical Tier-0 mobile cell width. Whether this
-    // guess happened to resolve to a photo is itself non-deterministic (see
-    // the photo-non-determinism note below), so both outcomes are asserted
-    // on rather than picking one.
+    // This only holds for the no-photo case — on a photo cell, the badge
+    // dock never renders at all once revealed: S-047 first hid it via CSS
+    // so the name had room to be legible at a typical Tier-0 mobile cell
+    // width, and S-048 went further, dropping the badge-dock markup (and
+    // the checkmark) from the photo-revealed overlay entirely — a photo
+    // cell's reveal now renders only name + points, never `Row`, so there's
+    // no badge-dock element in the DOM to assert on in that branch (`not
+    // .toBeVisible()` still holds either way, just for a different reason
+    // than the CSS-hide S-047 originally introduced). Whether this guess
+    // happened to resolve to a photo is itself non-deterministic (see the
+    // photo-non-determinism note below), so both outcomes are asserted on
+    // rather than picking one.
     if (hasPhoto) {
       await expect(cell.getByTestId('badge-dock-row')).not.toBeVisible()
       await expect(cell.getByTestId('badge-dock-col')).not.toBeVisible()
