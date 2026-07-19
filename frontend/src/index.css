@@ -39,7 +39,9 @@
      `overlay-scrim` token for the contrast math. Use --color-accent-gold
      (not --color-accent-gold-text) as the foreground on this token
      specifically — see that token's doc comment for why the pairing
-     reverses here. */
+     reverses here. (2026-07-19 update: the checkmark specifically no
+     longer uses --color-accent-gold — see --color-accent-green-scrim
+     above.) */
   --color-overlay-scrim: rgba(26, 31, 28, 0.89);
 
   /* Type */
