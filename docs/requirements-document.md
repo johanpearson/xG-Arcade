@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.66"
+version: "0.67"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -1401,6 +1401,25 @@ wording)
   preference: a photo filling the cell at rest must never change the
   cell's footprint compared to today's no-photo display, and must never
   push or resize neighboring cells in the grid
+- **Status note (2026-07-19, `docs/backlog.md` S-050):** "filling the
+  cell" above was, for the version shipped through S-049, only ever true
+  up to a real, measured, symmetric gap between the photo and the cell's
+  actual bordered edge — exactly `.grid-table__cell`'s own CSS `padding`
+  value (4px below 960px, 12px at/above it) on every side, confirmed via
+  `getBoundingClientRect` on a real Chromium render, not the literal
+  bottom-only gap the direct user report described (measuring all four
+  edges found it symmetric; most visually obvious, per the report, where
+  two photo cells stack vertically). Root cause and fix are CSS-only
+  (`frontend/src/grid/Grid.css`'s `.grid-table__cell`/`.grid-cell`) — see
+  that story's backlog entry for the full mechanism and before/after
+  numbers. The footprint-invariance bullet above is unaffected in
+  substance and was specifically re-verified as part of this fix,
+  including a scenario this requirement's acceptance criteria didn't
+  previously call out explicitly: a photo that loads successfully and
+  *then* fails is no longer able to resize the cell either (confirmed via
+  a real, deliberately-broken photo URL) — the first fix attempted for
+  this gap (tried and rejected during the same story) would have
+  regressed exactly that case.
 - And REQ-212's click/tap toggle still applies on top of this exactly as
   before — clicking/tapping the cell reveals the canonical name and badge
   dock (over the photo, when one is present), and clicking/tapping again

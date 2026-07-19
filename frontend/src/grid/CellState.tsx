@@ -354,10 +354,13 @@ function Row({
 // revealed name row via a component then called `PlayerAvatar`. That name
 // and shape are both gone: this now renders full-bleed via
 // `.cell-state__photo-img` (absolutely positioned by CellState.css,
-// deliberately outside `.grid-cell`'s own padding box — see that
+// deliberately outside `.grid-table__cell`'s own padding box — see that
 // stylesheet's comment for why that's the mechanism that keeps the cell's
 // footprint fixed regardless of the photo, the same guarantee the old
-// fixed-18px-box used to provide a different way). Renders unconditionally
+// fixed-18px-box used to provide a different way; S-050 moved the
+// containing block this bleeds against from the button up to the `<td>`
+// itself — see Grid.css's `.grid-table__cell`/`.grid-cell` comments for
+// why). Renders unconditionally
 // once mounted (CellState only mounts this when `hasPhoto` is true, i.e. a
 // src was given and hasn't failed to load this session yet) — this
 // component's own `onError` is what flips that state back to false one

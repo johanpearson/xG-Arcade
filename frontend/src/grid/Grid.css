@@ -142,11 +142,63 @@
   }
 }
 
+/* S-050 (root cause verified via getBoundingClientRect on a real Chromium
+   render at both breakpoints, not guessed — see design-document.md §4's
+   "Grid cell photo fill" note and backlog.md's S-050 entry for the full
+   before/after numbers): direct user feedback, with real screenshots, that
+   a correct cell's photo (REQ-214) doesn't reach the cell's own bottom
+   border — a real, reproducible, but *symmetric* gap (not literally
+   bottom-only, confirmed by measuring all four edges), most visually
+   obvious where two photo cells stack vertically (that gap, doubled across
+   the shared row border, reads as a noticeably wide blank band). Root
+   cause: REQ-214/S-047's fix only ever bypassed `.grid-cell`'s (the
+   button's) OWN padding — CellState.css's `.cell-state--photo` bleeds
+   through *that* padding via `inset: 0` against whatever element is its
+   nearest positioned ancestor's padding box — but that ancestor was
+   `.grid-cell` itself, which sits *inside* this element (`.grid-table__cell`,
+   the `<td>`) and is already inset from this element's own border by this
+   rule's own, separate `padding` (one layer further out, never bypassed).
+   The photo therefore always stopped short of the cell's actual bordered
+   edge by exactly this rule's own `padding` value (4px below 960px, 12px
+   at/above it) on every side.
+
+   Fix: this element (the `<td>`), not the button, is now the positioned
+   ancestor `.cell-state--photo` measures its `inset: 0` against — see
+   `.grid-cell`'s own comment below for why its `position: relative` moved
+   here instead. A `:has(.cell-state--photo)`-scoped padding override was
+   tried first and rejected after real-browser verification of a *second*
+   real bug it would have introduced: `.grid-cell`'s own rendered size would
+   then depend on whether `.cell-state--photo` is currently in the DOM,
+   which `CellState.tsx` ties to photo *load success*, not just URL
+   presence (a failed image load unmounts `.cell-state--photo` entirely,
+   falling back to the no-photo branch) — meaning the button itself would
+   visibly resize the moment a photo failed to load after already
+   rendering, exactly the shift REQ-214's "constant regardless of load
+   failure" guarantee forbids, and exactly what `play-grid.spec.ts`'s
+   pre/post-`networkidle` `cell.boundingBox()` equality check (REQ-214)
+   would have caught non-deterministically in a real network environment.
+   Moving the containing block up to this always-present element instead
+   means `.grid-cell`'s own box is governed solely by this rule's
+   unconditional `height`/`min-width`/padding (unchanged, same as before
+   this story) regardless of whether a photo is showing, loading, or failed
+   — the button never resizes — while the photo layer, no longer
+   constrained by the button's own (smaller) box at all, fills this
+   element's full padding box independently. Real-browser verification
+   (not assumed) confirmed the remaining gap after this change is 0.5px on
+   every side at both breakpoints tested — exactly this rule's own 1px
+   `border`, split by sub-pixel rounding, i.e. the cell's actual visible
+   edge, not a leftover gap — and confirmed `.grid-cell`'s own bounding box
+   is identical whether or not a photo is present, matching REQ-214
+   unchanged. REQ-214's fixed-cell-footprint guarantee itself is
+   unaffected either way: this only changes how much of that *same*
+   footprint (this rule's own height/min-width, untouched here) the photo
+   fills, not the footprint's own size. */
 .grid-table__cell {
   padding: var(--space-1);
   border: 1px solid var(--color-border-hairline);
   min-width: var(--touch-target-min);
   height: var(--touch-target-min);
+  position: relative;
 }
 
 /* S-040 desktop polish: the 44px touch-target floor (design-document.md
@@ -205,16 +257,23 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  /* REQ-214 (2026-07-18 status note): the positioning context
-     CellState.css's `.cell-state--photo` needs — a correct cell's at-rest
-     photo is absolutely positioned against this button's own padding edge
-     (deliberately ignoring this element's own `padding` above, so the
-     photo can bleed to the button's actual corners) rather than being sized
-     by its own content. This button's own width/height are unaffected
-     either way (`box-sizing: border-box`, set globally in index.css) — this
-     rule only establishes *where* an absolutely positioned descendant
-     measures its offsets from, it doesn't change this element's own box. */
-  position: relative;
+  /* S-050 (supersedes the 2026-07-18 REQ-214 note this comment used to
+     carry): this element is deliberately *not* `position: relative`
+     anymore — `.grid-table__cell` (the `<td>` this button lives inside,
+     Grid.css) is now the positioning context `CellState.css`'s
+     `.cell-state--photo` measures its `inset: 0` against instead, one DOM
+     level further out. Keeping this button as the containing block tied
+     its own rendered size to whether `.cell-state--photo` happened to be in
+     the DOM, which `CellState.tsx` also ties to photo *load success* — a
+     real, measured bug found while root-causing S-050's reported gap (see
+     `.grid-table__cell`'s own comment for the full before/after numbers):
+     this button would visibly resize the moment an already-showing photo
+     failed to load, which REQ-214's "constant footprint regardless of
+     photo load failure" guarantee forbids. This button's own box (driven
+     purely by its own `width`/`height`/padding above, all otherwise
+     unchanged by this story) is now completely independent of whatever
+     `CellState` happens to render inside it, exactly as it already was for
+     every non-photo state. */
 }
 
 /* S-040: same fixed-width squeeze as the row/col headers above, applied to

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.30"
+version: "0.31"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -626,6 +626,13 @@ checkmark's overlaid treatment generally) with a narrower rule:
   padding/type-size treatment from S-047 (still applicable to the name and
   points that do render on reveal).
 
+**S-050 (2026-07-19):** the `▒` fill in this section's own at-rest photo
+mock above was always meant to touch all four sides of the box border —
+it didn't, in the version shipped through S-049, by a real, measured,
+symmetric margin. See §4's "Grid cell photo fill" note for the root cause
+and fix (CSS-only, `Grid.css`); nothing in this section's own mocks or
+click/tap behavior changed.
+
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
 a closed cell from a still-live one (a player can't tell which from the
@@ -1002,6 +1009,45 @@ Unchanged from v0.1 — built "equally both" from the start:
   change to that mechanism was needed. The no-photo case's own type sizes
   are untouched — real-browser verification found them to already read
   fine at the larger cell size, badge dock and name+checkmark included.
+- **Grid cell photo fill (added S-050, closes a gap the S-047/S-048/S-049
+  notes above never checked directly):** a correct cell's photo (REQ-214)
+  must fill all the way to the cell's actual bordered edge — the same
+  literal "filling the cell" intent SCREEN-01a's own at-rest photo mock
+  below has always shown (the `▒` fill in that ASCII box touches all four
+  sides of the box border, with no blank margin drawn). Direct user
+  feedback, with real screenshots at both a mobile and a "Request desktop
+  site" viewport, reported a visible white gap between the photo and the
+  cell's own border. Root-caused via `getBoundingClientRect` on a real
+  Chromium render (not guessed): the gap was real, measured, and
+  **symmetric** on all four sides (4px below 960px, 12px at/above it) —
+  not literally bottom-only as first described, though most visually
+  obvious where two photo cells stack vertically (that gap, doubled across
+  the shared row border, reads as a noticeably wide blank band, which is
+  almost certainly what the report was actually describing). Cause:
+  `CellState.css`'s `.cell-state--photo` bleeds through `.grid-cell`'s (the
+  button's) own padding via `inset: 0` against its padding box, exactly as
+  S-047/REQ-214's own comments already documented — but `.grid-table__cell`
+  (the `<td>` itself) has a *second*, separate padding layer one level
+  further out that was never bypassed, so the photo always stopped short
+  of the `<td>`'s actual border by exactly that amount. Fixed by moving the
+  `position: relative` that establishes the abs-positioning containing
+  block from `.grid-cell` up to `.grid-table__cell` — the photo now bleeds
+  through both padding layers, reaching the cell's real edge (confirmed:
+  remaining gap after the fix is 0.5px on every side at both breakpoints
+  tested, exactly this rule's own 1px border, split by sub-pixel rounding).
+  A `:has(.cell-state--photo)`-scoped padding override on the `<td>` was
+  tried first and rejected: real-browser verification found it would make
+  `.grid-cell`'s own rendered size depend on whether a photo is *currently*
+  showing, which `CellState.tsx` ties to load success (a failed image
+  unmounts `.cell-state--photo` entirely) — reintroducing exactly the
+  "cell resizes if an already-shown photo fails to load" bug REQ-214's
+  fixed-footprint guarantee forbids, confirmed via a deliberately-broken
+  photo URL before rejecting that approach. The chosen fix has no such
+  dependency — `.grid-cell`'s own box is governed solely by its own
+  unconditional CSS regardless of photo presence/load outcome, re-verified
+  the same way. No change to the aspect-ratio or target-size rules above —
+  this only changes how much of the same footprint the photo fills, not
+  the footprint's own size.
 
 ## 5. Copy and voice
 
