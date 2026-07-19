@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import './App.css';
+import { AdminScreen } from './admin/AdminScreen';
+import { ApiError, fetchMe } from './lib/api';
+import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
 import { DeleteAccountScreen } from './auth/DeleteAccountScreen';
 import { GameSelectScreen } from './games/GameSelectScreen';
@@ -17,8 +20,9 @@ const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
 // before any game's grid — see docs/backlog.md S-021. 'delete-account'
 // (S-039) is reachable only from the header, never a destination anything
-// else navigates to.
-type Screen = 'game-select' | 'grid' | 'leaderboard' | 'delete-account';
+// else navigates to. 'admin' (REQ-504, S-026) is likewise reachable only
+// from the header's admin-only nav link, never a default destination.
+type Screen = 'game-select' | 'grid' | 'leaderboard' | 'delete-account' | 'admin';
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
@@ -26,6 +30,9 @@ function App() {
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
   const [screen, setScreen] = useState<Screen>('game-select');
+  // REQ-504: the only signal for whether to show the "Admin" nav link — a
+  // non-admin must see no trace of it, regardless of screen size/state.
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
     let cancelled = false
@@ -58,11 +65,43 @@ function App() {
     setScreen('game-select');
   }
 
-  function handleLogout() {
+  const handleLogout = useCallback(() => {
     window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     setAccessToken(null);
+    setCurrentUser(null);
     setScreen('game-select');
-  }
+  }, []);
+
+  // REQ-504: fetched both on a fresh login/signup (accessToken just set by
+  // handleAuthenticated) and when restoring a token already in localStorage
+  // on initial load — either way, this is the only place `isAdmin` is
+  // learned. A 401 here means the token itself is dead, same as any other
+  // authenticated call failing — log out rather than silently swallowing it.
+  useEffect(() => {
+    if (!accessToken) {
+      setCurrentUser(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchMe(accessToken)
+      .then((user) => {
+        if (!cancelled) setCurrentUser(user);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status === 401) {
+          handleLogout();
+        }
+        // Any other failure here just leaves currentUser null — the admin
+        // nav link stays hidden, but the rest of the app is unaffected.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, handleLogout]);
 
   return (
     <div className="app">
@@ -101,6 +140,18 @@ function App() {
             >
               Delete account
             </button>
+            {/* REQ-504: the entire "no visible entry point" mechanism for a
+                non-admin — rendered only once /auth/me confirms isAdmin. */}
+            {currentUser?.isAdmin && (
+              <button
+                type="button"
+                className="app__nav-link"
+                aria-current={screen === 'admin' ? 'page' : undefined}
+                onClick={() => setScreen('admin')}
+              >
+                Admin
+              </button>
+            )}
             <button type="button" className="app__logout" onClick={handleLogout}>
               Log out
             </button>
@@ -119,6 +170,8 @@ function App() {
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
+          ) : screen === 'admin' ? (
+            <AdminScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : (
             // REQ-710: on success there's no account left to show anything
             // else on, so deletion signs out and lands back on AuthScreen —

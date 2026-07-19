@@ -1,9 +1,14 @@
 import type {
+  AdminActiveRound,
+  AdminRound,
   CurrentRoundResponse,
+  CurrentUser,
   LeaderboardResponse,
   LoginResponse,
+  PlayerOverride,
   SignupResponse,
   SubmitGuessResponse,
+  UnverifiedPlayerData,
 } from './types';
 
 // Reuses the exact pattern established in App.tsx by S-002.
@@ -129,4 +134,122 @@ export async function deleteAccount(accessToken: string, password: string): Prom
     body: JSON.stringify({ password }),
   });
   if (!response.ok) await throwApiError(response);
+}
+
+// REQ-504: nothing calls this before S-026 — it's the only source of
+// `isAdmin`, used solely to decide whether to show the admin nav entry
+// point (App.tsx). A 401 here means the token itself is dead, same meaning
+// as everywhere else in this app.
+export async function fetchMe(accessToken: string): Promise<CurrentUser> {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CurrentUser;
+}
+
+// REQ-503 (SCREEN-04): always registered, regardless of environment — no
+// 404-as-hidden handling needed here the way the round-control probe below
+// has, since this section is never Production-gated.
+export async function fetchUnverifiedPlayerData(
+  accessToken: string,
+): Promise<UnverifiedPlayerData[]> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-data/unverified`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as UnverifiedPlayerData[];
+}
+
+// REQ-501: 409 (an override already exists for this playerId/field) is left
+// to throw like any other error — the caller shows the server's own detail
+// text inline rather than treating it specially, since there's no "edit an
+// existing override" UI to route to instead.
+export async function createPlayerOverride(
+  accessToken: string,
+  playerId: string,
+  field: string,
+  value: string,
+  reason: string,
+): Promise<PlayerOverride> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-overrides`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerId, field, value, reason }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as PlayerOverride;
+}
+
+// REQ-505: a bare 404 here (no body, same shape as any other routing miss)
+// means the round-control/user-deletion feature isn't registered in this
+// environment at all (ASPNETCORE_ENVIRONMENT == Production) — mirrors
+// fetchCurrentRound's existing 404-as-null idiom, but the meaning here is
+// "hide the section," not "empty state to render."
+export async function fetchActiveAdminRound(
+  accessToken: string,
+  gameKey: string,
+): Promise<AdminActiveRound | null> {
+  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/active`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminActiveRound;
+}
+
+// REQ-505: 404 here (no active round for this game right now) is a real
+// error distinct from the probe's 404-as-hidden above — left to throw.
+export async function closeAdminRound(accessToken: string, gameKey: string): Promise<AdminRound> {
+  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/close`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminRound;
+}
+
+// REQ-505: 400 problem-details ("Invalid end time") when the chosen time
+// isn't after both the round's start time and now — left to throw so the
+// caller can show `detail` inline.
+export async function updateAdminRoundEndTime(
+  accessToken: string,
+  gameKey: string,
+  endTimeIso: string,
+): Promise<AdminRound> {
+  const response = await fetch(`${API_BASE_URL}/admin/rounds/${gameKey}/end-time`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ endTime: endTimeIso }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminRound;
+}
+
+export type DeleteUserResult = 'deleted' | 'not-found';
+
+// REQ-506: a 404 (no user with this email) is a real, expected outcome the
+// caller shows inline ("No user found with that email.") rather than a
+// thrown error — mirrors why fetchCurrentRound treats its own 404 as data,
+// not a failure, though the meaning here is "not found," not "hidden."
+export async function deleteUserByEmail(
+  accessToken: string,
+  email: string,
+): Promise<DeleteUserResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users?email=${encodeURIComponent(email)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (response.status === 404) return 'not-found';
+  if (!response.ok) await throwApiError(response);
+  return 'deleted';
 }
