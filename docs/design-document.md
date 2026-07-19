@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.33"
+version: "0.34"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -874,11 +874,19 @@ alone. Rank #1 is always the lowest `TotalPoints`, consistent with
 Still deliberately plainer/denser than the rest of the product — a working
 tool, not a broadcast surface. On the light theme this now reads as a
 clean, ordinary admin table rather than needing its own "un-dark" treatment.
-Reached only by a user whose id is in `Admin__UserIds` (REQ-504) via a nav
-link that itself only renders for that user — nothing resembling an entry
-point is shown to anyone else, and every underlying endpoint independently
-403s a non-admin token that reaches it directly (defense in depth, not just
+Reached only by a user whose id is in `Admin__UserIds` (REQ-504) via a link
+that itself only renders for that user — nothing resembling an entry point
+is shown to anyone else, and every underlying endpoint independently 403s a
+non-admin token that reaches it directly (defense in depth, not just
 nav-hiding).
+
+**Status note (2026-07-19, entry point relocated per REQ-712/REQ-713):**
+that link no longer lives as a standalone top-level header item — it's now
+SCREEN-08's admin-only link, itself reached via SCREEN-07's "Settings" nav
+entry. `AdminScreen` itself, its authorization checks, and the
+Production-only section-hiding described below are all unchanged; only how
+a player navigates here changed, one hop further from the header than
+before.
 
 **S-026 status note:** this section previously described only the
 unverified-data review list as an aspirational mock (`[Approve]`/
@@ -984,7 +992,18 @@ behavior, not a second, independently-designed deletion flow.
 
 **S-039, REQ-710.** Reached only from a plain "Delete account" link in the
 header — deliberately not a general profile/settings page (none exists in
-Tier 0). No bare confirmation checkbox: the "current password" field is the
+Tier 0).
+
+**Status note (2026-07-19, entry point relocated per REQ-712/REQ-713):**
+that standalone header link is superseded by SCREEN-08 ("Settings"), which
+now hosts this exact, otherwise-unchanged flow — a general settings page
+*does* now exist (SCREEN-08), so the "none exists in Tier 0" aside above is
+outdated. It is still not a general profile/settings page in the broader
+sense: SCREEN-08 adds nothing to this flow beyond its own framing and,
+admin-only, a link elsewhere — no other account fields live there. Nothing
+below about this screen's own copy, warning, or confirmation step changes.
+
+No bare confirmation checkbox: the "current password" field is the
 confirmation step REQ-710 already requires server-side (`AuthController
 .DeleteAccount` re-verifies it against Supabase Auth before touching
 anything), so the UI can't offer a weaker path than the API already
@@ -1076,6 +1095,84 @@ This is where SCREEN-01a's now-removed per-cell disclosure content (the
 %-breakdown line, "updates until round closes on [date/time]") effectively
 moved — see that section's S-041 note — except reworded to be general
 rather than tied to one cell's specific numbers.
+
+### SCREEN-07: Header navigation (mobile menu)
+
+```
+┌──────────────────────────────┐
+│ xG Arcade            [☰ Menu]│
+└──────────────────────────────┘
+        ↓ (toggle activated)
+┌──────────────────────────────┐
+│ xG Arcade            [☰ Menu]│
+├──────────────────────────────┤
+│ Leaderboard                   │
+│ Settings                      │
+│ Log out                       │
+└──────────────────────────────┘
+```
+
+**Added 2026-07-19, REQ-712.** Below the mobile breakpoint (see §4's new
+"Header nav breakpoint" note — 480px, reusing the existing narrow-phone
+value rather than a new one), the header's nav row collapses behind this
+single toggle so it never wraps or overflows regardless of how many
+entries exist — this was a real regression (REQ-504 and REQ-710 each added
+their own top-level link since S-029 last fixed a header-overflow issue by
+trimming items). At/above the breakpoint the row renders exactly as
+before: a plain horizontal row, no toggle at all.
+
+The toggle is a real `<button>` — Tab-reachable and Enter/Space-activatable
+by native HTML button semantics, no custom key handling needed — exposing
+`aria-expanded` for its open/closed state, the same accessible-disclosure
+pattern REQ-204's reveal toggles (`SCREEN-01a`, `GridCell.tsx`) already
+established. Activating it a second time dismisses the list. **No new
+motion:** unlike the badge dock (§2's one deliberate signature animation),
+this disclosure is an instant show/hide with no slide/fade transition —
+per this doc's own rule against adding a second bold motion moment without
+it being specified here first, and there was no reason to specify one for
+a plain menu reveal.
+
+Nav entries in the revealed list: "Leaderboard," "Settings" (SCREEN-08,
+REQ-713), and "Log out" — see SCREEN-08 for what replaced the previous
+standalone "Delete account" and "Admin" links.
+
+### SCREEN-08: Settings
+
+```
+┌───────────────────────────────┐
+│ Settings                       │
+├───────────────────────────────┤
+│ [ Admin ]      (admin-only)    │
+├───────────────────────────────┤
+│ Delete account                 │
+│ This permanently deletes your  │
+│ account. It cannot be undone.  │
+│                                 │
+│ Current password                │
+│ [__________________]           │
+│                                 │
+│         [Cancel] [Delete my    │
+│                    account     │
+│                    permanently]│
+└───────────────────────────────┘
+```
+
+**Added 2026-07-19, REQ-713.** Reached from SCREEN-07's "Settings" nav
+entry, replacing the previously separate standalone "Delete account"
+(SCREEN-05) and admin-only "Admin" (SCREEN-04) top-level header links —
+see the status notes now on both those sections. Hosts SCREEN-05's
+delete-account flow completely unmodified (same component, same copy,
+same server-verified password confirmation step, same tests) — this
+screen adds no new behavior to it, only the surrounding "Settings" framing
+above it. Only when the logged-in user is an admin (the same `isAdmin`
+check REQ-504's own nav-link gating already used) does an "Admin" link
+also render, above the delete-account section, in its own bordered row —
+a plain link out to SCREEN-04's `AdminScreen`, never admin controls
+embedded inline on this screen itself. A non-admin sees no trace of that
+link, on this screen or in SCREEN-07's nav menu — the same "no visible
+entry point" guarantee REQ-504 already makes for `AdminScreen` itself, now
+also true of its one remaining entry point. Tokens only (`surface-card`,
+`border-hairline`, existing spacing/type scale) — no new visual treatment.
 
 ## 4. Responsive strategy
 
@@ -1216,6 +1313,32 @@ Unchanged from v0.1 — built "equally both" from the start:
   the same way. No change to the aspect-ratio or target-size rules above —
   this only changes how much of the same footprint the photo fills, not
   the footprint's own size.
+- **Header nav breakpoint (added 2026-07-19, REQ-712):** the mobile
+  hamburger toggle (SCREEN-07) activates below **480px**, reusing this
+  section's existing narrow-phone value — the same one that already
+  governs `Grid.css`'s header-label wrapping (the "Below a 480px viewport"
+  bullet earlier in this section) — rather than the other candidate
+  already in use elsewhere in the app, `.app`'s 960px desktop-cap
+  breakpoint (S-040/S-047/S-049). 480px was chosen because it's the value
+  this codebase already treats as "narrow phone" specifically, and the
+  header-nav-overflow problem this requirement fixes is the same class of
+  problem (content that reads fine at tablet/desktop widths overflowing at
+  genuinely narrow phone widths) that value was already chosen for — reusing
+  it keeps "narrow phone" meaning one consistent width across the app
+  rather than acquiring a second, undocumented threshold. 960px was
+  rejected: it demarcates "wide desktop gets more breathing room," an
+  unrelated concern (more space, not overflow prevention), and using it
+  here would collapse the nav behind a toggle on ordinary tablets and small
+  laptops where the row already fits comfortably (verified: at 481px, the
+  three-item row this requirement's own REQ-713 consolidation left behind —
+  "Leaderboard," "Settings," "Log out," plus the "xG Arcade" title — totals
+  well under 480px of required width using this document's own token
+  values, so 481-959px was never actually part of the overflow problem
+  being solved). Implementation is CSS-only (`HeaderNav.css`'s
+  `@media (max-width: 480px)`), matching this section's existing
+  "component-level breakpoints, not a JS viewport-detection layer"
+  approach — the toggle and the plain row are the same DOM regardless of
+  width; only which of them is visible changes.
 
 ## 5. Copy and voice
 
