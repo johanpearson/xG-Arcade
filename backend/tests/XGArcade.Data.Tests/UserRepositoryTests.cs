@@ -118,4 +118,37 @@ public class UserRepositoryTests
 
         Assert.That(exists, Is.False);
     }
+
+    // REQ-506 (S-026): GetByEmailAsync resolves an admin-supplied email to a
+    // User.Id for DELETE /admin/users — case-insensitive, matching how
+    // Supabase Auth itself treats email, so an admin retyping a differently-
+    // cased address doesn't get a spurious "not found."
+    [Test]
+    public async Task REQ506_GetByEmailAsync_ReturnsUser_ForDifferentCasingOfSameEmail()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "Player@Example.com",
+            DisplayName = "Test Player",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var found = await _repository.GetByEmailAsync("player@example.com");
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.Id, Is.EqualTo(user.Id));
+    }
+
+    [Test]
+    public async Task REQ506_GetByEmailAsync_ReturnsNull_ForUnknownEmail()
+    {
+        var found = await _repository.GetByEmailAsync("nobody@example.com");
+
+        Assert.That(found, Is.Null);
+    }
 }

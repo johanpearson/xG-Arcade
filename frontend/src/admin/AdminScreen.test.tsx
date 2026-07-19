@@ -274,4 +274,19 @@ describe('AdminScreen', () => {
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
+
+  it('REQ-504/505: a 403 from the round-control probe (unverified-data fetch succeeding) still shows access-denied for the whole page', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': () =>
+        jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+
+    expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+    expect(screen.queryByText('No unverified data to review.')).not.toBeInTheDocument();
+  });
 });
