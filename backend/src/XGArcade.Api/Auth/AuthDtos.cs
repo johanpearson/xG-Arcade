@@ -15,7 +15,11 @@ public record LoginRequest(string Email, string Password);
 
 public record LoginResponse(string AccessToken, string? RefreshToken);
 
-public record MeResponse(Guid Id, string Email, string DisplayName, bool EmailConfirmed);
+// IsAdmin (S-026, REQ-504) is what lets the frontend decide whether to
+// render the admin nav entry point at all — computed the same way
+// AdminAuthorizationHandler decides it server-side (Admin:UserIds), never a
+// second, independently-maintained check.
+public record MeResponse(Guid Id, string Email, string DisplayName, bool EmailConfirmed, bool IsAdmin);
 
 // REQ-710: the confirmation step an irreversible self-service deletion
 // requires — the caller's current password, re-verified against Supabase

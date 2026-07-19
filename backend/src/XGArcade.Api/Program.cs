@@ -614,6 +614,9 @@ app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapAdminEndpoints();
+// S-026: REQ-505/506, non-Production only — see that file's own doc comment
+// for why these are kept separate from MapAdminEndpoints above.
+app.MapAdminManagementEndpoints();
 app.MapPlayerAutocompleteEndpoints();
 
 app.Run();

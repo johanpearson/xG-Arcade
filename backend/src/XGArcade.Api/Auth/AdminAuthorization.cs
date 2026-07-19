@@ -21,7 +21,7 @@ public class AdminAuthorizationHandler(IConfiguration configuration) : Authoriza
     protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, AdminRequirement requirement)
     {
         var authProviderUserId = context.User.GetAuthProviderUserId();
-        if (authProviderUserId is not null && GetAdminUserIds().Contains(authProviderUserId.Value))
+        if (authProviderUserId is not null && IsAdminUserId(configuration, authProviderUserId.Value))
         {
             context.Succeed(requirement);
         }
@@ -29,7 +29,14 @@ public class AdminAuthorizationHandler(IConfiguration configuration) : Authoriza
         return Task.CompletedTask;
     }
 
-    private HashSet<Guid> GetAdminUserIds() =>
+    // S-026 (REQ-504): AuthController.Me needs the exact same "is this user
+    // an admin" answer (so the frontend knows whether to render the admin
+    // nav entry point at all) — a static helper here means that check and
+    // this handler's own can never read Admin:UserIds differently.
+    public static bool IsAdminUserId(IConfiguration configuration, Guid authProviderUserId) =>
+        GetAdminUserIds(configuration).Contains(authProviderUserId);
+
+    private static HashSet<Guid> GetAdminUserIds(IConfiguration configuration) =>
         (configuration["Admin:UserIds"] ?? string.Empty)
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(id => Guid.TryParse(id, out var parsed) ? parsed : (Guid?)null)

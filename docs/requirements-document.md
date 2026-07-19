@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.68"
+version: "0.69"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.56 · 2026-07-17
+Version 0.69 · 2026-07-19
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -1819,12 +1819,29 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 
 **Test level:** API, UI
 
-**REQ-504 – Admin UI page** *(Status: Proposed, not yet implemented — drafted
-2026-07-12, see `docs/backlog.md` S-026)*
+**REQ-504 – Admin UI page** *(Status: Implemented, Tier 0, S-026)*
 > As an admin, I want an actual page (not just API calls) to perform admin
 > actions, so I don't need to script HTTP requests to correct data, manage
 > rounds, or manage users.
 
+- **Built as (S-026):** `frontend/src/admin/AdminScreen.tsx` (SCREEN-04),
+  reachable only from a new "Admin" header nav link (`App.tsx`) rendered
+  only when `GET /auth/me`'s `MeResponse.IsAdmin` is `true` — a new field
+  computed server-side by `AuthController.Me` via the same `Admin:UserIds`
+  check `AdminAuthorizationHandler` itself uses (extracted to a shared
+  static `IsAdminUserId` helper so the two can never disagree). Three
+  sections: the REQ-501/502/503 unverified-data review/override-CRUD flow
+  (always rendered — no Production restriction, matching this REQ's own
+  acceptance criteria), REQ-505's round controls, and REQ-506's user
+  deletion. The latter two sections are entirely absent from the DOM (not
+  merely disabled) in Production — detected by the frontend via a 404 from
+  REQ-505's `GET /admin/rounds/{gameKey}/active` probe endpoint, since that
+  whole endpoint group is unregistered there (ADR-0006). A non-admin who
+  reaches the page directly still gets a defense-in-depth "access denied"
+  message from the page itself (its own 403 from the unverified-data
+  fetch), independent of the nav-link hiding. Covered by
+  `AdminScreen.test.tsx` (12 tests) and 2 new `App.test.tsx` cases (nav-link
+  gating on `isAdmin`).
 - Given the S-012 admin API (REQ-501/502/503) and REQ-505/506's new endpoints
   (this REQ adds no endpoints of its own — it is the UI surface over all of
   them) already require the existing "Admin" authorization policy
@@ -1844,12 +1861,34 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 
 **Test level:** UI
 
-**REQ-505 – Admin round control (non-Production only)** *(Status: Proposed,
-not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
+**REQ-505 – Admin round control (non-Production only)** *(Status: Implemented,
+Tier 0, S-026)*
 > As an admin testing the game, I want to end the active round or adjust its
 > schedule on demand, so I don't have to wait for real time to pass to test
 > round-close behavior outside of the existing E2E harness.
 
+- **Built as (S-026):** `GET/POST /admin/rounds/{gameKey}/active|close` and
+  `PUT /admin/rounds/{gameKey}/end-time`
+  (`XGArcade.Api.Admin.AdminManagementEndpoints`), all non-Production-only
+  (fail-closed per ADR-0006 — the whole route group is never registered
+  when `ASPNETCORE_ENVIRONMENT == Production`, checked before any route is
+  mapped, never guarded only by the "Admin" policy) and additionally behind
+  that "Admin" authorization policy. `POST .../close` reuses
+  `IRoundCloseService.CloseRoundAsync` (REQ-205) directly — no second,
+  independently-written close implementation. `PUT .../end-time` enforces
+  the constraint below (400 Problem Details, titled "Invalid end time", if
+  violated). **Deliberate deviation from the criteria as originally
+  drafted:** `GET .../active` always returns `200 { hasActiveRound, round }`
+  — including `hasActiveRound: false, round: null` when no round is active
+  — rather than a not-found-style response for "no active round." This is
+  not an oversight: it doubles as the frontend's only reliable way (REQ-504)
+  to distinguish "this environment has the feature but no round is active
+  right now" (a genuine `200`) from "this environment doesn't have the
+  feature at all" (a genuine `404` from ASP.NET routing itself, since
+  Production never registers the route group). Covered by
+  `AdminManagementEndpointTests.cs` (22 tests total across REQ-505/506,
+  including the Production-absence 404 case and the non-admin 403 case for
+  every endpoint).
 - **Relationship to REQ-806:** `POST
   /internal/test-data/force-close-round/{roundId}` already exists for
   automated E2E tests (REQ-806) but requires the round id and the
@@ -1875,11 +1914,24 @@ not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
 
 **Test level:** API, UI
 
-**REQ-506 – Admin user deletion (non-Production only)** *(Status: Proposed,
-not yet implemented — drafted 2026-07-12, see `docs/backlog.md` S-026)*
+**REQ-506 – Admin user deletion (non-Production only)** *(Status: Implemented,
+Tier 0, S-026)*
 > As an admin testing the game, I want to delete a test user's account, so I
 > can clean up seeded/test accounts without touching the database directly.
 
+- **Built as (S-026):** `DELETE /admin/users?email=`
+  (`XGArcade.Api.Admin.AdminManagementEndpoints`), non-Production-only (same
+  fail-closed gating as REQ-505) and behind the "Admin" authorization
+  policy. Resolves the admin-supplied email to a local `User.Id` via new
+  `IUserRepository.GetByEmailAsync` (case-insensitive, matching how
+  Supabase Auth itself treats email), then calls the exact same
+  `IAccountDeletionService.DeleteAccountAsync` REQ-710's self-service
+  deletion uses — no second, independently-written deletion path, per this
+  story's own explicit watch-out. Returns `404` if no user matches the
+  email, `204` on success, and a `500` Problem Details response (logged with
+  the target user id) if the underlying deletion fails. Covered by
+  `AdminManagementEndpointTests.cs` and 2 new `UserRepositoryTests.cs` cases
+  (case-insensitive email lookup).
 - Given an admin is authenticated and `ASPNETCORE_ENVIRONMENT != Production`
 - When the admin deletes a specified user
 - Then the same anonymization behavior REQ-710 defines for self-deletion

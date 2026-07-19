@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.32"
+version: "0.33"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.19 · 2026-07-14
+Version 0.33 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -869,21 +869,100 @@ rank — it must never be omitted or left implicit in the ranking order
 alone. Rank #1 is always the lowest `TotalPoints`, consistent with
 `LeaderboardService`'s ascending sort.
 
-### SCREEN-04: Admin review (unverified data)
+### SCREEN-04: Admin (unverified data review, round control, user deletion)
 
 Still deliberately plainer/denser than the rest of the product — a working
 tool, not a broadcast surface. On the light theme this now reads as a
 clean, ordinary admin table rather than needing its own "un-dark" treatment.
+Reached only by a user whose id is in `Admin__UserIds` (REQ-504) via a nav
+link that itself only renders for that user — nothing resembling an entry
+point is shown to anyone else, and every underlying endpoint independently
+403s a non-admin token that reaches it directly (defense in depth, not just
+nav-hiding).
+
+**S-026 status note:** this section previously described only the
+unverified-data review list as an aspirational mock (`[Approve]`/
+`[Correct]`/`[Remove]`), with no page actually built. S-026 built the real
+page, and in doing so found `Approve`/`Remove` were never implemented as
+backend actions at all (REQ-503's status note) — only `Correct` (creating a
+`PlayerOverride`) exists. Dropped from the mock below rather than shipped
+as dead buttons for endpoints that don't exist, the same rule REQ-504
+states explicitly for the round-control/user-deletion sections'
+Production gating. The two sections below (round control, user deletion)
+are new as of S-026.
+
+**Unverified data review (REQ-501/502/503) — always rendered, no
+`ASPNETCORE_ENVIRONMENT` gate:**
 
 ```
 ┌─────────────────────────────────────────────┐
 │ Unverified data (14)                          │
 ├─────────────────────────────────────────────┤
 │ Henry · nationality · France · live_lookup    │
-│   [Approve]  [Correct]  [Remove]              │
+│   [Correct]                                    │
 │ ...                                            │
 └─────────────────────────────────────────────┘
 ```
+
+Empty state: plain text, "No unverified data to review." (design-document.md
+§5: empty states are invitations, though there's nothing to invite here
+beyond "nothing to do right now"). `[Correct]` reveals an inline form
+(value + reason) — submitting calls `POST /admin/player-overrides`; on
+success the list is refetched. A 409 (an override already exists for that
+player/field) shows the server's own detail text inline rather than
+crashing — there's still no dedicated "edit an existing override" UI (S-012
+never built a browsable override list), so an admin hitting this picks a
+different row for now.
+
+**Round control (REQ-505) — entirely absent from the page, not merely
+disabled, when `ASPNETCORE_ENVIRONMENT == Production` (the round-control
+probe endpoint itself 404s there — see REQ-505's fail-closed pattern):**
+
+```
+┌─────────────────────────────────────────────┐
+│ Round control — xg-grid                       │
+├─────────────────────────────────────────────┤
+│ Round R-14 · ends 2026-07-20T18:00:00Z        │
+│                                                 │
+│ [ End round now ]                              │
+│   (click reveals) → [Yes, end round now] [Cancel]│
+│                                                 │
+│ New end time [__________________] [Update end  │
+│                                     time]       │
+└─────────────────────────────────────────────┘
+```
+
+When no round is active, "No active round right now." replaces the
+"Round ... · ends ..." line — a normal state (`hasActiveRound: false` is a
+routine 200), not an error. "End round now" is destructive and
+irreversible, so — same as SCREEN-05's account-deletion precedent — it
+uses a two-step, explicit re-confirm (a revealed second button restating
+the action, "Yes, end round now") rather than a native `window.confirm`;
+unlike SCREEN-05 there is no password step, since being an authenticated
+admin is itself the confirmation REQ-505 requires. "Update end time" shows
+the server's 400 `detail` text inline on an invalid choice (not after both
+the round's start time and the current time).
+
+**User deletion (REQ-506) — same visibility rule as round control above
+(hidden entirely outside non-Production, same shared environment gate):**
+
+```
+┌─────────────────────────────────────────────┐
+│ Delete a user                                  │
+├─────────────────────────────────────────────┤
+│ Email [__________________]                    │
+│ [ Delete user ]                                │
+│   (click reveals) → [Yes, delete this user     │
+│                       permanently] [Cancel]    │
+└─────────────────────────────────────────────┘
+```
+
+Same two-step confirm pattern as "End round now." An email with no
+matching user shows "No user found with that email." inline rather than a
+generic error; a successful deletion clears the field and shows a brief
+"Deleted." confirmation. This reuses REQ-710's existing anonymization
+behavior under an admin-triggered path — a second trigger for that one
+behavior, not a second, independently-designed deletion flow.
 
 ### SCREEN-05: Delete account
 

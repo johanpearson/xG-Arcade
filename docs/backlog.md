@@ -737,6 +737,53 @@ to the page. *Deps:* S-012 (admin API/authorization already exists), S-025
 (REQ-710's anonymization logic, reused rather than duplicated), S-008
 (REQ-806's existing round-close/force-close logic, extended rather than
 replaced).
+**Built as:** matches the plan, plus one deliberate implementation detail
+worth flagging. `XGArcade.Api.Admin.AdminManagementEndpoints` (new file,
+kept separate from S-012's `AdminEndpoints.cs` specifically so the
+non-Production gate is visible at a glance rather than a per-endpoint
+condition) adds `GET/POST /admin/rounds/{gameKey}/active|close` and `PUT
+/admin/rounds/{gameKey}/end-time` (REQ-505) and `DELETE
+/admin/users?email=` (REQ-506) — all registered only when
+`!app.Environment.IsProduction()`, checked before any route is mapped, same
+`InternalRoundEndpoints.cs` discipline REQ-806 already established.
+`POST .../close` calls `IRoundCloseService.CloseRoundAsync` directly
+(REQ-205, no new close logic); `DELETE /admin/users` resolves the
+admin-supplied email via a new `IUserRepository.GetByEmailAsync`
+(case-insensitive) then calls the identical `IAccountDeletionService
+.DeleteAccountAsync` REQ-710's self-service path already uses — no second
+deletion implementation, per this story's own watch-out. `AuthController
+.Me`'s `MeResponse` gained `IsAdmin` (via a new public static
+`AdminAuthorizationHandler.IsAdminUserId` helper, so the "Admin" policy and
+this flag can never disagree), which is the entire mechanism the frontend
+uses to decide whether to render the "Admin" nav link at all (REQ-504).
+Deliberate deviation from a literal reading of REQ-505's drafted criteria:
+`GET .../active` always returns `200 { hasActiveRound, round }` — including
+`hasActiveRound: false` for "no round active right now" — rather than a
+404-style "not found," because a 404 there is reserved to mean exactly one
+thing: this whole endpoint group isn't registered (Production). That's the
+only signal `AdminScreen.tsx` has for hiding the round-control/user-deletion
+sections entirely rather than showing them disabled, so overloading the
+same status code for both "nothing active" and "feature absent" would have
+made that distinction impossible for the frontend to make reliably.
+`frontend/src/admin/AdminScreen.tsx` (SCREEN-04) is the actual page,
+composing three sections (unverified-data review reusing S-012's REQ-501/
+502/503 endpoints, always rendered; round control and user deletion, both
+gated on the active-round probe succeeding at all) — a non-admin who
+somehow reaches it directly still gets an "access denied" message from the
+page's own 403 handling, independent of the nav-link hiding. Test coverage:
+`AdminManagementEndpointTests.cs` (new, 22 tests covering admin-success,
+non-admin 403, and Production-absence 404 for every endpoint), 2 new
+`AuthEndpointTests.cs` cases (REQ-504's `IsAdmin` true/false), 2 new
+`UserRepositoryTests.cs` cases (`GetByEmailAsync` case-insensitivity),
+`AdminScreen.test.tsx` (12 tests), 2 new `App.test.tsx` cases (nav-link
+gating). An architecture-reviewer pass ran clean (fail-closed gating
+correct, REQ-710/REQ-205 reuse confirmed, no boundary violation, no new ADR
+needed — this reuses ADR-0006's existing pattern rather than introducing a
+new one) and a code-reviewer pass found no bugs, only the two test-coverage
+gaps above (since closed). Backend tests could not be run in this
+environment (no `dotnet` SDK available, same limitation prior stories
+recorded) — verified by close reading against the actual source instead;
+frontend's full suite (103 tests), `tsc -b`, and lint all ran and passed.
 
 **S-027 · Leaderboard time-window resolutions (REQ-405)**
 Add round/week/month/year resolution tabs to the leaderboard, sorted

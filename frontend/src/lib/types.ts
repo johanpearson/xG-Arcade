@@ -123,3 +123,56 @@ export interface LeaderboardResponse {
   nextCursor: number | null;
   hasMore: boolean;
 }
+
+// REQ-504: GET /auth/me — `isAdmin` is the only signal the frontend has for
+// whether to show the admin nav entry point at all (App.tsx); the actual
+// authorization is always re-checked server-side per request regardless.
+export interface CurrentUser {
+  id: string;
+  email: string;
+  displayName: string;
+  emailConfirmed: boolean;
+  isAdmin: boolean;
+}
+
+// REQ-502/503: a single unverified PlayerData row, as returned by
+// GET /admin/player-data/unverified (SCREEN-04).
+export interface UnverifiedPlayerData {
+  id: string;
+  playerId: string;
+  playerFullName: string;
+  field: string;
+  value: string;
+  source: string;
+  confidence: string;
+  syncedAt: string;
+}
+
+// REQ-501: the PlayerOverride record created by POST /admin/player-overrides.
+export interface PlayerOverride {
+  id: string;
+  playerId: string;
+  field: string;
+  value: string;
+  reason: string;
+  lockedByAdminId: string;
+  lockedAt: string;
+}
+
+// REQ-505: a single round, as returned by the admin round-control endpoints
+// (close/end-time) and nested inside AdminActiveRound below.
+export interface AdminRound {
+  roundId: string;
+  gameKey: string;
+  startTime: string;
+  endTime: string;
+}
+
+// REQ-505: GET /admin/rounds/{gameKey}/active's response shape. This is also
+// the frontend's only signal for whether the round-control/user-deletion
+// admin sections exist in this environment at all — see
+// `fetchActiveAdminRound`'s 404-as-null handling in lib/api.ts.
+export interface AdminActiveRound {
+  hasActiveRound: boolean;
+  round: AdminRound | null;
+}

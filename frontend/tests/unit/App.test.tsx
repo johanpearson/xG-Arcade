@@ -11,12 +11,15 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response)
 }
 
-// Shared by the REQ-303/REQ-710 cases below: a single fetch mock that answers
-// every endpoint App's authenticated tree can reach (health check, login, and
-// the current round), so logging in and then navigating doesn't need
-// per-test wiring beyond the login credentials. `extraRoutes` lets a test add
-// or override endpoints (e.g. /auth/account for the delete-account flow)
-// without re-implementing the base routing from scratch.
+// Shared by the REQ-303/REQ-710/REQ-504 cases below: a single fetch mock
+// that answers every endpoint App's authenticated tree can reach (health
+// check, login, /auth/me, and the current round), so logging in and then
+// navigating doesn't need per-test wiring beyond the login credentials.
+// `extraRoutes` lets a test add or override endpoints (e.g. /auth/account
+// for the delete-account flow, or /auth/me for an admin user) without
+// re-implementing the base routing from scratch. /auth/me defaults to a
+// non-admin response, since that's the common case across the existing
+// REQ-303/REQ-710 suites below.
 function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Response>> = {}) {
   vi.stubGlobal(
     'fetch',
@@ -29,6 +32,15 @@ function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Respon
       }
       if (path.endsWith('/auth/login')) {
         return jsonResponse({ accessToken: 'token-abc', refreshToken: null })
+      }
+      if (path.endsWith('/auth/me')) {
+        return jsonResponse({
+          id: 'user-1',
+          email: 'player@example.com',
+          displayName: 'Player',
+          emailConfirmed: true,
+          isAdmin: false,
+        })
       }
       if (path.endsWith('/rounds/current')) {
         return jsonResponse({ title: 'No active round' }, 404)
@@ -191,5 +203,51 @@ describe('App delete-account routing', () => {
 
     expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument()
     expect(window.localStorage.getItem('xg-arcade-access-token')).toBeNull()
+  })
+})
+
+// REQ-504 (S-026): the entire "no visible entry point" mechanism for a
+// non-admin is that the Admin nav link only renders once /auth/me confirms
+// isAdmin — these cases prove both sides of that gate.
+describe('App admin nav routing', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+  })
+
+  it('REQ-504: a non-admin /auth/me response never shows an "Admin" nav link', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument()
+  })
+
+  it('REQ-504: an admin /auth/me response shows an "Admin" nav link that navigates to the admin screen', async () => {
+    stubAuthenticatedFetch({
+      '/auth/me': () =>
+        jsonResponse({
+          id: 'user-2',
+          email: 'admin@example.com',
+          displayName: 'Admin',
+          emailConfirmed: true,
+          isAdmin: true,
+        }),
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': () => jsonResponse({ title: 'Not found' }, 404),
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    const adminLink = await screen.findByRole('button', { name: 'Admin' })
+    await user.click(adminLink)
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument()
   })
 })

@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.37"
+version: "0.38"
 status: draft
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.30 · 2026-07-12
+Version 0.38 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -256,6 +256,19 @@ anon-keyed signup/login calls don't use — see ADR-0026 for why this didn't
 need a second `HttpClient`/component boundary change, just one new
 per-request header override and one new DI-supplied value.
 
+**COMP-01 status (S-026):** the prediction in the note directly above came
+true — `XGArcade.Api.Admin.AdminManagementEndpoints` (REQ-506) is now a
+second caller of `IAccountDeletionService.DeleteAccountAsync`, alongside
+`AuthController.DeleteAccount` (REQ-710), identifying its target the same
+way that note anticipated (by local `User.Id`, resolved from an
+admin-supplied email via new `IUserRepository.GetByEmailAsync`) — no second
+deletion implementation was written. Separately, `AdminAuthorizationHandler`
+(previously private `GetAdminUserIds`) gained a public static
+`IsAdminUserId` helper, now also called by `AuthController.Me` so `GET
+/auth/me`'s `MeResponse.IsAdmin` (REQ-504) reads `Admin:UserIds` the exact
+same way the "Admin" authorization policy itself does — one check, two
+callers, never two independently-maintained ones.
+
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
 query `PlayerData`/`PlayerOverride` directly — this keeps the
@@ -348,6 +361,18 @@ closed is never `latest` itself but its predecessor (`IRoundRepository
 .GetPreviousByGameKeyAsync`, new) — see ADR-0022 for why "latest" is the
 wrong round to check, and REQ-205's status note for the leaderboard-facing
 effect.
+
+**COMP-03 status (S-026):** `XGArcade.Api.Admin.AdminManagementEndpoints`
+(REQ-505) is now a third caller of `IRoundCloseService.CloseRoundAsync`,
+alongside `RoundGenerationService` above and REQ-806's non-Production-only
+`/internal/test-data/force-close-round/{roundId}` — reached only through
+that existing interface plus `IRoundRepository` (to find the caller's own
+active round and, for the new "adjust end_time" action, to load and save
+it), never a new data-access path. This is also the first non-test-only,
+admin-facing use of ADR-0006's fail-closed "endpoint group not registered
+at all outside non-Production" pattern — until now that pattern only
+gated `XGArcade.Testing`/`InternalRoundEndpoints` (COMP-09); its scope of
+use has grown, not its shape (see §7's Authorization row).
 
 Two things from the S-007-era version of this note did **not** resolve the
 way that note predicted:
@@ -772,6 +797,14 @@ Deleting the Supabase Auth identity needed a new `Supabase:ServiceRoleKey`
 secret, since the anon key the rest of this flow's Supabase Auth calls use
 can't call the Admin API — see ADR-0026.
 
+**S-026 addition (REQ-506):** this flow now has a second entry point —
+`Admin → Web Frontend (admin view) → Backend API: DELETE /admin/users?email=`
+(`XGArcade.Api.Admin.AdminManagementEndpoints`, non-Production-only,
+ADR-0006) — which resolves the admin-supplied email to a `User.Id` (new
+`IUserRepository.GetByEmailAsync`) and then joins the diagram above at
+exactly the same `IAccountDeletionService` call the self-service path uses;
+everything below that point is identical, unchanged, and not duplicated.
+
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
 ```
@@ -800,7 +833,7 @@ GitHub Actions → Production database: pg_dump (full export)
 | Logging | Structured logging in the Backend API; generation failures (REQ-101 abort case) must log with enough context to reproduce |
 | Error handling | API returns problem-details style errors; frontend distinguishes user-facing validation errors from system errors |
 | Observability | Minimal at MVP stage: logs + free-tier hosting metrics. Revisit if usage grows |
-| Test data isolation | A test-data API exists only outside Production, and creates/resets data only through normal component write paths (ADR-0006, boundary rule 4) |
+| Test data isolation | A test-data API exists only outside Production, and creates/resets data only through normal component write paths (ADR-0006, boundary rule 4). **S-026:** ADR-0006's fail-closed "not registered at all outside non-Production" pattern is no longer test-only — `AdminManagementEndpoints` (REQ-505/506, admin-facing, not test-only) reuses the identical discipline. This is a reuse of the existing decision (a growth in scope of use), not a new one — no new ADR was written for it |
 | Backups | Independent daily backup of production, since the hosting free tier includes none — see ADR/REQ-901 and `infra/README.md` |
 | Failure alerting | Scheduled jobs (round generation, sync, backups) must surface failures to the operator, not fail silently — REQ-902 |
 | Data provider compliance | Terms of service for each external data source are read before relying on it, not assumed — see ADR-0008 |
