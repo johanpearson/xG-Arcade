@@ -2448,6 +2448,109 @@ unaffected; `design-document.md` updated with the actual mechanism found
   approach never shipped, so there's nothing to revert in an ADR sense
   either.
 
+**S-051 · Show the full photo, allow letterboxing, instead of cropping to
+fill the cell (REQ-214, SCREEN-01a, §2) — a direct product decision, not a
+bug fix**
+Fifth round of iteration on the same `/grid` photo cell. The user said "I
+want the full picture to be visible within the cells, so they are not cut
+off" — a request, not a report of broken behavior. Asked directly (via
+`AskUserQuestion`) to choose between "Crop photo to fill the cell
+completely (today's behavior)" and "Show full photo, allow empty space
+(letterbox)," after being shown the trade-off explicitly (a
+differently-shaped photo may leave a thin background strip on two sides of
+the cell), the user chose the letterbox option. Recorded here plainly as a
+deliberate, informed choice — same discipline this backlog already applies
+to S-048's "at rest, only picture" trade-off — not silently implemented as
+if it were an obvious default.
+*Accept:* `.cell-state__photo-img`'s `object-fit` changed from `cover` to
+`contain`; whether the letterbox background reads as intentional (rather
+than a leftover gap) checked in a real browser, not assumed; whether the
+existing `overlay-scrim` contrast math already covers a letterboxed
+worst-case checked against the actual `--color-surface-card` token value,
+not assumed; real-browser verification with both a portrait and a
+landscape test photo; REQ-214's fixed-footprint guarantee re-confirmed,
+not just assumed unaffected by the fit-mode change.
+**Built as:** matches the plan above.
+- **CSS change:** `CellState.css`'s `.cell-state__photo-img` rule:
+  `object-fit: cover` → `object-fit: contain`. No change to the
+  `inset: 0`/explicit `width: 100%; height: 100%` sizing mechanism that
+  keeps the cell's own footprint independent of the image — that
+  guarantee (REQ-214) comes from the box being absolutely sized, never
+  from the fit mode, and is unaffected by which one is used.
+- **Letterbox background, checked rather than assumed fine:** with
+  `contain`, empty space can appear inside `.cell-state--photo`'s own box
+  wherever the photo doesn't reach — before this story that box had no
+  background of its own and relied on `.grid-cell`'s (the button behind
+  it) `background: var(--color-surface-card)` (Grid.css) showing through
+  its transparent box. Real-browser screenshots (Chromium,
+  `/opt/pw-browsers`, a temporary Vite+Playwright harness — same
+  not-committed-diagnostic pattern S-047 through S-050 each used, deleted
+  before this diff was finalized) at both a mobile (390px) and desktop
+  (1280px) viewport, with a genuinely non-square landscape (450×300) and
+  portrait (300×450) test photo (a bright red border frame around a blue
+  fill, so any cropping would be immediately visible as a missing border
+  edge), confirmed: the whole photo — including all four border edges —
+  renders with nothing cropped in every case, and the letterbox strip
+  reads as a clean, plain white card background, not a visible seam or an
+  obviously wrong color. Made this explicit rather than left incidental:
+  `.cell-state--photo` now has its own `background-color: var(
+  --color-surface-card)` (written as the longhand, not the `background`
+  shorthand, so it's assertable from a jsdom test the same way the
+  overlay's own padding already needed longhands for) — same token, same
+  value, just no longer dependent on `.grid-cell`'s background happening
+  to stay what it is today.
+- **Overlay contrast over the letterbox, checked against the real token
+  value, not assumed:** `overlay-scrim`'s existing contrast math
+  (design-document.md §2) was calibrated against "the worst case: a
+  pure-white photo showing through." `--color-surface-card`
+  (`frontend/src/index.css`) is `#FFFFFF` — literally pure white, not an
+  off-white tint — so a landscape photo's bottom letterbox (the
+  orientation that can land directly behind the bottom-anchored overlay)
+  presents the *exact same* underlying color the existing math already
+  treats as the worst case, not merely a similar one — alpha-blending
+  doesn't distinguish "a very light photo" from "an opaque white
+  background." Same `rgb(51, 56, 53)` blended value, same 4.65:1
+  (`accent-gold`)/11.99:1 (`surface-card`, the revealed name's color)
+  ratios apply unchanged. **No new token or contrast math needed** —
+  confirmed by checking the actual token value, not assumed, and
+  re-confirmed visually: the same real-browser harness's revealed,
+  landscape-oriented photo cell (bottom letterbox landing behind the
+  overlay) showed the name and points text clearly legible against the
+  scrim. A portrait photo's letterbox lands left/right, never behind the
+  bottom-anchored overlay, so it was never a contrast concern.
+- **Footprint guarantee re-confirmed:** the harness measured identical
+  cell dimensions (`getBoundingClientRect`) across landscape, portrait,
+  at-rest, and revealed cases at both breakpoints — unaffected by the
+  fit-mode change, as expected, since the mechanism (absolute
+  positioning + explicit sizing) is orthogonal to `object-fit`.
+- **Tests:** `CellState.test.tsx`'s existing `object-fit` assertion
+  updated from `'cover'` to `'contain'`; one new test asserts
+  `.cell-state--photo`'s `background-color` is the `surface-card` token
+  (declared value, same jsdom-can't-resolve-var()-shorthands workaround
+  documented elsewhere in this file). Full Vitest suite: **129/129
+  passing** (was 128 before this story — 1 net new). `tsc -b --noEmit`
+  and `oxlint` both clean. jsdom cannot render actual letterboxing (no
+  real layout engine) — the declared `object-fit`/`background-color`
+  values are the extent of what's unit-testable; the "whole photo
+  visible, letterbox reads clean, overlay stays legible" outcomes are
+  real-browser-only findings, recorded above rather than asserted in a
+  test that can't actually check them.
+- **Docs:** `design-document.md` — SCREEN-01a gets a new S-051 status note
+  (the `▒▒▒▒▒▒` fill mocks now read as "photo scaled to fit, possibly with
+  a background strip on two sides," not a literal uniform fill); the
+  2026-07-18 REQ-214 implementation note and the S-049 §4 note, both of
+  which described `object-fit: cover` as current/unchanged, are marked
+  superseded rather than silently edited out. `requirements-document.md`
+  gets a matching REQ-214 status note (the "filling the cell" acceptance
+  criterion never specified crop-vs-contain; now narrowed to mean "the
+  cell's footprint," not necessarily every pixel) and an addition to that
+  REQ's own "Test level" line noting the real-browser-only verification
+  needed here. No ADR — CSS-only change to an already-implemented
+  requirement, same precedent as every other story in this chain; this
+  one is a recorded product *decision* rather than a bug fix, but that
+  doesn't change the ADR calculus (no structural/component-boundary
+  choice was made).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

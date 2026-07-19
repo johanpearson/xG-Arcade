@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.67"
+version: "0.68"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -1379,6 +1379,25 @@ wording)
   click/tap is required to show it, and clicking/tapping the cell (REQ-212)
   neither shows nor hides the photo, only the name and (as of S-048) the
   points value
+- **Status note (2026-07-19, `docs/backlog.md` S-051, direct user choice,
+  not a bug fix):** "filling the cell" above never specified whether the
+  photo crops to eliminate empty space or scales down to stay fully
+  visible with possible empty space on two sides — both are ways of
+  "filling the cell" in the sense of occupying its whole footprint (the
+  cell's own box, not necessarily every one of its pixels). The behavior
+  as shipped through S-050 was crop-to-fill (`object-fit: cover`); asked
+  directly which the player preferred after reporting photos looked
+  "cut off," the user chose "Show full photo, allow empty space
+  (letterbox)" over "Crop photo to fill the cell completely" — the whole
+  photo is now always visible, never cropped, at the cost of a plain
+  background strip on two opposite sides whenever the photo's aspect
+  ratio doesn't match the cell's own. This narrows what "filling the
+  cell" means going forward (the cell's footprint, not necessarily every
+  pixel within it) without changing the footprint-invariance bullet below
+  in substance — the cell's own width/height are still identical whether
+  or not a photo is shown, orientation included, confirmed via
+  real-browser measurement across both a portrait and a landscape test
+  photo at mobile and desktop viewports.
 - **Superseded 2026-07-19 (`docs/backlog.md` S-048, kept for history):**
   "the cell's existing checkmark and points value are overlaid on top of
   the photo, in the same position they occupy in the no-photo case … at
@@ -1445,7 +1464,12 @@ visible error state; rendered cell width/height are identical across a
 photo-shown case, a no-photo case, and a revealed-name-over-photo case —
 regression test against the cell's own bounding box, not a visual
 snapshot alone, given REQ-212's prior finding that a real layout bug was
-missed by tests and only caught by required manual browser verification)
+missed by tests and only caught by required manual browser verification;
+S-051 additionally requires manual verification with both a portrait and
+a landscape test photo — jsdom cannot render actual letterboxing, so the
+declared `object-fit` value is the extent of what's unit-testable, and the
+"whole photo visible, no cropping" outcome itself can only be confirmed by
+real-browser rendering)
 
 ---
 

@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `design-document.md` (v0.32, new S-051 status note under
+  SCREEN-01a plus superseding marks on the 2026-07-18 REQ-214 note and the
+  S-049 §4 note, both of which described `object-fit: cover` as
+  current/unchanged), `requirements-document.md` (v0.68, new REQ-214 status
+  note plus a "Test level" addition), `docs/backlog.md` (new S-051 entry),
+  `frontend/src/grid/{CellState.css,CellState.test.tsx}` — S-051, a direct
+  product decision, not a discovered bug (unlike S-047 through S-050,
+  which were each root-caused from a report of broken/ugly behavior): the
+  user asked directly "I want the full picture to be visible within the
+  cells, so they are not cut off," was shown the trade-off explicitly via
+  `AskUserQuestion` — "Crop photo to fill the cell completely (today's
+  behavior)" vs. "Show full photo, allow empty space (letterbox)" — and
+  chose letterboxing. Mechanical change: `.cell-state__photo-img`'s
+  `object-fit` `cover` → `contain`, so the whole photo always renders,
+  scaled to fit, never cropped, at the cost of a background strip on two
+  opposite sides whenever a photo's aspect ratio doesn't match the cell's.
+  Made load-bearing rather than left incidental: `.cell-state--photo` gets
+  its own explicit `background-color: var(--color-surface-card)` — before
+  this story that box had no background of its own and relied on
+  `.grid-cell`'s (Grid.css) background showing through its transparent box,
+  true but untied to this element, so a future `.grid-cell` state-treatment
+  change could have silently changed the letterbox color without anyone
+  touching photo code at all. Confirmed (not assumed) via an independent
+  review pass against `frontend/src/index.css` that `--color-surface-card`
+  is `#ffffff`, exactly the value `overlay-scrim`'s existing contrast math
+  already treats as its worst case, so no new token or contrast
+  recalculation was needed; REQ-214's fixed-cell-footprint guarantee is
+  unaffected (the mechanism is `inset: 0` + explicit `width`/`height`, never
+  the fit mode). `CellState.test.tsx`: existing `object-fit` assertion
+  updated `'cover'` → `'contain'`; one new test asserts
+  `.cell-state--photo`'s `background-color` resolves to the `surface-card`
+  token. Full Vitest suite 129/129 passing (was 128); `tsc -b --noEmit` and
+  `oxlint` both clean. No `architecture-document.md`/
+  `implementation-document.md` change — checked directly, not assumed:
+  neither doc references `object-fit`, `CellState.css`, or the
+  `surface-card` token at all, confirming this is a pure design/requirements
+  concern with no component boundary, data flow, or data model touched. No
+  ADR — two independent review passes (architecture-reviewer,
+  quality-architect) already concluded no structural/component-boundary
+  choice was made here, same CSS/layout-only precedent as S-040/S-041/
+  S-047/S-048/S-049/S-050; this one is a recorded product *decision* via
+  `AskUserQuestion` rather than a bug fix, but that distinction doesn't
+  change the ADR calculus. REQ-214 ref.
 - 2026-07-19 — `requirements-document.md` (v0.67, new REQ-214 status note),
   `design-document.md` (v0.31, new S-050 note under §4's "Grid cell photo
   fill" heading), `docs/backlog.md` (new S-050 entry with full before/after
