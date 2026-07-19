@@ -27,6 +27,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   pre-existing backlog to match. REQ-103, REQ-502, REQ-503 gained status
   notes describing the revision; REQ-211 unchanged (its fallback still
   writes `"unverified"`, exactly as before). REQ-502/503/103.
+- 2026-07-19 — `docs/decisions/0030-mobile-hamburger-nav-and-settings-screen.md`
+  (new), `docs/architecture-document.md` (0.39 → 0.40),
+  `docs/implementation-document.md` (0.57 → 0.58) — added ADR-0030
+  (renumbered from an initial ADR-0029 that collided with the
+  Wikidata-auto-verify ADR above, merged to main first),
+  recording the decision to collapse the header nav behind a mobile-only
+  hamburger toggle (REQ-712) and consolidate the standalone "Delete
+  account"/"Admin" links into one "Settings" screen (REQ-713), reversing
+  `design-document.md` SCREEN-05's prior "no general profile/settings page"
+  note. No architecture-document.md component/boundary change — frontend
+  only. implementation-document.md §4's project structure gained `/nav`
+  (`HeaderNav`) and `/settings` (`SettingsScreen`) folder entries. REQ-712,
+  REQ-713, REQ-504, REQ-710, ADR-0030.
 - 2026-07-19 — `docs/design-document.md` (0.33 → 0.34) — implemented
   REQ-712 (mobile hamburger nav toggle) and REQ-713 (Settings screen
   consolidating "Delete account"/"Admin" into one nav entry). Added

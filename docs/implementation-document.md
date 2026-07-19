@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.57"
+version: "0.58"
 status: draft
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -242,6 +242,13 @@ misconfigured per-endpoint. See ADR-0006.
                                      S-041)
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league only)
+    /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
+                                     hamburger toggle collapsing the header nav
+                                     below 480px)
+    /settings                     -> SettingsScreen (SCREEN-08, REQ-713: the
+                                     "Settings" nav entry's destination, wraps
+                                     /auth's DeleteAccountScreen unchanged plus
+                                     an admin-only link to /admin's AdminScreen)
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,

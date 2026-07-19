@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.39"
+version: "0.40"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.39 · 2026-07-19
+Version 0.40 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -935,6 +935,8 @@ new ADR that references the old one.
 | ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 | ADR-0027 | Configuration-bound `RoundDuration` + daily safety-poll cron (replaces the Tue+Fri cadence's hand-matched coupling) | Accepted |
 | ADR-0028 | Single-valued Wikidata properties (e.g. a player's photo) live on `Player`, not `PlayerAttribute` | Accepted |
+| ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Accepted |
+| ADR-0030 | Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links | Accepted |
 
 ## 11. Glossary
 
