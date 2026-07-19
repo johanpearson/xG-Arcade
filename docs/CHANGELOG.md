@@ -13,6 +13,52 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `design-document.md` (v0.30, new S-049 note extending §4's
+  S-047 aspect-ratio rule with a concrete desktop target size),
+  `docs/backlog.md` (new S-049 entry), `frontend/src/grid/{Grid.css,
+  CellState.css,Grid.test.tsx}` — S-049, a third round of direct
+  user feedback on `/grid` after mobile was confirmed good: "if i switch
+  to desktop view in the mobile it still looks weird.. feels like the grid
+  could be larger? and the cell + picture should look nice." Root cause
+  (verified, not guessed): S-047's `.grid-table__cell` `min-width`/`height`
+  at `≥960px` (64px, from S-040) fixed cells stretching into flat
+  rectangles but was only ever a *floor*, never a deliberate *target* — a
+  Tier-0 grid's 3-5 columns never need more than that floor, so the grid
+  rendered at its smallest reasonable size (~300-400px) inside `.app`'s
+  1200px desktop cap. Fixed by raising the same floor the table's
+  shrink-to-fit column sizing already keys off, not by switching mechanism:
+  `min-width`/`height` 64px → 120px, padding `--space-2` → `--space-3`,
+  scoped to the existing `≥960px` breakpoint only (481-959px and ≤480px
+  unaffected). A matching `CellState.css` change bumps the photo-overlay's
+  revealed name/points type (12px/10px → 15px/12px, also `≥960px`-scoped) —
+  S-047's mobile-tuned sizes read undersized once the cell nearly doubled,
+  the same feedback from a different angle. This is pure visual/layout
+  polish, not a behavior change: no REQ's acceptance criteria depends on a
+  specific cell pixel size (checked directly — the only place 44px/64px
+  appear in `requirements-document.md` is inside a narrative "Built as"
+  implementation-history note under REQ-204, not phrased as a Given/When/
+  Then criterion), so `requirements-document.md` is deliberately untouched
+  this time, unlike S-047/S-048 which each narrowed a REQ's actual
+  acceptance criteria. No `architecture-document.md`/
+  `implementation-document.md` change (frontend CSS/layout only, no
+  component boundary or data-flow touched) and no ADR (same CSS/layout-only
+  precedent as S-040/S-041/S-047/S-048). Real-browser verification: a
+  temporary, not-committed Vite + Playwright harness (Chromium at
+  `/opt/pw-browsers`, deleted before finalizing, same approach S-047/S-048
+  used) confirmed a 3×3 grid renders ~490×406px and a 5×5 grid ~787×646px
+  at a 1280px viewport (both inside the 1200px cap, cells ~1.14:1 —
+  square), the fixed-cell-footprint guarantee (REQ-214) still holds
+  (pixel-identical bounding box before/after a reveal click), and a
+  deliberately long name still clamps to one ellipsis-truncated line with
+  no clipping at the larger size. `Grid.test.tsx` gained 2 new tests
+  reading `Grid.css`'s raw source text rather than computed style, since
+  jsdom doesn't apply `@media`-scoped rules at all (confirmed directly:
+  `window.matchMedia` isn't implemented in this jsdom version). Full
+  Vitest suite 126/126 passing (was 124); `tsc -b --noEmit` and `oxlint`
+  both clean. No `tests/e2e/play-grid.spec.ts` change needed — its cell-box
+  assertions are all relative before/after comparisons, never hardcoded
+  pixel values (confirmed by reading the file). No REQ/ADR refs — visual
+  polish only.
 - 2026-07-19 — `requirements-document.md` (v0.66), `design-document.md`
   (v0.29), `docs/backlog.md` (new S-048 entry, by the implementing
   session — see that entry's own note), `frontend/src/grid/{CellState.tsx,
