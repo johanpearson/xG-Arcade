@@ -10,7 +10,7 @@ export interface SettingsScreenProps {
   onOpenAdmin: () => void;
 }
 
-// SCREEN-05a (design-document.md §3), REQ-713: the single "Settings" nav
+// SCREEN-08 (design-document.md §3), REQ-713: the single "Settings" nav
 // entry's destination, consolidating what used to be two standalone
 // top-level header links — "Delete account" (REQ-710) and, admin-only,
 // "Admin" (REQ-504) — into one screen. `DeleteAccountScreen` itself is
