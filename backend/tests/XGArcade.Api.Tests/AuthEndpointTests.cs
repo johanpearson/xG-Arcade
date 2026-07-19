@@ -367,6 +367,83 @@ public class AuthEndpointTests
         Assert.That(body.EmailConfirmed, Is.True);
     }
 
+    // REQ-504: GET /auth/me's IsAdmin field — computed via the same
+    // AdminAuthorizationHandler.IsAdminUserId helper the "Admin" policy
+    // itself uses (Admin:UserIds config), so the frontend can decide whether
+    // to render the admin nav entry point. This SetUp's factory doesn't
+    // configure Admin:UserIds at all (no other test in this file needs it),
+    // so each of these two tests builds its own variant factory via
+    // WithWebHostBuilder rather than disturbing SetUp for every other test —
+    // same idiom as RoundEndpointTests' throwingFactory/productionFactory.
+    [Test]
+    public async Task REQ504_Me_Get_ReturnsIsAdminTrue_ForUserInAdminUserIds()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var adminFactory = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Admin:UserIds", authProviderUserId.ToString()));
+
+        using (var seedScope = adminFactory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = "admin-user@example.com",
+                DisplayName = "Admin User",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = adminFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<MeResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.IsAdmin, Is.True);
+    }
+
+    [Test]
+    public async Task REQ504_Me_Get_ReturnsIsAdminFalse_ForUserNotInAdminUserIds()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        // A different GUID in Admin:UserIds — proves the false case isn't
+        // just "config is empty", but a genuine non-match against a
+        // populated admin list.
+        var adminFactory = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Admin:UserIds", Guid.NewGuid().ToString()));
+
+        using (var seedScope = adminFactory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = "non-admin-user@example.com",
+                DisplayName = "Non-Admin User",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = adminFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<MeResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.IsAdmin, Is.False);
+    }
+
     // REQ-710: self-service account deletion (S-025). Seeds a user directly
     // into the in-memory DB (same pattern as ProtectedEndpoint_Get tests
     // above) and mints its own JWT via LocalE2EAuth.MintToken for the
