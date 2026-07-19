@@ -1,0 +1,30 @@
+name: verify-wikidata-player-data
+
+# ADR-0029: one-time backlog cleanup after the Confidence-by-origin change
+# (WikidataLookupOrigin) — bulk-flips every PlayerData row synced from
+# Wikidata that's still marked "unverified" to "verified", matching the new
+# default for a routine sync. Run this once after that change deploys; a
+# second run is harmless (finds nothing left to update). See
+# `dotnet run -- verify-wikidata-player-data`'s own doc comment in
+# backend/src/XGArcade.Api/Program.cs for the full reasoning, including why
+# the historical backlog can't be split into "should stay unverified" vs.
+# "should become verified" after the fact.
+#
+# Manual trigger only, no recurring schedule and no input — same shape as
+# warm-player-cache.yml.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  verify-wikidata-player-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Verify Wikidata-sourced player data
+        run: dotnet run --project backend/src/XGArcade.Api -- verify-wikidata-player-data
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

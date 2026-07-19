@@ -210,6 +210,44 @@ if (args is ["backfill-player-photos"])
     return;
 }
 
+// ADR-0029: `dotnet run -- verify-wikidata-player-data` is a one-time
+// backlog cleanup, run once after deploying the Confidence-by-origin change
+// (WikidataLookupOrigin) so the admin review queue (REQ-503) doesn't stay
+// stuck at whatever size it had already grown to under the old
+// always-unverified rule. No PlayerData row records which code path
+// created it (Source is always the literal "wikidata" either way), so
+// there's no way to tell, after the fact, which historical rows came from
+// a routine sync versus REQ-211's guess-time fallback — this bulk-verifies
+// all of them, matching the new default for a Sync-origin lookup, the
+// overwhelming majority of what actually created this backlog. A plain
+// bulk `ExecuteUpdateAsync` (not the load-then-SaveChangesAsync pattern
+// coding-guidelines.md otherwise requires) is fine here specifically
+// because this is a standalone operational CLI verb never exercised by the
+// InMemory-provider unit tests that rule exists to protect — same
+// established exception as purge-player-pool's own `ExecuteDeleteAsync`
+// above. Safe to re-run: a second run simply finds zero matching rows.
+if (args is ["verify-wikidata-player-data"])
+{
+    var verifyConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var verifyConnectionString = verifyConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var verifyDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(verifyConnectionString)
+        .Options;
+
+    await using var verifyDbContext = new XGArcadeDbContext(verifyDbContextOptions);
+    var verifiedCount = await verifyDbContext.PlayerData
+        .Where(d => d.Source == "wikidata" && d.Confidence == "unverified")
+        .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.Confidence, "verified"));
+
+    Console.WriteLine($"verify-wikidata-player-data: marked {verifiedCount} PlayerData row(s) verified.");
+    return;
+}
+
 // S-037: `dotnet run -- clean-stale-club-attributes "<comma-separated club names>"`
 // is a third distinct CLI verb — see StaleClubAttributeCleaner's own doc
 // comment for the full reasoning (why this exists, and why it's manual and

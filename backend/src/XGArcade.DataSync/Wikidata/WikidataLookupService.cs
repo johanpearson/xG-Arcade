@@ -9,11 +9,24 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
     private const string WikidataSource = "wikidata";
+    private const string VerifiedConfidence = "verified";
     private const string UnverifiedConfidence = "unverified";
+
+    // ADR-0029: Sync (a routine cache-miss or cache-warming query) is
+    // trusted as ground truth; GuessTimeFallback (REQ-211/ADR-0018) stays
+    // reviewable. The one place this mapping is made, so the two callers
+    // below and any future one can't drift on it.
+    private static string ConfidenceFor(WikidataLookupOrigin origin) => origin switch
+    {
+        WikidataLookupOrigin.Sync => VerifiedConfidence,
+        WikidataLookupOrigin.GuessTimeFallback => UnverifiedConfidence,
+        _ => throw new ArgumentOutOfRangeException(nameof(origin), origin, null),
+    };
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country,
         ClubDefinition club,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default)
     {
         // REQ-109: an unresolved QID isn't an error, it just means Wikidata
@@ -26,12 +39,13 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             country.WikidataQid, club.WikidataQid, cancellationToken);
 
         return await PersistMatchesAsync(
-            matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
+            matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA,
         ClubDefinition clubB,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default)
     {
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
@@ -41,7 +55,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             clubA.WikidataQid, clubB.WikidataQid, cancellationToken);
 
         return await PersistMatchesAsync(
-            matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, cancellationToken);
+            matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, origin, cancellationToken);
     }
 
     // Fetched once for the whole batch rather than re-queried per player —
@@ -54,6 +68,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         IReadOnlyList<WikidataPlayerMatch> matches,
         string attributeTypeA, string attributeValueA,
         string attributeTypeB, string attributeValueB,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken)
     {
         if (matches.Count == 0)
@@ -74,8 +89,8 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         {
             var player = await GetOrCreatePlayerAsync(match, cancellationToken);
 
-            await PersistAttributeAsync(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, cancellationToken);
-            await PersistAttributeAsync(player.Id, attributeTypeB, attributeValueB, playerIdsWithAttributeB, cancellationToken);
+            await PersistAttributeAsync(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, origin, cancellationToken);
+            await PersistAttributeAsync(player.Id, attributeTypeB, attributeValueB, playerIdsWithAttributeB, origin, cancellationToken);
             await PersistAliasesAsync(player.Id, match.Aliases, cancellationToken);
 
             persisted.Add(player);
@@ -104,6 +119,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         string attributeType,
         string attributeValue,
         HashSet<Guid> playerIdsAlreadyHavingThisAttribute,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken)
     {
         // PlayerData is a raw, per-source append log (its own SyncedAt
@@ -118,7 +134,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             Field = attributeType,
             Value = attributeValue,
             Source = WikidataSource,
-            Confidence = UnverifiedConfidence,
+            Confidence = ConfidenceFor(origin),
             SyncedAt = DateTime.UtcNow,
         }, cancellationToken);
 

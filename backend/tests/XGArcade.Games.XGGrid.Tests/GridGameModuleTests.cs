@@ -431,6 +431,10 @@ public class GridGameModuleTests
             "nationality", "France", "club", "Arsenal"), Is.EqualTo(3),
             "a live lookup persists immediately, same request, same as the real WikidataLookupService (ADR-0010) — " +
             "not left for the cache to somehow already have known about");
+        // ADR-0029: a generation-time cache-miss is a routine sync, trusted
+        // as ground truth — distinct from REQ-211's guess-time fallback,
+        // which stays reviewable (see GridGameModuleTests' REQ211_* tests).
+        Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.Sync));
     }
 
     [Test]
@@ -802,6 +806,12 @@ public class GridGameModuleTests
 
         Assert.That(result.IsCorrect, Is.False);
         Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1));
+        // ADR-0029: the guess-time fallback must persist as reviewable, not
+        // auto-verified like a generation-time sync — see
+        // REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified
+        // (WikidataLookupServiceTests.cs) for the actual Confidence assertion;
+        // this only confirms GridGameModule passes the right origin through.
+        Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
     }
 
     [Test]
@@ -869,6 +879,10 @@ public class GridGameModuleTests
             "a live Wikidata Club x Club lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
         Assert.That(result.PlayerAnswerId, Is.EqualTo(neymar.Id));
         Assert.That(_wikidataLookupService.GetClubClubCallCount("Barcelona", "Paris Saint-Germain"), Is.EqualTo(1));
+        // ADR-0029: same origin check as the Country x Club fallback test above.
+        Assert.That(
+            _wikidataLookupService.GetClubClubLastOrigin("Barcelona", "Paris Saint-Germain"),
+            Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
     }
 
     [Test]

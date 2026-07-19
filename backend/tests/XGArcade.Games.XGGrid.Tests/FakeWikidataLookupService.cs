@@ -39,6 +39,12 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
     private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
+    // ADR-0029: the most recent WikidataLookupOrigin each pair was called
+    // with — lets a test assert GetMatchCountAsync (generation-time) and
+    // RefreshCellFromLiveLookupAsync (REQ-211 guess-time fallback) each pass
+    // the origin they're supposed to, without any real persistence to
+    // inspect (this fake doesn't write PlayerData/Confidence itself).
+    private readonly Dictionary<(string Country, string Club), WikidataLookupOrigin> _lastOrigin = new();
     // S-030: a second, independent pair of dictionaries for Club x Club —
     // kept separate from the Country x Club ones above (rather than sharing
     // one dictionary keyed loosely by two strings) so a test can't
@@ -46,6 +52,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     // Club x Club one that happens to share a name.
     private readonly Dictionary<(string ClubA, string ClubB), List<Player>> _clubClubMatches = new();
     private readonly Dictionary<(string ClubA, string ClubB), int> _clubClubCallCounts = new();
+    private readonly Dictionary<(string ClubA, string ClubB), WikidataLookupOrigin> _clubClubLastOrigin = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
@@ -63,11 +70,18 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public int GetClubClubCallCount(string clubAName, string clubBName) =>
         _clubClubCallCounts.TryGetValue((clubAName, clubBName), out var count) ? count : 0;
 
+    public WikidataLookupOrigin? GetLastOrigin(string countryName, string clubName) =>
+        _lastOrigin.TryGetValue((countryName, clubName), out var origin) ? origin : null;
+
+    public WikidataLookupOrigin? GetClubClubLastOrigin(string clubAName, string clubBName) =>
+        _clubClubLastOrigin.TryGetValue((clubAName, clubBName), out var origin) ? origin : null;
+
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
-        CountryDefinition country, ClubDefinition club, CancellationToken cancellationToken = default)
+        CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
     {
         onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
+        _lastOrigin[(country.Name, club.Name)] = origin;
 
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
@@ -85,10 +99,11 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     }
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
-        ClubDefinition clubA, ClubDefinition clubB, CancellationToken cancellationToken = default)
+        ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
     {
         onCalled?.Invoke();
         _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;
+        _clubClubLastOrigin[(clubA.Name, clubB.Name)] = origin;
 
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
             return [];

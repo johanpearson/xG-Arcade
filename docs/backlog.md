@@ -2598,6 +2598,41 @@ not just assumed unaffected by the fit-mode change.
   doesn't change the ADR calculus (no structural/component-boundary
   choice was made).
 
+**S-052 · Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable (REQ-502/503, ADR-0029)**
+Discovered via play-testing (not a request): S-026's admin page gave `GET
+/admin/player-data/unverified` its first real UI caller, which surfaced
+that the review queue had reached 52,782 rows — every `PlayerData` row
+ever synced from Wikidata since S-006, all still `Confidence =
+"unverified"` (that field was never conditional on anything, and REQ-503's
+"approve → verified" action was never built, S-012's own gap). A
+manual review queue at that size is unusable, and doesn't match what the
+data actually is: a routine Wikidata sync is Tier 0's own trusted primary
+source, not a user submission awaiting correction.
+**Built as (ADR-0029):** new `WikidataLookupOrigin` enum
+(`XGArcade.DataSync.Wikidata`) threaded through
+`IWikidataLookupService.LookupAndPersistAsync`/`LookupAndPersistClubClubAsync`
+— `Sync` (grid-generation cache-miss, `GridGameModule.GetMatchCountAsync`;
+cache-warming, `PlayerCacheWarmingService`) now persists `Confidence =
+"verified"`; `GuessTimeFallback` (REQ-211/ADR-0018's guess-time re-check,
+`GridGameModule.RefreshCellFromLiveLookupAsync`) still persists
+`"unverified"`. A new one-time CLI verb, `dotnet run --
+verify-wikidata-player-data` (`verify-wikidata-player-data.yml`, manual
+`workflow_dispatch`, same shape as `warm-player-cache.yml`), bulk-flips the
+existing 52,782-row backlog to `verified` — the historical rows can't be
+split by origin after the fact (`Source` is always `"wikidata"` either
+way), so this matches the new default for the overwhelming majority of
+what actually created that backlog; safe to re-run. Test coverage: two new
+`WikidataLookupServiceTests.cs` cases (`REQ211_LookupAndPersistAsync
+_GuessTimeFallback_PersistsAsUnverified` and its Club x Club mirror)
+alongside every pre-existing "hit persists" test updated to assert
+`Confidence == "verified"` for `WikidataLookupOrigin.Sync`; two
+`GridGameModuleTests.cs` assertions confirming the right origin is passed
+from both call sites (generation-time cache-miss vs. guess-time fallback).
+*Accept:* Wikidata-sourced sync data persists verified; guess-time-fallback
+data persists unverified; existing backlog is bulk-cleared via the new CLI
+verb. *Deps:* S-026 (surfaced the issue), S-006/S-030 (the sync paths being
+changed), S-011/ADR-0018 (REQ-211's fallback, left unchanged in behavior).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
