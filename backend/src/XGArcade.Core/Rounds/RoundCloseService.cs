@@ -14,9 +14,25 @@ public class RoundCloseService(IRoundRepository roundRepository, IScoreLockingSe
 
         // Idempotent: only ever pulls EndTime earlier, never pushes it later
         // than whatever was already scheduled.
+        var needsUpdate = false;
         if (round.EndTime > closedAt)
         {
             round.EndTime = closedAt;
+            needsUpdate = true;
+        }
+
+        // REQ-408: first close wins, same idempotent pattern as the EndTime
+        // pull-forward above — a second CloseRoundAsync call (accepted risk,
+        // see MaterializeUnansweredCellsAsync's own doc comment) must never
+        // overwrite the original ClosedAt.
+        if (round.ClosedAt is null)
+        {
+            round.ClosedAt = closedAt;
+            needsUpdate = true;
+        }
+
+        if (needsUpdate)
+        {
             await roundRepository.UpdateAsync(round, cancellationToken);
         }
 

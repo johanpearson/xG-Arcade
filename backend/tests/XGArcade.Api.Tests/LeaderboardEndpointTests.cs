@@ -7,8 +7,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Leagues;
+using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.Games.XGGrid;
 
 namespace XGArcade.Api.Tests;
 
@@ -26,6 +28,13 @@ namespace XGArcade.Api.Tests;
 // real HTTP pipeline can prove: query-string binding/validation and JSON
 // response shape round-tripping. Same WebApplicationFactory<Program> +
 // in-memory-DbContext-swap pattern as GuessEndpointTests.
+//
+// REQ-406/407/408 (2026-07-19, ADR-0031/backlog S-053/S-054) added three
+// more routes under /leagues/global/leaderboard/* — same "only what the real
+// HTTP pipeline proves" split applies: the live-contribution formula's three
+// cell cases and the closed-round total/ordering are already covered by
+// LeaderboardServiceTests; this file covers routing, the "no active round"
+// 404, and the not-found/not-closed-yet 404/409 distinction for REQ-408.
 public class LeaderboardEndpointTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -119,6 +128,117 @@ public class LeaderboardEndpointTests
             IsCorrect = true,
             AttemptCount = 1,
             FinalUniquenessScore = finalPoints / 100.0,
+            FinalPoints = finalPoints,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
+    // REQ-406/407: a real GridInstance/GridCell pair backing an active
+    // Round's GameInstanceId — GridGameModule.GetCellIdsAsync (the real,
+    // registered IGameModule in this WebApplicationFactory host) reads
+    // GridInstance directly, so the live-contribution path throws if no
+    // instance exists for the round's GameInstanceId. Same
+    // seed-a-real-GridInstance pattern CurrentRoundEndpointTests'
+    // SeedRoundWithCellsAsync already establishes.
+    private async Task<(Guid RoundId, Guid CellId)> SeedActiveRoundWithOneCellAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        dbContext.GridInstances.Add(new GridInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Cells =
+            [
+                new GridCell
+                {
+                    Id = cellId,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 0,
+                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryValue = "France",
+                    ColCategoryType = CategoryPairingRules.Club,
+                    ColCategoryValue = "Arsenal",
+                },
+            ],
+        });
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = instanceId,
+            StartTime = DateTime.UtcNow.AddHours(-1),
+            EndTime = DateTime.UtcNow.AddHours(1),
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return (round.Id, cellId);
+    }
+
+    // REQ-408: a closed round with no cells needed — GetClosedRoundLeaderboardAsync
+    // never touches IGameModule at all (it's locked-only, REQ-206's
+    // SUM(final_points)), so a plain Round row (no backing GridInstance) is
+    // enough here, unlike the active-round helper above.
+    private async Task<Guid> SeedClosedRoundAsync(DateTime closedAt)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = Guid.NewGuid(),
+            StartTime = closedAt.AddDays(-2),
+            EndTime = closedAt,
+            AllowGuessChange = true,
+            ClosedAt = closedAt,
+        };
+        dbContext.Rounds.Add(round);
+        await dbContext.SaveChangesAsync();
+        return round.Id;
+    }
+
+    private async Task<Guid> SeedRoundNotYetClosedAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = Guid.NewGuid(),
+            StartTime = DateTime.UtcNow.AddHours(-1),
+            EndTime = DateTime.UtcNow.AddHours(1),
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+        await dbContext.SaveChangesAsync();
+        return round.Id;
+    }
+
+    private async Task SeedGuessAsync(
+        Guid roundId, Guid userId, Guid cellId, bool isCorrect, int attemptCount, Guid? playerAnswerId = null, int? finalPoints = null)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = roundId,
+            UserId = userId,
+            CellId = cellId,
+            SubmittedName = "Someone",
+            PlayerAnswerId = playerAnswerId,
+            IsCorrect = isCorrect,
+            AttemptCount = attemptCount,
             FinalPoints = finalPoints,
             CreatedAt = DateTime.UtcNow,
         });
@@ -284,5 +404,179 @@ public class LeaderboardEndpointTests
         Assert.That(body!.Rows, Has.Count.EqualTo(2), "REQ-607: pageSize=100 is the documented maximum and must be accepted, not rejected");
         Assert.That(body.HasMore, Is.False, "membership is well under 100, so all rows fit on one page");
         Assert.That(body.NextCursor, Is.Null);
+    }
+
+    // ---- REQ-406: active-round live contribution folded into the shared total ----
+
+    [Test]
+    public async Task REQ406_LeaderboardGet_ActiveRoundLockedIncorrectCell_AddsMaxPointsPerCellToSharedTotal()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedMemberAsync(authProviderUserId, "You");
+        var (roundId, cellId) = await SeedActiveRoundWithOneCellAsync();
+        await SeedGuessAsync(roundId, userId, cellId, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
+    }
+
+    [Test]
+    public async Task REQ406_LeaderboardGet_TwoSuccessiveRequestsAfterAnotherPlayersGuessChangesUniqueness_ReflectDifferentTotalsWithNoInvalidationStep()
+    {
+        // ADR-0031: recomputed fresh on every read — no cache to invalidate.
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedMemberAsync(authProviderUserId, "You");
+        var (roundId, cellId) = await SeedActiveRoundWithOneCellAsync();
+        var sharedAnswerId = Guid.NewGuid();
+        await SeedGuessAsync(roundId, userId, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: sharedAnswerId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var firstResponse = await client.GetAsync("/leagues/global/leaderboard");
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(firstBody!.Rows.Single().TotalPoints, Is.EqualTo(0), "lone correct guesser is 100% unique (ADR-0020)");
+
+        // Another player now shares the same answer on the same cell — with
+        // exactly 2 correct guessers total and both sharing one answer,
+        // that answer is now fully common (ADR-0020: 1 of 1 other correct
+        // guesser shares it), the worst-case uniqueness.
+        await SeedGuessAsync(roundId, Guid.NewGuid(), cellId, isCorrect: true, attemptCount: 1, playerAnswerId: sharedAnswerId);
+
+        var secondResponse = await client.GetAsync("/leagues/global/leaderboard");
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(secondBody!.Rows.Single(r => r.UserId == userId).TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell),
+            "recomputed fresh on this second read, no explicit invalidation step");
+    }
+
+    // ---- REQ-407: standalone active-round leaderboard -----------------------
+
+    [Test]
+    public async Task REQ407_ActiveRoundLeaderboardGet_NoActiveRound_ReturnsNotFoundWithNoActiveRoundTitle()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/active-round");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("No active round"));
+    }
+
+    [Test]
+    public async Task REQ407_ActiveRoundLeaderboardGet_NonParticipantMember_DoesNotAppearAtAll()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var participantId = await SeedMemberAsync(authProviderUserId, "You");
+        await SeedMemberAsync(Guid.NewGuid(), "NeverPlayed");
+        var (roundId, cellId) = await SeedActiveRoundWithOneCellAsync();
+        await SeedGuessAsync(roundId, participantId, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/active-round");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Has.Count.EqualTo(1));
+        Assert.That(body.Rows.Single().UserId, Is.EqualTo(participantId));
+    }
+
+    // ---- REQ-408: browsable past closed-round leaderboards -------------------
+
+    [Test]
+    public async Task REQ408_ClosedRoundsGet_ReturnsClosedRoundsOnlyMostRecentlyClosedFirst()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var now = DateTime.UtcNow;
+        var earlier = await SeedClosedRoundAsync(now.AddDays(-2));
+        var later = await SeedClosedRoundAsync(now.AddDays(-1));
+        var stillActive = await SeedRoundNotYetClosedAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/closed-rounds");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
+        Assert.That(body!.Rounds.Select(r => r.RoundId), Is.EqualTo(new[] { later, earlier }));
+        Assert.That(body.Rounds.Any(r => r.RoundId == stillActive), Is.False);
+    }
+
+    [Test]
+    public async Task REQ408_ClosedRoundsGet_PageSizeSmallerThanCount_ReturnsCappedPageWithUsableCursor()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var now = DateTime.UtcNow;
+        var roundIds = new List<Guid>();
+        for (var i = 0; i < 3; i++)
+            roundIds.Add(await SeedClosedRoundAsync(now.AddDays(-i - 1)));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var firstResponse = await client.GetAsync("/leagues/global/leaderboard/closed-rounds?pageSize=2");
+        var firstPage = await firstResponse.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
+        Assert.That(firstPage!.Rounds, Has.Count.EqualTo(2));
+        Assert.That(firstPage.HasMore, Is.True);
+        Assert.That(firstPage.NextCursor, Is.Not.Null);
+
+        var secondResponse = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds?cursor={firstPage.NextCursor}&pageSize=2");
+        var secondPage = await secondResponse.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
+        Assert.That(secondPage!.Rounds, Has.Count.EqualTo(1));
+        Assert.That(secondPage.HasMore, Is.False);
+
+        var allRoundIds = firstPage.Rounds.Concat(secondPage.Rounds).Select(r => r.RoundId).ToList();
+        Assert.That(allRoundIds, Is.EquivalentTo(roundIds));
+    }
+
+    [Test]
+    public async Task REQ408_ClosedRoundLeaderboardGet_UnknownRoundId_ReturnsNotFound()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{Guid.NewGuid()}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round not found"));
+    }
+
+    [Test]
+    public async Task REQ408_ClosedRoundLeaderboardGet_RoundNotClosedYet_ReturnsConflictDistinctFromNotFound()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var roundId = await SeedRoundNotYetClosedAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round not closed yet"));
+    }
+
+    [Test]
+    public async Task REQ408_ClosedRoundLeaderboardGet_ClosedRound_ReturnsLockedTotalsRankedAscending()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var youId = await SeedMemberAsync(authProviderUserId, "You");
+        var alexId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
+        var roundId = await SeedClosedRoundAsync(DateTime.UtcNow.AddDays(-1));
+        await SeedGuessAsync(roundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 20);
+        await SeedGuessAsync(roundId, alexId, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }));
+        Assert.That(body.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 20, ScoringRules.MaxPointsPerCell }));
     }
 }

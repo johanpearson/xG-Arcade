@@ -44,6 +44,16 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
             .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
 
+    // REQ-408: same DB-side GroupBy/Sum shape as GetTotalFinalPointsByUserIdsAsync
+    // above, scoped to one round instead of a user's whole history.
+    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
+        await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.RoundId == roundId && g.UserId != null)
+            .GroupBy(g => g.UserId!.Value)
+            .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
+            .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
+
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {
         dbContext.Guesses.Add(guess);

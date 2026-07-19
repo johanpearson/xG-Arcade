@@ -429,9 +429,10 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 
 // COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)
-// and the global-leaderboard read path. ILeaderboardService also depends on
-// IGuessRepository (COMP-04, registered below) — DI resolves the dependency
-// graph regardless of registration order.
+// and the global-leaderboard read path. REQ-406/407/408 (S-053/S-054)
+// extended ILeaderboardService to also depend on IRoundRepository (COMP-03)
+// and ILiveRoundContributionService (COMP-04, registered below) — DI
+// resolves the dependency graph regardless of registration order.
 builder.Services.AddScoped<ILeagueRepository, LeagueRepository>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
 
@@ -485,6 +486,11 @@ builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 builder.Services.AddScoped<IGuessRepository, GuessRepository>();
 builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
 builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
+// REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
+// Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)
+// and exposes standalone (REQ-407) — recomputed on every call, never
+// cached, per ADR-0031.
+builder.Services.AddScoped<ILiveRoundContributionService, LiveRoundContributionService>();
 
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally

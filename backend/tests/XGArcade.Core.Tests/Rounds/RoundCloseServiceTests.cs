@@ -90,4 +90,33 @@ public class RoundCloseServiceTests
 
         Assert.That(result, Is.Null);
     }
+
+    // ---- REQ-408: Round.ClosedAt -------------------------------------------
+
+    [Test]
+    public async Task REQ408_CloseRoundAsync_FirstClose_SetsClosedAtToTheGivenClosedAtValue()
+    {
+        var now = new DateTime(2026, 7, 19, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(startTime: now.AddDays(-2), endTime: now.AddDays(2));
+
+        var closed = await _service.CloseRoundAsync(round.Id, now);
+
+        Assert.That(closed!.ClosedAt, Is.EqualTo(now));
+        var persisted = await _roundRepository.GetByIdAsync(round.Id);
+        Assert.That(persisted!.ClosedAt, Is.EqualTo(now));
+    }
+
+    [Test]
+    public async Task REQ408_CloseRoundAsync_CalledTwice_FirstCloseWins_SecondCallNeverOverwritesClosedAt()
+    {
+        var firstClosedAt = new DateTime(2026, 7, 19, 12, 0, 0, DateTimeKind.Utc);
+        var secondClosedAt = firstClosedAt.AddDays(3);
+        var round = await SeedRoundAsync(startTime: firstClosedAt.AddDays(-2), endTime: firstClosedAt.AddDays(5));
+
+        await _service.CloseRoundAsync(round.Id, firstClosedAt);
+        var secondCloseResult = await _service.CloseRoundAsync(round.Id, secondClosedAt);
+
+        Assert.That(secondCloseResult!.ClosedAt, Is.EqualTo(firstClosedAt),
+            "first close wins, same idempotent pattern as the EndTime pull-forward");
+    }
 }

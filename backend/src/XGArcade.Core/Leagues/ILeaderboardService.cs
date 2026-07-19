@@ -1,3 +1,5 @@
+using XGArcade.Data.Entities;
+
 namespace XGArcade.Core.Leagues;
 
 // COMP-02 (Core.Leagues)'s first real code (S-011) — REQ-401/404's Tier 0
@@ -15,9 +17,55 @@ namespace XGArcade.Core.Leagues;
 // is bounded to `pageSize` and always carries the requesting user's own
 // row so SCREEN-03's sticky "your position" footer never needs a second
 // round-trip.
+//
+// REQ-406/407/408 (2026-07-19, ADR-0031/backlog S-053/S-054) added the
+// active-round live scope and the past-closed-round browsing scope
+// alongside the original all-time/global method — all three still live
+// here rather than in a new service, since they're all "the leaderboard
+// screen's data", just different scopes of it.
 public interface ILeaderboardService
 {
+    // activeRound is the API layer's already-resolved "currently active
+    // round for this game" (IRoundRepository.GetActiveByGameKeyAsync,
+    // resolved with a game-specific GameKey the Api layer owns — never this
+    // Core service, per ADR-0003) — null when no round is currently active,
+    // in which case this method behaves exactly as it did before REQ-406
+    // (locked totals only).
     Task<LeaderboardPage> GetGlobalLeaderboardAsync(
+        Guid requestingUserId,
+        int cursor,
+        int pageSize,
+        Round? activeRound,
+        CancellationToken cancellationToken = default);
+
+    // REQ-407: participant-only, live, active-round-scoped leaderboard.
+    // activeRound must be a real, already-resolved active round — callers
+    // (the API layer) are responsible for returning a "no active round"
+    // response themselves before ever calling this, mirroring RoundEndpoints'
+    // existing REQ-303 pattern; this method has no null-round case to handle.
+    Task<LeaderboardPage> GetActiveRoundLeaderboardAsync(
+        Guid requestingUserId,
+        Round activeRound,
+        int cursor,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
+    // REQ-408: paginated list of this game's closed rounds, most recently
+    // closed first — gameKey is an opaque string the API layer supplies
+    // (e.g. GridGameModule.XGGridGameKey), never a game-specific type
+    // reference from this Core service (ADR-0003).
+    Task<ClosedRoundListPage> GetClosedRoundsAsync(
+        string gameKey,
+        int cursor,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
+    // REQ-408: one specific closed round's permanently-locked leaderboard.
+    // Distinguishes "round id doesn't exist" from "round exists but hasn't
+    // closed yet" via ClosedRoundLeaderboardResult.Status — never silently
+    // serves a not-yet-closed round as if it were complete.
+    Task<ClosedRoundLeaderboardResult> GetClosedRoundLeaderboardAsync(
+        Guid roundId,
         Guid requestingUserId,
         int cursor,
         int pageSize,
@@ -39,3 +87,26 @@ public record LeaderboardPage(
     LeaderboardEntry? RequestingUserEntry,
     int? NextCursor,
     bool HasMore);
+
+// REQ-408: one browsable closed round, for the round-selection list. Never
+// carries the active/upcoming round (Round.ClosedAt is only ever set once
+// RoundCloseService has actually closed it).
+public record ClosedRoundSummary(Guid RoundId, DateTime StartTime, DateTime EndTime, DateTime ClosedAt);
+
+public record ClosedRoundListPage(
+    IReadOnlyList<ClosedRoundSummary> Rounds,
+    int? NextCursor,
+    bool HasMore);
+
+// REQ-408: distinguishes "no such round" from "round exists but hasn't
+// closed yet" — both are a real, distinct outcome the API layer must map to
+// different status codes, never silently falling through to Found.
+public enum ClosedRoundLeaderboardStatus
+{
+    Found,
+    RoundNotFound,
+    RoundNotClosedYet,
+}
+
+// Page is only populated when Status is Found.
+public record ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus Status, LeaderboardPage? Page);
