@@ -1,4 +1,4 @@
-# ADR-0029: Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links
+# ADR-0030: Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links
 
 - **Status:** Accepted
 - **Date:** 2026-07-19
