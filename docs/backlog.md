@@ -2217,6 +2217,102 @@ file). No ADR — CSS/component-internal simplification of already-implemented
 REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041/S-047's own no-ADR
 calls for this kind of change.
 
+**S-049 · Desktop cells still read small/cramped after S-047/S-048
+(design-document.md §4, SCREEN-01a)**
+Third round of direct user feedback on the same `/grid` screen, after
+mobile was confirmed good ("it looks great in mobile"): "if i switch to
+desktop view in the mobile it still looks weird.. feels like the grid
+could be larger? and the cell + picture should look nice." Root-caused
+before scoping, not guessed: S-047's `.grid-table` fix (letting the table
+shrink-to-fit above 480px instead of forcing `width: 100%`) correctly
+stopped cells stretching into flat rectangles, but `.grid-table__cell`'s
+`min-width`/`height` at `≥960px` (S-040, 64px) was only ever a *floor* —
+never a deliberate *target* for a genuinely wide viewport. With a Tier-0
+grid's 3-5 columns and no cell content that ever needs more room than that
+floor, the grid rendered at its smallest reasonable size (~300-400px)
+inside `.app`'s 1200px desktop cap. "Cell + picture should look nice" is
+the same root cause from a different angle — a 64px cell leaves almost no
+room for a photo to read as more than a thumbnail.
+*Accept:* `design-document.md` §4 gets a concrete, numeric desktop target
+size (not just the S-047 aspect-ratio bound) before implementation;
+`Grid.css`'s `≥960px` block raises the floor it already sizes columns
+from to a real target, scoped to that breakpoint only (the 481-959px
+shrink-to-fit range and the ≤480px `table-layout: fixed` range both
+unregressed); the photo scales cleanly via the existing `object-fit:
+cover` with no distortion; real-browser verification at mobile, mid, and
+desktop widths, not just passing tests; requirements-document.md checked
+(not assumed) for whether any REQ's acceptance criteria is pixel-size-
+specific before deciding not to touch it.
+**Built as:** matches the plan above. `Grid.css`'s `@media (min-width:
+960px)` block: `.grid-table__cell`'s `min-width`/`height` raised from 64px
+to **120px**, padding from `--space-2` to `--space-3` in step. Chosen
+mechanism: raising the same floor value the table's shrink-to-fit column
+sizing already keys off (per CSS2.1's automatic table-layout algorithm,
+unchanged from S-047), not switching to `table-layout: fixed` +
+`<colgroup>` widths the way the ≤480px breakpoint does — nothing in a
+Tier-0 cell's content (text wraps; the photo layer is absolutely
+positioned out of flow) ever exceeds the floor, so raising it functions as
+a de facto target size in practice, confirmed by real-browser measurement
+rather than assumed. `CellState.css` companion change: a new `@media
+(min-width: 960px)` override on the photo-overlay's revealed name (12px →
+15px) and points line (10px → 12px), plus overlay padding
+(`--space-1`/`--space-2` → `--space-2`/`--space-3`) — S-047's mobile-tuned
+type read undersized once the cell itself nearly doubled, a second angle
+on the same feedback. The existing single-line ellipsis clamp
+(`-webkit-line-clamp: 1`) needed no change — re-verified at the larger
+size with a deliberately long name ("Ricardo Izecson dos Santos Leite"):
+still truncates cleanly with no clipping/overflow. The no-photo case's
+type sizes and the badge-dock/name/checkmark reveal layout were left
+untouched — real-browser verification found them already reading fine at
+the larger cell size.
+Real-browser verification: done via a temporary, not-committed Vite dev
+server + Playwright script (this sandbox has Chromium at
+`/opt/pw-browsers`, no `dotnet`/Postgres, so a full backend-backed E2E run
+wasn't available — same constraint and same workaround S-047/S-048 used),
+rendering the real `Grid`/`GridCell`/`CellState`/CSS with constructed
+props (a mix of photo/no-photo correct cells, an incorrect-with-attempt
+cell, and an empty cell) and an inline SVG data-URI test photo, at four
+viewports: 1280px desktop with a 3×3 grid (table rendered ~490×406px,
+cells ~134×120px, ratio ~1.1:1 — square, comfortably inside the 1200px
+cap), 1280px desktop with a 5×5 grid (table ~787×646px, same per-cell
+size, still comfortably inside the cap, no overflow/scroll), 700px (the
+481-959px shrink-to-fit range, confirmed unchanged from S-047), and 360px
+(the ≤480px `table-layout: fixed` range, confirmed unchanged from S-040).
+Also verified: the fixed-cell-footprint guarantee (REQ-214) still holds at
+the new size (measured the same photo cell's bounding box before and after
+a reveal click — pixel-identical, 108.7×95px content box), the revealed
+photo overlay is legible and proportionate at the new size (screenshot-
+reviewed before/after the CellState.css font-size bump), and a
+deliberately long name still clamps to one ellipsis-truncated line with no
+clipping. Harness files (a temporary Vite entry + Playwright screenshot
+scripts) deleted before this diff was finalized, not part of the shipped
+change.
+Tests: `Grid.test.tsx` gained 2 new tests (S-049) — since the changed
+values live inside an `@media (min-width: 960px)` block, and jsdom doesn't
+apply media-scoped styles at all (confirmed directly: `window.matchMedia`
+isn't even implemented in this jsdom version, which is also why every
+pre-existing test in this file already scoped itself to "the
+un-media-queried base rule"), these are raw-stylesheet-source assertions
+(`Grid.css?raw`) rather than computed-style ones — checking the ≥960px
+block contains `min-width: 120px`/`height: 120px`/`padding: var(--space-3)`
+and no longer contains the old `64px` value, plus that the ≤480px block is
+untouched. This is a different (source-text, not computed-style) test
+technique than S-047's own Grid.test.tsx tests use, called out explicitly
+rather than silently mixed in. Full Vitest suite: 126/126 passing (was 124
+before this story — 2 net new). `tsc -b --noEmit` and `oxlint` both clean.
+No E2E spec changes needed — `tests/e2e/play-grid.spec.ts`'s cell-box
+assertions are all relative (before/after comparisons for the
+fixed-footprint guarantee), never hardcoded pixel values, so they're
+unaffected by the size change; confirmed by reading the file, not assumed.
+`requirements-document.md` checked and left alone: the only place cell
+pixel sizes (44px/64px) appear is inside a narrative "Built as" implemen-
+tation-history note under REQ-204 (S-040's own entry), not phrased as a
+Given/When/Then acceptance criterion — no REQ's testable acceptance
+criteria depends on a specific cell size, so there's nothing to update.
+No ADR — CSS/layout-only polish on already-implemented REQ-204/REQ-212/
+REQ-214, same precedent as S-040/S-041/S-047/S-048's own no-ADR calls for
+this kind of change.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

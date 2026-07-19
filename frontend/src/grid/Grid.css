@@ -154,12 +154,36 @@
    still rendered at that same mobile-tight size, part of why it read as a
    mobile layout simply stretched onto a wide screen. Cells (and their
    headers, to stay proportional) get more breathing room here; the touch
-   target floor itself is unchanged, still enforced below 960px. */
+   target floor itself is unchanged, still enforced below 960px.
+
+   S-049 (root cause verified, not guessed — see design-document.md §4's
+   "Grid cell target size at desktop" note): S-040's 64px value here was
+   itself still only ever a *floor*, never a deliberate *target* — with a
+   Tier-0 grid's 3-5 columns and no cell content that ever needs more room
+   than that floor (nothing in `.grid-cell`'s content forces a column
+   wider — text wraps, `.cell-state--photo`'s photo layer is absolutely
+   positioned out of the normal flow — same fact S-047 already established
+   for the 64px value), the table rendered at its smallest reasonable size
+   even at a genuinely wide viewport: direct user feedback ("the grid could
+   be larger... cell + picture should look nice"). Fixed by raising the same
+   floor the table already sizes its shrink-to-fit columns from (per
+   CSS2.1's automatic table-layout algorithm, unchanged from S-047 — no new
+   sizing mechanism needed), not by switching to `table-layout: fixed` +
+   `<colgroup>` widths the way the ≤480px breakpoint does (that breakpoint
+   needs a hard, deliberate full-width layout for its own, different
+   problem — header text wrapping on a narrow viewport — this one doesn't).
+   Because nothing here ever exceeds the floor, raising it functions as a
+   de facto *target* render size in practice: real-browser verification
+   (see backlog.md S-049) confirmed a 3×3 through 5×5 Tier-0 grid renders at
+   this new size, comfortably inside `.app`'s 1200px desktop cap, without
+   overflow or a horizontal-scroll fallback kicking in. Padding grows in
+   step (`--space-2` → `--space-3`) so the larger footprint isn't just a
+   bigger empty box around the same tight content spacing. */
 @media (min-width: 960px) {
   .grid-table__cell {
-    padding: var(--space-2);
-    min-width: 64px;
-    height: 64px;
+    padding: var(--space-3);
+    min-width: 120px;
+    height: 120px;
   }
 
   .grid-table__col-header,

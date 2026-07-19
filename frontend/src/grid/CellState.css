@@ -255,6 +255,33 @@
   overflow: hidden;
 }
 
+/* S-049 (design-document.md §4's "Grid cell target size at desktop" note):
+   a correct photo cell's ≥960px footprint grew from 64px to 120px
+   (Grid.css) — real-browser verification for this story found the S-047
+   overlay type sizes above (tuned for a ~90-110px *mobile* cell) read as
+   noticeably undersized once the cell itself nearly doubled, part of the
+   user's own "cell + picture should look nice" complaint. Scaled up in the
+   same proportion S-047 scaled them down, not reverted to the pre-S-047
+   uniform --space-2 padding (there's no coverage-percentage problem to
+   re-solve here, only a legibility one) — the mobile (<960px) sizes below
+   this block are completely unaffected. */
+@media (min-width: 960px) {
+  .cell-state--photo .cell-state__overlay {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+
+  .cell-state--photo .cell-state__name {
+    font-size: 15px;
+  }
+
+  .cell-state--photo .cell-state__meta {
+    font-size: 12px;
+  }
+}
+
 /* design-document.md §2 "Signature element: badge dock" — the row/column
    badge slides inward from either side and settles beside the player name
    the moment it becomes visible. S-041: that moment is now a click/tap on

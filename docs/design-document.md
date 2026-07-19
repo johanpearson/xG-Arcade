@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.29"
+version: "0.30"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -954,6 +954,54 @@ Unchanged from v0.1 — built "equally both" from the start:
   there. REQ-214's "cell footprint is a literal constant regardless of
   photo presence" constraint is unaffected — this is a table/column-width
   fix, not a per-cell content change.
+- **Grid cell target size at desktop (added S-049, extends S-047's
+  floor-only rule above — the aspect-ratio bound itself is unchanged):**
+  S-047 fixed cells stretching into flat rectangles, but the fix it shipped
+  (`.grid-table__cell`'s `min-width`/`height`, 64px at `≥960px`, 44px below
+  that) was only ever a **floor**, never a deliberate **target** for a
+  genuinely wide desktop viewport. Direct user feedback, after S-047/S-048
+  shipped and mobile was confirmed to look good ("if i switch to desktop
+  view in the mobile it still looks weird.. feels like the grid could be
+  larger? and the cell + picture should look nice"), found the
+  consequence: with a Tier-0 grid's 3-5 columns and no cell content that
+  ever needs more room than that 64px floor (nothing in `.grid-cell`'s
+  content forces a column wider than it — text wraps rather than growing
+  the box, and `.cell-state--photo`'s photo layer is absolutely positioned
+  out of the normal flow — the same fact S-047 already established for the
+  64px value), the grid rendered at its smallest reasonable size — roughly
+  300-400px wide — inside `.app`'s 1200px desktop cap, reading as "stuck
+  small" rather than substantial. Fixed by raising the same floor the
+  table already sizes its shrink-to-fit columns from, not by switching
+  mechanism: at `≥960px`, `.grid-table__cell`'s `min-width`/`height` become
+  **120px** (up from 64px) and its padding grows from `--space-2` to
+  `--space-3` in step, so the bigger footprint isn't just a larger empty
+  box around the same tight spacing. Because nothing in a Tier-0 cell's
+  content ever exceeds this floor, raising it functions as a de facto
+  *target* render size in practice, not just a lower bound — confirmed via
+  real-browser verification (not assumed): a 3×3 grid renders at ~490×406px
+  and a 5×5 at ~787×646px at a 1280px viewport, both comfortably inside the
+  1200px desktop cap with cells reading square (~1.14:1, within the
+  existing 1:1–1.3:1 bound above) and no overflow or horizontal-scroll
+  fallback triggering. `object-fit: cover` on `.cell-state__photo-img`
+  (unchanged) scales the photo cleanly to the larger footprint with no
+  distortion. The 481-959px shrink-to-fit range and the ≤480px
+  `table-layout: fixed` range are both unaffected — this change is scoped
+  to the existing `≥960px` breakpoint only. No change to REQ-214's
+  fixed-cell-footprint constraint — this is a target-size increase within
+  the same "constant regardless of photo presence" rule, not a relaxation
+  of it. **CellState.css companion change:** the photo-overlay's revealed
+  name/points type (S-047's 12px/10px, tuned for a ~90-110px *mobile*
+  cell) read as undersized once the cell itself nearly doubled — a second
+  angle on the same "cell + picture should look nice" feedback. A matching
+  `≥960px` override bumps the revealed name to 15px and the points line to
+  12px, and the overlay's padding from `--space-1`/`--space-2` to
+  `--space-2`/`--space-3`; the existing single-line ellipsis clamp
+  (`-webkit-line-clamp: 1`) is unchanged and re-verified at the larger size
+  with a deliberately long name ("Ricardo Izecson dos Santos Leite") —
+  still truncates cleanly to "Ricardo…" with no clipping/overflow, so no
+  change to that mechanism was needed. The no-photo case's own type sizes
+  are untouched — real-browser verification found them to already read
+  fine at the larger cell size, badge dock and name+checkmark included.
 
 ## 5. Copy and voice
 
