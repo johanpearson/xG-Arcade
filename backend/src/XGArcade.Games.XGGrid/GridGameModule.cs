@@ -263,7 +263,8 @@ public class GridGameModule(
             return false;
 
         var liveMatches = await LookupLiveMatchesAsync(
-            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value, cancellationToken);
+            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value,
+            WikidataLookupOrigin.GuessTimeFallback, cancellationToken);
         return liveMatches is not null;
     }
 
@@ -402,11 +403,13 @@ public class GridGameModule(
     }
 
     // REQ-103/REQ-109 waterfall (Tier 0: Wikidata-only half, S-006): a local
-    // cache miss triggers a live lookup, persisted immediately as unverified
-    // data (never deferred/batched). A category value with no resolved
-    // WikidataQid is not an error — the live lookup just returns no matches
-    // (REQ-109), which this treats as an ordinary 0-count, handled by the
-    // caller's normal retry logic.
+    // cache miss triggers a live lookup, persisted immediately (never
+    // deferred/batched) as WikidataLookupOrigin.Sync — ADR-0029: this is a
+    // routine query against Wikidata's own vetted per-category intersection,
+    // trusted as ground truth, not REQ-211's narrower guess-time fallback
+    // below. A category value with no resolved WikidataQid is not an error —
+    // the live lookup just returns no matches (REQ-109), which this treats
+    // as an ordinary 0-count, handled by the caller's normal retry logic.
     private async Task<int> GetMatchCountAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,
@@ -417,7 +420,8 @@ public class GridGameModule(
         if (cachedCount > 0)
             return cachedCount;
 
-        var liveMatches = await LookupLiveMatchesAsync(rowCategoryType, row, colCategoryType, col, cancellationToken);
+        var liveMatches = await LookupLiveMatchesAsync(
+            rowCategoryType, row, colCategoryType, col, WikidataLookupOrigin.Sync, cancellationToken);
         return liveMatches?.Count ?? 0;
     }
 
@@ -432,10 +436,13 @@ public class GridGameModule(
     // CountryDefinition/ClubDefinition it's given (never Id) — safe to
     // construct throwaway instances here rather than threading the real
     // reference-table rows through the whole candidate-picking pipeline
-    // just for an Id nothing downstream uses.
+    // just for an Id nothing downstream uses. `origin` is passed through
+    // as-is from whichever caller invoked this — see ADR-0029 for what it
+    // controls (the persisted PlayerData's starting Confidence).
     private async Task<IReadOnlyList<Player>?> LookupLiveMatchesAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken)
     {
         if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Club)
@@ -443,6 +450,7 @@ public class GridGameModule(
             return await wikidataLookupService.LookupAndPersistAsync(
                 new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                origin,
                 cancellationToken);
         }
 
@@ -451,6 +459,7 @@ public class GridGameModule(
             return await wikidataLookupService.LookupAndPersistClubClubAsync(
                 new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                origin,
                 cancellationToken);
         }
 

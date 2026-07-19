@@ -89,7 +89,7 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(SingleHenryMatchJson);
 
-        var result = await service.LookupAndPersistAsync(France, Arsenal);
+        var result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Has.Count.EqualTo(1));
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
@@ -104,11 +104,31 @@ public class WikidataLookupServiceTests
         // Has.Count first: Has.All.Matches alone would pass vacuously if only
         // one of the two attribute writes (nationality, club) actually landed.
         Assert.That(rawData, Has.Count.EqualTo(2));
-        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
+        // ADR-0029: WikidataLookupOrigin.Sync (a routine cache-miss/warming
+        // query) persists as "verified" — a guess-time fallback would not,
+        // see REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified below.
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
 
         var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
         Assert.That(aliases, Has.Count.EqualTo(1));
         Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    // ADR-0029/REQ-211: the guess-time fallback (ADR-0018) re-checks a single
+    // already-generated cell against a specific player's guess, not the
+    // original vetted per-category intersection — kept reviewable rather
+    // than auto-verified like a Sync-origin call above.
+    [Test]
+    public async Task REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.GuessTimeFallback);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
     }
 
     [Test]
@@ -116,7 +136,7 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(SingleHenryMatchWithPhotoJson);
 
-        await service.LookupAndPersistAsync(France, Arsenal);
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         Assert.That(player.PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg"));
@@ -129,7 +149,7 @@ public class WikidataLookupServiceTests
         // error-free "no Wikidata photo" case.
         var service = BuildService(SingleHenryMatchJson);
 
-        await service.LookupAndPersistAsync(France, Arsenal);
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         Assert.That(player.PhotoUrl, Is.Null);
@@ -140,8 +160,8 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(SingleHenryMatchJson);
 
-        await service.LookupAndPersistAsync(France, Arsenal);
-        await service.LookupAndPersistAsync(France, Arsenal);
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         var players = await _dbContext.Players.Where(p => p.WikidataQid == "Q1519").ToListAsync();
         Assert.That(players, Has.Count.EqualTo(1));
@@ -164,7 +184,7 @@ public class WikidataLookupServiceTests
             new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
 
         var service = BuildService(SingleHenryMatchJson);
-        var result = await service.LookupAndPersistAsync(France, Arsenal);
+        var result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].Id, Is.EqualTo(existing.Id));
@@ -183,8 +203,8 @@ public class WikidataLookupServiceTests
         var cell1Service = BuildService(SingleHenryMatchJson);
         var cell2Service = BuildService(SingleHenryMatchJson);
 
-        await cell1Service.LookupAndPersistAsync(France, Arsenal);
-        var secondResult = await cell2Service.LookupAndPersistAsync(France, Barcelona);
+        await cell1Service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        var secondResult = await cell2Service.LookupAndPersistAsync(France, Barcelona, WikidataLookupOrigin.Sync);
 
         Assert.That(await _dbContext.Players.CountAsync(p => p.WikidataQid == "Q1519"), Is.EqualTo(1));
         Assert.That(secondResult, Has.Count.EqualTo(1));
@@ -209,7 +229,7 @@ public class WikidataLookupServiceTests
         // the persistence loop must not silently drop any of them.
         var service = BuildService(TwoDistinctPlayersMatchJson);
 
-        var result = await service.LookupAndPersistAsync(France, Arsenal);
+        var result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Has.Count.EqualTo(2));
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
@@ -241,7 +261,7 @@ public class WikidataLookupServiceTests
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         IReadOnlyList<Player>? result = null;
-        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistAsync(France, Arsenal));
+        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync));
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -252,7 +272,7 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(NoMatchJson);
 
-        var result = await service.LookupAndPersistAsync(France, Arsenal);
+        var result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -272,7 +292,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
-        var result = await service.LookupAndPersistAsync(unresolvedCountry, Arsenal);
+        var result = await service.LookupAndPersistAsync(unresolvedCountry, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -292,7 +312,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
-        var result = await service.LookupAndPersistAsync(France, unresolvedClub);
+        var result = await service.LookupAndPersistAsync(France, unresolvedClub, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -308,7 +328,7 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(SingleHenryMatchJson);
 
-        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Has.Count.EqualTo(1));
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
@@ -321,11 +341,26 @@ public class WikidataLookupServiceTests
 
         var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
         Assert.That(rawData, Has.Count.EqualTo(2));
-        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
+        // ADR-0029: see the mirrored note on REQ103_LookupAndPersistAsync_HitPersistsPlayersAndAliases above.
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
 
         var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
         Assert.That(aliases, Has.Count.EqualTo(1));
         Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    // Mirrors REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified above.
+    [Test]
+    public async Task REQ211_LookupAndPersistClubClubAsync_GuessTimeFallback_PersistsAsUnverified()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.GuessTimeFallback);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
     }
 
     [Test]
@@ -333,8 +368,8 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(SingleHenryMatchJson);
 
-        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
-        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
 
         var players = await _dbContext.Players.Where(p => p.WikidataQid == "Q1519").ToListAsync();
         Assert.That(players, Has.Count.EqualTo(1));
@@ -356,7 +391,7 @@ public class WikidataLookupServiceTests
             new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
 
         var service = BuildService(SingleHenryMatchJson);
-        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Has.Count.EqualTo(1));
         Assert.That(result[0].Id, Is.EqualTo(existing.Id));
@@ -374,7 +409,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
-        var result = await service.LookupAndPersistClubClubAsync(unresolvedClub, RealMadrid);
+        var result = await service.LookupAndPersistClubClubAsync(unresolvedClub, RealMadrid, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -394,7 +429,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
-        var result = await service.LookupAndPersistClubClubAsync(Barcelona, unresolvedClub);
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, unresolvedClub, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -405,7 +440,7 @@ public class WikidataLookupServiceTests
     {
         var service = BuildService(NoMatchJson);
 
-        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid);
+        var result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
@@ -422,7 +457,7 @@ public class WikidataLookupServiceTests
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         IReadOnlyList<Player>? result = null;
-        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid));
+        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync));
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));

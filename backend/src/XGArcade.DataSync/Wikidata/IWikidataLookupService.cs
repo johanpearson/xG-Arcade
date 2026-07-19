@@ -3,10 +3,12 @@ using XGArcade.Data.Entities;
 namespace XGArcade.DataSync.Wikidata;
 
 // Orchestrates the "DataSync.Clients: live lookup -> Data.PlayerStore:
-// persist as unverified" arrow in architecture-document.md §6.1/6.2 — called
-// by REQ-103 grid generation (S-007) on a cache miss, and by REQ-211's
-// guess-time fallback (S-011 follow-up, ADR-0018) when cached data doesn't
-// already answer a submitted guess.
+// persist" arrow in architecture-document.md §6.1/6.2 — called by REQ-103
+// grid generation (S-007) on a cache miss, and by REQ-211's guess-time
+// fallback (S-011 follow-up, ADR-0018) when cached data doesn't already
+// answer a submitted guess. What Confidence the persisted data starts at
+// depends on the caller-supplied WikidataLookupOrigin, not just that it
+// came from Wikidata — see that enum and ADR-0029.
 public interface IWikidataLookupService
 {
     // Returns the players persisted (new or already-known) for this
@@ -16,6 +18,7 @@ public interface IWikidataLookupService
     Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country,
         ClubDefinition club,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default);
 
     // S-030: the Club x Club counterpart, same empty-on-unresolved-QID/
@@ -25,5 +28,6 @@ public interface IWikidataLookupService
     Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA,
         ClubDefinition clubB,
+        WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default);
 }

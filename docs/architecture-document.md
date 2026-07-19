@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.38"
+version: "0.39"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.38 · 2026-07-19
+Version 0.39 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -440,7 +440,10 @@ Round Scheduler Job (COMP-03)
         skipped entirely if either value's QID is still null), API-Football
         only as fallback if Wikidata doesn't resolve it (ADR-0011);
         API-Football calls count against the shared daily counter (ExternalApiUsage)
-        → Data.PlayerStore: persist as unverified
+        → Data.PlayerStore: persist as verified (ADR-0029 — a routine
+          generation-time sync, WikidataLookupOrigin.Sync; distinct from
+          REQ-211's guess-time fallback in §6.2 below, which still persists
+          as unverified)
     → Games.XGGrid: assemble GridInstance once all cells valid, return its ID
   → Core.Rounds (COMP-03): create Round with GameKey="xg-grid",
     GameInstanceId=<the returned ID> — Core never sees the GridInstance shape
@@ -690,6 +693,24 @@ point" are not built — there is no way to flip a `PlayerData` row's
 `Confidence` or delete it via any endpoint yet (see REQ-503's status note).
 No "Web Frontend (admin view)" exists — the Admin actor above reaches the
 Backend API directly (e.g. via a REST client), not through a UI.
+
+**S-026/ADR-0029 status:** "Web Frontend (admin view)" now exists
+(`AdminScreen.tsx`, SCREEN-04 — REQ-504, also covered by this story's own
+COMP-01/COMP-03 status notes above and §6.8's account-deletion status note
+below). Once it had a real caller, `GET /admin/player-data/unverified`
+turned out to return 52,782 rows — every sync since S-006, since the top
+diagram line's "write to PlayerData" had persisted every row `Confidence =
+"unverified"` unconditionally, not merely "unverified until an admin
+acts." ADR-0029 narrows that: only REQ-211's guess-time fallback (§6.2)
+still writes `Confidence = "unverified"`; a routine sync (this section's
+top line, and `PlayerCacheWarmingService`) now writes `"verified"`
+directly, via a new `WikidataLookupOrigin` parameter on
+`IWikidataLookupService`. A one-time CLI verb
+(`verify-wikidata-player-data`) bulk-flipped the pre-existing backlog to
+match, since no persisted row records which of these two paths originally
+created it. "Mark PlayerData verified via an endpoint" and "remove the
+data point" remain unbuilt, per the note above — this change addresses
+the queue's *size*, not that missing action.
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 

@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `docs/decisions/0029-wikidata-sync-data-is-auto-verified.md`
+  (new), `docs/requirements-document.md` (0.69 → 0.70),
+  `docs/architecture-document.md` (0.38 → 0.39), `docs/backlog.md` (new S-052
+  entry) — S-026's admin page gave `GET /admin/player-data/unverified` its
+  first real UI caller, which surfaced that the review queue had reached
+  52,782 rows (every Wikidata sync since S-006 — `Confidence` was never
+  conditional on anything). ADR-0029: a routine sync (grid-generation
+  cache-miss or cache-warming, `WikidataLookupOrigin.Sync`) now persists
+  `Confidence = "verified"` directly; only REQ-211's guess-time fallback
+  (`WikidataLookupOrigin.GuessTimeFallback`) still persists `"unverified"`.
+  A new one-time CLI verb (`verify-wikidata-player-data`) bulk-cleared the
+  pre-existing backlog to match. REQ-103, REQ-502, REQ-503 gained status
+  notes describing the revision; REQ-211 unchanged (its fallback still
+  writes `"unverified"`, exactly as before). REQ-502/503/103.
 - 2026-07-19 — `docs/requirements-document.md` (0.68 → 0.69),
   `docs/architecture-document.md` (0.37 → 0.38) — doc-sync for S-026 (admin
   UI page + round control + user deletion), which was fully implemented,

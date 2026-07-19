@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.69"
+version: "0.70"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.69 · 2026-07-19
+Version 0.70 · 2026-07-19
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -179,6 +179,14 @@ abort), API (endpoint never returns a grid with an invalid cell)
   waterfall itself, `confidence`/`source` bookkeeping beyond what
   S-006 already persists) are recorded below as the full/long-term
   definition, not a claim of current behavior.
+- **S-052/ADR-0029 deviation from the criteria below:** a match found this
+  way is now stored `confidence="verified"`, not `"unverified"` as line
+  "any matches are stored..." below still literally reads. This is a
+  deliberate, later revision (not an oversight) — see ADR-0029: a routine
+  cache-miss lookup is the same vetted query Tier 0's Wikidata-first design
+  already treats as ground truth, so REQ-503's admin review queue no longer
+  needs to include it. `confidence="unverified"` is still exactly right for
+  REQ-211's guess-time fallback (a different call path, unchanged by this).
 - Given a combination has no match in the local cache
 - When the system performs a live lookup against external sources
 - Then Wikidata is tried first, with a timeout — it isn't meaningfully
@@ -1781,12 +1789,18 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 > As an admin, I want to see where each data point came from, so I can judge
 > its reliability.
 
-- **Status: Partially implemented (Tier 0, S-012).** `source` and
-  `confidence` are visible via `GET /admin/player-data/unverified`, but only
-  for rows with `Confidence == "unverified"` — there is no admin endpoint or
-  view over verified `PlayerData`, so "any player data point" (below) is not
-  yet true; only the unverified subset is browsable. No admin UI exists
-  (API only) — the "UI (admin)" test level below is not yet met.
+- **Status: Partially implemented (Tier 0, S-012; UI added S-026).**
+  `source` and `confidence` are visible via `GET /admin/player-data/unverified`
+  (now rendered by `AdminScreen.tsx`, meeting the "UI (admin)" test level
+  below), but only for rows with `Confidence == "unverified"` — there is
+  still no admin endpoint or view over verified `PlayerData`, so "any
+  player data point" (below) is not yet true; only the unverified subset is
+  browsable. **S-052/ADR-0029:** that subset is now meaningfully smaller —
+  a routine Wikidata sync persists `Confidence = "verified"` directly
+  (`WikidataLookupOrigin.Sync`), so it never enters this list at all;
+  only REQ-211's guess-time fallback still writes `"unverified"`. This
+  narrows what's browsable further, it doesn't add the missing
+  verified-data view.
 - Given any player data point
 - Then `source` (e.g. `wikidata`, `api_football`, `live_lookup`, `manual_override`)
   and `confidence` (`verified` / `unverified`) are always visible in the admin view
@@ -1797,20 +1811,39 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 > As an admin, I want to quickly review and approve/correct auto-fetched
 > data, so the cache is quality-assured over time.
 
-- **Status: Partially implemented (Tier 0, S-012).** Only the "review list"
-  half is built: `GET /admin/player-data/unverified`
-  (`XGArcade.Api.Admin.AdminEndpoints`) returns every unverified
-  `PlayerData` row with `Source`/`Confidence`/`PlayerFullName`. The
-  "correct" action exists only indirectly, as a separate call to
-  `POST /admin/player-overrides` (by `PlayerId`/`Field`, not by the
-  `PlayerData` row's own id) — there is no "approve → verified" action and
-  no "remove the data point" action; a `PlayerData` row's `Confidence`
-  cannot currently be flipped to `verified`, nor can a row be deleted, via
-  any endpoint. "The action is logged with `admin_id` and a timestamp" is
-  satisfied for the override-creation path by `PlayerOverride
-  .LockedByAdminId`/`LockedAt` on the override row itself (no separate
-  audit-log table) — there is no equivalent log for approve/remove since
-  those actions don't exist yet. No admin UI exists (API only).
+- **Status: Partially implemented (Tier 0, S-012; UI added S-026).** Only
+  the "review list" half is built: `GET /admin/player-data/unverified`
+  (`XGArcade.Api.Admin.AdminEndpoints`, rendered by `AdminScreen.tsx` as of
+  S-026) returns every unverified `PlayerData` row with
+  `Source`/`Confidence`/`PlayerFullName`. The "correct" action exists only
+  indirectly, as a separate call to `POST /admin/player-overrides` (by
+  `PlayerId`/`Field`, not by the `PlayerData` row's own id) — there is no
+  "approve → verified" action and no "remove the data point" action; a
+  `PlayerData` row's `Confidence` cannot currently be flipped to `verified`,
+  nor can a row be deleted, via any endpoint. "The action is logged with
+  `admin_id` and a timestamp" is satisfied for the override-creation path by
+  `PlayerOverride.LockedByAdminId`/`LockedAt` on the override row itself
+  (no separate audit-log table) — there is no equivalent log for
+  approve/remove since those actions don't exist yet.
+- **S-052/ADR-0029 status note — this REQ's premise revised:** S-026 gave
+  this endpoint its first real UI caller, which surfaced that the review
+  list had reached 52,782 rows: every `PlayerData` row ever synced from
+  Wikidata since S-006 landed here, because nothing had ever made
+  `Confidence` conditional on anything. That doesn't match this REQ's own
+  framing ("auto-fetched data" implies something worth spot-checking, not
+  every routine sync) — ADR-0029 narrows what "auto-fetched" means here: a
+  routine sync (grid-generation cache-miss or cache-warming) is now trusted
+  as ground truth and persists `Confidence = "verified"` directly, never
+  entering this list. Only REQ-211's guess-time fallback (a narrower,
+  guess-triggered re-check) still writes `"unverified"` and lands in this
+  queue — which is what "quickly review" and "quality-assured over time"
+  below should have described from the start, once the sheer sync volume
+  Tier 0 has since accumulated made it obvious "every sync" and "worth
+  reviewing" aren't the same thing. The pre-existing 52,782-row backlog was
+  bulk-cleared to `verified` via a one-time CLI verb
+  (`verify-wikidata-player-data`), since no row records which of the two
+  paths originally created it. The still-missing "approve"/"remove"
+  actions above are unaffected by this change.
 - Given data with `confidence = "unverified"`
 - When an admin opens the review view
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),

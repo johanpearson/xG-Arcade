@@ -91,7 +91,8 @@ public class PlayerCacheWarmingService(
                 }
                 else
                 {
-                    var matches = await wikidataLookupService.LookupAndPersistAsync(country, club, cancellationToken);
+                    var matches = await wikidataLookupService.LookupAndPersistAsync(
+                        country, club, WikidataLookupOrigin.Sync, cancellationToken);
                     pairsQueriedLive++;
                     logger.LogDebug("{Country} x {Club}: {MatchCount} matches (was {CachedCount} cached).",
                         country.Name, club.Name, matches.Count, cachedCount);
@@ -116,7 +117,8 @@ public class PlayerCacheWarmingService(
                 }
                 else
                 {
-                    var matches = await wikidataLookupService.LookupAndPersistClubClubAsync(clubs[i], clubs[j], cancellationToken);
+                    var matches = await wikidataLookupService.LookupAndPersistClubClubAsync(
+                        clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken);
                     pairsQueriedLive++;
                     logger.LogDebug("{ClubA} x {ClubB}: {MatchCount} matches (was {CachedCount} cached).",
                         clubs[i].Name, clubs[j].Name, matches.Count, cachedCount);
