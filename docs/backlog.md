@@ -2633,6 +2633,74 @@ data persists unverified; existing backlog is bulk-cleared via the new CLI
 verb. *Deps:* S-026 (surfaced the issue), S-006/S-030 (the sync paths being
 changed), S-011/ADR-0018 (REQ-211's fallback, left unchanged in behavior).
 
+**S-053 · Live leaderboard: fold active-round points into the shared/per-league total, and expose it as its own active-round scope (REQ-406/407, ADR-0031)**
+Direct product request (2026-07-19), routed through `requirements-writer`
+first since it's a real product/scoring decision, not a rendering fix — see
+REQ-406/407's full acceptance criteria. Today the global/per-league
+leaderboard (REQ-401/404, `LeaderboardService`) only sums locked
+`Guess.FinalPoints`, `null` until a round closes (ADR-0022); REQ-206's
+status note has flagged this as the deliberate gap to revisit since S-029.
+This story builds one shared live-contribution computation — for a round
+participant (same definition as ADR-0021's `MaterializeUnansweredCellsAsync`:
+≥1 guess in that round), each cell of the active round contributes its
+current `LivePoints` (REQ-204, correct) or `MaxPointsPerCell`
+(locked-incorrect, both attempts used) or nothing at all (not yet
+attempted — deliberately not `0`, which already means "best score" under
+ADR-0021's golf model) — and exposes it two ways: (a) folded on top of
+REQ-401/404's existing `SUM(FinalPoints ?? 0)` for the shared/per-league
+leaderboard (REQ-406), and (b) as its own standalone "this round (live)"
+scope, participant-only, reachable from the same leaderboard screen
+(SCREEN-03) as an additional selectable option alongside REQ-405's
+resolution tabs, not a separate screen (REQ-407). Both recompute on every
+read — **no caching or snapshotting**, per ADR-0031, which was written
+specifically for this story after `architecture-reviewer` flagged that this
+reverses §6.2a's DB-side-aggregate leaderboard pattern and narrows
+REQ-607's bounded-read-cost guarantee; read that ADR before implementing,
+its "For AI agents" section applies directly. A player with zero guesses in
+the active round is unaffected on the shared total and does not appear on
+the standalone active-round scope at all. Present both live figures as
+visibly provisional (REQ-204/213's existing "estimated" framing) so a
+player can't mistake a live rank for a locked one.
+*Accept:* REQ406/REQ407-named tests: shared leaderboard total includes a
+correctly-guessed active-round cell's current `LivePoints` and a
+locked-incorrect cell's `MaxPointsPerCell`, excludes not-yet-attempted
+cells entirely (not as `0`); recomputing after an underlying guess changes
+(e.g. another participant's guess shifts a cell's uniqueness) produces a
+different total/rank on the next read with no explicit invalidation step;
+a non-participant is excluded from the standalone active-round scope;
+requesting the active-round scope when no round is active returns a clear
+"no active round" response (REQ-303's existing pattern), not a generic
+error. *Deps:* S-011 (REQ-401/404/206 baseline), S-018 (REQ-204 `LivePoints`),
+S-028/ADR-0021 (golf model + participant definition + `GetCellIdsAsync`),
+S-034 (REQ-607 pagination pattern the shared total's page slicing still
+uses), ADR-0031 (governs this story's implementation approach directly).
+
+**S-054 · Browsable per-round leaderboard for past closed rounds (REQ-408)**
+Companion story to S-053, product-requested in the same round of feedback
+(2026-07-19) — see REQ-408's full acceptance criteria. Unlike S-053, this
+is locked-only, no live component: REQ-206's own `SUM(final_points)`
+definition, applied per closed round, individually browsable by round id —
+closing the other half of the gap REQ-206's status note has flagged since
+S-029 ("Tier 0 has no past-round-browsing UI at all"). Reached from the
+same leaderboard screen (SCREEN-03) as S-053's scopes, via a "past rounds"
+option that lists browsable closed rounds (most recently closed first,
+never the active/upcoming round — that's S-053's territory) before drilling
+into one round's leaderboard. The round list itself is paginated with the
+same `cursor`/`pageSize` shape and defaults REQ-607 already established
+(50/100) — a second, differently-shaped pagination convention was
+explicitly rejected when REQ-408 was drafted. A round id that doesn't exist
+returns "not found"; a round id that exists but hasn't closed yet returns a
+distinct "not closed yet" response — never silently served as if it were
+complete (it's only reachable live via S-053 while active).
+*Accept:* REQ408-named tests: round list returns only closed rounds, most
+recent first, paginated per REQ-607's shape; a specific closed round's
+total matches REQ-206's locked formula exactly and never changes on
+re-read; not-found vs. not-closed-yet are distinct, correctly-coded
+responses. *Deps:* S-011 (REQ-206 locked total, REQ-205 close), S-034
+(REQ-607 pagination shape reused for the round list), S-053 (shares
+SCREEN-03's scope-selector UI this story adds its own option to — build
+after S-053 to avoid two stories independently adding the same selector).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
