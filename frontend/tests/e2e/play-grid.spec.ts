@@ -282,6 +282,13 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
 
     // REQ-212: clicking the cell reveals the guessed player's name — this is
     // unaffected by whether a photo happens to be showing underneath it.
+    // S-047: on a photo cell, the name is now visually clamped to a single
+    // ellipsis-truncated line (CellState.css's `-webkit-line-clamp: 1` on
+    // `.cell-state--photo .cell-state__name`) — a CSS-only visual effect
+    // that doesn't touch the DOM's actual text content (the full name is
+    // still there, just not all of it painted), so a plain getByText/
+    // toBeVisible check is unaffected and needs no change here.
+    const hasPhoto = (await cell.locator('.cell-state--photo').count()) > 0
     await cell.click()
     await expect(cell.getByText(seed.correctPlayerName)).toBeVisible()
 
@@ -296,8 +303,20 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // concerns neither suite asserts on, since driving an in-flight CSS
     // animation here would be brittle/flaky and jsdom doesn't run real
     // animations — verified visually against the design mock instead.
-    await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
-    await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
+    // S-047: this only holds for the no-photo case — on a photo cell, the
+    // badge dock is deliberately hidden on reveal (design-document.md §2's
+    // S-047 exception to the signature badge-dock element) so the name has
+    // room to be legible at a typical Tier-0 mobile cell width. Whether this
+    // guess happened to resolve to a photo is itself non-deterministic (see
+    // the photo-non-determinism note below), so both outcomes are asserted
+    // on rather than picking one.
+    if (hasPhoto) {
+      await expect(cell.getByTestId('badge-dock-row')).not.toBeVisible()
+      await expect(cell.getByTestId('badge-dock-col')).not.toBeVisible()
+    } else {
+      await expect(cell.getByTestId('badge-dock-row')).toBeVisible()
+      await expect(cell.getByTestId('badge-dock-col')).toBeVisible()
+    }
 
     // REQ-214: revealing the name (which, unlike the photo, IS gated by
     // REQ-212's click/tap toggle, and adds the scrim-backed overlay content

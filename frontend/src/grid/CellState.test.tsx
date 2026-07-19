@@ -839,6 +839,205 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
     expect(getComputedStyle(noPhotoName as Element).color).toBe('var(--color-text-primary)');
     expect(getComputedStyle(noPhotoName as Element).color).not.toBe(getComputedStyle(name as Element).color);
   });
+
+  // S-047 (direct user feedback: the photo overlay "covers too much of the
+  // photo" on mobile — see design-document.md's SCREEN-01a S-047 status
+  // note for the full before/after numbers). jsdom has no real layout
+  // engine, so — same "check the mechanism, not a pixel snapshot" approach
+  // the REQ-214 footprint tests above already use — this checks the
+  // declared CSS properties that are what actually shrinks the overlay's
+  // footprint (tighter padding, smaller type on the photo variant only),
+  // not a rendered bounding box. See this story's own real-browser
+  // verification for the pixel-level check this doesn't replace.
+  it("S-047: the photo overlay's padding is tighter than the prior uniform --space-2 (8px) on every side — now --space-1 vertical / --space-2 horizontal", () => {
+    const { container } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+      />,
+    );
+
+    const overlay = container.querySelector('.cell-state__overlay');
+    expect(overlay).toBeInTheDocument();
+    const style = getComputedStyle(overlay as Element);
+    expect(style.paddingTop).toBe('var(--space-1)');
+    expect(style.paddingBottom).toBe('var(--space-1)');
+    expect(style.paddingLeft).toBe('var(--space-2)');
+    expect(style.paddingRight).toBe('var(--space-2)');
+  });
+
+  it('S-047: the photo variant renders the checkmark, points, and (once revealed) the name smaller than the no-photo case — one of the changes that shrinks the overlay toward the design doc\'s coverage target', () => {
+    const { container: photoContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+    const { container: noPhotoContainer } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
+    );
+
+    const photoIcon = photoContainer.querySelector('.cell-state__icon--correct');
+    const noPhotoIcon = noPhotoContainer.querySelector('.cell-state__icon--correct');
+    expect(getComputedStyle(photoIcon as Element).fontSize).toBe('11px');
+    expect(getComputedStyle(noPhotoIcon as Element).fontSize).toBe('14px');
+
+    const photoMeta = photoContainer.querySelector('.cell-state__meta');
+    const noPhotoMeta = noPhotoContainer.querySelector('.cell-state__meta');
+    expect(getComputedStyle(photoMeta as Element).fontSize).toBe('10px');
+    expect(getComputedStyle(noPhotoMeta as Element).fontSize).toBe('11px');
+
+    const photoName = photoContainer.querySelector('.cell-state__name');
+    const noPhotoName = noPhotoContainer.querySelector('.cell-state__name');
+    expect(getComputedStyle(photoName as Element).fontSize).toBe('12px');
+    // The no-photo name has no explicit font-size override (relies on the
+    // browser/body default) — asserted as "not 12px" rather than a specific
+    // value, since that default isn't a value this file owns or should pin.
+    expect(getComputedStyle(noPhotoName as Element).fontSize).not.toBe('12px');
+  });
+
+  it("S-047: the photo variant's row (badge dock / name / checkmark) uses a tighter gap than the no-photo case's --space-2 (8px), reducing how often the revealed name wraps onto a second line", () => {
+    const { container: photoContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+    const { container: noPhotoContainer } = render(
+      <CellState playerName="Henry" isCorrect attemptCount={1} locked roundStatus="active" livePoints={12} revealed />,
+    );
+
+    const photoRow = photoContainer.querySelector('.cell-state__row');
+    const noPhotoRow = noPhotoContainer.querySelector('.cell-state__row');
+    expect(getComputedStyle(photoRow as Element).gap).toBe('var(--space-1)');
+    expect(getComputedStyle(noPhotoRow as Element).gap).toBe('var(--space-2)');
+  });
+
+  // S-047: a real bug found via this story's own required real-browser
+  // verification, not anticipated in the original bug description — an
+  // ordinary-length real name (e.g. "Thierry Henry") rendered completely
+  // invisible (not just tightly cropped) once revealed on a photo cell,
+  // because the row's four competing flex items (row badge, name, column
+  // badge, checkmark) never fit a typical Tier-0 mobile cell's ~65-80px of
+  // content width on one line. Fixed by hiding both badge-dock glyphs on
+  // the photo variant specifically (they're decorative/aria-hidden and
+  // already redundant with the row/column headers above/left of the grid)
+  // so the name gets the width it needs. The no-photo case is unaffected —
+  // its badge dock still renders and still animates.
+  it('S-047: the badge dock (row and column glyphs) is hidden on a photo cell once revealed, freeing width for the name to actually be legible — the no-photo case keeps showing its badge dock unchanged', () => {
+    const { container: photoContainer } = render(
+      <CellState
+        playerName="Henry"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+        revealed
+      />,
+    );
+    const { container: noPhotoContainer } = render(
+      <CellState
+        playerName="Henry"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        rowCategoryType="country"
+        rowCategoryValue="France"
+        colCategoryType="club"
+        colCategoryValue="Arsenal"
+        revealed
+      />,
+    );
+
+    // Still rendered in the DOM (structure is unaffected, only visibility)
+    // — this is a CSS-only fix, not a change to what CellState/Row render.
+    const photoBadgeRow = photoContainer.querySelector('.cell-state__badge-dock--row');
+    expect(photoBadgeRow).toBeInTheDocument();
+    expect(getComputedStyle(photoBadgeRow as Element).display).toBe('none');
+    const photoBadgeCol = photoContainer.querySelector('.cell-state__badge-dock--col');
+    expect(getComputedStyle(photoBadgeCol as Element).display).toBe('none');
+
+    const noPhotoBadgeRow = noPhotoContainer.querySelector('.cell-state__badge-dock--row');
+    expect(getComputedStyle(noPhotoBadgeRow as Element).display).not.toBe('none');
+    const noPhotoBadgeCol = noPhotoContainer.querySelector('.cell-state__badge-dock--col');
+    expect(getComputedStyle(noPhotoBadgeCol as Element).display).not.toBe('none');
+
+    // The name itself is unaffected by this — still present and, on the
+    // photo variant, still legible (not what this test covers directly,
+    // see the line-clamp test below).
+    expect(photoContainer.querySelector('.cell-state__name')).toBeInTheDocument();
+  });
+
+  // S-047: the companion fix to the badge-dock hide above — bounds the
+  // revealed name's own box to a single line (with an ellipsis) on the
+  // photo variant, so a long name can never grow the row taller than the
+  // fixed-footprint cell can show. A 2-line clamp was tried first and
+  // rejected after real-browser verification showed it could still get
+  // clipped from the top by `.cell-state--photo`'s `overflow: hidden`,
+  // leaving an unpredictable *middle* fragment of the name visible rather
+  // than its actual beginning.
+  it("S-047: the photo variant's revealed name is clamped to a single line (ellipsis on overflow) — the no-photo case has no such clamp", () => {
+    const { container: photoContainer } = render(
+      <CellState
+        playerName="A Genuinely Very Long Player Full Name"
+        photoUrl="https://example.test/henry.jpg"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+    const { container: noPhotoContainer } = render(
+      <CellState
+        playerName="A Genuinely Very Long Player Full Name"
+        isCorrect
+        attemptCount={1}
+        locked
+        roundStatus="active"
+        livePoints={12}
+        revealed
+      />,
+    );
+
+    const photoName = photoContainer.querySelector('.cell-state__name');
+    const style = getComputedStyle(photoName as Element);
+    expect(style.getPropertyValue('-webkit-line-clamp')).toBe('1');
+    expect(style.overflow).toBe('hidden');
+    // The full name is still in the DOM (accessible to assistive tech and
+    // to any test that queries text content) — only the visual box is
+    // clamped, nothing is removed from the markup.
+    expect(photoName?.textContent).toBe('A Genuinely Very Long Player Full Name');
+
+    const noPhotoName = noPhotoContainer.querySelector('.cell-state__name');
+    expect(getComputedStyle(noPhotoName as Element).getPropertyValue('-webkit-line-clamp')).not.toBe('1');
+  });
 });
 
 // S-020 (design-document.md §2's "Rejected-guess cue"): a shake + red flash

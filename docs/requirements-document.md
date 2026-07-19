@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.64"
+version: "0.65"
 status: draft
-last_updated: 2026-07-18
+last_updated: 2026-07-19
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1138,6 +1138,24 @@ match with no attribute data and budget exhausted → fails closed), API
   (`overflow-wrap: anywhere`, matching `.cell-state__meta`'s existing
   pattern) so a long name drops to its own line rather than disappearing
   (`CellState.css`).
+- **Status note (2026-07-19, `docs/backlog.md` S-047, direct user feedback
+  + a real bug found during that story's own required real-browser
+  verification):** on a correct cell that also has a photo (REQ-214), the
+  badge dock is **no longer** part of what click/tap reveals — at a
+  typical Tier-0 mobile cell width, the row/column badges, name, and
+  checkmark did not fit together at all (an ordinary name like "Thierry
+  Henry" rendered completely invisible, not just tightly cropped). This
+  supersedes, for the photo case only, the "the guessed player's canonical
+  name … and its badge dock … are revealed" line in the acceptance
+  criteria below: on a photo cell, click/tap now reveals the name alone
+  (clamped to a single ellipsis-truncated line — the full name remains in
+  the DOM for assistive tech, only its painted box is bounded), with the
+  badge dock staying hidden (`display: none`) whether revealed or not. The
+  no-photo case is completely unaffected — click/tap still reveals both
+  the name and the badge dock exactly as this requirement originally
+  specifies, with no clamp on the name. See `design-document.md` §2's
+  matching S-047 exception note and SCREEN-01a's S-047 status note for the
+  full before/after detail.
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
   (correct, round closed)
@@ -1303,6 +1321,14 @@ wording)
   the at-rest state, since that's where the photo now appears. The
   no-photo case is unaffected by this note: it already fell back to
   today's checkmark+points-only display and continues to.
+- **Status note (2026-07-19, `docs/backlog.md` S-047):** the "reveals the
+  canonical name and badge dock (over the photo, when one is present)"
+  line below is superseded for the photo case — see REQ-212's matching
+  2026-07-19 status note for the full detail. On a photo cell, click/tap
+  now reveals the name only (clamped to a single line); the badge dock
+  stays hidden. This is a change to what REQ-212's toggle reveals on a
+  photo cell, not a change to this requirement's own photo-trigger
+  behavior (the photo itself still shows automatically, unaffected).
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
   (correct, round closed)
