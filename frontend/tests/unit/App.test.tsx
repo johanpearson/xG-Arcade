@@ -148,7 +148,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  it('REQ-303/REQ-710: the nav offers Leaderboard, Delete account, and Log out once authenticated', async () => {
+  it('REQ-303/REQ-712/REQ-713: the nav offers Leaderboard, Settings, and Log out once authenticated', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -157,21 +157,30 @@ describe('App game-selection routing', () => {
     await screen.findByText('Choose a game')
 
     expect(screen.getByRole('button', { name: 'Leaderboard' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Delete account' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument()
-  })
-})
-
-// REQ-710 (S-039): wiring DeleteAccountScreen into App — the nav entry point,
-// and both onAccountDeleted/onAuthError routing back through the same
-// handleLogout() that clears the stored token and returns to AuthScreen.
-describe('App delete-account routing', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    window.localStorage.clear()
+    // REQ-713: no standalone "Delete account"/"Admin" top-level links exist
+    // anymore — both are consolidated into "Settings".
+    expect(screen.queryByRole('button', { name: 'Delete account' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument()
   })
 
-  it('REQ-710: clicking "Delete account" in the header navigates to the delete-account screen', async () => {
+  // REQ-712: HeaderNav.css's `@media (max-width: 480px)` block is what
+  // actually shows this toggle (and hides the plain row) at a real narrow
+  // viewport — Playwright (tests/e2e) exercises that at real viewport
+  // widths, since jsdom's CSS engine here never applies rules scoped inside
+  // an `@media` block regardless of window width (the same limitation
+  // Grid.test.tsx's own S-049 comment already documents for this jsdom
+  // version). That also means the toggle's base, un-media-queried rule
+  // (`display: none`) is what jsdom sees regardless of the width this test
+  // runs at, which in turn makes its *accessible name* compute as empty
+  // (a CSS-hidden element's text doesn't contribute one) even though the
+  // element and its `aria-expanded` attribute are still present and
+  // inspectable — `getByTestId` sidesteps that name-computation quirk and
+  // checks the actual thing this test cares about: a real button whose
+  // `aria-expanded` flips on activation, the mechanism REQ-712 requires
+  // regardless of which viewport currently shows it.
+  it('REQ-712: the mobile nav toggle is a real button whose aria-expanded flips on activation', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -179,8 +188,39 @@ describe('App delete-account routing', () => {
     await logIn(user)
     await screen.findByText('Choose a game')
 
-    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    const toggle = screen.getByTestId('header-nav-toggle')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+})
+
+// REQ-710 (S-039)/REQ-713 (relocation): wiring DeleteAccountScreen into
+// App via the "Settings" nav entry (superseding S-039's standalone "Delete
+// account" link) — both onAccountDeleted/onAuthError still route back
+// through the same handleLogout() that clears the stored token and returns
+// to AuthScreen; nothing about the delete flow itself changed.
+describe('App delete-account routing (via Settings, REQ-713)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+  })
+
+  it('REQ-710/REQ-713: clicking "Settings" in the header navigates to a screen containing the unchanged delete-account flow', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
     expect(
       await screen.findByText('This permanently deletes your account. It cannot be undone.'),
     ).toBeInTheDocument()
@@ -195,7 +235,7 @@ describe('App delete-account routing', () => {
     render(<App />)
     await logIn(user)
     await screen.findByText('Choose a game')
-    await user.click(screen.getByRole('button', { name: 'Delete account' }))
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
     await screen.findByLabelText('Current password')
 
     await user.type(screen.getByLabelText('Current password'), 'correct-password')
@@ -206,16 +246,18 @@ describe('App delete-account routing', () => {
   })
 })
 
-// REQ-504 (S-026): the entire "no visible entry point" mechanism for a
-// non-admin is that the Admin nav link only renders once /auth/me confirms
-// isAdmin — these cases prove both sides of that gate.
-describe('App admin nav routing', () => {
+// REQ-504 (S-026)/REQ-713 (relocation): the "no visible entry point" for a
+// non-admin now needs to hold in two places — the nav menu (which never
+// had a literal "Admin" entry to begin with, post-consolidation) and the
+// Settings screen itself, which only renders its admin link once /auth/me
+// confirms isAdmin.
+describe('App admin entry-point routing (via Settings, REQ-713)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     window.localStorage.clear()
   })
 
-  it('REQ-504: a non-admin /auth/me response never shows an "Admin" nav link', async () => {
+  it('REQ-504/REQ-713: a non-admin sees no "Admin" link, in the nav menu or on the Settings screen', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -224,9 +266,14 @@ describe('App admin nav routing', () => {
     await screen.findByText('Choose a game')
 
     expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await screen.findByRole('heading', { name: 'Settings' })
+
+    expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument()
   })
 
-  it('REQ-504: an admin /auth/me response shows an "Admin" nav link that navigates to the admin screen', async () => {
+  it('REQ-504/REQ-713: an admin sees an "Admin" link on the Settings screen that navigates to the admin screen', async () => {
     stubAuthenticatedFetch({
       '/auth/me': () =>
         jsonResponse({
@@ -244,6 +291,9 @@ describe('App admin nav routing', () => {
     render(<App />)
     await logIn(user)
     await screen.findByText('Choose a game')
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await screen.findByRole('heading', { name: 'Settings' })
 
     const adminLink = await screen.findByRole('button', { name: 'Admin' })
     await user.click(adminLink)

@@ -44,40 +44,12 @@
   min-height: var(--touch-target-min);
 }
 
-.app__header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.app__nav-link {
-  min-height: var(--touch-target-min);
-  padding: var(--space-2) var(--space-3);
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-family: var(--font-body);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.app__nav-link[aria-current='page'] {
-  color: var(--color-text-primary);
-  font-weight: 600;
-}
-
-.app__logout {
-  min-height: var(--touch-target-min);
-  min-width: 44px;
-  padding: var(--space-2) var(--space-3);
-  background: none;
-  border: 1px solid var(--color-border-hairline);
-  border-radius: 8px;
-  color: var(--color-text-muted);
-  font-family: var(--font-body);
-  font-size: 13px;
-  cursor: pointer;
-}
+/* REQ-712/REQ-713: the header's nav row/toggle (Leaderboard, Settings,
+   Log out) is now HeaderNav.css's — the old flat `.app__nav-link`/
+   `.app__logout`/`.app__header-actions` rules that lived here moved there
+   unchanged (same tokens, same values) when the standalone "Delete
+   account"/"Admin" links were consolidated into "Settings" and the whole
+   nav row got a mobile collapse behind a toggle. */
 
 .app__main {
   flex: 1;

@@ -4,10 +4,11 @@ import { AdminScreen } from './admin/AdminScreen';
 import { ApiError, fetchMe } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
-import { DeleteAccountScreen } from './auth/DeleteAccountScreen';
 import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
+import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
+import { SettingsScreen } from './settings/SettingsScreen';
 
 type HealthState =
   | { phase: 'loading' }
@@ -18,11 +19,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
-// before any game's grid — see docs/backlog.md S-021. 'delete-account'
-// (S-039) is reachable only from the header, never a destination anything
-// else navigates to. 'admin' (REQ-504, S-026) is likewise reachable only
-// from the header's admin-only nav link, never a default destination.
-type Screen = 'game-select' | 'grid' | 'leaderboard' | 'delete-account' | 'admin';
+// before any game's grid — see docs/backlog.md S-021. 'settings' (REQ-713,
+// superseding S-039's standalone 'delete-account' screen) is reachable only
+// from the header's "Settings" nav entry, never a destination anything else
+// navigates to — it hosts the unchanged delete-account flow plus, for
+// admins only, a link onward to 'admin'. 'admin' (REQ-504, S-026) is in
+// turn reachable only from that Settings-screen link, never a default
+// destination.
+type Screen = 'game-select' | 'grid' | 'leaderboard' | 'settings' | 'admin';
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
@@ -30,8 +34,9 @@ function App() {
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
   const [screen, setScreen] = useState<Screen>('game-select');
-  // REQ-504: the only signal for whether to show the "Admin" nav link — a
-  // non-admin must see no trace of it, regardless of screen size/state.
+  // REQ-504/REQ-713: the only signal for whether SettingsScreen shows its
+  // admin-only link onward to AdminScreen — a non-admin must see no trace
+  // of it anywhere (nav menu or Settings screen), regardless of state.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
 
   useEffect(() => {
@@ -119,43 +124,22 @@ function App() {
         ) : (
           <h1 className="app__title">xG Arcade</h1>
         )}
+        {/* REQ-712/REQ-713: the header's only nav surface — collapses behind
+            a single toggle below the mobile breakpoint (HeaderNav.css),
+            renders as the same horizontal row as before at/above it.
+            "Settings" (REQ-713) replaces the previously separate "Delete
+            account" and admin-only "Admin" top-level links; the admin gate
+            itself now lives in SettingsScreen, not here — currentUser?.isAdmin
+            is passed straight through, same source of truth REQ-504 already
+            used. */}
         {accessToken && (
-          <div className="app__header-actions">
-            <button
-              type="button"
-              className="app__nav-link"
-              aria-current={screen === 'leaderboard' ? 'page' : undefined}
-              onClick={() => setScreen('leaderboard')}
-            >
-              Leaderboard
-            </button>
-            {/* REQ-710 (S-039): the only entry point to account deletion —
-                deliberately a plain nav link, not a general settings page,
-                since delete-account is the only account action Tier 0 has. */}
-            <button
-              type="button"
-              className="app__nav-link"
-              aria-current={screen === 'delete-account' ? 'page' : undefined}
-              onClick={() => setScreen('delete-account')}
-            >
-              Delete account
-            </button>
-            {/* REQ-504: the entire "no visible entry point" mechanism for a
-                non-admin — rendered only once /auth/me confirms isAdmin. */}
-            {currentUser?.isAdmin && (
-              <button
-                type="button"
-                className="app__nav-link"
-                aria-current={screen === 'admin' ? 'page' : undefined}
-                onClick={() => setScreen('admin')}
-              >
-                Admin
-              </button>
-            )}
-            <button type="button" className="app__logout" onClick={handleLogout}>
-              Log out
-            </button>
-          </div>
+          <HeaderNav
+            isLeaderboardCurrent={screen === 'leaderboard'}
+            isSettingsCurrent={screen === 'settings'}
+            onSelectLeaderboard={() => setScreen('leaderboard')}
+            onSelectSettings={() => setScreen('settings')}
+            onLogout={handleLogout}
+          />
         )}
       </header>
 
@@ -173,14 +157,19 @@ function App() {
           ) : screen === 'admin' ? (
             <AdminScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : (
-            // REQ-710: on success there's no account left to show anything
-            // else on, so deletion signs out and lands back on AuthScreen —
-            // the exact same effect handleLogout already produces.
-            <DeleteAccountScreen
+            // REQ-713: the "Settings" nav entry's destination — hosts
+            // REQ-710's unchanged delete-account flow plus, admin-only, the
+            // link onward to 'admin'. onAccountDeleted/onAuthError route
+            // through the same handleLogout() as before (REQ-710: no
+            // account left to show anything else on, so deletion signs out
+            // and lands back on AuthScreen).
+            <SettingsScreen
               accessToken={accessToken}
+              isAdmin={currentUser?.isAdmin ?? false}
               onAccountDeleted={handleLogout}
               onCancel={() => setScreen('game-select')}
               onAuthError={handleLogout}
+              onOpenAdmin={() => setScreen('admin')}
             />
           )
         ) : (

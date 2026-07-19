@@ -27,6 +27,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   pre-existing backlog to match. REQ-103, REQ-502, REQ-503 gained status
   notes describing the revision; REQ-211 unchanged (its fallback still
   writes `"unverified"`, exactly as before). REQ-502/503/103.
+- 2026-07-19 — `docs/decisions/0030-mobile-hamburger-nav-and-settings-screen.md`
+  (new), `docs/architecture-document.md` (0.39 → 0.40),
+  `docs/implementation-document.md` (0.57 → 0.58) — added ADR-0030
+  (renumbered from an initial ADR-0029 that collided with the
+  Wikidata-auto-verify ADR above, merged to main first),
+  recording the decision to collapse the header nav behind a mobile-only
+  hamburger toggle (REQ-712) and consolidate the standalone "Delete
+  account"/"Admin" links into one "Settings" screen (REQ-713), reversing
+  `design-document.md` SCREEN-05's prior "no general profile/settings page"
+  note. No architecture-document.md component/boundary change — frontend
+  only. implementation-document.md §4's project structure gained `/nav`
+  (`HeaderNav`) and `/settings` (`SettingsScreen`) folder entries. REQ-712,
+  REQ-713, REQ-504, REQ-710, ADR-0030.
+- 2026-07-19 — `docs/design-document.md` (0.33 → 0.34) — implemented
+  REQ-712 (mobile hamburger nav toggle) and REQ-713 (Settings screen
+  consolidating "Delete account"/"Admin" into one nav entry). Added
+  SCREEN-07 (header nav mobile menu) and SCREEN-08 (Settings, hosting
+  SCREEN-05's unchanged delete-account flow plus an admin-only link to
+  SCREEN-04) with status notes on SCREEN-04/SCREEN-05 correcting the
+  now-outdated "reached via a standalone top-level link"/"no general
+  settings page exists" claims. §4 gained a new "Header nav breakpoint"
+  note recording the choice to reuse the existing 480px narrow-phone value
+  (not the 960px desktop-cap one) and why, plus that the mechanism is
+  CSS-only (no JS viewport detection), matching the app's existing
+  responsive approach. Frontend: `frontend/src/nav/HeaderNav.tsx`+`.css`
+  (new), `frontend/src/settings/SettingsScreen.tsx`+`.css` (new),
+  `frontend/src/App.tsx`/`App.css` updated to wire both in and drop the
+  old flat `Leaderboard`/`Delete account`/`Admin`/`Log out` row;
+  `frontend/tests/unit/App.test.tsx` updated for the new nav/Settings
+  structure (existing REQ-710/REQ-504 cases re-pointed at "Settings," one
+  new REQ-712 toggle case added). `AdminScreen`/`DeleteAccountScreen`
+  themselves, and their own tests, are unchanged. REQ-712, REQ-713.
 - 2026-07-19 — `docs/requirements-document.md` (0.68 → 0.69),
   `docs/architecture-document.md` (0.37 → 0.38) — doc-sync for S-026 (admin
   UI page + round control + user deletion), which was fully implemented,

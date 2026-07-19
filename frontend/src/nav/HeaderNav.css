@@ -1,0 +1,106 @@
+/* REQ-712/REQ-713 (design-document.md §3's new nav-menu note, §4's new
+   "Header nav breakpoint" note). Tokens only, no new values — same
+   spacing/color/type tokens the flat nav row used before this story. */
+
+.header-nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Hidden by default (desktop-first base rule); only shown below the
+   breakpoint, in the @media block at the bottom of this file. */
+.header-nav__toggle {
+  display: none;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.header-nav__toggle-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.header-nav__menu {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.header-nav__link {
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.header-nav__link[aria-current='page'] {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.header-nav__logout {
+  min-height: var(--touch-target-min);
+  min-width: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* REQ-712: below the mobile breakpoint, the plain horizontal row is
+   replaced by a single toggle; the row itself only renders once activated
+   (`.header-nav__menu--open`), and stacks vertically as a dropdown anchored
+   to the header so it never competes for horizontal room — the thing this
+   requirement exists to guarantee regardless of how many nav entries exist. */
+@media (max-width: 480px) {
+  .header-nav__toggle {
+    display: inline-flex;
+  }
+
+  .header-nav__menu {
+    display: none;
+  }
+
+  .header-nav__menu--open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    left: auto;
+    min-width: 180px;
+    padding: var(--space-2);
+    background: var(--color-surface-card);
+    border: 1px solid var(--color-border-hairline);
+    border-radius: 8px;
+    z-index: 10;
+  }
+
+  .header-nav__menu--open .header-nav__link,
+  .header-nav__menu--open .header-nav__logout {
+    width: 100%;
+    text-align: left;
+    border: none;
+  }
+}

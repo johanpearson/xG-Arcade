@@ -1875,13 +1875,25 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
   fetch), independent of the nav-link hiding. Covered by
   `AdminScreen.test.tsx` (12 tests) and 2 new `App.test.tsx` cases (nav-link
   gating on `isAdmin`).
+- **Status note (2026-07-19, entry point relocated per REQ-712/REQ-713):**
+  the "Built as (S-026)" note above describes the screen as reachable from
+  a standalone top-level "Admin" header nav link — that top-level link is
+  superseded by REQ-713's "Settings" menu entry, which shows an
+  admin-only link to this same, otherwise-unchanged `AdminScreen` only
+  when the logged-in user is an admin. Nothing about `AdminScreen` itself,
+  its authorization checks, or its Production-only section-hiding changes
+  here — only how a player navigates to it. The "not linked from the
+  normal player nav" and "no visible entry point" acceptance criteria
+  below are unaffected by this relocation — if anything, REQ-713 restates
+  them for the new entry point.
 - Given the S-012 admin API (REQ-501/502/503) and REQ-505/506's new endpoints
   (this REQ adds no endpoints of its own — it is the UI surface over all of
   them) already require the existing "Admin" authorization policy
   (`Admin__UserIds`)
 - When a user whose id is in `Admin__UserIds` logs in
-- Then they can reach a protected admin screen (not linked from the normal
-  player nav) exposing: the REQ-503 unverified-data review list and
+- Then they can reach a protected admin screen (reached via REQ-713's
+  "Settings" menu entry, not a standalone top-level nav link — see the
+  status note above) exposing: the REQ-503 unverified-data review list and
   override CRUD (REQ-501/502/503), the REQ-505 round controls, and the
   REQ-506 user-management action
 - And a non-admin user gets no visible entry point to it and a 403 from
@@ -2429,6 +2441,18 @@ the same way every other authenticated screen already does. On success the
 user is signed out and returned to the login/landing screen, since no
 account remains to show anything else on.
 
+**Status note (2026-07-19, entry point relocated per REQ-712/REQ-713):**
+the standalone top-level "Delete account" header link described above is
+superseded by REQ-713's "Settings" menu entry, which now hosts this same,
+otherwise-unchanged `DeleteAccountScreen` flow. The S-039 note's "no
+general profile/settings page exists in Tier 0" aside is also now
+outdated — REQ-713 introduces exactly such a screen, scoped narrowly to
+delete-account (unchanged) plus an admin-only link (REQ-504); it is still
+not a general profile/settings page in the broader sense (no other
+account fields live there). Nothing about the deletion flow itself — the
+password confirmation step, the anonymization behavior, or its tests —
+changes here, only how a player navigates to it.
+
 **Test level:** Unit (anonymization logic specifically — verify no
 reversible link remains), API, UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
 `frontend/tests/unit/App.test.tsx`)
@@ -2446,6 +2470,88 @@ reversible link remains), API, UI (`frontend/src/auth/DeleteAccountScreen.test.t
   unless export size becomes a real problem)
 
 **Test level:** API
+
+**REQ-712 – Header navigation collapses behind a menu toggle on mobile**
+> As a player using the app on a narrow viewport, I want the header
+> navigation collapsed behind a single toggle control, so the header never
+> overflows or wraps onto a second line no matter how many nav entries
+> exist.
+
+- **Context:** the header nav overflowed on mobile once before (fixed in
+  S-029 by trimming duplicate items) and has regressed since REQ-504 and
+  REQ-710 each added their own top-level link. REQ-713 addresses the
+  regression's cause (too many top-level links) by consolidating two of
+  them into one menu entry; this requirement addresses the layout symptom
+  directly, so the header is robust to future growth in nav entries too,
+  not just the current count.
+- Given the viewport width is below the header's designated mobile
+  breakpoint (a single breakpoint value defined once in
+  `design-document.md`'s token system — which specific value, and whether
+  it reuses an existing token such as SCREEN-01's 960px grid breakpoint or
+  defines its own, is a design-document detail, not fixed by this
+  requirement)
+- When the header renders
+- Then no nav entry (including "Leaderboard," "Settings" per REQ-713, and
+  "Log out") is rendered as a visible top-level item in the header row —
+  all of them are reachable only after activating a single toggle control
+- And the toggle control is a real, focusable, keyboard-operable element
+  (reachable via Tab, activated via Enter/Space) exposing `aria-expanded`
+  reflecting its open/closed state, matching the accessible-disclosure
+  pattern already established for REQ-204's reveal toggles
+- And activating the toggle reveals the full nav item list; the list can be
+  dismissed by activating the toggle again
+- Given the viewport width is at or above the mobile breakpoint
+- When the header renders
+- Then every nav entry remains visible as a horizontal row exactly as
+  today, and no toggle control is rendered at all — this is a mobile-only
+  layout change, not a change to desktop's existing pattern
+- And regardless of viewport width, the header nav row itself never wraps
+  onto a second line or causes horizontal overflow, for any nav entry count
+  up to what currently exists ("Leaderboard," "Settings," "Log out")
+
+**Test level:** UI (component test: toggle hidden/absent above the
+breakpoint, present and functional below it; `aria-expanded` reflects
+open/closed state), E2E (Playwright, real viewport widths on both sides of
+the breakpoint — nav never wraps or overflows at either)
+
+**REQ-713 – "Settings" screen consolidates the delete-account and admin
+entry points**
+> As a player, I want a single "Settings" menu entry that gives me access to
+> account management (and, if I'm an admin, admin tools), so the header
+> doesn't need a separate top-level link per action.
+
+- **Label choice:** "Settings," not "Profile" — chosen to match the
+  header's existing plain, functional-noun copy voice ("Leaderboard,"
+  "Admin," "Log out") rather than introduce a more personal/identity-toned
+  word, and because "Profile" would misdescribe a screen whose contents
+  (account deletion, an admin link) aren't profile information. This
+  replaces the standalone "Delete account" and "Admin" top-level links
+  described in REQ-710's and REQ-504's own "Built as" notes — see the
+  status notes added to each.
+- Given a logged-in user opens the header nav menu (REQ-712)
+- Then it contains exactly one entry, labeled "Settings," in place of the
+  previously separate "Delete account" and, for admins, "Admin" top-level
+  links
+- When the user selects "Settings"
+- Then a new screen is shown containing the existing delete-account flow —
+  REQ-710's behavior, acceptance criteria, and confirmation step, unchanged
+- And, only when the logged-in user is an admin (the same check REQ-504
+  already uses), the screen also shows a link that navigates to the
+  existing, unchanged `AdminScreen` (REQ-504) — a link to that screen, not
+  admin controls embedded inline on the Settings screen itself
+- Given a non-admin user opens the Settings screen
+- Then no admin link, admin-referencing text, or any other trace of an
+  admin entry point appears anywhere on the screen or in the nav menu —
+  the same "no visible entry point for a non-admin" guarantee REQ-504
+  already makes for its own screen, now also true of this one
+- And a non-admin who reaches the `AdminScreen` route directly (bypassing
+  the UI) still gets REQ-504's existing defense-in-depth 403/access-denied
+  behavior, unchanged by this requirement
+
+**Test level:** UI (component test: non-admin sees the delete-account flow
+only and no admin link, in the Settings screen and in the nav menu; admin
+sees both, and the admin link navigates to `AdminScreen`; the delete-account
+flow within Settings still passes REQ-710's existing tests unmodified)
 
 ---
 
