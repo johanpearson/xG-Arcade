@@ -10,6 +10,33 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response);
 }
 
+// REQ-406/407/408 (S-053/S-054): routes a fetch mock by URL substring so a
+// single test can serve distinct responses to the all-time/live/past-rounds
+// endpoints without caring about call order — the component now fires the
+// all-time poll on every mount regardless of which scope tab is active, so
+// every test touching the scope selector needs a default all-time response
+// too, not just the endpoint under test.
+function routedFetch(routes: Array<[string | RegExp, () => Promise<Response>]>) {
+  return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input);
+    for (const [matcher, handler] of routes) {
+      const matches = typeof matcher === 'string' ? url.includes(matcher) : matcher.test(url);
+      if (matches) return handler();
+    }
+    throw new Error(`No mock route for ${url}`);
+  });
+}
+
+const defaultAllTimeRoute: [string, () => Promise<Response>] = [
+  '/leagues/global/leaderboard',
+  () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+];
+
+// Order matters: routedFetch tries matchers in order, and
+// '/leagues/global/leaderboard' (the all-time route) is a substring of
+// every scope's URL, so the more specific active-round/closed-rounds
+// matchers must always be listed before it.
+
 // Local helper for the REQ-607 pagination tests below — just cuts down on
 // repeating the same four-field row literal; not shared across files, so
 // kept local per the file's existing "one local helper" convention rather
@@ -443,5 +470,319 @@ describe('LeaderboardScreen', () => {
     expect(rows[1]).toHaveTextContent('10 pts');
 
     vi.useRealTimers();
+  });
+
+  // REQ-406/407/408 (S-053/S-054): the three-way scope selector.
+  describe('scope selector', () => {
+    it('REQ407: switching to "This round (live)" fetches the active-round endpoint, not the all-time one', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-1', 'Alex', 12)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+      const activeRoundCalls = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/leagues/global/leaderboard/active-round'),
+      );
+      expect(activeRoundCalls).toHaveLength(1);
+    });
+
+    it('REQ408: switching to "Past rounds" fetches the closed-rounds list endpoint', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () =>
+            jsonResponse({
+              rounds: [{ roundId: 'round-1', startTime: '2026-07-10T00:00:00Z', endTime: '2026-07-10T18:00:00Z', closedAt: '2026-07-10T18:05:00Z' }],
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-10T18:05:00Z')).toBeInTheDocument());
+      const closedRoundsCalls = fetchMock.mock.calls.filter((call) =>
+        String(call[0]).includes('/leagues/global/leaderboard/closed-rounds'),
+      );
+      expect(closedRoundsCalls.length).toBeGreaterThan(0);
+    });
+
+    it('REQ407: the live scope presents its rows and total as visibly provisional, not final', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-1', 'Alex', 138, true)],
+              requestingUserRow: row(1, 'user-1', 'Alex', 138, true),
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+
+      // Same "~N pts estimated" wording GridScreen.tsx/CellState.tsx already
+      // established for a live point value (S-018/REQ-204) — not a plain
+      // "138 pts", which would read as a locked, final total.
+      await waitFor(() => expect(screen.getByText('~138 pts estimated')).toBeInTheDocument());
+      expect(
+        screen.getByText('Live — estimated, can still change until the round closes.'),
+      ).toBeInTheDocument();
+    });
+
+    it('REQ407: "no active round" renders a plain informational empty state, not an error banner', async () => {
+      const fetchMock = routedFetch([
+        ['/leagues/global/leaderboard/active-round', () => jsonResponse({ title: 'No active round' }, 404)],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+
+      await waitFor(() =>
+        expect(screen.getByText('No round is currently active — check back once one starts.')).toBeInTheDocument(),
+      );
+      // Not styled as an error — the leaderboard-screen__empty convention,
+      // not leaderboard-screen__status--error.
+      expect(document.querySelector('.leaderboard-screen__status--error')).toBeNull();
+    });
+
+    it('REQ407: an active round with no participants yet shows a calm empty state, distinct from "no active round"', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+
+      await waitFor(() =>
+        expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByText('No round is currently active — check back once one starts.'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('REQ408: the past-rounds list renders closed rounds and paginates via "Load more"', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          (() => {
+            let call = 0;
+            return () => {
+              call += 1;
+              if (call === 1) {
+                return jsonResponse({
+                  rounds: [
+                    { roundId: 'round-2', startTime: '2026-07-12T00:00:00Z', endTime: '2026-07-12T18:00:00Z', closedAt: '2026-07-12T18:05:00Z' },
+                  ],
+                  nextCursor: 50,
+                  hasMore: true,
+                });
+              }
+              return jsonResponse({
+                rounds: [
+                  { roundId: 'round-1', startTime: '2026-07-05T00:00:00Z', endTime: '2026-07-05T18:00:00Z', closedAt: '2026-07-05T18:05:00Z' },
+                ],
+                nextCursor: null,
+                hasMore: false,
+              });
+            };
+          })(),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-12T18:05:00Z')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+
+      // Both rounds present, in the order the API returned them.
+      const items = screen.getAllByRole('listitem');
+      const roundItems = items.filter((item) => item.className.includes('round-list-item'));
+      expect(roundItems).toHaveLength(2);
+    });
+
+    it('REQ408: selecting a past round shows its locked leaderboard, presented as final (not provisional)', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds/round-1',
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-1', 'Alex', 120)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () =>
+            jsonResponse({
+              rounds: [
+                { roundId: 'round-1', startTime: '2026-07-05T00:00:00Z', endTime: '2026-07-05T18:00:00Z', closedAt: '2026-07-05T18:05:00Z' },
+              ],
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
+
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+      // Plain "N pts" — not the live scope's "~N pts estimated" wording —
+      // since a closed round's total is permanently locked (REQ-206/408).
+      expect(screen.getByText('120 pts')).toBeInTheDocument();
+      expect(screen.queryByText(/estimated/)).not.toBeInTheDocument();
+
+      // "Back to past rounds" returns to the round list without refetching it.
+      fireEvent.click(screen.getByRole('button', { name: 'Back to past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+    });
+
+    it('REQ408: a round id that does not exist ("not found") and one that has not closed yet ("not closed") render distinguishable messages', async () => {
+      const notFoundFetch = routedFetch([
+        ['/leagues/global/leaderboard/closed-rounds/round-404', () => jsonResponse({ title: 'Round not found' }, 404)],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () =>
+            jsonResponse({
+              rounds: [
+                { roundId: 'round-404', startTime: '2026-07-05T00:00:00Z', endTime: '2026-07-05T18:00:00Z', closedAt: '2026-07-05T18:05:00Z' },
+              ],
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', notFoundFetch);
+
+      const { unmount } = render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
+      await waitFor(() => expect(screen.getByText("This round couldn’t be found.")).toBeInTheDocument());
+      unmount();
+      vi.unstubAllGlobals();
+
+      const notClosedFetch = routedFetch([
+        ['/leagues/global/leaderboard/closed-rounds/round-409', () => jsonResponse({ title: 'Round not closed yet' }, 409)],
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () =>
+            jsonResponse({
+              rounds: [
+                { roundId: 'round-409', startTime: '2026-07-05T00:00:00Z', endTime: '2026-07-05T18:00:00Z', closedAt: '2026-07-05T18:05:00Z' },
+              ],
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', notClosedFetch);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
+      await waitFor(() =>
+        expect(
+          screen.getByText('This round hasn’t closed yet — its live leaderboard is under “This round (live).”'),
+        ).toBeInTheDocument(),
+      );
+
+      // The two messages are distinct strings, not a shared generic one.
+      expect(screen.queryByText("This round couldn’t be found.")).not.toBeInTheDocument();
+    });
+
+    it('REQ406/407/408: the all-time scope keeps its own existing 15s poll/"Load more" behavior after switching scopes and back', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        [
+          '/leagues/global/leaderboard',
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-1', 'Alex', 10)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('10 pts')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      await waitFor(() =>
+        expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument(),
+      );
+
+      fireEvent.click(screen.getByRole('tab', { name: 'All-time' }));
+      expect(screen.getByText('Alex')).toBeInTheDocument();
+      expect(screen.getByText('10 pts')).toBeInTheDocument();
+    });
   });
 });
