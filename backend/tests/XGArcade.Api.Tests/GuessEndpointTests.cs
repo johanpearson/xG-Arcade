@@ -93,8 +93,16 @@ public class GuessEndpointTests
     // /internal/generate-round entirely) plus one Player who satisfies that
     // cell's row/col categories — enough to exercise guess submission
     // end-to-end without depending on the real Wikidata HTTP client.
+    private Task<(Guid RoundId, Guid CellId, string CorrectAnswerName)> SeedRoundWithCellAsync(
+        DateTime startTime, DateTime endTime, bool allowGuessChange) =>
+        SeedRoundWithCellAsync(startTime, endTime, allowGuessChange, photoUrl: null);
+
+    // REQ-214: photoUrl defaults to null (today's every-other-test shape,
+    // regression-covered by REQ201_Guess_Post_ActiveRound_StoresGuess_
+    // AndReturnsCorrectnessImmediately below asserting ResolvedPlayerPhotoUrl
+    // is null) — only the dedicated REQ214 tests pass a real value.
     private async Task<(Guid RoundId, Guid CellId, string CorrectAnswerName)> SeedRoundWithCellAsync(
-        DateTime startTime, DateTime endTime, bool allowGuessChange)
+        DateTime startTime, DateTime endTime, bool allowGuessChange, string? photoUrl)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -121,7 +129,7 @@ public class GuessEndpointTests
             ],
         });
 
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = $"Qplayer-{Guid.NewGuid()}", PhotoUrl = photoUrl };
         dbContext.Players.Add(player);
         dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
         dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
@@ -222,6 +230,7 @@ public class GuessEndpointTests
         Assert.That(body.AttemptCount, Is.EqualTo(1));
         Assert.That(body.Locked, Is.True);
         Assert.That(body.ResolvedPlayerName, Is.EqualTo(correctAnswer), "frontend name-display fix: a correct guess's canonical name is returned in the same response");
+        Assert.That(body.ResolvedPlayerPhotoUrl, Is.Null, "REQ-214: no photo was seeded for this player, so the field must be absent, not an error");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -333,6 +342,64 @@ public class GuessEndpointTests
 
         var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
         Assert.That(body!.ResolvedPlayerName, Is.EqualTo(correctAnswer), "the display name must be the canonical Player.FullName, not the raw as-typed guess");
+    }
+
+    // ---- REQ-214: photo reveal alongside the resolved player name ---------
+
+    [Test]
+    public async Task REQ214_Guess_Post_CorrectGuess_ReturnsResolvedPlayerPhotoUrl_WhenPlayerHasPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        const string photoUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg";
+        var (roundId, cellId, correctAnswer) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true, photoUrl);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(correctAnswer));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.ResolvedPlayerName, Is.EqualTo(correctAnswer));
+        Assert.That(body.ResolvedPlayerPhotoUrl, Is.EqualTo(photoUrl));
+    }
+
+    [Test]
+    public async Task REQ214_Guess_Post_CorrectGuess_ResolvedPlayerPhotoUrlIsNull_WhenPlayerHasNoPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, correctAnswer) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true, photoUrl: null);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(correctAnswer));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.ResolvedPlayerName, Is.EqualTo(correctAnswer), "REQ-212's name reveal must fall back unaffected when no photo exists");
+        Assert.That(body.ResolvedPlayerPhotoUrl, Is.Null, "no photo is a normal case, never an error/broken-image placeholder");
+    }
+
+    [Test]
+    public async Task REQ214_Guess_Post_IncorrectGuess_ResolvedPlayerPhotoUrlIsNull_EvenWhenAPlayerWithAPhotoExists()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true,
+            photoUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Someone Else Entirely"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.IsCorrect, Is.False);
+        Assert.That(body.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, unchanged from REQ-212's rule for names");
     }
 
     // ---- REQ-210: two guesses per cell, locked immediately on correct -----

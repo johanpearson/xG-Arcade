@@ -20,7 +20,7 @@ public class RoundGenerationService(
     RoundSchedulingOptions options,
     TimeProvider timeProvider) : IRoundGenerationService
 {
-    public async Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, CancellationToken cancellationToken = default)
+    public async Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
     {
         var latest = await roundRepository.GetLatestByGameKeyAsync(options.GameKey, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
@@ -66,7 +66,10 @@ public class RoundGenerationService(
             GameKey = options.GameKey,
             GameInstanceId = instance.Id,
             StartTime = startTime,
-            EndTime = startTime + options.RoundDuration,
+            // roundDurationOverride, when supplied, wins for this call only —
+            // it never mutates the shared RoundSchedulingOptions singleton
+            // (IRoundGenerationService's own doc comment).
+            EndTime = startTime + (roundDurationOverride ?? options.RoundDuration),
             AllowGuessChange = options.AllowGuessChange,
         };
 

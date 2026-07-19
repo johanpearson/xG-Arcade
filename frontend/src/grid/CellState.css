@@ -39,6 +39,150 @@
   overflow-wrap: anywhere;
 }
 
+/* REQ-214 (2026-07-18 status note): the correct cell's resolved-player
+   photo, filling the cell's full footprint at rest — replaces the prior
+   shipped 18px-circle-inside-the-name-row treatment entirely (see
+   CellState.tsx's CellPhoto doc comment for the full history).
+
+   S-050 update: the positioned ancestor this is absolutely placed against
+   is `.grid-table__cell` (Grid.css, the `<td>` itself), not `.grid-cell`
+   (the button) as originally shipped — real-browser measurement found the
+   original version left a real, visible gap between the photo and the
+   cell's actual bordered edge, exactly the size of `.grid-table__cell`'s
+   own separate padding layer, which nothing bypassed (see that rule's own
+   S-050 comment for the full before/after numbers and why the containing
+   block moved up a level rather than just zeroing that padding). `inset: 0`
+   here resolves to `.grid-table__cell`'s *padding* edge (the CSS spec's
+   containing-block rule for absolutely positioned descendants), which is
+   deliberately outside/ignoring that element's own padding — that's the
+   mechanism that lets the photo bleed to the cell's actual edges the way
+   the design mock shows, while neither `.grid-table__cell` nor `.grid-cell`
+   ever change size because of it (padding shifts what's *inside* the
+   border-box, never the border-box's own width/height under this app's
+   global `box-sizing: border-box`). `width: auto; height: auto` explicitly
+   override `.cell-state`'s own `width: 100%` above so the two don't
+   conflict with the `inset: 0` sizing. `overflow: hidden` +
+   `border-radius: inherit` clip the image to `.grid-cell`'s own rounded
+   corners (still inherited from the button via normal DOM-tree CSS
+   inheritance, completely unrelated to which element serves as the
+   *positioning* containing block above), since the photo now extends all
+   the way to them.
+
+   S-051 (2026-07-19, direct user choice, not a bug fix — see
+   design-document.md SCREEN-01a's S-051 status note): `background-color:
+   var(--color-surface-card)` added here, explicitly. Before this story this
+   element had no background of its own and relied on `.grid-cell`'s (the
+   button's) own `background: var(--color-surface-card)` (Grid.css) showing
+   through its transparent box in the areas the photo doesn't cover — true,
+   but incidental: nothing tied the two together, so a future change to
+   `.grid-cell`'s background (e.g. a new hover/state treatment) could
+   silently change what letterboxing looks like without anyone touching this
+   file. Now load-bearing here on purpose: `object-fit: contain` below (was
+   `cover`) means the photo no longer necessarily reaches every edge of this
+   box, so this background is what shows in the resulting letterbox strip
+   whenever the photo's aspect ratio doesn't match the cell's. Same token,
+   same value (`#ffffff`) either way — this change makes the dependency
+   explicit rather than changing what's actually painted. Written as the
+   `background-color` longhand rather than the `background` shorthand —
+   same reasoning as `.cell-state__overlay`'s padding longhands further down
+   this file: jsdom's CSSOM resolves a var()-only `background` shorthand to
+   its initial value (`rgba(0, 0, 0, 0)`) rather than preserving the token
+   reference the way a real browser's pending-substitution-value handling
+   does, which would make this un-assertable from a Vitest test; the
+   `background-color` longhand alone doesn't have that problem and renders
+   identically in a real browser either way. */
+.cell-state--photo {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  border-radius: inherit;
+  background-color: var(--color-surface-card);
+}
+
+/* The image itself is a second absolutely-positioned layer (relative to
+   .cell-state--photo, which establishes its own positioning context via the
+   rule above) so it's removed from that container's flex flow entirely —
+   sized purely by `inset: 0` + `object-fit`, never by the image's own
+   intrinsic dimensions, so an unusually tall/wide source photo still can't
+   change the cell's footprint (same guarantee the old fixed-18px-box used
+   to provide, just at full-cell scale now). z-index: 0 keeps it behind
+   .cell-state__overlay below.
+
+   S-051 (2026-07-19): `object-fit: contain` (was `cover`) — a direct,
+   explicit product decision, not a bug fix: the user asked "I want the full
+   picture to be visible within the cells, so they are not cut off," was
+   shown the trade-off (a differently-shaped photo may leave a thin
+   background strip on two sides of the cell), and chose "Show full photo,
+   allow empty space (letterbox)" over a crop-to-fill alternative. `contain`
+   scales the photo down to fit entirely within this box, preserving the
+   whole image — never crops it — at the cost of empty space (showing
+   `.cell-state--photo`'s own background above, now explicit) on two
+   opposite sides whenever the photo's aspect ratio doesn't match the cell's
+   (top/bottom for a wider-than-cell/landscape photo, left/right for a
+   taller-than-cell/portrait one). This is purely a fit-mode change — the
+   box itself is still sized by `inset: 0` + `width/height: 100%` below,
+   never by the image's own dimensions, so REQ-214's fixed-cell-footprint
+   guarantee is completely unaffected either way. */
+.cell-state__photo-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 0;
+  display: block;
+}
+
+/* design-document.md §2's `overlay-scrim` token (2026-07-18, REQ-214): a
+   solid, near-opaque band anchored to the bottom of the cell, behind
+   whatever's overlaid — not a wash across the whole photo, only behind the
+   content that needs to stay legible. `position: relative` + `z-index: 1`
+   keeps it (and everything inside it) stacked above .cell-state__photo-img.
+   The only normal-flow child of .cell-state--photo's column-flex layout, so
+   `justify-content: flex-end` above is what pins it to the bottom rather
+   than the top. **S-048 (2026-07-19):** this element is now only ever
+   mounted at all once `revealed` is true (CellState.tsx no longer renders
+   it at rest on a photo cell), and only ever carries the name and points —
+   no checkmark, no badge dock (see the removal notes further down this
+   file for both). Earlier stories' comments below, describing the
+   checkmark/badge-dock content that used to sit here, are kept for
+   history rather than rewritten.
+
+   S-047 (direct user feedback: "covers too much of the photo" on mobile —
+   see design-document.md's SCREEN-01a S-047 status note for the full
+   before/after numbers): padding tightened from a uniform --space-2 (8px)
+   to --space-1 vertical / --space-2 horizontal (4px/8px) — this alone,
+   plus the photo-variant-specific smaller type below, is what shrinks the
+   overlay's total footprint toward the ~35%-at-rest/~55%-revealed target,
+   without touching --color-overlay-scrim's own color/opacity (unchanged —
+   shrinking padding/type doesn't affect contrast, so none of that math
+   needed re-verification) and without a hard max-height/overflow:hidden
+   clip (rejected — see the design doc note for why clipping a long
+   revealed name is worse than a slightly-larger overlay). Written as four
+   explicit longhands rather than the `padding: var(--space-1) var(--space-2)`
+   shorthand — jsdom's CSSOM (unlike a real browser) doesn't expand a
+   multi-value shorthand containing var() references into its longhands at
+   all, which would make this un-assertable from a test the way
+   `CellState.test.tsx`'s S-047 padding test needs; longhands are
+   equally valid CSS and render identically in a real browser either way. */
+.cell-state__overlay {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  background: var(--color-overlay-scrim);
+}
+
 /* S-040: margin-left: auto (not just the row's justify-content:
    space-between) is what keeps the icon pinned to the right edge even when
    it's the row's only child — states 1/4 render the icon alone at rest
@@ -80,6 +224,116 @@
   color: var(--color-accent-red);
 }
 
+/* design-document.md §2's `overlay-scrim` token doc comment: on this dark
+   backdrop, `accent-gold` (not `accent-gold-text`) is the variant that
+   actually clears the contrast floor for the points value — the reverse of
+   every other correct-state color rule above. Placed after those rules on
+   purpose: `.cell-state--photo .cell-state__meta` (0,2,0) ties
+   `.cell-state--correct .cell-state__meta` (0,2,0) above, so source order
+   is what makes this one win — reordering it earlier would silently lose
+   the tie.
+
+   S-047: font-size drops to 10px here (from the base .cell-state__meta's
+   11px above) — one of this story's overlay-coverage reductions (design
+   doc's SCREEN-01a S-047 status note); the no-photo case keeps the base
+   11px unchanged. Color is unaffected by this addition. */
+.cell-state--photo .cell-state__meta {
+  color: var(--color-accent-gold);
+  font-size: 10px;
+}
+
+/* S-048 removal note (2026-07-19): this file used to carry two photo-variant
+   checkmark rules here — `.cell-state--photo .cell-state__icon { font-size:
+   11px; }` (S-047's size reduction) and `.cell-state--photo
+   .cell-state__icon--correct { color: var(--color-accent-green-scrim); }`
+   (the 2026-07-19 REQ-214 green-checkmark exception, design-document.md §2's
+   `accent-green-scrim` row) — both removed in this same story, not just
+   superseded, because the checkmark itself no longer renders anywhere inside
+   `.cell-state--photo` (CellState.tsx's photo branch no longer uses the
+   `Row` component at all — see "at rest, only picture; on click name +
+   points only" in that file). Left as dead, unreachable CSS would be worse
+   than removing it outright; `--color-accent-green-scrim` itself is kept
+   defined (design-document.md §2, `index.css`) as a documented-but-dormant
+   exception in case a checkmark is deliberately reintroduced to this overlay
+   later, per this repo's own history. */
+
+/* The revealed name itself (REQ-212, unrelated to the icon/meta pair above)
+   has no correct/incorrect semantic color of its own — it normally uses
+   --color-text-primary (near-black), which is illegible against this same
+   near-black scrim (confirmed visually, real-browser check). --color-surface-card
+   (white) is the closest already-defined token with the right luminance for
+   this dark backdrop, reused here the same way --color-accent-gold is reused
+   above rather than inventing a new token for what's really just "the
+   lightest neutral already in the system." */
+/* S-047: font-size/line-height tightened here too (12px/1.2, down from the
+   base .cell-state__name's un-set ~16px/1.5 browser default) — the revealed
+   name is the piece most likely to force the row to wrap on a narrow photo
+   cell, so it's the biggest single contributor to the overlay's height once
+   revealed; the no-photo case is unaffected.
+
+   S-047 bug found during this story's own required real-browser
+   verification (not anticipated in the original bug description, the same
+   class of gap S-041/REQ-214's own real-browser checks each found once
+   before): `.cell-state--photo` clips its content to the cell's rounded
+   corners (`overflow: hidden`, needed so the photo itself doesn't bleed
+   past them) — but the revealed name is bottom-anchored inside that same
+   clipped box (`justify-content: flex-end`), so a wrapped name grew taller
+   than the cell itself and had its *top* silently clipped away; in the
+   worst observed case, a genuinely long name (e.g. a full Brazilian name)
+   with 2 lines allowed left only a fragment from the *middle* of the name
+   visible (the top line clipped away, the bottom line's own tail already
+   truncated) — worse than showing nothing meaningful. `-webkit-line-clamp: 1`
+   (paired with `display: -webkit-box`/`-webkit-box-orient: vertical`, the
+   standard multi-line-truncation pattern, supported in every evergreen
+   browser despite the vendor-prefixed property name) caps the name to a
+   single line with a trailing ellipsis instead — always shows the
+   *beginning* of the name (however much fits) rather than an
+   unpredictable, clipping-dependent middle fragment, and its one-line
+   height reliably fits the available space once the badge dock is hidden
+   below. Tried with a 2-line clamp first; switched to 1 after real-browser
+   verification showed 2 lines could still exceed the remaining space and
+   get clipped from the top the same way, whereas 1 line's height is small
+   enough to actually fit alongside the points line in every case observed
+   (S-048, 2026-07-19: that points line no longer shares this overlay with
+   a checkmark at all — see the removal note above this section — but the
+   clamp/fit reasoning here is otherwise unchanged). */
+.cell-state--photo .cell-state__name {
+  color: var(--color-surface-card);
+  font-size: 12px;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+
+/* S-049 (design-document.md §4's "Grid cell target size at desktop" note):
+   a correct photo cell's ≥960px footprint grew from 64px to 120px
+   (Grid.css) — real-browser verification for this story found the S-047
+   overlay type sizes above (tuned for a ~90-110px *mobile* cell) read as
+   noticeably undersized once the cell itself nearly doubled, part of the
+   user's own "cell + picture should look nice" complaint. Scaled up in the
+   same proportion S-047 scaled them down, not reverted to the pre-S-047
+   uniform --space-2 padding (there's no coverage-percentage problem to
+   re-solve here, only a legibility one) — the mobile (<960px) sizes below
+   this block are completely unaffected. */
+@media (min-width: 960px) {
+  .cell-state--photo .cell-state__overlay {
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+
+  .cell-state--photo .cell-state__name {
+    font-size: 15px;
+  }
+
+  .cell-state--photo .cell-state__meta {
+    font-size: 12px;
+  }
+}
+
 /* design-document.md §2 "Signature element: badge dock" — the row/column
    badge slides inward from either side and settles beside the player name
    the moment it becomes visible. S-041: that moment is now a click/tap on
@@ -94,6 +348,22 @@
   font-size: 14px;
   flex-shrink: 0;
 }
+
+/* S-048 removal note (2026-07-19): this file used to carry a defensive
+   `.cell-state--photo .cell-state__badge-dock { display: none; }` rule here
+   (S-047's fix for the badge dock crowding out the revealed name on a photo
+   cell). Removed, not just left in place "just in case": as of S-048,
+   CellState.tsx's photo branch never renders `Row` or any badge-dock markup
+   at all (only a plain name + points overlay), so `.cell-state__badge-dock`
+   can no longer exist anywhere inside `.cell-state--photo` in the first
+   place — the selector is provably unreachable, not merely redundant. If a
+   badge dock is ever deliberately reintroduced to the photo-revealed
+   overlay, that change would need to consciously re-decide this rule
+   alongside it, the same way it would need to re-decide the checkmark
+   removal noted above — kept here as a pointer for that future change
+   rather than speculative dead CSS today. The badge-dock hide behavior for
+   this story's no-photo case is unaffected: it never had one, and still
+   doesn't. */
 
 .cell-state--reveal .cell-state__badge-dock--row {
   animation: cell-state-badge-dock-in-row 0.4s ease-out;

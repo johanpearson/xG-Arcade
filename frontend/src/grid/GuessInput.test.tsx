@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuessInput } from './GuessInput';
 import type { CurrentRoundCell } from '../lib/types';
 
@@ -18,33 +18,60 @@ function makeCell(overrides: Partial<CurrentRoundCell> = {}): CurrentRoundCell {
   };
 }
 
-// SCREEN-02: plain text input, no autocomplete (REQ-207 deferred / Tier 0).
+function jsonResponse(body: unknown, status = 200) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  } as Response);
+}
+
+// A fetch stub that never resolves any suggestions — used by tests that
+// aren't exercising autocomplete at all, so a debounced fetch that might
+// still fire in the background (e.g. from typing a long guess) has
+// something harmless to hit rather than a real network call.
+function stubNoSuggestions() {
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse([])));
+}
+
+// SCREEN-02: bottom sheet on mobile / inline popover on desktop.
+// REQ-207 (S-032): PlayerNameIndex-backed autocomplete suggestions — see
+// the REQ207-prefixed tests below for this story's own acceptance criteria.
 describe('GuessInput', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
   it('REQ-201: shows the category header with both flag and club badge context', () => {
-    render(<GuessInput cell={makeCell()} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    stubNoSuggestions();
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('France')).toBeInTheDocument();
     expect(screen.getByText('Arsenal')).toBeInTheDocument();
   });
 
   it('REQ-210: shows no attempt count line for an untried cell', () => {
-    render(<GuessInput cell={makeCell()} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    stubNoSuggestions();
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.queryByText(/attempts used/)).not.toBeInTheDocument();
   });
 
   it('REQ-210: shows the attempt count once at least one attempt has been used', () => {
+    stubNoSuggestions();
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 1, locked: false } });
-    render(<GuessInput cell={cell} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('1 of 2 attempts used')).toBeInTheDocument();
   });
 
   it('REQ-201: submits the typed name and closes on success', async () => {
+    stubNoSuggestions();
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
-    render(<GuessInput cell={makeCell()} onSubmit={onSubmit} onClose={onClose} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
@@ -54,10 +81,11 @@ describe('GuessInput', () => {
   });
 
   it('REQ-202: shows the server error detail and stays open on failure', async () => {
+    stubNoSuggestions();
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockRejectedValue(new Error('No attempts remaining'));
     const onClose = vi.fn();
-    render(<GuessInput cell={makeCell()} onSubmit={onSubmit} onClose={onClose} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Someone');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
@@ -67,10 +95,155 @@ describe('GuessInput', () => {
   });
 
   it('REQ-210: hides the input entirely once the cell is locked', () => {
+    stubNoSuggestions();
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 2, locked: true } });
-    render(<GuessInput cell={cell} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.queryByLabelText('Player name')).not.toBeInTheDocument();
     expect(screen.getByText(/locked/i)).toBeInTheDocument();
+  });
+
+  it('REQ207_showsSuggestionsAfterTwoCharacters: fetches and renders suggestions once the trimmed query reaches the 2-character minimum, and not before', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse([
+        { playerId: 'p1', name: 'Thierry Henry', birthYear: 1977, nationality: 'France' },
+        { playerId: 'p2', name: 'Theo Hernandez' },
+      ]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Player name'), 'T');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Player name'), 'h');
+    await vi.advanceTimersByTimeAsync(500);
+
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+    expect(screen.getByText('Thierry Henry')).toBeInTheDocument();
+    expect(screen.getByText('Theo Hernandez')).toBeInTheDocument();
+    // Disambiguation context is shown, but never anything implying validity.
+    expect(screen.getByText('France · 1977')).toBeInTheDocument();
+  });
+
+  it('REQ207_debouncesRapidTyping: waits for a pause in typing before firing a single suggestions request, not one per keystroke', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse([{ playerId: 'p1', name: 'Thierry Henry' }]),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+
+    const field = screen.getByLabelText('Player name');
+    await user.type(field, 'Th');
+    await vi.advanceTimersByTimeAsync(100);
+    await user.type(field, 'ie');
+    await vi.advanceTimersByTimeAsync(100);
+    await user.type(field, 'rry');
+
+    // Still within the debounce window of the last keystroke — no request
+    // fired yet despite 5 keystrokes having landed by now.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toContain('query=Thierry');
+  });
+
+  it('REQ207_selectingFillsInputWithoutSubmitting: selecting a suggestion fills the field but does not submit the guess', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse([{ playerId: 'p1', name: 'Thierry Henry', nationality: 'France' }]),
+      ),
+    );
+
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Player name'), 'Th');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(screen.getByRole('option', { name: /Thierry Henry/ })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('option', { name: /Thierry Henry/ }));
+
+    expect(screen.getByLabelText('Player name')).toHaveValue('Thierry Henry');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // The player still has to explicitly click Submit — selecting never
+    // auto-submits (REQ-207: suggestion ≠ correctness).
+    await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('Thierry Henry'));
+  });
+
+  it('REQ207_keyboardNavigation: arrow keys move through suggestions, Enter picks the highlighted one, Escape dismisses the list', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse([
+          { playerId: 'p1', name: 'Thierry Henry' },
+          { playerId: 'p2', name: 'Theo Hernandez' },
+        ]),
+      ),
+    );
+
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+
+    const field = screen.getByLabelText('Player name');
+    await user.type(field, 'Th');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+
+    // Escape dismisses the list without touching the typed text.
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(field).toHaveValue('Th');
+
+    // Re-open, then navigate with arrows and pick with Enter.
+    await user.type(field, 'i');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+    // Two ArrowDowns from -1 lands on index 1 (Theo Hernandez).
+    expect(field).toHaveValue('Theo Hernandez');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('REQ207_failedFetchNeverBlocksSubmission: a failed suggestions fetch shows no suggestions but still allows submitting the guess', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
+
+    await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
+    await vi.advanceTimersByTimeAsync(500);
+
+    // The failed background fetch never surfaces as a form error and never
+    // renders a suggestion list.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/failed to fetch/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('Thierry Henry'));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });

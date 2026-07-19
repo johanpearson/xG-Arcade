@@ -54,3 +54,10 @@ If you had to make a judgment call the design doc didn't cover, add it
 back to `docs/design-document.md` in the same session — don't leave the
 doc out of sync with what actually got built. Flag it explicitly rather
 than treating it as a minor implementation detail not worth documenting.
+
+Run the frontend verification that's always available in this sandbox
+(`npm run test`, `tsc -b`, `npm run lint` from `/frontend`) and note that
+Playwright E2E only runs in CI — if your change alters behavior the E2E
+specs assert on (grep `frontend/tests/e2e`), update the specs in the same
+change rather than letting CI find it (the S-029 lesson). Non-trivial
+changes then go through `/quality-gate` before being considered done.

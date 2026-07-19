@@ -37,7 +37,7 @@ jobs:
       - run: dotnet test backend/XGArcade.sln --no-build --configuration Release --logger "trx"
       - name: Publish backend test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: Backend test results
           path: "backend/**/TestResults/*.trx"
@@ -54,7 +54,7 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -63,7 +63,7 @@ jobs:
       - run: npm run test
       - name: Publish frontend unit test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: Frontend unit test results
           path: "frontend/test-results/vitest-junit.xml"
@@ -86,7 +86,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -103,7 +103,7 @@ jobs:
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
@@ -145,7 +145,7 @@ jobs:
           VITE_API_BASE_URL: http://localhost:8080
       - name: Publish E2E test results
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: E2E test results
           path: "frontend/test-results/e2e-junit.xml"

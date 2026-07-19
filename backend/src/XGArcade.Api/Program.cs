@@ -10,6 +10,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Leagues;
+using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
@@ -100,6 +101,115 @@ if (args is ["warm-player-cache"])
     return;
 }
 
+// S-032 (ADR-0007/REQ-207): `dotnet run -- import-player-name-index` is a
+// fifth distinct CLI verb — same shape as warm-player-cache above (builds
+// its dependencies directly rather than the full DI container, since it
+// runs before WebApplication.CreateBuilder), run manually via its own
+// workflow (import-player-name-index.yml, workflow_dispatch only, no
+// schedule — ADR-0007's own follow-up note says start with a manual/
+// periodic refresh, tighten only if names are noticeably missing). See
+// PlayerNameIndexImporter's own doc comment for the full "why a CLI verb,
+// not an HTTP endpoint or background task" reasoning (ADR-0024).
+if (args is ["import-player-name-index"])
+{
+    var importConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var importConnectionString = importConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var importDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(importConnectionString)
+        .Options;
+
+    using var importLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var importDbContext = new XGArcadeDbContext(importDbContextOptions);
+    var importRepository = new PlayerNameIndexRepository(importDbContext);
+
+    using var importHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(importHttpClient);
+    // 60s, deliberately kept after the 2026-07-18 birth-year-slicing fix
+    // (NOTES.md): WDQS enforces its own hard ~60s SERVER-side timeout, so a
+    // client timeout above 60s can never help — 60s means this client only
+    // gives up when WDQS itself would. The bounded one-year slice queries
+    // normally answer well inside WikidataClient's 15s default (ADR-0011,
+    // tuned for the per-cell intersection queries), but the densest recent
+    // birth years return tens of thousands of label-joined rows and this is
+    // a manually-triggered batch job with no request-latency constraint —
+    // waiting the full server budget per slice costs nothing, while a
+    // too-tight client timeout would spuriously fail slices the server was
+    // still going to answer. Do NOT raise this above 60s: the server cap
+    // binds first, so a larger number is pure self-deception (that mistake
+    // was already made once — see NOTES.md's 2026-07-17/18 entries).
+    var importWikidataClient = new WikidataClient(
+        importHttpClient,
+        queryTimeout: TimeSpan.FromSeconds(60),
+        logger: importLoggerFactory.CreateLogger<WikidataClient>());
+
+    // No timeProvider/retryBackoff overrides: TimeProvider.System bounds the
+    // year range (fine for a CLI job) and the default retry backoff applies.
+    // ImportAsync THROWS if any birth-year slice fails all its retries —
+    // deliberately unhandled here so the process exits nonzero and the
+    // import-player-name-index.yml run goes red instead of "exit 0,
+    // imported 0" (the 2026-07-18 incident).
+    var importer = new PlayerNameIndexImporter(
+        importWikidataClient, importRepository, importLoggerFactory.CreateLogger<PlayerNameIndexImporter>());
+
+    var importedCount = await importer.ImportAsync();
+
+    Console.WriteLine($"import-player-name-index: upserted {importedCount} PlayerNameIndex row(s).");
+    return;
+}
+
+// REQ-214 backfill (S-045): `dotnet run -- backfill-player-photos` is a
+// sixth distinct CLI verb — same shape as warm-player-cache above (builds
+// its dependencies directly rather than the full DI container, since it
+// runs before WebApplication.CreateBuilder), run manually via its own
+// workflow (backfill-player-photos.yml, workflow_dispatch only). See
+// PlayerPhotoBackfillService's own doc comment for the full "why a CLI
+// verb, not an HTTP endpoint or background task" reasoning — squarely
+// inside ADR-0024's existing decision, not a new one.
+if (args is ["backfill-player-photos"])
+{
+    var backfillConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var backfillConnectionString = backfillConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var backfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(backfillConnectionString)
+        .Options;
+
+    using var backfillLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
+    var backfillPlayerStoreRepository = new PlayerStoreRepository(backfillDbContext);
+
+    using var backfillHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(backfillHttpClient);
+    var backfillWikidataClient = new WikidataClient(
+        backfillHttpClient, logger: backfillLoggerFactory.CreateLogger<WikidataClient>());
+
+    var backfillService = new PlayerPhotoBackfillService(
+        backfillPlayerStoreRepository, backfillWikidataClient,
+        backfillLoggerFactory.CreateLogger<PlayerPhotoBackfillService>());
+
+    var backfillResult = await backfillService.BackfillAsync();
+
+    Console.WriteLine(
+        $"backfill-player-photos: complete — {backfillResult.BatchesProcessed} batch(es) processed, " +
+        $"{backfillResult.PlayersBackfilled} player(s) backfilled, {backfillResult.BatchesFailed} batch(es) failed.");
+    return;
+}
+
 // S-037: `dotnet run -- clean-stale-club-attributes "<comma-separated club names>"`
 // is a third distinct CLI verb — see StaleClubAttributeCleaner's own doc
 // comment for the full reasoning (why this exists, and why it's manual and
@@ -109,6 +219,14 @@ if (args is ["warm-player-cache"])
 // name, so a name containing a space (e.g. "AS Roma") survives a
 // GitHub Actions workflow_dispatch text input intact without any shell
 // word-splitting/quoting risk.
+//
+// The literal argument `--all-clubs` (instead of a name list) resolves the
+// club names from the ClubDefinition reference table at runtime — for
+// recoveries that invalidate every seeded club at once (like the truthy
+// wdt:P54 query bug; see StaleClubAttributeCleaner.CleanAllSeededClubsAsync),
+// where hand-typing ~32 names is exactly the typo surface that silently
+// leaves a misspelled club stale. Still the same manual, workflow_dispatch-
+// only friction as the named mode — never wired into migrate-and-seed.
 //
 // Matched on the verb alone (not the full ["...", var arg] shape) so a
 // malformed invocation — the names argument missing or blank, e.g. an empty
@@ -121,10 +239,8 @@ if (args is ["clean-stale-club-attributes", ..])
     var cleanClubNamesArg = args.Length > 1 ? args[1] : null;
     if (string.IsNullOrWhiteSpace(cleanClubNamesArg))
         throw new InvalidOperationException(
-            "clean-stale-club-attributes requires a comma-separated club names argument, e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"`.");
-
-    var cleanClubNames = cleanClubNamesArg
-        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            "clean-stale-club-attributes requires a comma-separated club names argument (or the literal `--all-clubs`), " +
+            "e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"` or `clean-stale-club-attributes --all-clubs`.");
 
     var cleanConfig = new ConfigurationBuilder()
         .AddEnvironmentVariables()
@@ -138,7 +254,36 @@ if (args is ["clean-stale-club-attributes", ..])
         .Options;
 
     await using var cleanDbContext = new XGArcadeDbContext(cleanDbContextOptions);
-    var (removedAttributeCount, removedDataCount) = await StaleClubAttributeCleaner.CleanAsync(cleanDbContext, cleanClubNames);
+
+    int removedAttributeCount;
+    int removedDataCount;
+    IReadOnlyList<string> cleanClubNames;
+    if (cleanClubNamesArg.Trim() == "--all-clubs")
+    {
+        (removedAttributeCount, removedDataCount, cleanClubNames) =
+            await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(cleanDbContext);
+    }
+    else
+    {
+        cleanClubNames = cleanClubNamesArg
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // A mistyped flag (e.g. `--all-club`, or single-dash `-all-clubs`)
+        // would otherwise fall through to the named mode, match no club,
+        // and print a plausible-looking "removed 0 rows" success — the
+        // exact silent-typo failure mode the `--all-clubs` mode exists to
+        // close. REQ-111: any `-`-prefixed token fails loudly. No seeded
+        // club name starts with `-`, so this can never reject a real club
+        // list.
+        var flagLikeToken = cleanClubNames.FirstOrDefault(name => name.StartsWith("-", StringComparison.Ordinal));
+        if (flagLikeToken is not null)
+            throw new InvalidOperationException(
+                $"clean-stale-club-attributes got the flag-like token '{flagLikeToken}' (`-` prefix) — " +
+                "the only supported flag is the exact literal `--all-clubs`.");
+
+        (removedAttributeCount, removedDataCount) =
+            await StaleClubAttributeCleaner.CleanAsync(cleanDbContext, cleanClubNames);
+    }
 
     Console.WriteLine($"clean-stale-club-attributes: removed {removedAttributeCount} PlayerAttribute row(s) and {removedDataCount} PlayerData row(s) for: {string.Join(", ", cleanClubNames)}.");
     return;
@@ -232,6 +377,12 @@ builder.Services.AddDbContext<XGArcadeDbContext>(options =>
 builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
 builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
 
+// COMP-10 (Data.PlayerNameIndex) — REQ-207's autocomplete-only data source,
+// deliberately a separate repository/interface from IPlayerStoreRepository
+// above (never merged — see ADR-0007 and architecture-document.md boundary
+// rule 5).
+builder.Services.AddScoped<IPlayerNameIndexRepository, PlayerNameIndexRepository>();
+
 // COMP-01 (Core.Users) — the only path to the local User profile table.
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 // REQ-710: reusable anonymize/delete logic — AuthController's self-service
@@ -269,17 +420,22 @@ builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 // below — DI resolves the dependency graph regardless of registration
 // order, so the forward reference here is fine.
 builder.Services.AddSingleton(TimeProvider.System);
-// RoundDuration must be at least as long as the longest gap between two
-// consecutive generate-round.yml cron firings (Tue+Fri weekly: Fri->Tue is
-// 4 days, the longer of its two alternating gaps), or a round can close
-// before the next scheduled run generates its successor — see
+// RoundDuration's default is now appsettings-bound (same pattern as
+// Internal:JobToken below) rather than hardcoded — REQ-301's "play
+// frequency can be adjusted without a code change": change
+// RoundScheduling:RoundDurationHours (or the deployed Container App's
+// RoundScheduling__RoundDurationHours env var) instead of editing this
+// file. generate-round.yml's cron is daily and, thanks to
+// RoundGenerationService's own idempotency check, only actually generates a
+// new round roughly every RoundDuration — it no longer needs hand-matching
+// against this value the way the old Tue/Fri cadence did. See
 // RoundSchedulingOptions' own doc comment and NOTES.md for the full
-// derivation. Change this together with generate-round.yml's cron, never
-// independently.
+// derivation.
+var roundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:RoundDurationHours") ?? 48;
 builder.Services.AddSingleton(new RoundSchedulingOptions
 {
     GameKey = GridGameModule.XGGridGameKey,
-    RoundDuration = TimeSpan.FromDays(4),
+    RoundDuration = TimeSpan.FromHours(roundDurationHours),
 });
 builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
@@ -461,6 +617,7 @@ app.MapAdminEndpoints();
 // S-026: REQ-505/506, non-Production only — see that file's own doc comment
 // for why these are kept separate from MapAdminEndpoints above.
 app.MapAdminManagementEndpoints();
+app.MapPlayerAutocompleteEndpoints();
 
 app.Run();
 

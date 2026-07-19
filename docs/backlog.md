@@ -920,6 +920,81 @@ become trivially easy to solve via what does/doesn't autocomplete
 name matching exists), S-006 (Wikidata client exists to extend for the
 bulk query).
 
+**Built as (2026-07-17, backend only — a frontend agent is wiring the UI
+against this same contract in parallel):** `PlayerNameIndex` entity/table
+(`PlayerNameIndexEntries`, keyed by `PlayerId`, `HasIndex(NormalizedName)`)
+plus `IPlayerNameIndexRepository`/`PlayerNameIndexRepository`
+(`SearchByPrefixAsync`, `UpsertManyAsync`) in `XGArcade.Data` — a
+deliberately separate interface from `IPlayerStoreRepository`/COMP-06, never
+merged, per ADR-0007/boundary rule 5. `GET /players/autocomplete?query=&limit=`
+(`XGArcade.Api.Players.PlayerAutocompleteEndpoints`, bearer-token
+authenticated, response `{ playerId, name, birthYear?, nationality? }[]`):
+a query under 2 characters (trimmed) returns `[]` without querying the
+repository; `limit` defaults to 10, clamped server-side to 25 regardless of
+what's requested. `WikidataClient.QueryPlayerPoolPageAsync` is the new bulk,
+paginated (5,000 rows/page, loop until an empty page) `P106`=`Q937857`
+query, same male-only/born-1939-or-later filter as the intersection
+queries, deliberately no `P54`. `PlayerNameIndexImporter` (the
+`import-player-name-index` CLI verb, ADR-0024, `import-player-name-index.yml`
+workflow_dispatch-only) drives the page loop and upserts.
+
+Two deviations from how this story was originally scoped, both forced by
+the existing project-reference graph rather than a judgment call:
+- `PlayerNameIndexImporter` lives in `XGArcade.DataSync.Wikidata`
+  (alongside `WikidataLookupService`), not `XGArcade.Data/Seeding` alongside
+  `ReferenceDataSeeder`/`StaleClubAttributeCleaner` — `XGArcade.Data` has no
+  project reference to `XGArcade.DataSync` (only the reverse), so a class
+  needing both `IWikidataClient` and `IPlayerNameIndexRepository` cannot
+  live in `XGArcade.Data` without a circular project reference, which the
+  build simply refuses.
+- `PlayerNameIndex` has no `WikidataQid` column (matching the entity sketch
+  exactly), so `PlayerNameIndexImporter` derives `PlayerId` as a
+  deterministic hash of the QID (MD5's 16 bytes mapped onto a `Guid`) rather
+  than a fresh `Guid.NewGuid()` per run — otherwise every re-import would
+  duplicate every player's row instead of correcting it in place. Flagged
+  for `architecture-reviewer`/`quality-architect` review as a judgment call
+  made under ambiguity in the entity spec, not a pre-approved design.
+
+Backend test suite run in full this session (`dotnet` SDK installed fresh
+in this sandbox via `apt-get install dotnet-sdk-10.0`, per NOTES.md's
+documented fix): 361/361 passed across all five backend test projects (up
+from 328/328 pre-S-032; +33 new tests: `PlayerNameIndexRepositoryTests`,
+`WikidataClientTests`' new `QueryPlayerPoolPageAsync` coverage,
+`PlayerNameIndexImporterTests`, `PlayerAutocompleteEndpointTests`). A real
+EF Core migration (`AddPlayerNameIndex`) was generated via `dotnet ef
+migrations add`, not hand-written. New Wikidata QIDs: none — this story
+reuses `Q937857`/`Q6581097` (already in use elsewhere in `WikidataClient`),
+no new QID introduced.
+
+**Bug follow-up (2026-07-18): the pagination strategy above was wrong in
+production — replaced with birth-year slicing + fail-loud.** Every real
+run of `import-player-name-index.yml` upserted 0 rows and exited 0: the
+paged query's `ORDER BY ?player` over the entire unfiltered pool forced
+WDQS to sort hundreds of thousands of items per page, hitting WDQS's hard
+~60s *server-side* timeout on every page (PR #77's 60s client-timeout bump
+couldn't help — the server cap binds first), and the swallow-to-`[]`
+client contract made the importer read the first timed-out page as
+end-of-data. The S-032 quality review's "silent truncation ambiguity"
+finding turned out to be the 100% case. Fix:
+`WikidataClient.QueryPlayerPoolBirthYearAsync` replaces
+`QueryPlayerPoolPageAsync` — one bounded one-year `P569`-window query per
+birth year (1939 → current year, no `ORDER BY`/`LIMIT`/`OFFSET`/subquery),
+throwing `WikidataQueryException` on failure so an empty year is
+distinguishable from a failed query; `PlayerNameIndexImporter` iterates
+the years, retries a failed slice (3 attempts, backoff), finishes the
+remaining years, then throws (red workflow) if any slice failed — the
+"partial import is an accepted trade-off" paragraph is reversed. `P18`
+photo fetching and the `PhotoUrl` column were dropped
+(`RemovePlayerNameIndexPhotoUrl` migration) — the autocomplete contract
+never exposed a photo. The intersection queries' never-throw contract and
+the autocomplete endpoint/repository are untouched. Backend suite after
+the change: 367/367 across all five test projects (includes two
+quality-gate-requested tests pinning the caller-cancellation-vs-query-
+failure distinction in both `WikidataClient` and the importer). See
+`implementation-document.md` §6a and NOTES.md 2026-07-18; recorded as a
+bug fix within COMP-07's existing responsibility, no ADR (same precedent
+as S-042's truthy-P54 fix).
+
 **S-033 · Show point value on the "incorrect, no attempts left" cell state (REQ-204)**
 Frontend-only gap, flagged and left unfixed three times (originally around
 S-011, again at S-028): `CellState.tsx`'s state 3 (SCREEN-01a's "Incorrect,
@@ -990,6 +1065,40 @@ existing REQ401/404-named tests updated for the now-paginated response
 shape; `LeaderboardScreen.tsx` updated to consume pages (load-more or
 equivalent — no new SCREEN-xx design needed, this is existing SCREEN-03
 behavior catching up to a real data shape). *Deps:* S-011.
+**Built as:** matches the plan closely. Backend: `cursor`/`pageSize` query
+params (default `pageSize` 50, max 100; `cursor` defaults to 0, last-seen
+global rank), a negative `cursor` or an out-of-range `pageSize` → 400,
+an out-of-range-but-valid `cursor` (stale, from a since-shrunk league) →
+empty page rather than an error. `LeaderboardEntry`/`LeaderboardRowResponse`
+gained an explicit `Rank` field (1-based, global, not page-local) since the
+frontend previously derived rank from array index, which breaks once a
+page can start mid-list. `LeaderboardService` still composes the full
+membership list and ranks/slices in memory rather than pushing `ORDER
+BY`/`LIMIT` to the database — an accepted MVP-scale tradeoff (bounds the
+response, not the query), matching `implementation-document.md` §6's own
+note that the cursor-shaped contract, not the storage strategy, is what
+must not need to change later. Tests: `LeaderboardServiceTests.cs`
+(Core-level, REQ401/404 updated + new REQ607 cases) and new
+`LeaderboardEndpointTests.cs` (API-level: query-param validation 400s,
+boundary values `pageSize`=1/100, response-shape/cursor round-trip).
+Frontend: `LeaderboardScreen.tsx` gained a "Load more" button appending
+subsequent pages and a pinned "you" footer for when the requesting user's
+row is off the currently-loaded page(s); the existing 15s poll now
+refreshes only page 1. One bug found and fixed during the quality gate,
+not part of the original spec: a player whose rank crosses the
+page-1/page-2 boundary between poll ticks could appear twice (once in the
+fresh page-1 response, once still in the stale trailing rows from an
+earlier "Load more") — fixed by de-duplicating the stale trailing rows
+against the fresh page-1 response's user IDs before merging. Tests:
+`LeaderboardScreen.test.tsx` extended (load-more behavior, poll-only-
+refreshes-page-1, the you-footer, and the page-1-reorder dedup regression).
+Full backend suite run (`dotnet test`, SDK installed mid-session per
+`NOTES.md`'s documented fix — the first sandbox session to actually verify
+this, not just hand-trace it): 328/328 passed across all five backend test
+projects, no regressions. Frontend suite (`npm run test`, `tsc -b`, lint)
+also passes clean (96/96 tests). Architecture-reviewer pass: no boundary/
+data-flow change, no ADR needed — the pagination shape was already fully
+pre-specified in `implementation-document.md` §6 before this story.
 
 **S-028 · Golf-style (lowest-wins) scoring model (REQ-203/204/205/206/401/404, ADR-0021)**
 Direct product feedback, immediately after S-022 shipped: the requested
@@ -1641,6 +1750,853 @@ added. 85/85 Vitest tests pass, `tsc -b --noEmit` clean.
 to match the new at-rest cell content but was logic-reviewed only, not
 executed (no live backend available in this environment) — a known gap,
 not a passing confirmation, until it's run against a real deployment.
+
+**S-042 · Fix truthy `wdt:P54` dropping historical clubs; all-clubs stale-cache recovery (REQ-113, REQ-111)**
+Incident-driven bugfix, orchestrated as a bug rather than a planned story
+(entry added retroactively, same as the S-033/S-035/S-037 precedent): a
+genuinely correct guess (Sandro Tonali × AC Milan) scored incorrect. Both
+`WikidataClient` intersection builders matched clubs via Wikidata's truthy
+`wdt:P54` shortcut — a best-rank-only view, so a preferred-ranked *current*
+club silently suppressed every normal-rank historical club, reducing "ever
+played for" to "currently plays for." See NOTES.md's 2026-07-17 entry for
+the full incident writeup and operator recovery order.
+*Accept:* both builders match P54 via the full statement path
+(`p:P54`/`ps:P54`) excluding only `wikibase:DeprecatedRank`, with two
+distinct statement variables in the club-club builder; REQ113-named
+query-shape tests prove the sent SPARQL for both; a recovery path exists
+for the fact that every seeded club's cached data was incomplete at once
+(re-warming alone can't fix partial pairs — the warming service skips
+pairs already at `MinValidAnswers`). *Deps:* S-006, S-030, S-036, S-037.
+**Built as:** query fix exactly as above (`WikidataClient.cs`, REQ-113 —
+new requirement pinning the ever-played-for semantics that previously only
+existed as an aside in REQ-109). Recovery extends S-037's existing
+mechanism rather than adding a new one: `clean-stale-club-attributes`
+gains an `--all-clubs` mode (`StaleClubAttributeCleaner.
+CleanAllSeededClubsAsync`, REQ-111 extended) resolving every club name
+from `ClubDefinition` at runtime — hand-typing ~32 names is exactly the
+typo surface where one misspelled club silently stays stale. Fails loudly
+on an empty `ClubDefinition` table; the named form now rejects any
+`-`-prefixed token (a mistyped `--all-club` must never pass as a club name
+that "removed 0 rows" successfully — guard lives in `Program.cs`'s
+argument handling, no unit-test seam today, verified manually). Two
+REQ113 tests in `WikidataClientTests.cs`, four REQ111 tests in
+`StaleClubAttributeCleanerTests.cs`. No ADR — `architecture-reviewer` and
+`quality-architect` concurred this restores already-documented semantics
+(bug fix), conditional on `implementation-document.md` §6a being updated
+to the statement-path query, which was done in the same pass.
+`docs/architecture-document.md` checked, no change (COMP-07-internal query
+shape + COMP-06-internal tooling; no boundary or data-flow change). Open
+follow-up: the Tonali "Tottenham" attribution needs manual live-Wikidata
+verification (genuine transfer vs. S-037-class wrong QID).
+
+**S-043 · Photo reveal on a locked, correct cell — backend half (REQ-214)**
+Backend implementation of the pull-forward MVP-SCOPE.md already recorded for
+2026-07-18 (no new trigger — see REQ-214's own status note). Scoped to the
+backend only, per the task that delegated it; the frontend half (SCREEN-01a
+photo rendering, no-layout-change/no-broken-image-icon UI behavior) remains
+a separate, not-yet-delegated task.
+*Accept:* `WikidataClient`'s two intersection query builders fetch
+Wikidata's `P18` (image) `OPTIONAL`, same shape as the existing `alias`
+fetch; the resolved photo travels through `WikidataPlayerMatch` ->
+`WikidataLookupService` -> a new `Player.PhotoUrl` column -> both existing
+reveal responses (`POST .../guesses`' `SubmitGuessResponse` and
+`GET /rounds/current`'s `CurrentRoundGuessResponse`) alongside
+`ResolvedPlayerName`, additive-only; REQ103's never-throw contract and
+REQ211/ADR-0018's live-lookup fallback path are unaffected (both route
+through the same two builders, exercised by existing tests unchanged).
+**Built as:** `Player.PhotoUrl` (nullable `string`), NOT a `PlayerAttribute`
+column — a deliberate deviation from the task's literal instruction, made
+and documented in-code (`Player.cs`'s `PhotoUrl` doc comment) because
+`PlayerAttribute`'s composite key (`PlayerId`, `AttributeType`,
+`AttributeValue`) holds many rows per player (one per career club), so a
+scalar per-player field has no natural "which row owns it" answer there;
+`Player` is already the single-row-per-person table (`FullName`,
+`WikidataQid`), upserted the same way (`WikidataLookupService.
+GetOrCreatePlayerAsync`, set once at creation, never re-synced on a later
+lookup — same as `FullName`). `PlayerOverride` is untouched: photos are
+never correctness data, so there is no "photo" override field and none was
+added. EF Core migration `AddPlayerPhotoUrl` (hand-written against the
+existing migration pattern — `dotnet` unavailable in this environment, so
+`dotnet ef migrations add` could not be run; needs a real
+`dotnet ef` verification pass before merge, same caveat as every migration
+authored under this constraint). Flagged for `architecture-reviewer`: the
+`Player` vs. `PlayerAttribute` placement decision could reasonably have
+gone the other way and may warrant its own ADR. Wikidata's `P18` ->
+Special:FilePath URL shape (used directly, no QID-style suffix split)
+could not be verified against a live query (no `wikidata.org` access in
+this environment) — flagged for manual verification, same precedent as
+S-036/S-037's QID entries. Tests: `REQ214`-named, in
+`WikidataClientTests.cs` (SPARQL shape + parsing, both builders),
+`WikidataLookupServiceTests.cs` (persistence), `GuessSubmissionServiceTests.cs`,
+`GuessEndpointTests.cs`, `CurrentRoundEndpointTests.cs` (photo present,
+absent, and incorrect-guess-never-shows-photo, mirroring REQ-212's existing
+name-reveal coverage at each level). Full suite not run in this
+environment (`dotnet` unavailable) — CI is the first real run.
+
+**S-044 · Photo reveal on a locked, correct cell — frontend half (REQ-214)**
+Frontend half of S-043's backend work, delegated to `ui-implementer`
+separately per REQ-214's own status note; landed in parallel, same day.
+*Accept:* on a locked+correct, revealed cell (REQ-212), a photo shows
+alongside the already-revealed name whenever the backend response includes
+one; falls back to exactly today's text-only reveal (no broken-image icon,
+no loading/error state) whenever it doesn't; shows/hides in lockstep with
+REQ-212's existing reveal toggle, never a separate control; cell footprint
+identical whether or not a photo is shown; never shown on an incorrect
+guess.
+**Built as:** `CurrentRoundGuess`/`SubmitGuessResponse` (`frontend/src/lib/types.ts`)
+gained an optional `resolvedPlayerPhotoUrl?: string | null` field — written
+before the backend half's DTOs were confirmed, as a same-name guess
+mirroring `resolvedPlayerName`'s own naming; checked afterward against
+`CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl`/
+`SubmitGuessResponse.ResolvedPlayerPhotoUrl` (`XGArcade.Api`) and confirmed
+to match exactly under the default camelCase JSON policy, so no rename was
+needed. `GridCell.tsx` threads it through the same `guess.isCorrect` gate
+already used for the name. `CellState.tsx` renders it via a new
+`PlayerAvatar` subcomponent inside a `.cell-state__name-group` wrapper
+(grouping the avatar with the name so they wrap/reflow together) — `src`
+missing, `null`, or a same-session `onerror` all collapse to the identical
+"render nothing" branch, so the DOM is byte-for-byte identical to
+pre-REQ-214 output in every "no photo" case (asserted directly in tests,
+not just visually).
+**Sizing judgment call (recorded in `docs/design-document.md` §3's
+SCREEN-01a note, since no avatar token exists in §2):** no dedicated
+avatar/photo token exists yet — reused the already-shipped, already
+battle-tested `.category-label__badge--small` size (18px circle) the badge
+dock next to it already uses, rather than inventing a new value. Fixed
+literal `width`/`height` (not content-derived), `object-fit: cover`,
+`flex-shrink: 0` — the mechanism that guarantees a photo can never grow the
+row, since the box size never depends on the source image's own dimensions.
+**Test infrastructure change:** `vite.config.ts`'s `test` block gained
+`css: true` — without it, Vitest/jsdom don't apply real stylesheet rules at
+all (`getComputedStyle` returns browser defaults, e.g. `font-size: medium`
+regardless of the actual CSS), which would have made a genuine
+dimension-regression assertion impossible; verified this doesn't change any
+existing test's outcome (full suite re-run, all passing) before relying on
+it for REQ-214's new tests. jsdom still has no real layout engine (no box
+model), so even with `css: true` this can only assert the *CSS rules*
+enforcing fixed dimensions are in effect (literal pixel `width`/`height`,
+`flex-shrink: 0`, matched 1:1 against the badge dock's own already-shipped
+size) — not true rendered pixel bounding boxes, which would need a real
+browser. Real-browser verification (Playwright) was attempted and could not
+be completed in this sandbox: `npx playwright install chromium` failed with
+a 403 from the outbound proxy (`cdn.playwright.dev` not on the allowlist) —
+flagged here rather than silently skipped, per this story's own
+instructions. Added one E2E assertion to the existing REQ-212 reveal test
+(`tests/e2e/play-grid.spec.ts`) confirming the fallback path renders no
+`.cell-state__avatar` in a real browser via CI (the seed endpoint's players
+have no `PhotoUrl`, so only the fallback path — not the photo-shown path —
+is reachable through that seed today).
+Tests: `REQ-214`-tagged, in `CellState.test.tsx` (photo shown; three "no
+photo" cases — field absent, explicit null, load failure — all degrading
+identically, including a byte-for-byte DOM equality check between the
+absent-field and explicit-null cases; hides in lockstep with the reveal
+toggle; never shown on an incorrect guess; the dimension-regression
+assertions described above) and `GridCell.test.tsx` (end-to-end prop
+wiring through the same `isCorrect` gate the name already uses).
+
+**S-045 · Backfill `Player.PhotoUrl` for already-cached players (REQ-214)**
+S-043 shipped `Player.PhotoUrl`, but only ever sets it at the moment a
+`Player` row is first created (`WikidataLookupService
+.GetOrCreatePlayerAsync`) — an already-existing row (every `Player` created
+by a `warm-player-cache` run before S-043 shipped) is returned as-is and
+never revisited, so `PhotoUrl` stays `NULL` on it forever. The user had run
+`warm-player-cache` repeatedly since early July, leaving a large existing
+`Player` table with every row's `PhotoUrl` permanently `NULL`, and
+explicitly asked for a backfill rather than a destructive wipe-and-rerun
+(`purge-player-pool` + `warm-player-cache` would cascade into
+`PlayerAttribute`/`Guess`/`GridCell` history this codebase explicitly
+protects).
+*Accept:* a new `dotnet run -- backfill-player-photos` CLI verb (same
+ADR-0024 shape as `warm-player-cache` — no new ADR needed, flagged and
+confirmed squarely inside that existing decision) fills `Player.PhotoUrl`
+for every player with a `WikidataQid` and no photo yet, in batches, without
+touching any other table; idempotent and safe to re-run indefinitely — a
+second run touches nothing already backfilled.
+**Built as:** `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched,
+direct-by-QID SPARQL `VALUES` lookup (`BatchSize = 200`,
+`PlayerPhotoBackfillService`'s own constant), a different shape from the
+two intersection queries, with the same throw-on-failure
+(`WikidataQueryException`) contract as `QueryPlayerPoolBirthYearAsync`
+rather than the intersection queries' swallow-to-`[]` contract — per
+`docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline (a batch
+job whose success metric is a row count must not swallow a failure as
+"no data"). `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+`UpdatePlayerPhotosAsync` — a paged read and a batched write (one
+`SaveChangesAsync` per batch), never the whole table loaded at once.
+`PlayerPhotoBackfillService` (`XGArcade.DataSync.Wikidata`, same placement
+reasoning as `WikidataLookupService`/`PlayerNameIndexImporter` — it needs
+both `IWikidataClient` and `IPlayerStoreRepository`, and `XGArcade.Data`
+has no reference back to `XGArcade.DataSync`) — sequential, not concurrent
+(same `DbContext`-safety reasoning as `PlayerCacheWarmingService`),
+progress-logged periodically. Two judgment calls made and documented
+in-code: (1) per-batch failure handling is log-and-continue, not
+`PlayerNameIndexImporter`'s retry-then-fail-loud — a failed batch's players
+simply stay `PhotoUrl == NULL` and are picked up automatically by the next
+full re-run's own missing-photo query, so there's no equivalent "was this a
+failure or genuinely no data" ambiguity to fail loudly about; (2) the read
+cursor uses an in-run "already attempted" exclusion set rather than
+`Skip`/`Take` — `Guid` has no LINQ-translatable ordering to keyset-paginate
+on, and plain offset paging would silently skip untouched rows once a
+batch's successful writes shrink the underlying `WHERE PhotoUrl IS NULL`
+filter between calls. Accepted limitation (documented, same class as
+`PlayerCacheWarmingService`'s own "below `MinValidAnswers`, re-queried
+every run" note): a player with genuinely no Wikidata `P18` statement stays
+`PhotoUrl == NULL` forever and is re-queried on every future full run —
+there's no persisted "checked, genuinely no photo" signal distinct from
+"never checked." New workflow `backfill-player-photos.yml`
+(`workflow_dispatch` only, modeled directly on `warm-player-cache.yml`).
+Tests: `REQ214`-named, in `WikidataClientTests.cs` (batched VALUES query
+shape, throw-on-failure), `PlayerStoreRepositoryTests.cs` (the new
+repository methods), `PlayerPhotoBackfillServiceTests.cs` (missing-photo
+players backfilled; already-has-photo/no-QID players untouched and never
+queried; batching respects `BatchSize`; idempotent re-run touches nothing;
+a failed batch is logged and skipped without failing the run, and its
+players remain retryable on a later run). Full backend suite run in this
+environment (`dotnet`/`dotnet test` were both available, unlike prior
+stories under this constraint) — 409 tests passed, 0 failed, across all
+five backend test projects. No ADR added — confirmed this sits entirely
+inside ADR-0024's existing scope.
+
+**Bug found and fixed the same session, before merge:** the orchestrator
+independently installed Postgres and ran `backfill-player-photos` for real
+against a live database (this environment does have Docker/network access
+after all — the "no real Postgres" caveat above described an earlier,
+narrower attempt, not a hard sandbox limit) seeded with `/internal/test-
+data`-style QIDs (shape `Qtest-<guid>`). A malformed `Player.WikidataQid`
+crashed the *entire* run with an unhandled `ArgumentException` —
+`QueryPlayerPhotosByQidsAsync`'s upfront QID-format validation threw
+`ArgumentException`, not `WikidataQueryException`, so `BackfillAsync`'s
+`catch (WikidataQueryException)` never caught it, contradicting this
+story's own documented log-and-continue design. Fixed by extracting a
+shared `WikidataQid.IsValid` predicate (new file, `XGArcade.DataSync
+.Wikidata`) and having `PlayerPhotoBackfillService` pre-filter each batch
+through it — a malformed QID is now skipped-and-logged per player (not
+per whole batch) before it ever reaches the client, so the client's strict
+throw-on-malformed-input contract (unchanged, still used by the two
+intersection query methods too) is simply never exercised on this path.
+Two new `REQ214`-named regression tests in `PlayerPhotoBackfillServiceTests
+.cs` reproduce a mixed valid/malformed batch and an all-malformed batch.
+Full suite after the fix: 411/411. Independently re-run against the exact
+same live-database reproduction post-fix — completes cleanly (per-player
+warning logged, exit 0) instead of crashing. Both `architecture-reviewer`
+and `quality-architect` reviewed the fix clean, no blocking findings — see
+`docs/CHANGELOG.md` and `NOTES.md`'s 2026-07-18 entries for the fix.
+
+**S-046 · Decouple the photo from REQ-212's click/tap reveal — photo shows at rest (REQ-214)**
+Direct product feedback on S-044's shipped result (PR #79, same-day): the
+user asked, right after seeing the click-gated 18px avatar live, for the
+photo to show automatically the instant a cell locks correct, filling the
+cell, with no click/tap needed — REQ-212's reveal toggle should keep
+governing only the name/badge dock, independently.
+*Accept:* a correct, locked cell's photo (when the resolved player has one)
+fills the cell at rest, no click/tap required; REQ-212's click/tap toggle
+continues to reveal/hide only the name and badge dock, on top of the photo
+when present, and no longer gates the photo at all; checkmark/points stay
+overlaid on the photo (legible against it, not just against a plain
+background); cell footprint identical whether or not a photo is shown, now
+checked at rest rather than only on reveal; no-photo cells and the
+incorrect-guess case are both fully unaffected.
+**Design-doc gap closed as part of this story (not left for a follow-up):**
+`design-document.md`'s REQ-214 status note explicitly flagged that §2 had
+no overlay/scrim token for text-or-icon-on-photo contrast, and asked
+whoever implemented this to add a real token rather than leaving
+`CellState.css` with a bare `rgba()` value. Added `overlay-scrim`
+(`rgba(26, 31, 28, 0.94)` — same hue as `text-primary`, 94% opacity chosen
+so a worst-case pure-white photo showing through the remaining 6% still
+can't push the effective backdrop light enough to fail contrast; measured
+~5.5:1 in that worst case, well over the 4.5:1 floor). Documented, and
+initially missed a second consequence of the same math: the darkened
+`accent-gold-text`/near-black `text-primary` pairing this document uses
+everywhere else is calibrated for a *light* (`surface-card`/white)
+background, and both fail contrast on this new *dark* one — the lighter,
+undarkened `accent-gold` is what actually clears 4.5:1 here (reused
+directly, no new token needed for the checkmark/points), and the revealed
+name (no correct/incorrect color of its own) needed `surface-card`/white
+instead of `text-primary`. The `accent-gold` half was caught by contrast
+math up front; the name's `text-primary`-is-illegible-here half was only
+caught by this story's own required real-browser verification (a data-URI
+test photo, since this sandbox has no network path to Wikidata to exercise
+the real live-lookup) — flagged explicitly here rather than treated as a
+minor fix, since it's exactly the kind of gap contrast math alone can miss.
+**Built as:** the old `PlayerAvatar` subcomponent (S-044, 18px circle
+nested inside the revealed name row, gated by `revealed`) is gone —
+replaced by `CellPhoto` (`.cell-state__photo-img`), rendered by
+`CellState` itself whenever `photoUrl` is present and hasn't failed to
+load this session, entirely independent of `revealed`. Mechanically, the
+photo layer (`.cell-state--photo`) is taken out of `.cell-state`'s normal
+flex flow via `position: absolute; inset: 0`, positioned against
+`.grid-cell`'s padding edge (`Grid.css` gained `position: relative` on
+`.grid-cell` as the positioning context) — deliberately ignoring that
+button's own padding so the photo bleeds to the cell's actual corners
+(`border-radius: inherit` + `overflow: hidden` clip it to match). A
+`.cell-state__overlay` band (the `overlay-scrim` background) sits above the
+photo via `z-index`, holding the same `Row`/points markup the no-photo case
+uses unchanged — `Row` no longer takes a `photoUrl` prop at all. The
+CSS-cascade-tie note from S-013's darkened-token additions partially
+applies again here: `.cell-state--photo .cell-state__meta` genuinely ties
+`.cell-state--correct .cell-state__meta` on specificity, so it's placed
+*after* in `CellState.css` specifically to win that tie by source order.
+`.cell-state--photo .cell-state__icon--correct` is already strictly more
+specific than the bare `.cell-state__icon--correct` rule and would win
+regardless of placement — kept alongside the other override for
+readability, not because it also depends on source order (an inaccuracy
+in this entry's first pass, caught by `quality-architect`'s review and
+corrected in both `CellState.css`'s own comment and here).
+Tests: `REQ-214`-tagged, `CellState.test.tsx`'s photo-reveal describe block
+rewritten (photo shows at rest with no click; reveal adds the name without
+touching the photo; hiding again leaves the photo showing; no-photo/null/
+load-failure cases re-verified byte-for-byte unaffected; the
+`accent-gold`/`surface-card` on-scrim color pairing verified against the
+no-photo case's `accent-gold-text`/`text-primary`; declared-CSS mechanism
+tests — `position: absolute`, `inset: 0`, `object-fit: cover` — replacing
+the old fixed-18px-slot assertions, same "check the layout-affecting
+properties, not a snapshot" reasoning as before, since jsdom still has no
+real layout engine) and `GridCell.test.tsx` (photo shows immediately after
+lock, before any click; reveal/hide toggles the name only). E2E
+(`tests/e2e/play-grid.spec.ts`): the dimension-invariance bounding-box
+check now runs right after the cell locks (the new at-rest photo moment)
+in addition to after the reveal click, both against a real Chromium via
+Playwright. Full Vitest suite (116 tests) and full Playwright E2E suite (4
+tests) both run for real in this environment (Postgres installed directly,
+API started with `Auth__Mode=local-e2e`) — all green. Real-browser
+verification of the photo-filled cell was done directly (a locally
+generated data-URI test image set on a seeded player row, since this
+sandbox's outbound network has no path to Wikidata) rather than only
+trusted to automated assertions, per this story's own visual-change
+verification requirement — confirmed the photo fills the cell edge-to-edge,
+the scrim band stays legible under the checkmark/points/name in both the
+at-rest and revealed states, and the no-photo case is visually unchanged.
+
+**S-047 · Photo overlay covers too much of the photo; grid cells stretch into
+flat rectangles at wide viewports (SCREEN-01a, §4)**
+Two real UI/UX problems reported directly via phone screenshots, both
+root-caused before scoping (not guessed): (1) `CellState.css`'s
+`.cell-state__overlay` (the scrim behind a correct photo cell's checkmark/
+points/name) covers ~40-45% of the cell on a real mobile screenshot,
+against the design doc's own original ~30% intent — a solid `--space-2`
+(8px) uniform padding plus un-tightened photo-variant type sizes on a
+genuinely small (~90-110px) mobile cell. (2) `Grid.css`'s `.grid-table` used
+`width: 100%` unconditionally, which combined with the browser's default
+`table-layout: auto` above 480px and `.grid-table__cell`'s explicit `height`
+(a CSS floor, not a ceiling) stretched a Tier-0 3-column grid's cells into
+flat, short rectangles at any wide viewport (a real desktop, or a phone
+reporting a similar CSS viewport via "Request desktop site") — same root
+cause either way, not two separate bugs.
+*Accept:* `design-document.md` gets a concrete, numeric overlay-coverage
+target and a concrete cell-aspect-ratio rule (§4) before implementation,
+per this repo's design-then-build discipline; the overlay's padding/type
+size shrink on the photo variant only (no-photo cells and `overlay-scrim`'s
+color/contrast math are unaffected); `.grid-table` no longer force-stretches
+above 480px, so Tier-0 cells stay close to square at any viewport width;
+S-040's ≤480px mobile header-fix (`table-layout: fixed` + `<colgroup>`) and
+REQ-214's fixed-cell-footprint constraint are both unregressed; real-browser
+verification at both a narrow and a wide viewport, not just passing tests.
+**Built as:** matches the plan above, plus two real bugs found and fixed
+during this story's own required real-browser verification, neither
+anticipated in the original bug description (same "found and fixed in the
+same session" precedent as S-041/REQ-214's own verification passes):
+1. A revealed photo cell's name could get silently clipped by
+   `.cell-state--photo`'s pre-existing `overflow: hidden` (needed so the
+   photo itself doesn't bleed past the cell's rounded corners) — since the
+   overlay is bottom-anchored and grows *upward*, a wrapped 2-line name got
+   clipped from the *top*, in the worst case showing an unreadable *middle*
+   fragment (e.g. "izecson..." from "Ricardo Izecson dos Santos Leite").
+2. Worse: at a typical Tier-0 mobile cell's content width (~65-80px), the
+   revealed row's four flex items (row badge, name, column badge, checkmark)
+   didn't fit on one line for *any* real name, not just long ones —
+   "Thierry Henry," an entirely ordinary name, rendered completely
+   invisible once revealed on a photo cell, not just tightly cropped.
+   Fixed by, on the photo variant only: hiding both badge-dock glyphs once
+   revealed (decorative/`aria-hidden`, already redundant with the row/
+   column headers shown above/left of the whole grid) and clamping the
+   name to a single ellipsis-truncated line (`-webkit-line-clamp: 1`)
+   instead of letting it wrap. This narrows (does not remove)
+   design-document.md §2's "signature badge-dock" element to the no-photo
+   case — recorded there and in SCREEN-01a as a deliberate, one-off
+   exception, the same style of call as `accent-green-scrim`'s
+   checkmark-color exception, not a change of mind about the badge dock
+   generally. The no-photo case's badge dock (including its slide-in
+   animation) is completely unaffected either way.
+Mechanically: `CellState.css`'s `.cell-state__overlay` padding rewritten as
+four explicit longhands (`padding-top`/`-bottom`/`-left`/`-right`) rather
+than the shorthand `padding: var(--space-1) var(--space-2)` — discovered
+mid-story that jsdom's CSSOM (unlike a real browser) doesn't expand a
+multi-value shorthand containing `var()` into longhands at all, which would
+have made the padding tightening untestable; longhands are equally valid
+CSS and render identically in a real browser. `Grid.css`'s `.grid-table`
+drops its unconditional `width: 100%` for `width: auto; margin: 0 auto;`
+(letting the browser's own automatic table-layout algorithm shrink-to-fit
+when a grid's columns don't genuinely need the full container width), and
+re-establishes `width: 100%` inside the existing `@media (max-width: 480px)`
+block alongside S-040's `table-layout: fixed`, unchanged there. No new
+design tokens — every color/spacing value reused from `docs/design-
+document.md` §2's existing table; only new literal values are font sizes
+(11px/10px/12px icon/meta/name on the photo variant) and the `-webkit-
+line-clamp: 1` truncation, both un-tokenized in the same acknowledged way
+this doc's own §7 already flags for type scale generally.
+Tests: `CellState.test.tsx` gained computed-style assertions (overlay
+padding longhands, photo-variant font-size reductions, tightened row gap,
+badge-dock `display: none` on the photo variant vs. visible on no-photo,
+`-webkit-line-clamp`/`overflow` on the photo variant's name vs. absent on
+no-photo) — the same "check the CSS mechanism, not a pixel snapshot"
+approach REQ-214's own footprint tests already established for jsdom's lack
+of a real layout engine. New `Grid.test.tsx` (2 tests) checks `.grid-table`'s
+declared `width`/`margin` and every data cell's shared min-width/height
+floor at jsdom's default (>480px) viewport. Full Vitest suite: 124/124
+passing (was 116 before this story). `tsc -b --noEmit` and `oxlint` both
+clean. Real-browser verification: done directly via a temporary,
+not-committed Playwright + Vite harness (this sandbox has Chromium at
+`/opt/pw-browsers` and no `dotnet`/Postgres, so a full backend-backed E2E
+run wasn't available here — the harness rendered the real `Grid`/
+`GridCell`/`CellState`/CSS with constructed props and an inline SVG data-URI
+test photo instead, the same "no network path to a real photo host" workaround
+prior sessions used) at both a 390px mobile viewport and a 1280px desktop
+viewport, plus a 360px narrow-phone check confirming S-040's ≤480px header
+wrap is unregressed — confirmed cells render square-ish at all three widths,
+the overlay is visibly tighter against the photo, and (after the two fixes
+above) a revealed name is legible in every case checked, including the
+deliberately pathological long-name case. Harness files deleted before this
+diff was finalized, not part of the shipped change.
+`frontend/tests/e2e/play-grid.spec.ts`'s existing REQ-212/S-015 reveal
+assertions unconditionally expected the badge dock visible after a reveal —
+updated (not left for CI to find, the S-029 lesson) to branch on whether
+`.cell-state--photo` is present on the cell (the same live-lookup-driven
+non-determinism this test already handles for photo presence generally),
+asserting the badge dock hidden on a photo cell and visible otherwise; the
+revealed-name assertion itself needed no change, since `-webkit-line-clamp`
+is a paint-only effect that doesn't touch the DOM text Playwright's
+`getByText` matches against. Logic-reviewed only, not executed here (no
+`dotnet`/Postgres in this sandbox, same gap S-041's own entry already
+recorded for this file). No ADR — CSS/layout-only polish on
+already-implemented REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041's
+own no-ADR calls for this kind of change.
+
+**S-048 · Photo cell: nothing overlaid at rest, name+points-only overlay on
+reveal (REQ-204/212/214, SCREEN-01a)**
+Direct user feedback after seeing S-047 live, judged a further, deliberate
+simplification rather than another coverage tweak: "at rest, only picture.
+on click name + points only in an overlay." Scoped to the photo case only —
+a correct cell without a photo is completely unaffected and keeps its
+always-visible checkmark+points at rest (REQ-204's original behavior) and
+its name+badge-dock reveal (REQ-212's original behavior).
+*Accept:* `design-document.md`'s SCREEN-01a mock and status notes updated
+first, including a plainly-recorded trade-off note (a photo cell loses its
+always-visible-without-clicking score signal — only "this cell is done,"
+via the photo's own presence, survives at rest) since this is the first
+story to affect REQ-204's always-visible-at-rest guarantee itself, not just
+what reveal shows; `requirements-document.md` gets matching status notes
+under REQ-204, REQ-212, and REQ-214; `CellState.tsx`'s photo branch renders
+only `<CellPhoto>` at rest (no `.cell-state__overlay` at all) and, once
+`revealed`, an overlay with only the name and points (no checkmark, no
+badge dock — S-047's badge-dock drop stays dropped); no-photo branch
+untouched; dead CSS (the photo-variant checkmark/row/badge-dock-hide rules
+that can no longer ever match once the checkmark/Row/badge markup is never
+rendered there) removed, not left orphaned; real-browser verification at
+mobile and desktop widths, not just passing tests.
+**Built as:** matches the plan above. `CellState.tsx`'s `isCorrect` branch
+now has two distinct sub-branches instead of one shared `overlayContent`
+for both photo and no-photo cases: the no-photo path is byte-for-byte
+unchanged (still `Row` + always-visible points, `revealed` gating only the
+name/badges); the photo path no longer builds or reuses `overlayContent`
+at all — it renders `<CellPhoto>` unconditionally and, only when
+`revealed`, a `.cell-state__overlay` containing a plain
+`<span className="cell-state__name">` and the existing
+`<p className="cell-state__meta">` points paragraph, with no `Row` call at
+all (so no checkmark, no badge dock — both are structurally absent, not
+merely CSS-hidden, a stronger guarantee than S-047's `display: none`
+approach for the badge dock). `CellState.css` changes: removed
+`.cell-state--photo .cell-state__row` (S-047's tighter row gap — dead, no
+`.cell-state__row` is ever rendered inside `.cell-state--photo` anymore),
+`.cell-state--photo .cell-state__icon` and
+`.cell-state--photo .cell-state__icon--correct` (S-047's smaller size and
+the 2026-07-19 `accent-green-scrim` color exception — both dead, no
+checkmark is ever rendered inside `.cell-state--photo` anymore), and
+`.cell-state--photo .cell-state__badge-dock { display: none; }` (S-047's
+defensive hide — dead for the same reason; a removal note was left in each
+spot pointing back at this story rather than silently deleting history).
+`.cell-state--photo .cell-state__meta`/`.cell-state--photo
+.cell-state__name` (S-047's smaller type/line-clamp) are kept unchanged —
+still needed, since the name and points still render, just only once
+revealed. `--color-accent-green-scrim` itself (design-document.md §2,
+`index.css`) is kept defined but is now documented as dormant (its
+calibrated checkmark no longer renders anywhere) rather than deleted, per
+this repo's own "document, don't silently drop" pattern for superseded
+values — reversible in one line if a checkmark is ever deliberately
+reintroduced to this overlay.
+Tests: `CellState.test.tsx`'s photo-reveal describe block rewritten in
+place — every assertion that expected a checkmark/points visible at rest
+on a photo cell, or a checkmark/row/badge-dock structure once revealed, was
+replaced (not left stale, the S-029 lesson) with the new invariant (nothing
+overlaid at rest; name+points-only, no checkmark, no badge dock, once
+revealed). New/rewritten tests: at-rest overlays-nothing, revealed overlay
+content, revealed→hidden removes the whole overlay, structural absence
+(not just CSS `display: none`) of `.cell-state__row`/icon/badge-dock on a
+photo cell, and a checkmark-presence check confirming a photo cell never
+renders one in either state while the no-photo case still does. Full
+Vitest suite: 124/124 passing (unchanged count from S-047's own final
+tally — tests were rewritten in place, not net-added, since this story
+narrows behavior more than it adds new surface). `tsc -b --noEmit` and
+`oxlint` both clean. Real-browser verification: done via a temporary,
+not-committed Playwright + Vite harness (same approach S-047 used — this
+sandbox has Chromium at `/opt/pw-browsers` and no `dotnet`/Postgres, so a
+full backend-backed E2E run wasn't available here), rendering `CellState`
+directly with an inline SVG data-URI test photo, at both a 390px mobile and
+a 1280px desktop viewport: confirmed a photo cell shows only the picture at
+rest, confirmed click reveals a legible name+points overlay with no
+checkmark and no badge dock (including for a deliberately long name,
+correctly clamped to one line), and confirmed the cell's bounding box is
+pixel-identical before and after the reveal click (the fixed-footprint
+guarantee, REQ-214, still holds). No min-height was needed on
+`.cell-state__overlay` — two lines of text (name + points) fill it
+comfortably at a realistic ~100px mobile cell size, doesn't collapse or
+look empty. Harness files deleted before this diff was finalized, not part
+of the shipped change. `frontend/tests/e2e/play-grid.spec.ts` needed no
+behavioral assertion changes — it already avoided asserting on
+checkmark/points visibility for the photo case specifically (its
+`hasPhoto` branch only ever asserted on the badge dock and the name), so
+S-048's changes fall within what that test already tolerated; one
+descriptive comment (near the wrong-guess/correct-guess flow) was updated
+for accuracy since it generically described "checkmark plus points at
+rest" for any correct cell, which is no longer true for the photo case.
+Logic-reviewed only, not executed here (no `dotnet`/Postgres in this
+sandbox, same gap S-041/S-047's own entries already recorded for this
+file). No ADR — CSS/component-internal simplification of already-implemented
+REQ-204/REQ-212/REQ-214, same precedent as S-040/S-041/S-047's own no-ADR
+calls for this kind of change.
+
+**S-049 · Desktop cells still read small/cramped after S-047/S-048
+(design-document.md §4, SCREEN-01a)**
+Third round of direct user feedback on the same `/grid` screen, after
+mobile was confirmed good ("it looks great in mobile"): "if i switch to
+desktop view in the mobile it still looks weird.. feels like the grid
+could be larger? and the cell + picture should look nice." Root-caused
+before scoping, not guessed: S-047's `.grid-table` fix (letting the table
+shrink-to-fit above 480px instead of forcing `width: 100%`) correctly
+stopped cells stretching into flat rectangles, but `.grid-table__cell`'s
+`min-width`/`height` at `≥960px` (S-040, 64px) was only ever a *floor* —
+never a deliberate *target* for a genuinely wide viewport. With a Tier-0
+grid's 3-5 columns and no cell content that ever needs more room than that
+floor, the grid rendered at its smallest reasonable size (~300-400px)
+inside `.app`'s 1200px desktop cap. "Cell + picture should look nice" is
+the same root cause from a different angle — a 64px cell leaves almost no
+room for a photo to read as more than a thumbnail.
+*Accept:* `design-document.md` §4 gets a concrete, numeric desktop target
+size (not just the S-047 aspect-ratio bound) before implementation;
+`Grid.css`'s `≥960px` block raises the floor it already sizes columns
+from to a real target, scoped to that breakpoint only (the 481-959px
+shrink-to-fit range and the ≤480px `table-layout: fixed` range both
+unregressed); the photo scales cleanly via the existing `object-fit:
+cover` with no distortion; real-browser verification at mobile, mid, and
+desktop widths, not just passing tests; requirements-document.md checked
+(not assumed) for whether any REQ's acceptance criteria is pixel-size-
+specific before deciding not to touch it.
+**Built as:** matches the plan above. `Grid.css`'s `@media (min-width:
+960px)` block: `.grid-table__cell`'s `min-width`/`height` raised from 64px
+to **120px**, padding from `--space-2` to `--space-3` in step. Chosen
+mechanism: raising the same floor value the table's shrink-to-fit column
+sizing already keys off (per CSS2.1's automatic table-layout algorithm,
+unchanged from S-047), not switching to `table-layout: fixed` +
+`<colgroup>` widths the way the ≤480px breakpoint does — nothing in a
+Tier-0 cell's content (text wraps; the photo layer is absolutely
+positioned out of flow) ever exceeds the floor, so raising it functions as
+a de facto target size in practice, confirmed by real-browser measurement
+rather than assumed. `CellState.css` companion change: a new `@media
+(min-width: 960px)` override on the photo-overlay's revealed name (12px →
+15px) and points line (10px → 12px), plus overlay padding
+(`--space-1`/`--space-2` → `--space-2`/`--space-3`) — S-047's mobile-tuned
+type read undersized once the cell itself nearly doubled, a second angle
+on the same feedback. The existing single-line ellipsis clamp
+(`-webkit-line-clamp: 1`) needed no change — re-verified at the larger
+size with a deliberately long name ("Ricardo Izecson dos Santos Leite"):
+still truncates cleanly with no clipping/overflow. The no-photo case's
+type sizes and the badge-dock/name/checkmark reveal layout were left
+untouched — real-browser verification found them already reading fine at
+the larger cell size.
+Real-browser verification: done via a temporary, not-committed Vite dev
+server + Playwright script (this sandbox has Chromium at
+`/opt/pw-browsers`, no `dotnet`/Postgres, so a full backend-backed E2E run
+wasn't available — same constraint and same workaround S-047/S-048 used),
+rendering the real `Grid`/`GridCell`/`CellState`/CSS with constructed
+props (a mix of photo/no-photo correct cells, an incorrect-with-attempt
+cell, and an empty cell) and an inline SVG data-URI test photo, at four
+viewports: 1280px desktop with a 3×3 grid (table rendered ~490×406px,
+cells ~134×120px, ratio ~1.1:1 — square, comfortably inside the 1200px
+cap), 1280px desktop with a 5×5 grid (table ~787×646px, same per-cell
+size, still comfortably inside the cap, no overflow/scroll), 700px (the
+481-959px shrink-to-fit range, confirmed unchanged from S-047), and 360px
+(the ≤480px `table-layout: fixed` range, confirmed unchanged from S-040).
+Also verified: the fixed-cell-footprint guarantee (REQ-214) still holds at
+the new size (measured the same photo cell's bounding box before and after
+a reveal click — pixel-identical, 108.7×95px content box), the revealed
+photo overlay is legible and proportionate at the new size (screenshot-
+reviewed before/after the CellState.css font-size bump), and a
+deliberately long name still clamps to one ellipsis-truncated line with no
+clipping. Harness files (a temporary Vite entry + Playwright screenshot
+scripts) deleted before this diff was finalized, not part of the shipped
+change.
+Tests: `Grid.test.tsx` gained 2 new tests (S-049) — since the changed
+values live inside an `@media (min-width: 960px)` block, and jsdom doesn't
+apply media-scoped styles at all (confirmed directly: `window.matchMedia`
+isn't even implemented in this jsdom version, which is also why every
+pre-existing test in this file already scoped itself to "the
+un-media-queried base rule"), these are raw-stylesheet-source assertions
+(`Grid.css?raw`) rather than computed-style ones — checking the ≥960px
+block contains `min-width: 120px`/`height: 120px`/`padding: var(--space-3)`
+and no longer contains the old `64px` value, plus that the ≤480px block is
+untouched. This is a different (source-text, not computed-style) test
+technique than S-047's own Grid.test.tsx tests use, called out explicitly
+rather than silently mixed in. Full Vitest suite: 126/126 passing (was 124
+before this story — 2 net new). `tsc -b --noEmit` and `oxlint` both clean.
+No E2E spec changes needed — `tests/e2e/play-grid.spec.ts`'s cell-box
+assertions are all relative (before/after comparisons for the
+fixed-footprint guarantee), never hardcoded pixel values, so they're
+unaffected by the size change; confirmed by reading the file, not assumed.
+`requirements-document.md` checked and left alone: the only place cell
+pixel sizes (44px/64px) appear is inside a narrative "Built as" implemen-
+tation-history note under REQ-204 (S-040's own entry), not phrased as a
+Given/When/Then acceptance criterion — no REQ's testable acceptance
+criteria depends on a specific cell size, so there's nothing to update.
+No ADR — CSS/layout-only polish on already-implemented REQ-204/REQ-212/
+REQ-214, same precedent as S-040/S-041/S-047/S-048's own no-ADR calls for
+this kind of change.
+
+**S-050 · Photo doesn't reach the cell's own border — real gap between the
+photo and the bottom edge, on both breakpoints (REQ-214, SCREEN-01a, §4)**
+Fourth round of direct user feedback on the same `/grid` screen, this time
+with real screenshots of the live deployed app at both a normal mobile
+view and a "Request desktop site" view: "see how they are not tall
+enough to show full pictures.. we need to make sure that the pictures
+actually fits the cell." Explicitly root-caused via real-browser DOM
+measurement before any CSS was touched (not guessed from reading the
+stylesheet — a prior static read of `Grid.css`/`CellState.css` found
+nothing obviously wrong, since the mechanism as documented *should* work).
+*Accept:* the actual gap measured via `getBoundingClientRect` on a real
+Chromium render at both a mobile (~390px) and a desktop (~1280px)
+viewport, using a genuinely non-square (portrait) test photo and a mixed
+grid of different row-header wrap heights (matching the user's own
+screenshot); root cause identified and recorded with real numbers before
+any fix; fix verified by re-measuring the same boxes after, at both
+breakpoints; REQ-214's fixed-cell-footprint guarantee (including its
+"regardless of load failure" clause) re-verified, not just assumed
+unaffected; `design-document.md` updated with the actual mechanism found
+(not just "gap fixed").
+**Built as:** matches the plan above.
+- **Diagnostic:** a temporary, not-committed Vite entry + Playwright script
+  (same pattern S-047/S-048/S-049 each used — this sandbox has Chromium at
+  `/opt/pw-browsers`, no `dotnet`/Postgres, so a full backend-backed E2E
+  run wasn't available) rendered the real `Grid`/`GridCell`/`CellState`/CSS
+  with constructed correct-photo cells (an inline SVG data-URI portrait
+  photo, 300×450, genuinely non-square) alongside an incorrect cell and
+  row headers of different wrapped-line-counts ("Real Sociedad" 2 lines,
+  "Paris Saint-Germain" 3 lines, matching the user's own screenshot),
+  measuring `.grid-cell` (the button), `.cell-state--photo`, and
+  `.cell-state__photo-img`'s `getBoundingClientRect()`s directly.
+- **Measured root cause (before any fix):** the photo's rendered box was
+  **pixel-identical to `.grid-cell`'s own box** in every case tested — the
+  existing REQ-214/S-047 mechanism (`.cell-state--photo`'s `inset: 0`
+  bleeding through `.grid-cell`'s own padding) worked exactly as documented.
+  The real gap was one level further out: `.grid-table__cell` (the `<td>`
+  itself) has its own, *separate* padding (`var(--space-1)` = 4px below
+  960px, `var(--space-3)` = 12px at/above it) wrapping the button, which
+  nothing before this story ever bypassed. Measured gap between the photo
+  and the `<td>`'s actual border, **symmetric on all four sides** (not
+  literally bottom-only as described — checked explicitly): 4.5px at
+  390px viewport (4px padding + ~0.5px sub-pixel/border rounding), 12.5px
+  at 1280px (12px padding + rounding) — confirmed identical top/right/
+  bottom/left in every cell checked, including the mixed-row-header-height
+  ones (61px/76px/120px row heights all showed the same proportional gap).
+  Most plausible reading of the user's "bottom" framing: two photo cells
+  stacked vertically compound this same gap across their shared row
+  border (bottom padding + 1px border + next row's top padding), reading
+  as a noticeably wider blank band there than the isolated left/right gaps
+  of a single cell — a real, verified account for why the report singled
+  out the bottom edge even though the underlying cause is uniform.
+- **Fix attempted and rejected, recorded rather than silently discarded:**
+  a `.grid-table__cell:has(.cell-state--photo) { padding: 0; }` override,
+  scoped to only `<td>`s that actually contain a photo layer. This closed
+  the measured gap (re-verified: 0.5px remaining on every side, exactly
+  the `<td>`'s own 1px border) but a second, real bug was found during
+  this same story's required re-verification pass before shipping it:
+  `.grid-cell`'s own rendered size would then depend on whether
+  `.cell-state--photo` is *currently* in the DOM, which `CellState.tsx`
+  ties to photo **load success**, not just URL presence (a failed image
+  load unmounts `.cell-state--photo` entirely, falling back to the
+  no-photo branch). Confirmed via a deliberately-broken photo URL: the
+  button visibly resized (95×95 → smaller) the moment `onError` fired
+  after already rendering at the larger, gap-closed size — exactly the
+  shift REQ-214's "constant regardless of... fails to load" guarantee
+  forbids, and exactly what `play-grid.spec.ts`'s existing pre/post-
+  `networkidle` `cell.boundingBox()` equality check would have caught
+  non-deterministically in a real network environment (only when a real
+  Wikidata photo URL actually failed to load). Rejected before shipping.
+- **Fix shipped:** move the `position: relative` that establishes
+  `.cell-state--photo`'s abs-positioning containing block from `.grid-cell`
+  (the button) up to `.grid-table__cell` (the `<td>`) itself — one DOM
+  level further out, past *both* padding layers. `.grid-cell`'s own CSS is
+  otherwise completely unchanged (same `width`/`height`/padding as before
+  this story), so its own rendered box is now governed solely by those
+  unconditional rules regardless of whether a photo is showing, loading,
+  or failed — verified directly: `.grid-cell`'s computed `width`/`height`/
+  `padding` are identical whether or not its child renders
+  `.cell-state--photo`, and its `getBoundingClientRect()` is
+  pixel-identical before and after the same deliberately-broken-photo-URL
+  failure scenario above (95×95 both times). The photo layer itself, no
+  longer constrained by the button's own box at all, now fills
+  `.grid-table__cell`'s full padding box independently — measured gap
+  after the fix: **0.5px on every side at both breakpoints**, exactly this
+  rule's own 1px border split by sub-pixel rounding, i.e. the cell's actual
+  visible edge, not a leftover gap. Re-verified with the same asymmetric
+  test photo and mixed-row-header-height grid as the diagnostic, at both
+  breakpoints, plus the revealed (name+points overlay) state (unaffected —
+  CellState.css needed no change at all for this fix) and a deliberately
+  long name ("Ricardo Izecson dos Santos Leite," still clamps to one
+  ellipsis-truncated line as S-047 established). Screenshot-reviewed
+  before/after at both breakpoints: photo now visibly flush with the grid
+  lines, incorrect (no-photo) cells' own padding completely unaffected.
+- **Mechanically:** `Grid.css`'s `.grid-table__cell` rule gains
+  `position: relative;`; `.grid-cell`'s own `position: relative;` is
+  removed (comment rewritten to explain why, pointing at
+  `.grid-table__cell`'s new comment for the full mechanism).
+  `CellState.css`'s `.cell-state--photo` doc comment and `CellState.tsx`'s
+  `CellPhoto` doc comment both updated to describe the new containing
+  block accurately (no CSS changes needed in either file — the fix is
+  entirely in `Grid.css`). No new design tokens; no change to
+  `.cell-state__photo-img`'s `object-fit: cover` (confirmed, not assumed,
+  to be the right tool per this story's own scoping note — the bug was
+  always about which box the image fills, never the fit mode).
+- **Tests:** `Grid.test.tsx` gained a new describe block (2 tests,
+  replacing an earlier draft written against the rejected `:has()` fix
+  before it was reverted) — a raw-stylesheet-source check
+  (`.grid-table__cell` contains `position: relative`, `.grid-cell` does
+  not contain a `position: relative;` *declaration*, distinguished from
+  this same comment's own prose mention of that phrase by requiring the
+  trailing `;`) and a rendered-DOM check confirming `.grid-cell`'s
+  computed `width`/`height`/`padding` are identical with and without a
+  photo present. Full Vitest suite: **128/128 passing** (was 126 before
+  this story — 2 net new). `tsc -b --noEmit` and `oxlint` both clean.
+  Real-browser verification: done via the temporary harness described
+  above; harness files deleted before this diff was finalized, not part
+  of the shipped change. No `play-grid.spec.ts` changes needed — its
+  `cell.boundingBox()` assertions target `.grid-cell` (via
+  `data-testid="grid-cell-..."`), the exact element this fix keeps
+  load-outcome-independent; confirmed by reading the file and by the
+  deliberately-broken-photo-URL check above, not assumed. Logic-reviewed
+  only, not executed here (no `dotnet`/Postgres in this sandbox, same gap
+  every prior story in this chain already recorded for this file).
+  `requirements-document.md` gets a matching 2026-07-19 status note under
+  REQ-214 (the "filling the cell" acceptance criterion was, in the
+  shipped-through-S-049 version, only true up to this same measured gap);
+  no acceptance criterion's *substance* changed — the footprint-invariance
+  bullet already existing there is what this story re-verifies more
+  thoroughly (including the load-failure transition), not a new rule.
+  No ADR — CSS-only fix (plus doc-comment accuracy updates) to
+  already-implemented REQ-214, same precedent as S-040/S-041/S-047/S-048/
+  S-049's own no-ADR calls for this kind of change; the rejected `:has()`
+  approach never shipped, so there's nothing to revert in an ADR sense
+  either.
+
+**S-051 · Show the full photo, allow letterboxing, instead of cropping to
+fill the cell (REQ-214, SCREEN-01a, §2) — a direct product decision, not a
+bug fix**
+Fifth round of iteration on the same `/grid` photo cell. The user said "I
+want the full picture to be visible within the cells, so they are not cut
+off" — a request, not a report of broken behavior. Asked directly (via
+`AskUserQuestion`) to choose between "Crop photo to fill the cell
+completely (today's behavior)" and "Show full photo, allow empty space
+(letterbox)," after being shown the trade-off explicitly (a
+differently-shaped photo may leave a thin background strip on two sides of
+the cell), the user chose the letterbox option. Recorded here plainly as a
+deliberate, informed choice — same discipline this backlog already applies
+to S-048's "at rest, only picture" trade-off — not silently implemented as
+if it were an obvious default.
+*Accept:* `.cell-state__photo-img`'s `object-fit` changed from `cover` to
+`contain`; whether the letterbox background reads as intentional (rather
+than a leftover gap) checked in a real browser, not assumed; whether the
+existing `overlay-scrim` contrast math already covers a letterboxed
+worst-case checked against the actual `--color-surface-card` token value,
+not assumed; real-browser verification with both a portrait and a
+landscape test photo; REQ-214's fixed-footprint guarantee re-confirmed,
+not just assumed unaffected by the fit-mode change.
+**Built as:** matches the plan above.
+- **CSS change:** `CellState.css`'s `.cell-state__photo-img` rule:
+  `object-fit: cover` → `object-fit: contain`. No change to the
+  `inset: 0`/explicit `width: 100%; height: 100%` sizing mechanism that
+  keeps the cell's own footprint independent of the image — that
+  guarantee (REQ-214) comes from the box being absolutely sized, never
+  from the fit mode, and is unaffected by which one is used.
+- **Letterbox background, checked rather than assumed fine:** with
+  `contain`, empty space can appear inside `.cell-state--photo`'s own box
+  wherever the photo doesn't reach — before this story that box had no
+  background of its own and relied on `.grid-cell`'s (the button behind
+  it) `background: var(--color-surface-card)` (Grid.css) showing through
+  its transparent box. Real-browser screenshots (Chromium,
+  `/opt/pw-browsers`, a temporary Vite+Playwright harness — same
+  not-committed-diagnostic pattern S-047 through S-050 each used, deleted
+  before this diff was finalized) at both a mobile (390px) and desktop
+  (1280px) viewport, with a genuinely non-square landscape (450×300) and
+  portrait (300×450) test photo (a bright red border frame around a blue
+  fill, so any cropping would be immediately visible as a missing border
+  edge), confirmed: the whole photo — including all four border edges —
+  renders with nothing cropped in every case, and the letterbox strip
+  reads as a clean, plain white card background, not a visible seam or an
+  obviously wrong color. Made this explicit rather than left incidental:
+  `.cell-state--photo` now has its own `background-color: var(
+  --color-surface-card)` (written as the longhand, not the `background`
+  shorthand, so it's assertable from a jsdom test the same way the
+  overlay's own padding already needed longhands for) — same token, same
+  value, just no longer dependent on `.grid-cell`'s background happening
+  to stay what it is today.
+- **Overlay contrast over the letterbox, checked against the real token
+  value, not assumed:** `overlay-scrim`'s existing contrast math
+  (design-document.md §2) was calibrated against "the worst case: a
+  pure-white photo showing through." `--color-surface-card`
+  (`frontend/src/index.css`) is `#FFFFFF` — literally pure white, not an
+  off-white tint — so a landscape photo's bottom letterbox (the
+  orientation that can land directly behind the bottom-anchored overlay)
+  presents the *exact same* underlying color the existing math already
+  treats as the worst case, not merely a similar one — alpha-blending
+  doesn't distinguish "a very light photo" from "an opaque white
+  background." Same `rgb(51, 56, 53)` blended value, same 4.65:1
+  (`accent-gold`)/11.99:1 (`surface-card`, the revealed name's color)
+  ratios apply unchanged. **No new token or contrast math needed** —
+  confirmed by checking the actual token value, not assumed, and
+  re-confirmed visually: the same real-browser harness's revealed,
+  landscape-oriented photo cell (bottom letterbox landing behind the
+  overlay) showed the name and points text clearly legible against the
+  scrim. A portrait photo's letterbox lands left/right, never behind the
+  bottom-anchored overlay, so it was never a contrast concern.
+- **Footprint guarantee re-confirmed:** the harness measured identical
+  cell dimensions (`getBoundingClientRect`) across landscape, portrait,
+  at-rest, and revealed cases at both breakpoints — unaffected by the
+  fit-mode change, as expected, since the mechanism (absolute
+  positioning + explicit sizing) is orthogonal to `object-fit`.
+- **Tests:** `CellState.test.tsx`'s existing `object-fit` assertion
+  updated from `'cover'` to `'contain'`; one new test asserts
+  `.cell-state--photo`'s `background-color` is the `surface-card` token
+  (declared value, same jsdom-can't-resolve-var()-shorthands workaround
+  documented elsewhere in this file). Full Vitest suite: **129/129
+  passing** (was 128 before this story — 1 net new). `tsc -b --noEmit`
+  and `oxlint` both clean. jsdom cannot render actual letterboxing (no
+  real layout engine) — the declared `object-fit`/`background-color`
+  values are the extent of what's unit-testable; the "whole photo
+  visible, letterbox reads clean, overlay stays legible" outcomes are
+  real-browser-only findings, recorded above rather than asserted in a
+  test that can't actually check them.
+- **Docs:** `design-document.md` — SCREEN-01a gets a new S-051 status note
+  (the `▒▒▒▒▒▒` fill mocks now read as "photo scaled to fit, possibly with
+  a background strip on two sides," not a literal uniform fill); the
+  2026-07-18 REQ-214 implementation note and the S-049 §4 note, both of
+  which described `object-fit: cover` as current/unchanged, are marked
+  superseded rather than silently edited out. `requirements-document.md`
+  gets a matching REQ-214 status note (the "filling the cell" acceptance
+  criterion never specified crop-vs-contain; now narrowed to mean "the
+  cell's footprint," not necessarily every pixel) and an addition to that
+  REQ's own "Test level" line noting the real-browser-only verification
+  needed here. No ADR — CSS-only change to an already-implemented
+  requirement, same precedent as every other story in this chain; this
+  one is a recorded product *decision* rather than a bug fix, but that
+  doesn't change the ADR calculus (no structural/component-boundary
+  choice was made).
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 

@@ -20,6 +20,13 @@ tests — not to redesign the requirement.
    requirement lives in, so tests are placed in the right test project.
 4. Grep the existing test projects for prior tests on the same REQ ID —
    extend or fix them rather than creating duplicates.
+5. Reuse the existing test infrastructure: hand-rolled `Fake*` classes
+   (no mocking framework in this codebase — deliberate), existing
+   fixtures and setup patterns in the target test project. If the test
+   you need seems to require *new shared* infrastructure (a new fake
+   used by multiple projects, a builder, a different test-host pattern),
+   flag it to `quality-architect` — that agent owns test architecture;
+   you own the per-REQ tests built on top of it.
 
 ## Naming convention (non-negotiable)
 

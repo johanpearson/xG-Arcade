@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.20"
+version: "0.33"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.20 · 2026-07-19
+Version 0.33 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -78,10 +78,12 @@ entirely.
 | `text-muted` | `#6B7570` | Secondary text, labels, captions |
 | `border-hairline` | `#E4E6E3` | All dividers and card borders — thin, quiet, never a heavy box |
 | `accent-green` | `#1E9E63` | Live/active states, primary actions — a clean pitch green, crisp rather than dark/muted. Non-text/decorative use only (live-dot, focus ring, tab underline) — see `accent-green-text` below for text/icon/button-label use |
-| `accent-gold` | `#C99A2E` | Reserved for future non-text/decorative correct/locked-final use (e.g. a Phase 2 badge fill) — see `accent-gold-text` below for text/icon use, which is everywhere Tier 0 actually paints "correct" today |
+| `accent-gold` | `#C99A2E` | Reserved for future non-text/decorative correct/locked-final use (e.g. a Phase 2 badge fill) — see `accent-gold-text` below for text/icon use, which is everywhere Tier 0 actually paints "correct" today on a light background. **Exception (2026-07-18, REQ-214):** this token, not `accent-gold-text`, is the correct choice for the checkmark/points text/icon overlaid on the `overlay-scrim` token below — see that row for why the darker/lighter split flips on a dark backdrop |
 | `accent-red` | `#C4463C` | Incorrect states — a muted brick red, not an alarm red. Passes text contrast as-is (~4.9:1 on white) — no separate text variant needed |
 | `accent-green-text` | `#187E4F` | **(S-013)** Green text/icon labels, and white-on-green button-label backgrounds (`.guess-input__submit`, `.auth-screen__submit`) — `accent-green` itself measures ~3.4:1 against `surface-card`/white, below WCAG AA's 4.5:1 for normal text; this darkened variant measures ~5.1:1 |
 | `accent-gold-text` | `#8D6C20` | **(S-013)** Correct/locked-final text and icons (`CellState`'s correct icon + meta line) — `accent-gold` itself measures ~2.6:1 against `surface-card`/white, failing even the 3:1 floor for large text/icons; this darkened variant measures ~4.9:1 |
+| `accent-green-scrim` | `#23B874` | **Exception (2026-07-19, REQ-214, direct user feedback on the shipped photo-fill-cell treatment):** the color of the checkmark glyph only (never the points value beside it, which stays `accent-gold` per the `overlay-scrim` row below) when it's overlaid on a correct cell's at-rest photo. Neither existing green token clears WCAG AA's 4.5:1 floor against the scrim's own worst-case blended background (`rgb(51, 56, 53)` — see `overlay-scrim`'s row for the full derivation): `accent-green` (`#1E9E63`) measures **3.49:1**, and `accent-green-text` (`#187E4F`), being darker still, measures even lower — both fail. This is therefore a new value, not a reuse of an existing token: same hue as `accent-green` (152°), same saturation (68%), lightness raised to 43% (from `accent-green`'s 37%) — `#23B874` — measured at **4.65:1** against the same `rgb(51, 56, 53)` worst-case backdrop, ~3% above the 4.5:1 floor as a safety margin against rendering variance, matching the margin `overlay-scrim`'s own gold math targets. One percentage point of HSL lightness lower (42%, `#22B470`) drops to 4.45:1 and fails — 43% is the practical floor at whole-percent lightness granularity, the same style of verification `overlay-scrim`'s 89%-vs-88% check used. **This is a deliberate, one-off semantic exception, not a new general-purpose "correct" color:** every other correct-state signal in the app — this table's `accent-gold-text`, and `accent-gold` on this very scrim for the points value sitting right beside this same checkmark — is gold, per "Green means live/active, gold means settled/correct" below. The user explicitly asked for this one checkmark, and only this one, to render green instead, after seeing the shipped gold-on-photo treatment; it does not extend to any other correct-checkmark instance in the app (the non-photo checkmark elsewhere in this table remains `accent-gold-text`, unchanged) and must not be reused elsewhere as a general "correct" color without the same explicit, direct call. **Dormant as of 2026-07-19 (S-048):** the checkmark this token was calibrated for no longer renders anywhere on a photo cell (S-048 removed it from both the at-rest and revealed states, per direct user feedback — see `SCREEN-01a`'s S-048 status note). The token and its verification math are kept, not deleted — same "document, don't silently drop" approach as every other superseded value in this table — in case a checkmark is deliberately reintroduced to this overlay later; it must not be reused for any other purpose without a fresh explicit call, same as before. |
+| `overlay-scrim` | `rgba(26, 31, 28, 0.89)` | **(2026-07-18, REQ-214; lightened same day after visual feedback that the original 94% read as a heavy black shadow, not a scrim)** Backdrop behind the checkmark/points value (and the name/badge dock, once revealed) when they're overlaid on a correct cell's at-rest photo (`SCREEN-01a` states 1/4's photo mocks) — a bottom-anchored band behind that content only, not a wash across the whole photo. Same hue as `text-primary`. Opacity was chosen as the *lightest* value (most photo showing through) that still clears WCAG AA's 4.5:1 contrast floor for both overlaid foreground colors, measured against the *worst case* (a pure-white photo showing through the remaining 11%), not a typical photo — relative-luminance formula, `rgb(26, 31, 28)` alpha-blended over `#FFFFFF`: at 89%, the blended backdrop is `rgb(51, 56, 53)`, giving `accent-gold` (`#C99A2E`) a contrast ratio of **4.65:1** and `surface-card`/white a ratio of **11.99:1** against it — both clear 4.5:1, with `accent-gold` (the tighter of the two) landing ~3% above the floor rather than exactly on it, as a safety margin against rendering variance (anti-aliasing, photo compression artifacts) rather than relying on an exact knife-edge value. One point lower, at 88%, `accent-gold` drops to 4.49:1 and fails — 89% is therefore the practical floor at whole-percent granularity. Against a typical (non-white) photo the effective contrast is higher still, since most real photos are darker than pure white. **On this token specifically, use `accent-gold` (not `accent-gold-text`) for the overlaid points text/icon** — the reverse of every other text/icon use in this table: `accent-gold-text` was darkened *because* `accent-gold` fails contrast on a light (`surface-card`/white) background, but that same lighter, more saturated `accent-gold` is what actually clears 4.5:1 on this dark background; `accent-gold-text` would under-perform here (calibrated the opposite direction) and must not be reused on this token. **(2026-07-19 update)** the checkmark glyph specifically no longer follows this same gold pairing — see `accent-green-scrim` above, added the same day after direct user feedback asking for the checkmark (not the points value) to be green on this scrim; the gold pairing described in this paragraph still governs the points value and remains correct for it. **The revealed name (REQ-212) also sits on this scrim once shown, and needs the same treatment** — it has no correct/incorrect semantic color of its own (unlike the checkmark/points), so it normally renders in `text-primary` (near-black), which is illegible here for the same reason `accent-gold-text` is: use `surface-card` (white) for the name specifically when it's shown on this scrim, the lightest neutral already in this table rather than a new token. **(2026-07-19 update, S-048):** this scrim itself is now only ever painted once a photo cell is revealed (never at rest — see `SCREEN-01a`'s S-048 status note), and only ever carries the name and points — the checkmark no longer shares this backdrop at all, so `accent-green-scrim` above is currently unused; the `accent-gold`-for-points and `surface-card`-for-name pairings described in this paragraph remain exactly as verified. |
 
 Green means "live/active," gold means "settled/correct" — same semantic
 split as before, just recolored for a light surface. This distinction is
@@ -89,6 +91,24 @@ load-bearing (REQ-205) so it must stay consistent everywhere. Flags and
 badges bring in their own natural colors on top of this neutral shell —
 the UI is deliberately quiet so those images read clearly, not muddied by
 a busy background.
+
+**Acknowledged exception (2026-07-19, REQ-214):** the checkmark overlaid
+on a correct cell's at-rest photo is `accent-green-scrim` (see §2's table
+row above), not gold — a direct, explicit user request scoped to that one
+glyph, made after seeing the shipped gold-on-photo treatment. This breaks
+the green/gold split described in this paragraph for that single instance:
+the photo-overlay checkmark still means "correct," same as everywhere
+else, but is rendered in the "live" hue. It is recorded here plainly as a
+deliberate one-off, not a reinterpretation of the rule — every other
+correct-checkmark instance in the app (including the points value sitting
+directly beside this same checkmark) is still gold, and any future
+correct-state color choice should still default to gold unless someone
+makes the same kind of explicit call again. **Dormant as of 2026-07-19
+(S-048):** the photo-overlay checkmark this paragraph describes no longer
+renders at all — S-048 (see `SCREEN-01a`'s status note) removed the
+checkmark from the photo overlay entirely, at rest and revealed alike, per
+further direct user feedback. This exception and its token are kept for
+the record, not deleted, in case a checkmark is reintroduced there later.
 
 **Text vs. decorative contrast (S-013, resolves §6's former open
 item):** §6's contrast floor requires verifying gold-on-white and
@@ -144,6 +164,14 @@ visual meaning ("badges settle beside a newly-visible name"), just tied to
 the new trigger that's actually meaningful under S-041's interaction model.
 Respects `prefers-reduced-motion`: badges appear already docked, no slide,
 with a brief background color flash (green→gold) instead.
+
+**S-047 exception:** on a correct cell that has a photo (SCREEN-01a's
+fill-cell photo treatment), the badge dock is hidden on reveal instead of
+docking beside the name — real-browser verification found the confined
+photo-overlay scrim genuinely doesn't have room for both badges and a
+legible name at a typical Tier-0 mobile cell width. See SCREEN-01a's
+S-047 status note for the full finding and fix. The no-photo case
+described above is completely unaffected.
 
 **Rejected-guess cue (S-020).** When a submitted guess is rejected, the
 cell gives a literal, immediate "no match" cue: a brief lateral shake
@@ -229,18 +257,71 @@ revealed immediately (REQ-203), separate from whether the round has closed:
 still live until round close):
 
 ```
-At rest (default):
+At rest, no photo (default when the resolved player has none):
 ┌─────────────────────────┐
 │                     ✓     │   ← gold checkmark — no dot, no "live" text,
 │  12 pts                   │     no name until clicked/tapped
 └─────────────────────────┘
 
-Revealed (click/tap the cell — toggles closed again on a second click/tap):
+At rest, photo available (2026-07-19, S-048 status note — supersedes the
+2026-07-18 mock this replaced, which showed a scrim-backed checkmark/points
+row here even at rest; see the S-048 status note after state 4 below for
+the full rationale and trade-off):
+┌─────────────────────────┐
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│    ← photo only — no checkmark, no points
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│      value, no scrim/overlay of any kind at
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│      rest — the picture is the only thing
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│      shown until the player clicks/taps
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+└─────────────────────────┘
+
+Revealed, no photo (click/tap the cell — toggles closed again on a
+second click/tap; unchanged from before this note):
 ┌─────────────────────────┐
 │  Henry                ✓   │
-│  12 pts                   │   ← unchanged at-rest line, stays visible
+│  12 pts                   │
 └─────────────────────────┘
+
+Revealed, photo available (2026-07-19, S-048 status note — same click/tap
+toggle; the photo itself does not react to the toggle, only the overlay
+below does):
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← scrim strip carrying only the name
+│▓ Henry                    │      and points — no checkmark here (S-048;
+│▓ 12 pts                   │      the no-photo case above still has one)
+└─────────────────────────┘        and no badge dock (already dropped,
+                                     S-047)
 ```
+
+**REQ-214 status note (2026-07-18): photo decoupled from the click/tap
+reveal.** Supersedes this section's own "Revealed, photo available" mock as
+it read immediately after REQ-214 first shipped (photo appearing only once
+revealed, alongside the name) — requested directly by the user after seeing
+that version live. The photo now shows automatically at rest, filling the
+cell, whenever the resolved player has one; the click/tap toggle (REQ-212,
+unchanged) continues to govern only the name and badge dock, and no longer
+gates the photo at all. Practically: a correct cell with a photo now shows
+that photo immediately once locked, before the player has clicked/tapped
+anything; clicking/tapping it afterward adds the name on top (and over the
+photo, if present) exactly as REQ-212 already specified, without changing
+whether the photo itself is showing. The checkmark and points value are
+overlaid on the photo (a scrim/shadow strip behind them, shown as the `▓`
+band above) rather than sitting on a plain card background — see this
+section's REQ-214 implementation note below for why no dedicated overlay
+token exists yet for this treatment. The no-photo mock and behavior above
+are unaffected by this note. **Superseded in part by S-048 (2026-07-19,
+see that status note below):** the "checkmark and points value are
+overlaid on the photo" sentence above described the *at-rest* photo cell
+as first shipped — as of S-048 the checkmark/points no longer appear at
+rest on a photo cell at all, only the picture itself; the scrim/overlay
+treatment this paragraph describes now only ever appears once the cell is
+revealed, and carries the name and points, never the checkmark. The
+photo-decoupled-from-reveal mechanism this note is otherwise about (the
+photo shows automatically, independent of the click/tap toggle) is
+unchanged by S-048.
 
 **S-041 redesign (supersedes S-040's mock above):** further direct product
 feedback found the live/final distinction S-040 preserved (a pulsing dot,
@@ -253,7 +334,12 @@ checkmark plus the live point estimate, full stop — identical in structure
 to state 4 below (see that state's own note). A player cannot tell from
 the cell alone whether the shown value could still change before round
 close; that's now explained once, generally, by SCREEN-06's explainer
-(REQ-213), not repeated per cell. What the %-breakdown disclosure used to
+(REQ-213), not repeated per cell. **Exception (S-048, 2026-07-19):** this
+"checkmark plus points at rest" rule no longer holds for a correct cell
+that has a photo — see the S-048 status note after state 4 below for the
+photo-specific at-rest and revealed treatment, which now shows only the
+picture at rest and only the name/points once revealed. This paragraph's
+rule is otherwise unchanged for every cell without a photo. What the %-breakdown disclosure used to
 gate (the player name + badge dock) is now gated by a **click/tap
 anywhere on the cell** instead — replacing S-019's three-way click/hover/
 focus toggle on a small in-cell button with one interaction, the same on
@@ -340,12 +426,294 @@ Prior outcome: correct (at rest)      Prior outcome: incorrect
                                              same MaxPointsPerCell state
                                              3 shows, per today's fix
 
-Prior outcome: correct (revealed — click/tap the cell)
+Prior outcome: correct, no photo (revealed — click/tap the cell)
 ┌─────────────────────────┐
 │  Henry                ✓   │
 │  88 pts                   │   ← unchanged at-rest line, stays visible
 └─────────────────────────┘
+
+Prior outcome: correct, photo available (at rest — 2026-07-19, S-048
+status note; photo shows automatically, no click/tap needed, and nothing
+else is overlaid — see the S-048 status note below)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒fills cell]▒▒▒▒▒▒▒▒▒│   ← picture only, same as state 1's at-rest
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│     photo mock above; no checkmark, no
+│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│     points, no scrim at rest
+└─────────────────────────┘
+
+Prior outcome: correct, photo available (revealed — click/tap adds the
+name and points on top, same REQ-212 toggle; photo itself unaffected by
+the toggle; 2026-07-19, S-048 status note)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ player photo,▒▒▒▒▒│
+│▒▒▒▒▒▒unchanged ]▒▒▒▒▒▒▒▒▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│    ← no checkmark here either — same
+│▓ Henry                    │      name+points-only overlay as state 1's
+│▓ 88 pts                   │      revealed photo mock above
+└─────────────────────────┘
 ```
+
+**REQ-214 implementation note (frontend half, 2026-07-18, as first
+shipped) — superseded, kept for history:** the paragraph that originally
+stood here described the photo as a small 18px circular avatar shown
+*beside* the name, appearing/disappearing with REQ-212's click/tap reveal
+toggle exactly like the name did (reusing `.category-label__badge--small`'s
+existing 18px circle token, since no dedicated avatar/photo token existed).
+That presentation is no longer current — see the "Photo decoupled from the
+click/tap reveal" status note above state 2 and the mocks directly above
+this note. The 18px-circle reuse and its "appears/disappears with the
+name" behavior are both superseded by the fill-the-cell, always-at-rest
+treatment now specified; this paragraph is kept only so the prior shipped
+behavior isn't lost from the record.
+
+**REQ-214 implementation note (fill-cell treatment, 2026-07-18 status
+note):** the photo now fills the cell's full footprint at rest — same
+fixed cell width/height as the no-photo case. **Superseded (2026-07-19,
+S-051 — see this section's own S-051 status note below state 4 for the
+full detail):** this note originally said `object-fit: cover` here "so
+the source image crops to fill rather than distorting or resizing the
+cell" — that's now `object-fit: contain` instead, a direct user choice to
+show the whole photo (never cropping it) at the cost of possible
+letterboxing, not a distortion/resizing concern either mode ever had
+(neither `cover` nor `contain` ever distorts an image's own aspect
+ratio — only `cover` crops it to avoid empty space, and `contain` avoids
+cropping at the cost of empty space; "resizing the cell" was never
+actually at stake for either value, since the cell's own box is sized
+independently of the image either way, per the mechanism the rest of this
+note describes). Mechanically, the photo layer is taken out of the cell's own normal-flow
+box (absolutely positioned, filling the button's full box edge-to-edge,
+deliberately ignoring the button's own padding so the photo can bleed to
+the cell's corners as the mock shows) rather than being sized by its own
+content — the same "the image can never grow the box" guarantee the
+now-superseded 18px avatar-circle used a fixed pixel size for, just
+achieved differently now that the photo fills the whole cell instead of a
+small slot. **§2 now has a real `overlay-scrim` token** (added the same
+day this note was written) for the text-or-icon-on-photo contrast problem
+this note used to flag as an open gap — a solid, near-opaque bottom band
+behind the checkmark/points (and the name/badge dock, once revealed), not
+a wash across the whole photo; see that token's own row for the exact
+value, the worst-case-photo contrast verification, and the
+`accent-gold`-not-`accent-gold-text` foreground-color call that goes with
+it (the two darkened/lightened token pairs in this document are calibrated
+for opposite background directions — light `surface-card` vs. this dark
+scrim — so the "always use the darkened `-text` variant" habit that holds
+everywhere else in this document is specifically wrong on this one token).
+No broken-image icon, no loading spinner, and no error text for a missing/
+failed photo — that state is visually and behaviorally identical to
+today's no-photo at-rest display (same DOM shape, no scrim/overlay layer
+rendered at all in that case). Cell footprint (width/height) is a literal
+constant regardless of whether a photo is present, absent, or fails to
+load — this is a hard, testable constraint (REQ-214), not a visual
+preference.
+
+**S-047 status note (2026-07-19, direct user feedback on the shipped
+fill-cell photo treatment — the overlay covers too much of the photo on
+mobile):** real screenshots (mobile, cells roughly 90-110px tall in a
+Tier-0 3x3 grid) showed the `▓` scrim band above covering roughly 40-45%
+of the cell — the checkmark/points row plus, once REQ-212's click/tap
+reveal also puts the name/badges into that same row, the wrapped second
+line that typically forces on a narrow cell — well past this section's
+own original mock, which implied roughly 30% (≈2 of 6 ASCII rows). Fixed
+primarily by shrinking the overlay's own footprint at rest (the common
+case, no clipping involved) — see the last bullet below for the revealed
+case, which needed a different, clipping-based fix after real-browser
+verification found the original no-clip plan didn't hold up:
+- The overlay's padding drops from a uniform `--space-2` (8px) to
+  `--space-1` `--space-2` (4px vertical / 8px horizontal) — reusing the
+  existing spacing tokens, no new value.
+- The photo variant specifically (extending the existing
+  `.cell-state--photo .cell-state__meta`/`.cell-state--photo
+  .cell-state__icon--correct` override pattern) renders smaller than the
+  no-photo case: checkmark 11px (was 14px), points/meta text 10px (was
+  11px), and the revealed name 12px with a tightened 1.2 line-height
+  (was an un-set ~16px/1.5 browser default) — the no-photo cell's type
+  sizes are unchanged.
+- The row's internal gap (badges/name/icon) tightens from `--space-2`
+  (8px) to `--space-1` (4px) on the photo variant only, so wrapping is
+  less likely and less tall when it does happen.
+- **Numeric target:** at rest (checkmark + points only, the common case),
+  the overlay should occupy no more than **~35% of the cell's height** on
+  a typical mobile cell in the 90-110px range. These are targets achieved
+  through the padding/type reductions above. No change to `overlay-scrim`'s
+  color/opacity or the `accent-gold`/`accent-green-scrim`/`surface-card`
+  foreground pairings above — shrinking padding/type size doesn't change
+  any contrast ratio, so none of that math needed re-verification.
+- **Revealed state — two further bugs found during this story's own
+  required real-browser verification, corrected before shipping (not
+  anticipated in the original bug description; the plan below this bullet
+  was the original intent, superseded by what's described after it):**
+  the plan was to let a revealed photo cell's overlay grow up to ~55% of
+  the cell's height (badges + wrapped name + checkmark/points) without a
+  hard clip, on the reasoning that clipping via `overflow: hidden` risked
+  cutting off a long name worse than a slightly-oversized overlay. Real-
+  browser verification showed this was wrong on both counts:
+  1. `.cell-state--photo`'s own `overflow: hidden` (needed so the *photo*
+     doesn't bleed past the cell's rounded corners) already clips
+     anything inside it that grows taller than the cell — there was no
+     way to opt out of clipping for the overlay specifically while keeping
+     it for the photo, so "avoid clipping" was never actually achievable
+     with this structure. Worse, since the overlay is bottom-anchored and
+     content grows *upward* out of view, clipping happened from the
+     *top*, which for a 2-line name showed an unpredictable *middle*
+     fragment (e.g. "izecson..." from "Ricardo Izecson dos Santos Leite")
+     rather than the name's actual beginning.
+  2. At a typical Tier-0 mobile cell's content width (~65-80px), the
+     revealed row's four flex items (row badge, name, column badge,
+     checkmark) didn't fit on one line for *any* real name, not just long
+     ones — "Thierry Henry" rendered completely invisible, not just
+     tightly cropped.
+  **Fixed by, on the photo variant only:** hiding both badge-dock glyphs
+  once revealed (they're decorative/`aria-hidden` and already redundant
+  with the row/column category headers shown above/left of the whole
+  grid), and clamping the name to a single line with a trailing ellipsis
+  (`-webkit-line-clamp: 1`) instead of letting it wrap. This narrows (does
+  not remove) the "signature badge-dock" element described above to the
+  no-photo case — a deliberate, explicitly-recorded one-off in the same
+  spirit as `accent-green-scrim`'s checkmark-color exception, made because
+  the confined photo-overlay context genuinely can't fit all four elements
+  legibly at Tier-0 mobile widths, not a change of mind about the
+  badge-dock's value generally. The no-photo case's badge dock (and its
+  slide-in animation) is completely unaffected. A one-line, ellipsis-
+  truncated name is an accepted trade-off — the full name remains in the
+  DOM (so nothing is lost to assistive tech), and showing "Ricardo..."
+  reliably beats showing a random unreadable fragment or nothing at all.
+- **A gradient fade (the user's other suggested option, "gradient/
+  bottom-bar treatment instead of a solid block") was considered and
+  rejected for this pass:** the existing `overlay-scrim` contrast math is
+  verified against one flat, worst-case alpha value (89%, see that
+  token's own row); a gradient would need per-point contrast
+  re-verification anywhere text could sit within the fading region, which
+  is exactly the kind of subtle regression this file has already had to
+  correct twice (the 94%→89% opacity change and the checkmark's
+  green-scrim exception). Shrinking the solid band's footprint gets the
+  same "covers less of the photo" outcome the user asked for without
+  reopening that contrast math. Revisit a gradient treatment later if
+  product feedback specifically asks for the softer visual edge, not just
+  less coverage.
+
+**S-048 status note (2026-07-19, direct user feedback on the shipped S-047
+treatment — "at rest, only picture. on click name + points only in an
+overlay"):** a further, deliberate simplification of the photo case, not
+another coverage tweak — supersedes S-047's photo mocks above (and the
+checkmark's overlaid treatment generally) with a narrower rule:
+- **At rest, a correct cell with a photo now shows the photo and nothing
+  else** — no `.cell-state__overlay`, no scrim, no checkmark, no points
+  value. This is a change to the *at-rest* case specifically; the no-photo
+  at-rest treatment (checkmark + points, state 1/state 4's original mocks
+  at the top of this section) is completely unaffected.
+- **On click/tap (revealed), the overlay now shows only the player's name
+  and the points value** — no checkmark icon, and no badge dock (already
+  dropped by S-047; stays dropped, not reintroduced). The scrim/contrast
+  treatment behind them (`overlay-scrim`, `accent-gold` for points,
+  `surface-card` for the name) is unchanged — none of that math needed
+  re-verification, since it's the same two foreground colors on the same
+  backdrop, just without the checkmark sharing the row. The checkmark's
+  own `accent-green-scrim` exception (§2 above) is consequently unused as
+  of this story — see that token's row for the note recording this rather
+  than deleting the token outright, since it's still a documented,
+  intentional exception should a checkmark ever return to this overlay.
+- **Trade-off, recorded rather than silently assumed:** before this story,
+  a photo cell's checkmark+points was the only always-visible, at-a-glance
+  signal that the cell was "done" and roughly how well it scored, without
+  clicking each one — this was REQ-204's original point. A photo-filled
+  cell now carries none of that signal at rest; the only always-visible
+  fact is that the cell has a photo, which itself already implies a
+  correct, locked guess (an incorrect or unattempted cell never has one),
+  so a player can still infer "this one's solved" from the photo alone,
+  just not the score. This is the user's own explicit trade-off, made
+  directly ("at rest, only picture"), not a default this document is
+  inventing a justification for after the fact — recorded here plainly
+  per this repo's own discipline for exactly this kind of call. The
+  no-photo case keeps its always-visible checkmark+points exactly as
+  REQ-204 originally specified; this trade-off is scoped to the photo case
+  only.
+- **What stays exactly as-is:** the photo's own at-rest trigger (automatic,
+  independent of `revealed` — REQ-214's 2026-07-18 decoupling is
+  unaffected), the click/tap toggle mechanism itself (REQ-212, same
+  whole-cell target, same `aria-expanded`, same keyboard/mouse/touch
+  parity), the fixed-cell-footprint guarantee, and the overlay's own
+  padding/type-size treatment from S-047 (still applicable to the name and
+  points that do render on reveal).
+
+**S-050 (2026-07-19):** the `▒` fill in this section's own at-rest photo
+mock above was always meant to touch all four sides of the box border —
+it didn't, in the version shipped through S-049, by a real, measured,
+symmetric margin. See §4's "Grid cell photo fill" note for the root cause
+and fix (CSS-only, `Grid.css`); nothing in this section's own mocks or
+click/tap behavior changed.
+
+**S-051 status note (2026-07-19) — direct product decision, not a bug
+fix.** The user asked directly: "I want the full picture to be visible
+within the cells, so they are not cut off," referring to `object-fit:
+cover`'s crop-to-fill behavior (every mock in this section showing a
+uniform `▒` fill implied a photo that reaches every edge with nothing
+cropped away, but `cover` actually crops whatever doesn't fit the cell's
+own aspect ratio — the two aren't the same thing, and the shipped
+behavior was the latter). Asked to choose between "Crop photo to fill the
+cell completely (today's behavior)" and "Show full photo, allow empty
+space (letterbox)," after being told the trade-off explicitly (a
+differently-shaped photo may leave a thin background strip on two
+opposite sides of the cell) — the user chose the letterbox option.
+`object-fit: contain` (was `cover`) on `.cell-state__photo-img`
+(`CellState.css`) is the mechanical change: the whole photo now always
+renders, scaled down to fit entirely within the cell, at the cost of
+empty space appearing on two opposite sides whenever the photo's aspect
+ratio doesn't match the cell's own (roughly square, per §4) — top/bottom
+for a wider-than-cell (landscape) photo, left/right for a
+taller-than-cell (portrait) one. Every `▒▒▒▒▒▒` fill-block mock in this
+section (states 1 and 4, at rest and revealed) should now be read as "the
+photo, scaled to fit, possibly with a plain background strip on two
+sides" rather than a literal uniform fill — the mocks are ASCII art and
+were never going to show this distinction precisely either way, so they
+are not redrawn here.
+- **Letterbox background:** `.cell-state--photo` (the box the image sits
+  in) now has its own explicit `background-color: var(--color-surface-card)`
+  (`CellState.css`) — before this story it had none, and relied on
+  `.grid-cell`'s (the button behind it, `Grid.css`) own
+  `background: var(--color-surface-card)` showing through its transparent
+  box. That fallthrough happened to already be the right, clean color
+  (confirmed via real-browser screenshots at both a mobile and a desktop
+  viewport, with a genuinely non-square test photo at each orientation:
+  the letterbox strip reads as a plain white card background, not a
+  visible seam or an obviously "wrong" color) — but it was incidental, not
+  guaranteed: nothing tied the two together, so a future change to
+  `.grid-cell`'s own background (e.g. a new hover/selected-state treatment)
+  could have silently changed what letterboxing looks like without anyone
+  touching the photo code at all. Made explicit on `.cell-state--photo`
+  itself instead, now that this box's own background is actually visible
+  and load-bearing (never true when `cover` guaranteed the image reached
+  every edge). Same token, same value — this is a robustness fix to *how*
+  the color is guaranteed, not a visual change.
+- **Overlay contrast over the letterbox, re-verified rather than
+  assumed:** `overlay-scrim`'s existing contrast math (§2 above) was
+  calibrated against "the worst case: a pure-white photo showing through
+  the remaining 11%." `--color-surface-card` (`frontend/src/index.css`) is
+  `#FFFFFF` — literally pure white, not an off-white tint — so a landscape
+  photo's bottom letterbox strip (the case that can land directly behind
+  the bottom-anchored overlay) presents the scrim with *exactly* the same
+  underlying color the existing math already treats as the worst case,
+  not merely a similar one: alpha-blending is agnostic to whether the
+  white behind it is "a very light photo" or "an opaque background
+  color," so the same `rgb(51, 56, 53)` blended value, the same 4.65:1
+  (`accent-gold`) and 11.99:1 (`surface-card`/white, the revealed name's
+  color) ratios already recorded under `overlay-scrim` apply unchanged.
+  **No new token or contrast math was needed** — confirmed by checking the
+  actual token value (not assumed), and re-confirmed visually via
+  real-browser screenshots of a revealed landscape-oriented photo cell
+  (bottom letterbox landing behind the overlay): the name and points text
+  remained clearly legible against the scrim in that exact scenario. A
+  portrait-oriented photo's letterbox lands left/right, never behind the
+  bottom-anchored overlay at all, so it was never a contrast concern to
+  begin with.
+- **Unaffected by this change, re-confirmed rather than assumed:** the
+  fixed-cell-footprint guarantee (REQ-214) — the mechanism is the
+  absolutely-positioned box's own `inset: 0`/explicit `width`/`height`,
+  never the fit mode, and real-browser measurement across landscape and
+  portrait photos at both breakpoints (mobile/desktop) showed identical
+  cell dimensions regardless of photo orientation or fit mode; and the
+  no-photo/load-failure at-rest display, which only ever concerns a
+  *successfully loading* photo's own presentation and is untouched here.
 
 **S-041 redesign (supersedes S-040's mock above):** same redesign as state
 1 above, applied here too — no more dot/"live"/"final" text distinguishing
@@ -404,6 +772,36 @@ from v0.1, recolored for the light theme:
   not a bug to fix visually; nothing in this screen should imply a
   suggested name is already known to be right.
 
+**S-032 implementation note:** shipped without the photo/silhouette avatar
+described above — the `PlayerNameIndex`-backed contract this story builds
+against (ADR-0007) carries `name`/`birthYear`/`nationality` only, no photo
+field, so each suggestion row instead shows the name plus an optional
+`nationality · birthYear` caption line in `text-muted` for disambiguation.
+Avatar support stays an open item if/when the index gains a photo field.
+Judgment calls made without an existing spec to follow, recorded here
+rather than left as unreviewed implementation-only detail:
+- Suggestions list uses only neutral tokens — `surface-card` background,
+  `border-hairline` dividers, `text-primary`/`text-muted` for name/caption,
+  and `surface-sunken` (the same "recessed" token already used for an
+  untouched input, not a live/correct accent) for the keyboard-highlighted
+  row. Deliberately no `accent-green`/`accent-gold` anywhere in this list —
+  either would visually suggest a name is "probably right," undermining
+  REQ-207's own point.
+- Selecting a suggestion (click, or Enter on the keyboard-highlighted row)
+  fills the text field only — never auto-submits — so the player always
+  takes an explicit, separate "Submit guess" action regardless of how the
+  name got into the field.
+- Debounced at 275ms after the last keystroke, once the trimmed query
+  reaches 2 characters; a failed suggestions fetch is swallowed
+  client-side (shows no suggestions, never blocks or errors the guess
+  form) since autocomplete is a nice-to-have, not required to submit.
+- Standard combobox/listbox ARIA pattern (`role="combobox"` on the input,
+  `role="listbox"`/`role="option"` on the suggestion list, with
+  `aria-activedescendant` tracking the arrow-key-highlighted option) —
+  arrow keys move through suggestions, Enter picks the highlighted one
+  (or falls through to the form's normal submit if nothing is
+  highlighted), Escape dismisses the list without clearing typed text.
+
 ### SCREEN-02a: Disambiguation prompt
 
 Appears only when a submitted name matches more than one real player who
@@ -443,12 +841,24 @@ be handled cleanly rather than silently guessing on the player's behalf.
 │ 1  Sam         120 pts         │
 │ 2  You         138 pts   ← you │
 │ 3  Alex        142 pts         │
+├───────────────────────────────┤
+│         [ Load more ]          │
 └───────────────────────────────┘
 ```
 
 Unchanged from v0.1 structurally — tabs for Global vs. custom leagues, the
 user's row always visually distinct. Recolored: the user's row uses
 `surface-sunken` instead of a dark raised surface.
+
+**Pagination (REQ-607, S-034):** a "Load more" control below the list
+fetches and appends the next page — outline-fill button (`surface-card`
+background, `border-hairline`, `accent-green-text` label), not a second
+green CTA. When the requesting user's row isn't among the currently
+loaded page(s), a pinned "you" row renders below the list (same
+`surface-sunken`/"you"-tag treatment as an in-list row, sticky to the
+viewport bottom) so their standing is always visible without loading
+further pages. No new tokens — both reuse the existing surface/border/
+accent set above.
 
 **ADR-0021 addition:** xG Arcade is scored like golf — lowest total wins,
 the opposite of the natural "higher number = better" assumption most
@@ -685,6 +1095,127 @@ Unchanged from v0.1 — built "equally both" from the start:
   instead (`Grid.css`); the cell floor and the horizontal-scroll fallback
   itself are unchanged for whatever is still too wide (a larger grid, or a
   longer name still).
+- **Grid cell aspect ratio (added S-047, closing a gap this document never
+  specified numerically):** a data cell (`.grid-cell`) must render
+  square-ish — width:height between **1:1 and ~1.3:1** — at every
+  viewport from 481px up through desktop, for a Tier-0-sized grid (≤5
+  columns). This was violated in practice: `.grid-table` used
+  `width: 100%` unconditionally, which — combined with the browser's
+  default `table-layout: auto` above 480px, and `.grid-table__cell`'s
+  explicit `height` acting as a floor, not a ceiling, on row height —
+  stretched a 3-column Tier-0 grid's cells to fill however wide the
+  viewport happened to be (reproducible on any real desktop browser, not
+  only via a phone's "Request desktop site," which just happens to report
+  a similar ~980-1200px CSS viewport). Fixed by letting the table use its
+  own intrinsic (shrink-to-fit) width above 480px instead of forcing
+  `width: 100%` — per the CSS2.1 automatic table-layout algorithm, an
+  auto-width table only fills its container when a column's own content
+  genuinely needs that width; otherwise columns size from their own
+  content/`min-width` floor (the existing 44px/64px touch-target tokens),
+  which is what keeps them close to square. A grid that genuinely has
+  enough columns or long enough names to need the full container width
+  still gets it, unchanged — the horizontal-scroll fallback above remains
+  the backstop either way. Below 480px, S-040's `table-layout: fixed` +
+  explicit `<colgroup>` widths remain exactly as they were (that
+  breakpoint's own problem — header text wrapping — needs a deliberate
+  full-width fixed layout, not shrink-to-fit) — this rule does not apply
+  there. REQ-214's "cell footprint is a literal constant regardless of
+  photo presence" constraint is unaffected — this is a table/column-width
+  fix, not a per-cell content change.
+- **Grid cell target size at desktop (added S-049, extends S-047's
+  floor-only rule above — the aspect-ratio bound itself is unchanged):**
+  S-047 fixed cells stretching into flat rectangles, but the fix it shipped
+  (`.grid-table__cell`'s `min-width`/`height`, 64px at `≥960px`, 44px below
+  that) was only ever a **floor**, never a deliberate **target** for a
+  genuinely wide desktop viewport. Direct user feedback, after S-047/S-048
+  shipped and mobile was confirmed to look good ("if i switch to desktop
+  view in the mobile it still looks weird.. feels like the grid could be
+  larger? and the cell + picture should look nice"), found the
+  consequence: with a Tier-0 grid's 3-5 columns and no cell content that
+  ever needs more room than that 64px floor (nothing in `.grid-cell`'s
+  content forces a column wider than it — text wraps rather than growing
+  the box, and `.cell-state--photo`'s photo layer is absolutely positioned
+  out of the normal flow — the same fact S-047 already established for the
+  64px value), the grid rendered at its smallest reasonable size — roughly
+  300-400px wide — inside `.app`'s 1200px desktop cap, reading as "stuck
+  small" rather than substantial. Fixed by raising the same floor the
+  table already sizes its shrink-to-fit columns from, not by switching
+  mechanism: at `≥960px`, `.grid-table__cell`'s `min-width`/`height` become
+  **120px** (up from 64px) and its padding grows from `--space-2` to
+  `--space-3` in step, so the bigger footprint isn't just a larger empty
+  box around the same tight spacing. Because nothing in a Tier-0 cell's
+  content ever exceeds this floor, raising it functions as a de facto
+  *target* render size in practice, not just a lower bound — confirmed via
+  real-browser verification (not assumed): a 3×3 grid renders at ~490×406px
+  and a 5×5 at ~787×646px at a 1280px viewport, both comfortably inside the
+  1200px desktop cap with cells reading square (~1.14:1, within the
+  existing 1:1–1.3:1 bound above) and no overflow or horizontal-scroll
+  fallback triggering. `object-fit: cover` on `.cell-state__photo-img`, as
+  it stood at the time this note was written, scaled the photo cleanly to
+  the larger footprint with no distortion. **Superseded (2026-07-19,
+  S-051):** the fit mode is now `object-fit: contain` (a direct user
+  choice, see SCREEN-01a's S-051 status note) — this note's own point
+  still holds regardless of fit mode (neither `cover` nor `contain` ever
+  distorts the image; the larger footprint scales either mode's output
+  cleanly), so nothing about this story's own 120px-floor change needed
+  re-verification when the fit mode changed separately. The 481-959px
+  shrink-to-fit range and the ≤480px
+  `table-layout: fixed` range are both unaffected — this change is scoped
+  to the existing `≥960px` breakpoint only. No change to REQ-214's
+  fixed-cell-footprint constraint — this is a target-size increase within
+  the same "constant regardless of photo presence" rule, not a relaxation
+  of it. **CellState.css companion change:** the photo-overlay's revealed
+  name/points type (S-047's 12px/10px, tuned for a ~90-110px *mobile*
+  cell) read as undersized once the cell itself nearly doubled — a second
+  angle on the same "cell + picture should look nice" feedback. A matching
+  `≥960px` override bumps the revealed name to 15px and the points line to
+  12px, and the overlay's padding from `--space-1`/`--space-2` to
+  `--space-2`/`--space-3`; the existing single-line ellipsis clamp
+  (`-webkit-line-clamp: 1`) is unchanged and re-verified at the larger size
+  with a deliberately long name ("Ricardo Izecson dos Santos Leite") —
+  still truncates cleanly to "Ricardo…" with no clipping/overflow, so no
+  change to that mechanism was needed. The no-photo case's own type sizes
+  are untouched — real-browser verification found them to already read
+  fine at the larger cell size, badge dock and name+checkmark included.
+- **Grid cell photo fill (added S-050, closes a gap the S-047/S-048/S-049
+  notes above never checked directly):** a correct cell's photo (REQ-214)
+  must fill all the way to the cell's actual bordered edge — the same
+  literal "filling the cell" intent SCREEN-01a's own at-rest photo mock
+  below has always shown (the `▒` fill in that ASCII box touches all four
+  sides of the box border, with no blank margin drawn). Direct user
+  feedback, with real screenshots at both a mobile and a "Request desktop
+  site" viewport, reported a visible white gap between the photo and the
+  cell's own border. Root-caused via `getBoundingClientRect` on a real
+  Chromium render (not guessed): the gap was real, measured, and
+  **symmetric** on all four sides (4px below 960px, 12px at/above it) —
+  not literally bottom-only as first described, though most visually
+  obvious where two photo cells stack vertically (that gap, doubled across
+  the shared row border, reads as a noticeably wide blank band, which is
+  almost certainly what the report was actually describing). Cause:
+  `CellState.css`'s `.cell-state--photo` bleeds through `.grid-cell`'s (the
+  button's) own padding via `inset: 0` against its padding box, exactly as
+  S-047/REQ-214's own comments already documented — but `.grid-table__cell`
+  (the `<td>` itself) has a *second*, separate padding layer one level
+  further out that was never bypassed, so the photo always stopped short
+  of the `<td>`'s actual border by exactly that amount. Fixed by moving the
+  `position: relative` that establishes the abs-positioning containing
+  block from `.grid-cell` up to `.grid-table__cell` — the photo now bleeds
+  through both padding layers, reaching the cell's real edge (confirmed:
+  remaining gap after the fix is 0.5px on every side at both breakpoints
+  tested, exactly this rule's own 1px border, split by sub-pixel rounding).
+  A `:has(.cell-state--photo)`-scoped padding override on the `<td>` was
+  tried first and rejected: real-browser verification found it would make
+  `.grid-cell`'s own rendered size depend on whether a photo is *currently*
+  showing, which `CellState.tsx` ties to load success (a failed image
+  unmounts `.cell-state--photo` entirely) — reintroducing exactly the
+  "cell resizes if an already-shown photo fails to load" bug REQ-214's
+  fixed-footprint guarantee forbids, confirmed via a deliberately-broken
+  photo URL before rejecting that approach. The chosen fix has no such
+  dependency — `.grid-cell`'s own box is governed solely by its own
+  unconditional CSS regardless of photo presence/load outcome, re-verified
+  the same way. No change to the aspect-ratio or target-size rules above —
+  this only changes how much of the same footprint the photo fills, not
+  the footprint's own size.
 
 ## 5. Copy and voice
 
@@ -777,3 +1308,23 @@ Unchanged from v0.1:
   client-side same-session cache (`GridScreen`'s `knownPlayerNames`) is kept
   only as the immediate-feedback path, since `POST .../guesses`' own
   response still doesn't echo the name back.
+- ~~REQ-214's photo field name is still provisional~~ — **resolved**: the
+  frontend's `resolvedPlayerPhotoUrl` guess (`CurrentRoundGuess`/
+  `SubmitGuessResponse`, `frontend/src/lib/types.ts`) was checked against
+  the backend's `ResolvedPlayerPhotoUrl` once it landed and matches
+  exactly under the default camelCase JSON policy — no rename needed.
+- ~~§2 has no overlay/scrim token for text-or-icon-on-photo contrast~~ —
+  **resolved (2026-07-18, same session as the photo-decoupled-from-reveal
+  status note; opacity lightened later the same day from 94% to 89% after
+  visual feedback that 94% read as a heavy black shadow — see the
+  `overlay-scrim` row above for the updated contrast math):**
+  `overlay-scrim` (§2) is a band behind the checkmark/points/name overlay,
+  calibrated against the worst case (a pure-white photo showing through)
+  rather than a typical photo, at the lightest opacity that still clears
+  the 4.5:1 floor for both overlaid foreground colors — pairs with
+  `accent-gold` (not `accent-gold-text`) as the foreground color
+  specifically on this token, the reverse of every other gold text/icon use
+  in this document, since the darkened/lightened split is calibrated
+  per-background-direction, not universally "always use the darkened one."
+  `CellState.css`/`CellState.tsx` implement against this token directly —
+  no bare `rgba()` value left untracked.

@@ -13,8 +13,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
-- 2026-07-19 — `docs/requirements-document.md` (0.54 → 0.55),
-  `docs/architecture-document.md` (0.33 → 0.34) — doc-sync for S-026 (admin
+- 2026-07-19 — `docs/requirements-document.md` (0.68 → 0.69),
+  `docs/architecture-document.md` (0.37 → 0.38) — doc-sync for S-026 (admin
   UI page + round control + user deletion), which was fully implemented,
   tested, and merged with REQ-504/505/506 still marked "Proposed." Flipped
   all three to `Status: Implemented (Tier 0, S-026)` and described what was
@@ -31,11 +31,676 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   that ADR-0006's fail-closed pattern has, for the first time, been reused
   by an admin-facing (not test-only) endpoint group — a growth in scope of
   an existing decision, not a new one, so no new ADR. `docs/design-document.md`
-  (0.19 → 0.20) was already updated earlier in the same branch (SCREEN-04's
+  (0.32 → 0.33) was already updated earlier in the same branch (SCREEN-04's
   mock rewritten to match what was actually built) — noted here for the
   record, not re-touched. `docs/backlog.md`'s S-026 entry also gained its
   own "Built as" paragraph, matching every other completed story's
   convention. REQ-504/505/506.
+- 2026-07-19 — `design-document.md` (v0.32, new S-051 status note under
+  SCREEN-01a plus superseding marks on the 2026-07-18 REQ-214 note and the
+  S-049 §4 note, both of which described `object-fit: cover` as
+  current/unchanged), `requirements-document.md` (v0.68, new REQ-214 status
+  note plus a "Test level" addition), `docs/backlog.md` (new S-051 entry),
+  `frontend/src/grid/{CellState.css,CellState.test.tsx}` — S-051, a direct
+  product decision, not a discovered bug (unlike S-047 through S-050,
+  which were each root-caused from a report of broken/ugly behavior): the
+  user asked directly "I want the full picture to be visible within the
+  cells, so they are not cut off," was shown the trade-off explicitly via
+  `AskUserQuestion` — "Crop photo to fill the cell completely (today's
+  behavior)" vs. "Show full photo, allow empty space (letterbox)" — and
+  chose letterboxing. Mechanical change: `.cell-state__photo-img`'s
+  `object-fit` `cover` → `contain`, so the whole photo always renders,
+  scaled to fit, never cropped, at the cost of a background strip on two
+  opposite sides whenever a photo's aspect ratio doesn't match the cell's.
+  Made load-bearing rather than left incidental: `.cell-state--photo` gets
+  its own explicit `background-color: var(--color-surface-card)` — before
+  this story that box had no background of its own and relied on
+  `.grid-cell`'s (Grid.css) background showing through its transparent box,
+  true but untied to this element, so a future `.grid-cell` state-treatment
+  change could have silently changed the letterbox color without anyone
+  touching photo code at all. Confirmed (not assumed) via an independent
+  review pass against `frontend/src/index.css` that `--color-surface-card`
+  is `#ffffff`, exactly the value `overlay-scrim`'s existing contrast math
+  already treats as its worst case, so no new token or contrast
+  recalculation was needed; REQ-214's fixed-cell-footprint guarantee is
+  unaffected (the mechanism is `inset: 0` + explicit `width`/`height`, never
+  the fit mode). `CellState.test.tsx`: existing `object-fit` assertion
+  updated `'cover'` → `'contain'`; one new test asserts
+  `.cell-state--photo`'s `background-color` resolves to the `surface-card`
+  token. Full Vitest suite 129/129 passing (was 128); `tsc -b --noEmit` and
+  `oxlint` both clean. No `architecture-document.md`/
+  `implementation-document.md` change — checked directly, not assumed:
+  neither doc references `object-fit`, `CellState.css`, or the
+  `surface-card` token at all, confirming this is a pure design/requirements
+  concern with no component boundary, data flow, or data model touched. No
+  ADR — two independent review passes (architecture-reviewer,
+  quality-architect) already concluded no structural/component-boundary
+  choice was made here, same CSS/layout-only precedent as S-040/S-041/
+  S-047/S-048/S-049/S-050; this one is a recorded product *decision* via
+  `AskUserQuestion` rather than a bug fix, but that distinction doesn't
+  change the ADR calculus. REQ-214 ref.
+- 2026-07-19 — `requirements-document.md` (v0.67, new REQ-214 status note),
+  `design-document.md` (v0.31, new S-050 note under §4's "Grid cell photo
+  fill" heading), `docs/backlog.md` (new S-050 entry with full before/after
+  measurements), `frontend/src/grid/{Grid.css,CellState.css,CellState.tsx,
+  Grid.test.tsx}` — S-050, a fourth round of direct user feedback on
+  `/grid`, this time with real screenshots at both a mobile and a "Request
+  desktop site" viewport: "see how they are not tall enough to show full
+  pictures.. we need to make sure that the pictures actually fits the
+  cell." Root-caused via `getBoundingClientRect` on a real Chromium render
+  before any CSS was touched (a prior static read of `Grid.css`/
+  `CellState.css` found nothing obviously wrong, since the S-047/REQ-214
+  mechanism as documented *should* work). Actual cause, one level further
+  out than expected: a correct cell's photo (`.cell-state--photo`,
+  `CellState.css`) bled through `.grid-cell`'s (the button's) own padding
+  exactly as already documented, but `.grid-cell` itself sits inside
+  `.grid-table__cell` (the `<td>`), which has its own, separate,
+  never-bypassed padding — so the photo always stopped short of the cell's
+  actual bordered edge by exactly that amount, symmetric on all four sides
+  (4px below 960px, 12px at/above it), not literally bottom-only as first
+  described (most visually obvious where two photo cells stack vertically
+  and that gap doubles across the shared row border). A first fix
+  (`.grid-table__cell:has(.cell-state--photo) { padding: 0; }`) was tried
+  and rejected after real-browser verification found it would tie
+  `.grid-cell`'s own rendered size to whether a photo is *currently*
+  showing — `CellState.tsx` unmounts `.cell-state--photo` on image load
+  failure, so that approach would have made the button visibly resize the
+  moment an already-shown photo failed to load, exactly the shift REQ-214's
+  "constant footprint regardless of load failure" guarantee forbids
+  (confirmed via a deliberately-broken photo URL before rejecting it).
+  Shipped fix instead: move `position: relative` (the abs-positioning
+  containing block for `.cell-state--photo`'s `inset: 0`) from `.grid-cell`
+  up to `.grid-table__cell` — one DOM level further out, past both padding
+  layers — with no change to either element's own `width`/`height`/padding
+  rules, so `.grid-cell`'s own box stays governed solely by its own
+  unconditional CSS regardless of photo presence/load outcome (verified:
+  identical computed width/height/padding with and without a photo
+  present, and pixel-identical `getBoundingClientRect()` before/after the
+  same broken-photo-URL scenario). Remaining gap after the fix: 0.5px on
+  every side at both breakpoints — this rule's own 1px border split by
+  sub-pixel rounding, i.e. the cell's actual visible edge. `CellState.css`
+  and `CellState.tsx` changes in this diff are comments only, describing
+  the new containing block accurately — no property/behavior change in
+  either file. No `architecture-document.md`/`implementation-document.md`
+  change (CSS-only, no component boundary or data flow touched) and no ADR
+  (same CSS/layout-only precedent as S-040/S-041/S-047/S-048/S-049; the
+  rejected `:has()` approach never shipped, so there's nothing to revert in
+  an ADR sense either). `requirements-document.md`'s new REQ-214 status
+  note clarifies the "filling the cell" acceptance criterion was, through
+  S-049, only true up to this same measured gap, and that the
+  footprint-invariance bullet's load-failure clause was re-verified (not
+  just assumed unaffected) as part of this fix. `Grid.test.tsx` gained 2
+  new tests (a raw-stylesheet check that `.grid-table__cell` now carries
+  `position: relative` and `.grid-cell` no longer does, and a rendered-DOM
+  check that `.grid-cell`'s computed width/height/padding are identical
+  with and without a photo). Full Vitest suite 128/128 passing (was 126);
+  `tsc -b --noEmit` and `oxlint` both clean. No `tests/e2e/play-grid.spec.ts`
+  change needed — its `cell.boundingBox()` assertions target `.grid-cell`
+  via `data-testid`, the exact element this fix keeps load-outcome-
+  independent (confirmed by reading the file). REQ-214 ref.
+- 2026-07-19 — `design-document.md` (v0.30, new S-049 note extending §4's
+  S-047 aspect-ratio rule with a concrete desktop target size),
+  `docs/backlog.md` (new S-049 entry), `frontend/src/grid/{Grid.css,
+  CellState.css,Grid.test.tsx}` — S-049, a third round of direct
+  user feedback on `/grid` after mobile was confirmed good: "if i switch
+  to desktop view in the mobile it still looks weird.. feels like the grid
+  could be larger? and the cell + picture should look nice." Root cause
+  (verified, not guessed): S-047's `.grid-table__cell` `min-width`/`height`
+  at `≥960px` (64px, from S-040) fixed cells stretching into flat
+  rectangles but was only ever a *floor*, never a deliberate *target* — a
+  Tier-0 grid's 3-5 columns never need more than that floor, so the grid
+  rendered at its smallest reasonable size (~300-400px) inside `.app`'s
+  1200px desktop cap. Fixed by raising the same floor the table's
+  shrink-to-fit column sizing already keys off, not by switching mechanism:
+  `min-width`/`height` 64px → 120px, padding `--space-2` → `--space-3`,
+  scoped to the existing `≥960px` breakpoint only (481-959px and ≤480px
+  unaffected). A matching `CellState.css` change bumps the photo-overlay's
+  revealed name/points type (12px/10px → 15px/12px, also `≥960px`-scoped) —
+  S-047's mobile-tuned sizes read undersized once the cell nearly doubled,
+  the same feedback from a different angle. This is pure visual/layout
+  polish, not a behavior change: no REQ's acceptance criteria depends on a
+  specific cell pixel size (checked directly — the only place 44px/64px
+  appear in `requirements-document.md` is inside a narrative "Built as"
+  implementation-history note under REQ-204, not phrased as a Given/When/
+  Then criterion), so `requirements-document.md` is deliberately untouched
+  this time, unlike S-047/S-048 which each narrowed a REQ's actual
+  acceptance criteria. No `architecture-document.md`/
+  `implementation-document.md` change (frontend CSS/layout only, no
+  component boundary or data-flow touched) and no ADR (same CSS/layout-only
+  precedent as S-040/S-041/S-047/S-048). Real-browser verification: a
+  temporary, not-committed Vite + Playwright harness (Chromium at
+  `/opt/pw-browsers`, deleted before finalizing, same approach S-047/S-048
+  used) confirmed a 3×3 grid renders ~490×406px and a 5×5 grid ~787×646px
+  at a 1280px viewport (both inside the 1200px cap, cells ~1.14:1 —
+  square), the fixed-cell-footprint guarantee (REQ-214) still holds
+  (pixel-identical bounding box before/after a reveal click), and a
+  deliberately long name still clamps to one ellipsis-truncated line with
+  no clipping at the larger size. `Grid.test.tsx` gained 2 new tests
+  reading `Grid.css`'s raw source text rather than computed style, since
+  jsdom doesn't apply `@media`-scoped rules at all (confirmed directly:
+  `window.matchMedia` isn't implemented in this jsdom version). Full
+  Vitest suite 126/126 passing (was 124); `tsc -b --noEmit` and `oxlint`
+  both clean. No `tests/e2e/play-grid.spec.ts` change needed — its cell-box
+  assertions are all relative before/after comparisons, never hardcoded
+  pixel values (confirmed by reading the file). No REQ/ADR refs — visual
+  polish only.
+- 2026-07-19 — `requirements-document.md` (v0.66), `design-document.md`
+  (v0.29), `docs/backlog.md` (new S-048 entry, by the implementing
+  session — see that entry's own note), `frontend/src/grid/{CellState.tsx,
+  CellState.css,CellState.test.tsx}`, `frontend/src/index.css` (comments
+  only), `frontend/tests/e2e/play-grid.spec.ts` (comments only) — S-048,
+  a further direct-user-feedback simplification of REQ-214's photo-cell
+  overlay on top of S-047 (just merged): "at rest, only picture. on click
+  name + points only in an overlay." Before this story, a correct cell with
+  a photo showed a checkmark+points overlay unconditionally at rest
+  (S-041/S-047's shared behavior with the no-photo case) and only added the
+  name on click; after this story, a photo cell shows the bare photo and
+  nothing else at rest, and clicking/tapping it reveals an overlay with the
+  name and points only — no checkmark, ever, for a photo cell. This is a
+  real narrowing of what REQ-204 guarantees is always visible without
+  clicking (before: checkmark+points, for every correct cell, photo or not;
+  after: that guarantee no longer holds for the photo case, where the
+  photo's own presence is the only always-visible "this cell is done"
+  signal) and of what REQ-212's reveal shows for a photo cell specifically
+  (name+points, not name alone) — both got dated 2026-07-19 status notes
+  rather than a silent rewrite of the existing Given/When/Then text, and
+  `design-document.md` SCREEN-01a's mocks for both states 1 and 4's photo
+  case were redrawn to match, with the trade-off (score signal lost at
+  rest, "done" signal retained via the photo) recorded plainly as the
+  user's own explicit choice, not an invented justification. Verified this
+  against the actual code diff rather than trusting the implementing
+  agent's doc updates on faith: confirmed `CellState.tsx`'s photo branch no
+  longer builds or reuses the shared `overlayContent`, renders `<CellPhoto>`
+  unconditionally, and only mounts `.cell-state__overlay` (plain name span +
+  existing points `<p>`, no `Row` call, so structurally no checkmark and no
+  badge dock) when `revealed`; confirmed the no-photo branch is untouched;
+  confirmed `CellState.css` removed exactly the three now-unreachable
+  photo-variant rules (`.cell-state__row` gap, `.cell-state__icon`
+  size, `.cell-state__icon--correct` color) with removal notes rather than
+  silent deletion, while `--color-accent-green-scrim` (`index.css`,
+  design-document.md §2) is kept defined but now documented as dormant, not
+  deleted, per this repo's existing "document, don't drop" pattern for
+  superseded values; confirmed `CellState.test.tsx`'s photo-reveal describe
+  block was rewritten in place (not left stale) to assert the new
+  invariants — nothing overlaid at rest, name+points-only on reveal, no
+  checkmark in either state, structural (not merely CSS `display: none`)
+  absence of `.cell-state__row`/icon/badge-dock inside a photo cell; and
+  confirmed `play-grid.spec.ts`'s two descriptive-comment updates (the
+  correct-guess-at-rest assertion, and the S-047 badge-dock-hidden
+  assertion) accurately describe the new no-DOM-element mechanism rather
+  than S-047's CSS-hide mechanism — including one stale reference ("CSS-
+  hidden") the orchestrator corrected in the working tree after a
+  `quality-architect` pass flagged it, ahead of this doc-sync pass. No
+  `architecture-document.md` or `implementation-document.md` change:
+  checked both against their own `update_when` triggers directly against
+  the diff (frontend component-internal TSX/CSS + tests only, no new
+  library, no data-model/project-structure change, no component
+  responsibility or data-flow change) rather than deferring to the prior
+  no-op precedent alone. No ADR — the orchestrator's own read plus an
+  independent `architecture-reviewer` pass found no `XGArcade.Core`/game-
+  module boundary touched, same precedent as S-040/S-041/S-047. Full
+  Vitest suite 124/124 passing (unchanged count from S-047's own final
+  tally — tests rewritten in place, not net-added); `tsc -b --noEmit` and
+  `oxlint` both clean (verified by the orchestrator in this sandbox; not
+  re-run here). REQ-204, REQ-212, REQ-214.
+- 2026-07-19 — `requirements-document.md` (v0.65), `docs/backlog.md`,
+  `design-document.md` (v0.28, by the implementing session — see that
+  entry's own note), `frontend/src/grid/{CellState.css,CellState.test.tsx,
+  Grid.css}`, new `frontend/src/grid/Grid.test.tsx`,
+  `frontend/tests/e2e/play-grid.spec.ts` — S-047, two direct-user-feedback
+  UI fixes on `/grid`, both root-caused before scoping: (1) REQ-214's photo
+  overlay (`.cell-state__overlay`) covered ~40-45% of a real mobile cell
+  (90-110px), against the design doc's original ~30% intent — tightened
+  padding (`--space-1`/`--space-2`, down from a uniform `--space-2`) and
+  smaller photo-variant type (checkmark 11px, meta 10px, name 12px/1.2)
+  bring the at-rest overlay toward a ~35% target. (2) `Grid.css`'s
+  `.grid-table` used `width: 100%` unconditionally, which combined with the
+  browser's default `table-layout: auto` above 480px stretched a Tier-0
+  3-column grid's cells into flat rectangles at any wide viewport (desktop,
+  or a phone's "Request desktop site") — fixed with `width: auto; margin: 0
+  auto`, letting the table shrink-to-fit per CSS2.1's automatic table-layout
+  algorithm; the ≤480px breakpoint keeps S-040's `width: 100%` +
+  `table-layout: fixed` unchanged. Two further, more severe bugs were found
+  during this story's own required real-browser verification and fixed in
+  the same pass, and are the reason this entry touches
+  `requirements-document.md` (not just visual polish): at a typical Tier-0
+  mobile photo cell's content width, the revealed row's four flex items
+  (row badge, name, column badge, checkmark) didn't fit on one line for
+  *any* real name — "Thierry Henry" rendered completely invisible once
+  revealed, and a longer name could get silently clipped from the *top* by
+  `.cell-state--photo`'s pre-existing `overflow: hidden`, showing an
+  unreadable middle fragment. Fixed, on the photo variant only, by hiding
+  the badge dock on reveal and clamping the name to a single
+  ellipsis-truncated line (`-webkit-line-clamp: 1`) — this is a genuine
+  narrowing of REQ-212's "reveals the canonical name and its badge dock"
+  acceptance criterion for the photo case specifically (the no-photo case
+  is unaffected), not pure implementation detail, so both REQ-212 and
+  REQ-214 got a dated status note recording the supersession rather than
+  silently editing the existing Given/When/Then text away. No
+  `architecture-document.md` or `implementation-document.md` change —
+  frontend-component-internal CSS/layout only, no component
+  responsibility, data flow, or data-model/tech-stack change; confirmed
+  against both docs' own `update_when` triggers. No ADR —
+  `architecture-reviewer` already ran during the story's own quality gate
+  and found no `XGArcade.Core`/game-module boundary or data-flow touched,
+  same precedent as S-040/S-041. Full Vitest suite 124/124 passing (was
+  116 before this story per `docs/backlog.md`'s S-047 entry); `tsc -b
+  --noEmit` and `oxlint` both clean; `play-grid.spec.ts`'s existing
+  REQ-212 badge-dock assertion updated to branch on photo presence rather
+  than unconditionally expecting the badge dock visible after reveal (not
+  executed in this sandbox — no `dotnet`/Postgres available here, logic-
+  reviewed only, same gap recorded for this file in S-041's entry).
+  REQ-212, REQ-214.
+- 2026-07-19 — `design-document.md` (v0.27), `frontend/src/index.css`,
+  `frontend/src/grid/CellState.css`, `frontend/src/grid/CellState.test.tsx` —
+  REQ-214, direct user feedback: the checkmark overlaid on a correct cell's
+  photo scrim is now green, not gold (the points value beside it, and every
+  other correct-checkmark instance in the app, stays gold — this is a
+  narrow, one-off exception, not a general recolor). Neither existing green
+  token cleared WCAG AA's 4.5:1 floor against the scrim's worst-case
+  blended background (`accent-green` measures 3.49:1; `accent-green-text`,
+  being darker, fails further) — added a new token, `accent-green-scrim`
+  (`#23B874`, same hue/saturation as `accent-green`, lightness raised to
+  43%), measured at 4.65:1 against the same `rgb(51, 56, 53)` backdrop
+  `overlay-scrim`'s own gold math uses (one point of lightness lower, 42%,
+  drops to 4.46:1 and fails). `design-document.md` §2 documents the full
+  derivation plus a plain acknowledgment that this breaks the "green means
+  live, gold means settled/correct" convention for this one glyph,
+  deliberately, at the user's explicit request. `CellState.css`'s merged
+  `.cell-state--photo .cell-state__icon--correct, .cell-state--photo
+  .cell-state__meta` rule (from the immediately-preceding 94%→89% cleanup
+  commit) is split back into two — the icon gets the new green token, the
+  meta rule keeps `accent-gold`. `CellState.test.tsx`'s REQ-214
+  gold-pairing test updated to check the points value alone; a new test
+  added asserting the icon/meta colors now differ and the icon specifically
+  uses `accent-green-scrim`. Full Vitest suite passes (117/117). Verified in
+  a real Chromium browser: seeded a test round via
+  `/internal/test-data/seed-guessable-round`, submitted the correct guess
+  via the API, injected a data-URI test photo directly via SQL
+  (`UPDATE "Players" SET "PhotoUrl" = ...`), and screenshotted both at-rest
+  and revealed states — checkmark reads clearly green against the scrim,
+  distinct from the still-gold points value beside it, not a jarring
+  mismatch.
+- 2026-07-18 — `design-document.md` (v0.26), `frontend/src/index.css` —
+  lightened REQ-214's `overlay-scrim` token from `rgba(26, 31, 28, 0.94)` to
+  `rgba(26, 31, 28, 0.89)` after direct user visual feedback that the
+  original 94% opacity read as a heavy black shadow over the photo rather
+  than a scrim. Re-did the relative-luminance contrast math for the new
+  value against the same worst-case backdrop (pure-white photo showing
+  through): at 89%, the blended background is `rgb(51, 56, 53)`, giving
+  `accent-gold` (the checkmark/points color) a 4.65:1 contrast ratio and
+  `surface-card`/white (the revealed-name color) 11.99:1 — both still clear
+  the 4.5:1 AA floor; `accent-gold` is the binding constraint and 89% is the
+  lightest whole-percent value that clears it (88% measures 4.49:1 and
+  fails). `CellState.css`/`CellState.tsx` unchanged — they reference
+  `--color-overlay-scrim` and the `accent-gold`/`surface-card` pairing
+  directly, no hardcoded opacity to update there. Full Vitest suite
+  unaffected (`CellState.test.tsx`'s REQ-214 contrast-pairing tests assert
+  token/pairing usage, not a hardcoded opacity number). Verified visually in
+  a real Chromium browser against a seeded test round with a data-URI photo
+  — scrim reads noticeably lighter, checkmark/points and revealed name both
+  still clearly legible.
+- 2026-07-18 — `design-document.md` (v0.25), `backlog.md` (S-046) —
+  implemented REQ-214's
+  photo-decoupled-from-reveal status note (frontend half, same day as the
+  requirements-doc revision): `CellState.tsx`/`CellState.css` now show a
+  correct cell's photo automatically at rest, filling the cell, independent
+  of REQ-212's click/tap reveal (which continues to gate only the name/badge
+  dock). Closed the open gap the requirements revision flagged — §2 had no
+  overlay/scrim token for text-or-icon-on-photo contrast — by adding
+  `overlay-scrim` (`rgba(26, 31, 28, 0.94)`, verified against a worst-case
+  pure-white photo showing through), and documented that on this dark
+  backdrop the *lighter* `accent-gold`/`surface-card` tokens (not the
+  darkened `accent-gold-text`/near-black `text-primary` used everywhere else
+  in this document) are the ones that actually clear the contrast floor —
+  the `surface-card`-for-the-revealed-name half of that was found only via
+  this session's own required real-browser verification (name was
+  illegible against the scrim with `text-primary`), not the initial
+  contrast-math pass, which only covered the checkmark/points explicitly
+  named in REQ-214's acceptance criteria. §7's matching open question marked
+  resolved. Also renamed the old `.cell-state__avatar` 18px-circle class to
+  `.cell-state__photo-img` (full-cell-bleed, absolutely positioned against
+  `.grid-cell`'s padding edge so it ignores that button's own padding and
+  fills to its actual corners) — `Grid.css`'s `.grid-cell` gained
+  `position: relative` as the positioning context this needs.
+  `CellState.test.tsx`/`GridCell.test.tsx`'s REQ-214 blocks rewritten for
+  the new independent-of-`revealed` behavior (photo-at-rest-without-a-click,
+  reveal-adds-name-without-touching-photo, hide-again-photo-stays,
+  no-photo/null/load-failure cases re-verified unaffected, declared-CSS
+  mechanism tests replacing the old fixed-18px-slot ones);
+  `tests/e2e/play-grid.spec.ts`'s dimension-invariance check now captures
+  the cell's box right after lock (the new at-rest photo moment) in
+  addition to after reveal. Full Vitest suite (116 tests) and full
+  Playwright E2E suite (4 tests, real Postgres + real Chromium) both green;
+  real-browser check of the photo-filled cell (data-URI test photo, since
+  this sandbox has no network path to Wikidata) confirmed visually — REQ-214
+- 2026-07-18 — `docs/backlog.md` — added an addendum to S-045's entry
+  covering the malformed-QID crash and fix below (`quality-architect`
+  flagged the entry as reading like the story shipped clean when it
+  actually had a crash-and-fix history across two commits); also corrected
+  the entry's stale "no real Postgres/no network available" caveat — this
+  session did independently verify both live (Postgres install + a real
+  Wikidata-network-blocked reproduction), that just hadn't happened yet
+  when S-045's own entry was written
+- 2026-07-18 — `NOTES.md` only (no requirements/architecture/implementation
+  doc changed — this is a bug fix, not a behavior/acceptance-criteria
+  change) — fixed a crash in `backfill-player-photos` (REQ-214, S-045)
+  found by running it against a real Postgres database seeded with
+  `/internal/test-data` fixtures: a malformed `Player.WikidataQid` made
+  `WikidataClient.QueryPlayerPhotosByQidsAsync` throw a plain
+  `ArgumentException`, which `PlayerPhotoBackfillService.BackfillAsync`'s
+  `catch (WikidataQueryException)` never caught, crashing the whole run
+  instead of the documented log-and-continue behavior. Extracted QID-format
+  validation into a shared `WikidataQid.IsValid` helper
+  (`XGArcade.DataSync.Wikidata`) and had `PlayerPhotoBackfillService`
+  pre-filter each batch with it before calling
+  `QueryPlayerPhotosByQidsAsync`, logging one warning per skipped player,
+  rather than a whole batch paying for one bad row.
+  `WikidataClient`'s own `ArgumentException` contract on all three
+  QID-validating methods is unchanged. New tests:
+  `PlayerPhotoBackfillServiceTests
+  .REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
+  and `..._EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.
+  Full backend suite re-run in this environment: 411 passed, 0 failed,
+  0 skipped, across all five backend test projects — REQ-214
+- 2026-07-18 — `requirements-document.md` (v0.63), `implementation-document.md`
+  (v0.57), `backlog.md` (S-045) — added a one-off `backfill-player-photos`
+  CLI verb (`PlayerPhotoBackfillService`, `XGArcade.DataSync.Wikidata`) to
+  fill `Player.PhotoUrl` for every already-existing player row REQ-214's
+  P18 addition never revisits (`WikidataLookupService
+  .GetOrCreatePlayerAsync` only sets it at row-creation time) — an
+  idempotent backfill instead of the destructive `purge-player-pool` +
+  `warm-player-cache` wipe-and-rerun the user explicitly rejected. New
+  `IWikidataClient.QueryPlayerPhotosByQidsAsync` (batched, direct-by-QID
+  SPARQL VALUES lookup, throws `WikidataQueryException` on failure per
+  `docs/coding-guidelines.md`'s 2026-07-18 error-handling guideline) and
+  new `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+  `UpdatePlayerPhotosAsync`. Squarely inside ADR-0024's existing "CLI verb,
+  never HTTP/background task" decision — no new ADR. New workflow
+  `backfill-player-photos.yml` (`workflow_dispatch` only). Tests:
+  `REQ214`-named, added to `WikidataClientTests.cs`,
+  `PlayerStoreRepositoryTests.cs`, and a new `PlayerPhotoBackfillServiceTests.cs`.
+  Full backend suite run in this environment: 409 passed, 0 failed, across
+  all five backend test projects (`dotnet`/`dotnet test` were available
+  this session, unlike some prior stories) — no real Postgres available, so
+  only the InMemory-provider path was exercised; the new SPARQL query shape
+  could not be verified against live `wikidata.org` (no network access) —
+  REQ-214
+- 2026-07-18 — no docs touched (code-only refactor) — extracted
+  `WikidataClient`'s two intersection query builders' shared SPARQL
+  header/predicates/footer into a new `BuildIntersectionQuery(candidateClauses)`
+  helper, per `quality-architect`'s REQ-214 quality-gate suggestion: both
+  builders had to be hand-edited identically to add `P18`, which is exactly
+  the kind of place a future addition could silently land in only one.
+  `BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery` now
+  supply only the candidate-matching clauses that actually differ between
+  them. Verified via the existing `WikidataClientTests` query-content
+  assertions (all still pass unmodified) rather than new tests, since this
+  is a pure internal refactor with no behavior change — REQ-101/103/113/214
+- 2026-07-18 — `architecture-document.md` (v0.37), `docs/decisions/0028-*.md`
+  (new) — added ADR-0028, formalizing REQ-214's `Player.PhotoUrl` (not
+  `PlayerAttribute`) placement decision per `architecture-reviewer`'s
+  quality-gate ruling: single-valued Wikidata properties belong on `Player`
+  going forward, with the accepted trade-off spelled out explicitly (no
+  `PlayerOverride` correction path for `Player`-level fields, acceptable
+  here only because a photo carries no correctness weight) — REQ-214,
+  COMP-06
+- 2026-07-18 — `requirements-document.md`, `backlog.md`, `design-document.md`
+  — REQ-214 (photo reveal on a locked, correct cell) frontend half (S-044),
+  landed in parallel with the backend half (S-043): `CellState.tsx`/
+  `GridCell.tsx` render an optional player photo alongside the REQ-212 name
+  reveal, in a fixed 18px avatar slot reusing the existing badge-dock
+  "small" size (no dedicated avatar token exists in §2 yet — flagged as an
+  open item, not invented ad hoc); falls back to exactly today's text-only
+  reveal with no broken-image icon whenever no photo is available.
+  `frontend/src/lib/types.ts`'s `resolvedPlayerPhotoUrl` field name was
+  written before the backend DTO was confirmed and checked afterward to
+  match exactly. `vite.config.ts` test config gained `css: true` so
+  Vitest/jsdom assertions can check real computed CSS dimensions (needed
+  for a genuine layout-regression test, not just a snapshot) — verified
+  this doesn't change any existing test's outcome first. Real-browser
+  (Playwright) verification was attempted and could not complete in this
+  sandbox (chromium download blocked by the outbound proxy), flagged rather
+  than silently skipped — REQ-214/S-043/S-044
+
+- 2026-07-18 — `requirements-document.md` (v0.61), `implementation-document.md`
+  (v0.56), `backlog.md` — REQ-214 backend half (S-043): `WikidataClient`'s
+  two intersection query builders now fetch Wikidata's `P18` (image)
+  `OPTIONAL`, carried through `WikidataPlayerMatch` and
+  `WikidataLookupService` into a new `Player.PhotoUrl` column
+  (`AddPlayerPhotoUrl` migration), exposed additively alongside
+  `ResolvedPlayerName` in both `POST .../guesses`' and `GET /rounds/current`'s
+  reveal responses. Deliberately a `Player` column, not `PlayerAttribute` —
+  see `Player.PhotoUrl`'s doc comment and S-043's backlog entry for why;
+  flagged for `architecture-reviewer` as a placement decision that could
+  reasonably have gone the other way. Frontend rendering is a separate,
+  not-yet-delegated task. `P18`'s Special:FilePath URL shape and the
+  migration are both unverified against a live environment (no
+  `wikidata.org`/`dotnet` access) — flagged for manual verification —
+  REQ-214
+- 2026-07-18 — `docs/legal/privacy-policy-draft.md` (v0.5) — added a
+  Wikimedia Commons third-party-CDN disclosure (same shape as the existing
+  Google Fonts entry) ahead of REQ-214's frontend half actually shipping,
+  since the backend now stores/serves a photo URL that a browser will
+  eventually load directly from `commons.wikimedia.org`
+- 2026-07-18 — `coding-guidelines.md` (v0.5) — new error-handling
+  guideline: swallow-to-empty external-client contracts are only valid
+  where failure and no-data must be treated identically (interactive
+  REQ-103-style paths); batch jobs whose success metric is the row count
+  must throw. Promoted from the S-032 `import-player-name-index`
+  silent-exit-0 incident (NOTES.md 2026-07-18), per the doc's own
+  "recurring review comment becomes a guideline" trigger — REQ-207
+- 2026-07-18 — `implementation-document.md`, `requirements-document.md`,
+  `backlog.md`, `MVP-SCOPE.md`, `NOTES.md` — S-032 bug follow-up:
+  `import-player-name-index`
+  imported 0 rows in production because the player-pool query's
+  `ORDER BY`/`OFFSET` pagination hit WDQS's hard ~60s server-side timeout
+  on every page and the swallowed timeout read as end-of-data. Replaced
+  with birth-year slicing (`QueryPlayerPoolBirthYearAsync`, 1939 → current
+  year, no `ORDER BY`/`LIMIT`/`OFFSET`) plus a fail-loud contract
+  (`WikidataQueryException`, per-slice retries, run fails red if any slice
+  fails); dropped the never-read `PhotoUrl` column/P18 fetch
+  (`RemovePlayerNameIndexPhotoUrl` migration). Bug fix within COMP-07's
+  existing responsibility — no ADR, per the S-042 truthy-P54 precedent —
+  REQ-207/ADR-0007/ADR-0025
+- 2026-07-17 — `MVP-SCOPE.md` — doc-sync pass over the S-032 diff
+  (REQ-207/ADR-0007/COMP-10): the Tier 0 "Guessing" bullet still said
+  "plain text input, no autocomplete... defer `PlayerNameIndex`/ADR-0007
+  entirely" — stale now that autocomplete/`PlayerNameIndex` actually
+  shipped. Rewrote it to describe what's built and point at the Tier 1
+  section for detail; updated that Tier 1 section's own S-032 entry from
+  "queued" to "built, 2026-07-17" with the shipped shape (`PlayerNameIndexImporter`,
+  `GET /players/autocomplete`, `GuessInput.tsx`'s debounced suggestion
+  list), matching the existing "trigger hit and pulled forward" pattern
+  already used there for REQ-211/S-031. No frontmatter to bump — this file
+  has none. Checked `docs/requirements-document.md`,
+  `docs/architecture-document.md`, `docs/implementation-document.md`,
+  `docs/backlog.md`, `docs/design-document.md`, and `docs/legal/*.md`
+  against the full S-032 diff independently: all found already accurate
+  (the implementing agent's own doc updates, plus the later id-space
+  quality-gate fix below, hold up) — `docs/legal/*.md` specifically needs
+  no change since `PlayerNameIndex` stores only public Wikidata data about
+  footballers (name, birth year, nationality), already covered generically
+  by the privacy policy draft's existing "Data sources for gameplay
+  content" section, and the autocomplete query string itself is never
+  persisted (an in-memory `IPlayerNameIndexRepository.SearchByPrefixAsync`
+  read only), so it's no more "collected" than any other request path
+  already covered by "standard web server logs."
+- 2026-07-17 — `docs/implementation-document.md` (0.53 → 0.54),
+  `backend/src/XGArcade.Data/Entities/PlayerNameIndex.cs`,
+  `backend/src/XGArcade.Data/Repositories/IPlayerNameIndexRepository.cs` —
+  quality-gate follow-up on S-032 (REQ-207/ADR-0007): corrected a false
+  "same id space as `Player.Id`" claim in `PlayerNameIndex.PlayerId`'s doc
+  comments — it's actually a synthetic, QID-derived key local to
+  `PlayerNameIndex`/COMP-10 (`PlayerNameIndexImporter.DeterministicPlayerId`),
+  with no guaranteed relationship to the separately-minted `Player.Id`
+  (`Guid.NewGuid()`, `WikidataLookupService`) for the same real person, and
+  no reconciliation between the two exists. Comment/doc text only, no
+  behavior change, no new ADR (both `architecture-reviewer` and
+  `quality-architect` agreed this doesn't need one). Also added
+  `PlayerNameIndexImporterTests.ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed`
+  covering the previously-untested write-failure propagation path, by
+  `backend-implementer`.
+- 2026-07-17 — `docs/requirements-document.md` (0.57 → 0.58: REQ-207's
+  status note rewritten from "Proposed, queued as S-032" to "Implemented
+  (S-032)", describing the shipped `GET /players/autocomplete` contract),
+  `docs/architecture-document.md` (0.35 → 0.36: COMP-10's row and the
+  guess-submission flow diagram's Tier 0 status notes both updated —
+  `PlayerNameIndex`/`IPlayerNameIndexRepository` now exist, and
+  `PlayerNameIndexImporter` is noted living in `XGArcade.DataSync` rather
+  than `XGArcade.Data/Seeding`, forced by the existing one-way
+  `XGArcade.DataSync` → `XGArcade.Data` project-reference direction),
+  `docs/implementation-document.md` (0.52 → 0.53: `PlayerNameIndex`'s
+  entity sketch gains a note on the deterministic-hash `PlayerId`
+  derivation in place of a `WikidataQid` column; §5's required-indexes
+  table row and §6a both updated with the new paginated bulk-import
+  query's shape), `docs/backlog.md` (S-032 entry gains a "Built as" note,
+  including the two deviations forced by the project-reference graph),
+  `infra/scripts/lib/game-data-tables.sh` (corrected the `PlayerNameIndex`
+  placeholder entry to the real EF Core table name,
+  `PlayerNameIndexEntries`, now that the table exists — no other allowlist
+  entry touched, per ADR-0009), by `backend-implementer` — closes
+  REQ-207/ADR-0007's `PlayerNameIndex` gap (S-032, pulled forward from
+  Tier 1): a new `PlayerNameIndex` table/repository (COMP-10, structurally
+  separate from COMP-06's `IPlayerStoreRepository`), a bulk, paginated
+  Wikidata importer (`PlayerNameIndexImporter`, the
+  `import-player-name-index` CLI verb/workflow per ADR-0024), and
+  `GET /players/autocomplete?query=&limit=` (bearer-token authenticated).
+  Backend suite: 361/361 passed across all five projects (`dotnet` SDK
+  freshly installed in this sandbox via `apt-get install
+  dotnet-sdk-10.0`); a real EF Core migration (`AddPlayerNameIndex`) was
+  generated via `dotnet ef migrations add`, not hand-written.
+- 2026-07-17 — `docs/design-document.md` (0.20 → 0.21) — S-032: added a
+  frontend implementation note under SCREEN-02 for the shipped autocomplete
+  suggestion list (`GuessInput.tsx`) — neutral-tokens-only styling (no
+  accent-green/accent-gold, per REQ-207/ADR-0007's "suggestion ≠
+  correctness" boundary), the select-fills-but-never-auto-submits
+  behavior, the 275ms/2-character debounce, and the standard
+  combobox/listbox ARIA pattern used for keyboard nav — none of which had
+  an existing spec to follow. Flagged that the photo/silhouette avatar
+  SCREEN-02 already described isn't shippable yet since the
+  `PlayerNameIndex` contract this story builds against has no photo field.
+- 2026-07-17 — `docs/requirements-document.md` (0.56 → 0.57: REQ-607's
+  status note rewritten from "Partially implemented... currently-unmet
+  gap" to "Implemented (S-034)" describing the shipped `cursor`/`pageSize`
+  contract; REQ-404's status note and REQ-405's "Performance" design-
+  question note both had their stale cross-references to REQ-607's
+  unbounded-response gap corrected), `docs/architecture-document.md`
+  (0.34 → 0.35: §6.2a's global leaderboard flow diagram corrected — no
+  longer says "response never paginated yet," now describes the in-memory
+  rank/slice step added by S-034; architecture-reviewer's "no boundary
+  change, no ADR needed" verdict from the S-034 quality gate confirmed,
+  not re-litigated), `docs/implementation-document.md` (0.51 → 0.52: §6's
+  "Tier 0 status (S-011)" paragraph under "Leaderboard pagination
+  (REQ-607)" replaced with a "Built as (S-034)" note covering the query
+  params, response DTO shape/explicit `Rank` field, default/max pageSize,
+  cursor-validation behavior, and the accepted in-memory-slice MVP-scale
+  tradeoff), `docs/backlog.md` (S-034 entry gained a "Built as" note,
+  including the page-1-reorder dedup bug found and fixed during the
+  quality gate), `docs/design-document.md` (0.19 → 0.20: SCREEN-03's
+  mockup gains the "Load more" control and pinned "you" footer, both
+  reusing existing surface/border/accent tokens, no new design decision),
+  by `doc-sync` and the orchestrator — closes REQ-607's leaderboard-
+  pagination gap (S-034): `GET /leagues/global/leaderboard` now takes
+  `cursor`/`pageSize` query params and returns a bounded page with an
+  explicit global `Rank` per row and an always-present `RequestingUserRow`.
+  Backend suite verified in full this session (`dotnet` SDK installed per
+  `NOTES.md`'s documented fix): 328/328 passed across all five backend
+  test projects; frontend suite 96/96, `tsc -b`/lint clean.
+- 2026-07-17 — `docs/requirements-document.md` (0.55 → 0.56: REQ-301's
+  Status block rewritten — configurable round duration is now built, not a
+  gap), `docs/architecture-document.md` (0.33 → 0.34: ADR index gains
+  ADR-0027), `NOTES.md` (new 2026-07-17 entry superseding the 2026-07-10
+  Tue+Fri-cadence derivation with the new daily-cron/24h-safety-margin
+  reasoning), by `doc-sync` — closes REQ-301's "configured...so play
+  frequency can be adjusted without a code change" gap:
+  `RoundSchedulingOptions.RoundDuration`'s default is now read from
+  `RoundScheduling:RoundDurationHours` config (default 48h, overridable via
+  the deployed Container App's `RoundScheduling__RoundDurationHours` env
+  var with no redeploy), `POST /internal/generate-round` accepts an
+  optional `roundDurationHours` query parameter (floor 24h) for a one-off
+  override, and `generate-round.yml`'s cron moved from Tue+Fri to daily
+  (`0 6 * * *`) with a `workflow_dispatch` input plumbed through — the old
+  hand-matched `RoundDuration`/cron-gap coupling is replaced by the
+  structural invariant `RoundDuration >= 24h` (the daily cron's constant
+  max gap). See ADR-0027 for full reasoning, including why a `*/2`
+  day-of-month cron was rejected. `docs/backlog.md` checked (S-008): no
+  stale cadence references found, no change needed.
+- 2026-07-17 — `docs/requirements-document.md` (0.54 → 0.55, by
+  `requirements-writer`: new **REQ-113** "club membership means ever
+  played for," **REQ-111** extended with all-clubs mode),
+  `docs/implementation-document.md` (0.50 → 0.51: §6a sample intersection
+  query switched to the full `p:P54`/`ps:P54` statement path, rules list
+  3 → 4 with the new never-truthy-P54 rule, senior-career-only note
+  clarified to be about club *entities* per REQ-109 not statement ranks,
+  §6's `clean-stale-club-attributes` verb gains the `--all-clubs`
+  mode/guards), `NOTES.md` (2026-07-13 entry's now-stale query-shape
+  quote annotated; new 2026-07-17 incident entry with operator recovery
+  order and the open Tonali/"Tottenham" verification item),
+  `docs/backlog.md` (retroactive **S-042** entry with "Built as" note,
+  per S-033/S-035/S-037 precedent for incident-driven work) — truthy
+  `wdt:P54` is best-rank-only, so preferred-ranked current clubs silently
+  dropped normal-rank historical clubs ("ever played for" became
+  "currently plays for"; Sandro Tonali × AC Milan scored incorrect);
+  fixed via the full statement path excluding only deprecated rank in
+  both `WikidataClient` builders, recovered via the new
+  `clean-stale-club-attributes --all-clubs` mode. **No ADR** —
+  `architecture-reviewer` and `quality-architect` concurred this is a bug
+  fix restoring already-documented semantics (conditional on the §6a
+  update, done here), and `--all-clubs` extends the existing S-037/
+  REQ-111 mechanism; `docs/architecture-document.md` checked, no change
+  (COMP-07-internal query shape + COMP-06-internal tooling, no
+  boundary/data-flow change). Tests: 2× REQ113 query-shape
+  (`WikidataClientTests.cs`), 4× REQ111
+  (`StaleClubAttributeCleanerTests.cs`); backend suite not runnable in
+  this sandbox (no dotnet SDK), deferred to CI; frontend suite 89/89
+  green (untouched by the diff, run for completeness). REQ-111, REQ-113.
+- 2026-07-17 — new `.github/pull_request_template.md`, `CLAUDE.md` (Git
+  and PR conventions section) — PR descriptions were getting bloated
+  (free-form prose leaking this repo's CHANGELOG-style thoroughness
+  straight into PR bodies). Added a template with four sections (Summary,
+  Why, How — only if non-obvious, Testing & docs) plus an optional
+  "Agents involved" section (one line per agent, only when it adds real
+  signal, e.g. which lane owns a needed follow-up) — omitted entirely for
+  small or single-agent changes. Deliberately no dedicated PR-writing
+  agent: same reasoning already recorded for git/PR operations generally
+  (a persona wrapped around a built-in capability adds a layer without
+  adding value) — the template constrains the orchestrator's existing PR
+  authoring instead. Written so Summary/Why read standalone, intended to
+  double as release-notes material later. No REQ/ADR — process/tooling
+  only, no product behavior change.
+- 2026-07-17 — new `docs/ai/agent-migration-plan.md`, `CLAUDE.md`
+  (agent/command tables, document map row, conventions line),
+  `.claude/README.md` (rewritten for the new organization),
+  `docs/coding-guidelines.md` (0.3 → 0.4, "For AI agents" note now names
+  `quality-architect` as its enforcement point and owner) — agent
+  ecosystem redesign into an explicit engineering organization. The main
+  session is formalized as the **orchestrator** (new `/orchestrate`
+  command: intake → scope check → decomposition → delegation → quality
+  gate → docs → done-validation; deliberately a main-session protocol,
+  not a subagent, since subagents can't delegate to subagents — same
+  reasoning as the existing no-git-persona decision). `code-reviewer`
+  retired and merged into a new **`quality-architect`** agent that keeps
+  every review duty verbatim and additionally owns the three previously
+  orphaned responsibilities: deliberate refactoring (code-reviewer was
+  explicitly forbidden from it, and nobody else held it), test
+  architecture (fake/fixture/builder strategy, flaky/slow tests, the
+  E2E-drift trap S-029 hit), and quality gates (new `/quality-gate`
+  command — fixed review order, fails closed, "deferred to CI" is an
+  explicit status). New **`backend-implementer`** delivery agent codifies
+  backend knowledge previously living only in NOTES.md/CHANGELOG history
+  (InMemory-provider `ExecuteUpdate/DeleteAsync` trap, request-scoped
+  `DbContext` concurrency trap, CLI-verb-not-endpoint job pattern per
+  ADR-0022/0024, no-`dotnet`-SDK/no-Docker/no-wikidata.org sandbox
+  constraints and their report-honestly precedents). `test-writer`,
+  `ui-implementer`, `architecture-reviewer` got small boundary-clarifying
+  edits; `doc-sync`, `requirements-writer`, `game-scaffolder` and all
+  four existing commands unchanged. Full inventory, keep/merge/retire
+  rationale, knowledge-transfer matrix, and the after ownership matrix
+  (every responsibility → exactly one owner) are in the new plan doc;
+  historical "`code-reviewer` pass" mentions in backlog/requirements/
+  design docs deliberately left as accurate history. No REQ/ADR — process
+  and tooling only, no product behavior or architecture change.
 - 2026-07-14 — `docs/requirements-document.md` (0.53 → 0.54),
   `docs/design-document.md` (0.18 → 0.19), `docs/backlog.md` — same
   feedback round as the S-033/REQ-206 fix below, two follow-up requests.

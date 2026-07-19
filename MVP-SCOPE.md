@@ -215,13 +215,18 @@ SELECT ?player ?playerLabel WHERE {
 clubs and ~15-20 for countries by hand — no bulk script, no API budget to
 manage, done once before the first grid ever generates.
 
-**Guessing**: plain text input, no autocomplete (REQ-207 — defer, and with
-it `PlayerNameIndex`/ADR-0007 entirely — no autocomplete means nothing to
-leak through). Basic name normalization only — lowercase, strip
+**Guessing**: plain text input, now with autocomplete suggestions (REQ-207,
+`PlayerNameIndex`/ADR-0007/COMP-10) — pulled forward from Tier 1 and built,
+`docs/backlog.md` S-032, 2026-07-17; see the Tier 1 section below for what
+shipped. Autocomplete surfaces names only, never correctness (ADR-0007's
+boundary rule), so nothing about grid difficulty changes just because
+suggestions exist. Basic name normalization only — lowercase, strip
 diacritics/punctuation (the simple half of REQ-208; defer the alias table
-and fuzzy typo tolerance). Disambiguation simplified: if a guess matches
-multiple real players and any of them satisfies the cell, accept it — no
-picker UI (REQ-209's full disambiguation prompt — defer).
+and fuzzy typo tolerance — REQ-208's guess-*scoring* path still doesn't
+consult `PlayerNameIndex`, only autocomplete does). Disambiguation
+simplified: if a guess matches multiple real players and any of them
+satisfies the cell, accept it — no picker UI (REQ-209's full disambiguation
+prompt — defer).
 
 **Keep as-is** (these are cheap and matter even at MVP scale):
 - REQ-210 (2 guesses per cell, locks immediately on correct)
@@ -266,18 +271,45 @@ is written as something you can actually observe, not a vague feeling:
 - ~~**Autocomplete + `PlayerNameIndex`** (REQ-207, ADR-0007) — trigger: you
   or a tester finds typing exact names tedious enough to mention it
   unprompted, not just "would be nice"~~ — **Pulled forward by deliberate
-  choice, 2026-07-12** (the trigger itself hasn't strictly fired — no
-  unprompted complaint observed yet — but building it now was chosen
-  anyway). Queued as `docs/backlog.md` S-032: `PlayerNameIndex` populated
-  via a one-time bulk Wikidata import (`P106` = association football
-  player), exactly the mechanism ADR-0007 already specified — no new ADR
-  needed, this is that ADR's own design being built. REQ-208's alias/
-  fuzzy-typo-tolerance clause remains deferred; autocomplete alone (a
-  correct-spelling suggestion list) is what's being built, not typo
-  tolerance for free-typed guesses
+  choice, 2026-07-12, and built, 2026-07-17 (`docs/backlog.md` S-032).**
+  The trigger itself never strictly fired (no unprompted complaint was
+  ever observed) — building it now was chosen anyway. `PlayerNameIndex`
+  (COMP-10) is populated via `PlayerNameIndexImporter`'s bulk,
+  birth-year-sliced Wikidata query (`P106` = association football player;
+  originally `LIMIT`/`OFFSET`-paged, replaced 2026-07-18 after every page
+  timed out server-side in production — `implementation-document.md` §6a,
+  NOTES.md 2026-07-18), run through the
+  `import-player-name-index` CLI verb/workflow, `workflow_dispatch`-only,
+  no schedule yet — exactly the mechanism ADR-0007 already specified, no
+  new ADR needed, this is that ADR's own design being built. `GET
+  /players/autocomplete?query=&limit=` queries `PlayerNameIndex` only,
+  never `PlayerAttribute`/`PlayerOverride` (ADR-0007's boundary rule);
+  `GuessInput.tsx` wires this into a debounced (275ms, 2+ characters)
+  suggestion list, styled with neutral tokens only so a suggested name
+  never implies correctness (see `docs/design-document.md`'s SCREEN-02
+  implementation note). REQ-208's alias/fuzzy-typo-tolerance clause
+  remains deferred — autocomplete alone (a correct-spelling suggestion
+  list) is what got built, not typo tolerance for free-typed guesses — and
+  REQ-209's disambiguation UI (below) remains deferred too
 - **Disambiguation UI** (REQ-209) — trigger: you actually observe two real
   players with the same normalized name both satisfying one cell (log this
   case even in the simplified Tier 0 handling, so you'd notice if it happened)
+- **Player photo on cell reveal** (REQ-214) — **Pulled forward by
+  deliberate choice, 2026-07-18.** No trigger fired — there was no observed
+  complaint or pain point; this was pulled forward because the idea was
+  raised directly and judged worth doing now, recorded plainly rather than
+  dressed up as a discovered need. Reads Wikidata's `P18` (image) through
+  the correctness-side query REQ-101/102 already run and cache
+  (`Player`/`PlayerAttribute`, COMP-06) — explicitly not a repeat of the
+  `PlayerNameIndex.PhotoUrl` field built in S-032 and dropped 2026-07-18
+  (`RemovePlayerNameIndexPhotoUrl` migration) once it turned out the
+  autocomplete UI never displayed it; that column stays gone, and
+  `PlayerNameIndex`/autocomplete (REQ-207, ADR-0007) is untouched by this
+  item. See REQ-214 for the acceptance criteria, including the
+  no-layout-change and no-broken-image-icon constraints. **Built,
+  2026-07-18** (`docs/backlog.md` S-043 backend, S-044 frontend) — see
+  ADR-0028 for the `Player.PhotoUrl` (not `PlayerAttribute`) placement
+  decision made along the way.
 - ~~**Trophy category** (REQ-108, plus `CountryDefinition`/`ClubDefinition`'s
   full external-ID resolution, ADR-0012) — trigger: Country×Club has been
   played enough rounds that it feels repetitive, a subjective call but one

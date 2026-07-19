@@ -26,6 +26,18 @@ export interface CurrentRoundGuess {
   // MaxPointsPerCell) formula REQ-205 locks at round close — an estimate
   // that can still change, never the locked FinalPoints.
   livePoints: number | null;
+  // REQ-214 (Photo reveal on a locked, correct cell): a nullable Wikidata
+  // P18 photo URL for the resolved player, carried alongside
+  // resolvedPlayerName wherever that's already resolved. Field name
+  // confirmed against the backend half (S-043,
+  // `CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl` in
+  // `XGArcade.Api.Rounds.RoundEndpoints`), which landed in parallel with
+  // this frontend half — camelCase JSON serialization matches exactly, no
+  // rename needed. Deliberately optional (`?:`), not just nullable, so an
+  // older cached response that predates this field still degrades safely to
+  // "no photo," same as an explicit `null` — never a type error and never a
+  // fabricated photo.
+  resolvedPlayerPhotoUrl?: string | null;
 }
 
 export interface CurrentRoundCell {
@@ -53,6 +65,14 @@ export interface SubmitGuessResponse {
   locked: boolean;
   // Frontend name-display fix: see CurrentRoundGuess.resolvedPlayerName.
   resolvedPlayerName: string | null;
+  // REQ-214: see CurrentRoundGuess.resolvedPlayerPhotoUrl — same confirmed
+  // field name (matches `SubmitGuessResponse.ResolvedPlayerPhotoUrl` in
+  // `XGArcade.Api.Guesses.GuessEndpoints`), present here too since
+  // GridScreen.handleSubmitGuess spreads this response directly into the
+  // cell's guess without an intervening GET /rounds/current, so a photo
+  // revealed immediately after submitting (not just after a later reload)
+  // needs it on this shape as well.
+  resolvedPlayerPhotoUrl?: string | null;
 }
 
 export interface SignupResponse {
@@ -66,16 +86,42 @@ export interface LoginResponse {
   refreshToken: string | null;
 }
 
+// REQ-207/ADR-0007 (S-032): a suggestion sourced from PlayerNameIndex
+// (COMP-10) only — a name appearing here implies nothing about whether
+// it's correct for the current cell. Never merge this shape/path with
+// PlayerAttribute/PlayerOverride correctness data (ADR-0007's boundary
+// rule). birthYear/nationality are optional disambiguation context only
+// (e.g. two players sharing a name), not a correctness signal, and must
+// never be styled to suggest one is "more right" than another.
+export interface PlayerAutocompleteSuggestion {
+  playerId: string;
+  name: string;
+  birthYear?: number;
+  nationality?: string;
+}
+
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).
+// REQ-607 (S-034): rank is the row's global 1-based rank, not a page-local
+// index — a later page no longer starts at rank 1, so the UI must always
+// read this field rather than deriving rank from array position.
 export interface LeaderboardRow {
+  rank: number;
   userId: string;
   displayName: string;
   totalPoints: number;
   isRequestingUser: boolean;
 }
 
+// REQ-607 (S-034): the backend paginates via cursor/pageSize now — `rows`
+// is capped at the requested pageSize per response, `nextCursor` is what to
+// pass back as `cursor` for the next page, and `requestingUserRow` is
+// always populated with the caller's own row/rank (even off-page) so
+// SCREEN-03's "your position" footer never needs a second round-trip.
 export interface LeaderboardResponse {
   rows: LeaderboardRow[];
+  requestingUserRow: LeaderboardRow | null;
+  nextCursor: number | null;
+  hasMore: boolean;
 }
 
 // REQ-504: GET /auth/me — `isAdmin` is the only signal the frontend has for

@@ -17,7 +17,7 @@ namespace XGArcade.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -240,6 +240,9 @@ namespace XGArcade.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PhotoUrl")
+                        .HasColumnType("text");
+
                     b.Property<string>("WikidataQid")
                         .HasColumnType("text");
 
@@ -322,6 +325,33 @@ namespace XGArcade.Data.Migrations
                     b.HasIndex("PlayerId");
 
                     b.ToTable("PlayerData");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerNameIndex", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("BirthYear")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PrimaryName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PrimaryNationality")
+                        .HasColumnType("text");
+
+                    b.HasKey("PlayerId");
+
+                    b.HasIndex("NormalizedName");
+
+                    b.ToTable("PlayerNameIndexEntries");
                 });
 
             modelBuilder.Entity("XGArcade.Data.Entities.PlayerOverride", b =>

@@ -27,10 +27,17 @@ public class GuessSubmissionResult
     // false; there is no real player to display a name for.
     public string? ResolvedPlayerName { get; init; }
 
+    // REQ-214: the resolved player's Wikidata photo (Player.PhotoUrl),
+    // alongside ResolvedPlayerName — same null-whenever-not-IsCorrect rule,
+    // plus null whenever Wikidata has no P18 for this player (never an
+    // error either way; the field is simply absent).
+    public string? ResolvedPlayerPhotoUrl { get; init; }
+
     public static GuessSubmissionResult Rejected(GuessSubmissionOutcome outcome) =>
         new() { Outcome = outcome };
 
-    public static GuessSubmissionResult Accepted(bool isCorrect, int attemptCount, bool locked, string? resolvedPlayerName = null) =>
+    public static GuessSubmissionResult Accepted(
+        bool isCorrect, int attemptCount, bool locked, string? resolvedPlayerName = null, string? resolvedPlayerPhotoUrl = null) =>
         new()
         {
             Outcome = GuessSubmissionOutcome.Accepted,
@@ -38,5 +45,6 @@ public class GuessSubmissionResult
             AttemptCount = attemptCount,
             Locked = locked,
             ResolvedPlayerName = resolvedPlayerName,
+            ResolvedPlayerPhotoUrl = resolvedPlayerPhotoUrl,
         };
 }

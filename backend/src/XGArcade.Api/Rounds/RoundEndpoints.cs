@@ -105,17 +105,22 @@ public static class RoundEndpoints
                             ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
                             : null;
 
-                        string? resolvedPlayerName = guess.IsCorrect && guess.PlayerAnswerId is not null
-                            && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var resolvedPlayer)
-                            ? resolvedPlayer.FullName
+                        Player? resolvedPlayer = guess.IsCorrect && guess.PlayerAnswerId is not null
+                            && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var foundPlayer)
+                            ? foundPlayer
                             : null;
 
+                        // REQ-214: PhotoUrl rides along with the same
+                        // resolvedPlayer lookup ResolvedPlayerName already
+                        // uses — no second query, and null exactly when
+                        // Wikidata had no P18 for this player (never an error).
                         guessResponse = new CurrentRoundGuessResponse(
                             guess.IsCorrect,
                             guess.AttemptCount,
                             guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
                             guess.SubmittedName,
-                            resolvedPlayerName,
+                            resolvedPlayer?.FullName,
+                            resolvedPlayer?.PhotoUrl,
                             uniquePercent,
                             livePoints);
                     }
@@ -173,4 +178,14 @@ public record CurrentRoundCellResponse(
 // SubmittedName, which is unchanged and still the raw as-typed text) — the
 // frontend shows this instead of SubmittedName for a correct guess, and no
 // name at all for an incorrect one.
-public record CurrentRoundGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName, string? ResolvedPlayerName, double? UniquePercent, int? LivePoints);
+//
+// ResolvedPlayerPhotoUrl (REQ-214): additive alongside ResolvedPlayerName,
+// same only-when-IsCorrect rule. Null whenever no Wikidata photo exists for
+// this player — the normal, error-free "no photo" case, never a broken-image
+// placeholder; the frontend falls back to today's text-only reveal
+// (REQ-212) whenever this is null. Recomputed on every request from the
+// same bulk playersById lookup ResolvedPlayerName already uses, so it stays
+// in sync across reads without a second query.
+public record CurrentRoundGuessResponse(
+    bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName,
+    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl, double? UniquePercent, int? LivePoints);

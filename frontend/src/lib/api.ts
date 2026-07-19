@@ -5,6 +5,7 @@ import type {
   CurrentUser,
   LeaderboardResponse,
   LoginResponse,
+  PlayerAutocompleteSuggestion,
   PlayerOverride,
   SignupResponse,
   SubmitGuessResponse,
@@ -111,14 +112,47 @@ export async function submitGuess(
   return (await response.json()) as SubmitGuessResponse;
 }
 
-// REQ-401/404: the global leaderboard (SCREEN-03) — the only league Tier 0
-// has (custom leagues are deferred, MVP-SCOPE.md).
-export async function fetchLeaderboard(accessToken: string): Promise<LeaderboardResponse> {
-  const response = await fetch(`${API_BASE_URL}/leagues/global/leaderboard`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+// REQ-401/404/607: the global leaderboard (SCREEN-03) — the only league
+// Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `cursor`/
+// `pageSize` are optional and only appended as query params when provided —
+// omitting both fetches the first page at the backend's default pageSize,
+// which is what the initial load and the 15s poll both do; SCREEN-03's
+// "Load more" passes the previous response's `nextCursor` explicitly.
+export async function fetchLeaderboard(
+  accessToken: string,
+  cursor?: number,
+  pageSize?: number,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LeaderboardResponse;
+}
+
+// REQ-207/ADR-0007 (S-032): sourced from PlayerNameIndex only, never
+// PlayerAttribute/PlayerOverride (see PlayerAutocompleteSuggestion's own
+// comment in types.ts) — GuessInput treats a failed/empty result as "no
+// suggestions," never as a reason to block guess submission.
+export async function fetchPlayerAutocomplete(
+  accessToken: string,
+  query: string,
+  limit?: number,
+): Promise<PlayerAutocompleteSuggestion[]> {
+  const params = new URLSearchParams();
+  params.set('query', query);
+  if (limit !== undefined) params.set('limit', String(limit));
+  const response = await fetch(
+    `${API_BASE_URL}/players/autocomplete?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as PlayerAutocompleteSuggestion[];
 }
 
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth

@@ -13,6 +13,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerOverride> PlayerOverrides => Set<PlayerOverride>();
     public DbSet<PlayerAttribute> PlayerAttributes => Set<PlayerAttribute>();
     public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
+    // COMP-10 (Data.PlayerNameIndex) — see ADR-0007 and architecture-document.md
+    // boundary rule 5. Deliberately never read by IPlayerStoreRepository
+    // (COMP-06); only IPlayerNameIndexRepository queries this DbSet.
+    public DbSet<PlayerNameIndex> PlayerNameIndexEntries => Set<PlayerNameIndex>();
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
@@ -74,6 +78,21 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .WithMany()
             .HasForeignKey(pa => pa.PlayerId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // COMP-10 (Data.PlayerNameIndex, ADR-0007): keyed on PlayerId (the
+        // bulk importer upserts in place per player, never inserting a
+        // second row for the same player across re-runs — see
+        // PlayerNameIndexImporter/IPlayerNameIndexRepository.UpsertManyAsync).
+        // (NormalizedName) index per implementation-document.md §5's
+        // required-indexes table — the autocomplete prefix search's hot path.
+        // Deliberately no FK to Player: this index is bulk-imported from
+        // Wikidata broadly (many players never generate a Player row at all
+        // until/unless a live lookup or grid-generation cache write creates
+        // one) — see ADR-0007's "separate data source" decision.
+        modelBuilder.Entity<PlayerNameIndex>()
+            .HasKey(pni => pni.PlayerId);
+        modelBuilder.Entity<PlayerNameIndex>()
+            .HasIndex(pni => pni.NormalizedName);
 
         // (Name) unique per implementation-document.md §5 — grid generation
         // picks from these directly (REQ-109); also prevents an admin

@@ -64,7 +64,8 @@ public static class GuessEndpoints
             return result.Outcome switch
             {
                 GuessSubmissionOutcome.Accepted => Results.Ok(
-                    new SubmitGuessResponse(result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName)),
+                    new SubmitGuessResponse(
+                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl)),
                 GuessSubmissionOutcome.RoundNotFound => Results.NotFound(),
                 GuessSubmissionOutcome.RoundNotActive => Results.Problem(
                     title: "Round is not active",
@@ -94,7 +95,13 @@ public record SubmitGuessRequest(string SubmittedName);
 // cased player name, only ever set when IsCorrect — never a substitute for
 // SubmittedName on an incorrect guess, which the frontend now shows no name
 // for at all.
-public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string? ResolvedPlayerName);
+//
+// ResolvedPlayerPhotoUrl (REQ-214): the resolved player's Wikidata photo,
+// additive alongside ResolvedPlayerName — same only-when-IsCorrect rule,
+// plus null whenever no Wikidata photo exists for this player. Absent/null
+// is the normal, error-free "no photo" case; the frontend falls back to
+// today's text-only reveal (REQ-212) whenever this is null.
+public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalRoundEndpoints.RoundGenerationLogCategory.

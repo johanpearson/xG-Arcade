@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.55"
+version: "0.69"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.55 · 2026-07-19
+Version 0.69 · 2026-07-19
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -345,6 +345,17 @@ below-threshold pair is re-queried, not skipped)
   specific corrected club name(s) before the next REQ-110 cache-warming
   pass — running it after a fresh warming pass would incorrectly wipe the
   new, correct data too, since nothing here can tell old from new.
+- **Extended (2026-07-17):** a second incident class motivated an
+  all-clubs mode (`clean-stale-club-attributes --all-clubs`,
+  `StaleClubAttributeCleaner.CleanAllSeededClubsAsync`): REQ-113's truthy
+  `wdt:P54` query-*shape* bug tainted the cached data of **every** seeded
+  club at once, not one club's wrong QID — and hand-typing every seeded
+  club name is exactly the typo surface where one misspelled name silently
+  stays stale (the named mode cannot distinguish a typo from a club with
+  nothing to clean; both remove zero rows and report success). Same
+  manual, deliberate-friction character as the named mode: still a
+  one-off CLI verb run before the next REQ-110 warming pass, never wired
+  into any automatic migrate-and-seed or scheduled run.
 - Given a `ClubDefinition` row's `WikidataQid` was corrected (REQ-109)
   after `PlayerAttribute`/`PlayerData` rows were already fetched and
   persisted under its old, wrong QID
@@ -357,10 +368,31 @@ below-threshold pair is re-queried, not skipped)
 - And club names not included in the run are left untouched
 - And running the tool again once nothing is left to clean deletes zero
   rows and does not error
+- And when run in all-clubs mode (the literal `--all-clubs` instead of a
+  name list), the club-name list is resolved at runtime from the
+  `ClubDefinition` reference table (REQ-109) — every seeded club's rows
+  are cleaned, scoped by the reference table exactly as the named form is
+  scoped by its list (never "every `club`-type row regardless of value"),
+  and attribute types other than `club` are untouched — and the resolved
+  names are reported back so an operator can verify what was swept
+- And all-clubs mode run against an empty `ClubDefinition` table fails
+  loudly (errors, deletes nothing, produces no success summary) — zero
+  seeded clubs signals a wrong database or a never-seeded one, not a
+  genuine "nothing to clean"
+- And in the named comma-separated form, a token that looks like a flag
+  rather than a club name (a `-`-prefixed token, e.g. a mistyped
+  `--all-club`) fails loudly before any deletion — it must never be
+  treated as an ordinary club name that matches zero rows and produce a
+  plausible-looking "removed 0 rows" success
 
 **Test level:** Unit (`StaleClubAttributeCleanerTests.cs` — removes stale
 rows and leaves zero cached matches; scopes strictly to the named clubs and
-to `AttributeType == "club"`; safe to re-run)
+to `AttributeType == "club"`; safe to re-run; all-clubs mode resolves names
+from `ClubDefinition`, cleans only seeded clubs' `club`-type rows, and
+throws on an empty `ClubDefinition` table rather than cleaning nothing
+silently). The named-form flag guard lives in the CLI verb's argument
+handling (`Program.cs`), which has no unit-test seam today — verified
+manually until one exists
 
 **REQ-112 – Player pool restricted to male, born in 1939 or later**
 > As a player, I want every candidate answer the grid could ever accept to
@@ -395,6 +427,54 @@ to `AttributeType == "club"`; safe to re-run)
 **Test level:** Unit (`WikidataClientTests.cs` — sent SPARQL query contains
 the P21 male triple; sent query's date-of-birth cutoff is exactly
 `1939-01-01T00:00:00Z`, for both query builders)
+
+**REQ-113 – Club membership means "ever played for," at any career point**
+> As a player, I want a guess to be correct for a club cell whenever that
+> player genuinely played for the club at any point in their senior career,
+> so a real former club is never scored incorrect just because the player
+> has since moved on.
+
+- **Status: Implemented (Tier 0, 2026-07-17 bugfix).** This semantics was
+  always the intent (REQ-109's senior-career aside was the only place it
+  appeared in writing before this requirement), but a real production
+  incident showed it was never pinned: both `WikidataClient` SPARQL
+  intersection builders (`BuildCountryClubIntersectionQuery`,
+  `BuildClubClubIntersectionQuery`, `XGArcade.DataSync.Wikidata`) used
+  Wikidata's truthy `wdt:P54` shortcut, and the truthy graph contains only
+  best-rank statements — the moment a player's *current* club is marked
+  preferred rank (routine Wikidata editing practice), every normal-rank
+  historical club silently vanished from the result, reducing "ever played
+  for" to "currently plays for" for exactly those players. A genuinely
+  correct guess (e.g. Sandro Tonali × AC Milan) scored incorrect. Fixed by
+  querying the full statement path (`p:P54`/`ps:P54`), excluding only
+  deprecated-rank statements, in both builders. Cached data fetched under
+  the old query shape was incomplete for **every** seeded club at once —
+  recovered via REQ-111's `--all-clubs` cleanup mode followed by a fresh
+  REQ-110 cache-warming pass.
+- Given a player whose Wikidata item records a club membership (P54)
+  statement for a club, at any statement rank other than deprecated
+- When candidates are fetched for a cell involving that club — Country ×
+  Club or Club × Club, whether during grid generation (REQ-101/103/110) or
+  a guess-time live lookup (REQ-211), all of which share the same two
+  query builders
+- Then that player is returned as a match for the club — a normal-rank
+  historical spell counts exactly the same as a preferred-rank current one
+- And marking a player's current club preferred rank must never suppress
+  their normal-rank historical clubs: club membership must never be
+  fetched through a best-rank-only view (Wikidata's truthy `wdt:P54` graph
+  is exactly such a view and must not be used for P54)
+- And a deprecated-rank P54 statement never counts — deprecated is
+  Wikidata's "recorded but wrong" marker, not a historical spell
+- And this ever-played-for rule is specific to club membership — the other
+  properties these queries use (nationality, sex, date of birth) deliberately
+  keep best-rank semantics, where "current/best-supported" is the intent
+- And "played for" remains scoped to the senior/first team by REQ-109's
+  QID-resolution rule — this requirement governs which membership
+  statements count for a club, not which club entity the cell asks about
+
+**Test level:** Unit (`WikidataClientTests.cs` query-shape tests — both
+builders' sent SPARQL uses the full `p:P54`/`ps:P54` statement path with
+only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
 
 ---
 
@@ -713,10 +793,32 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
   guessed player's name (REQ-212); this requirement (REQ-204) governs only
   the live/locked point *value* and its calculation, not the name-reveal
   interaction
+- **Status note (2026-07-19, `docs/backlog.md` S-048, direct user feedback
+  on the shipped photo treatment — "at rest, only picture"):** the
+  "Current behavior" bullet's "at rest, a locked+correct cell shows only a
+  checkmark plus a points value" claim is no longer true for a correct
+  cell that has a photo (REQ-214) — on a photo cell specifically, the
+  checkmark and points value are no longer shown at rest at all, only the
+  photo itself; they only appear (alongside the name, without a checkmark)
+  once the player clicks/taps the cell to reveal it (REQ-212). This is a
+  real, deliberate narrowing of what REQ-204 guarantees is always visible:
+  before this story, the checkmark+points was the one thing a player could
+  see about *every* correct cell without clicking, regardless of whether
+  it had a photo; that "always visible without clicking" guarantee no
+  longer holds for the photo case. The trade-off — a photo already implies
+  a correct, locked guess even without the points value, so some "this
+  cell is done" signal survives, just not the score — is the user's own
+  explicit choice, not one this document is inventing a justification for;
+  recorded here, and in `design-document.md` `SCREEN-01a`'s matching S-048
+  status note, rather than left as an undocumented behavior change. The
+  no-photo case is completely unaffected — it still shows the checkmark
+  plus points value at rest exactly as this requirement originally
+  specifies.
 
 **Test level:** Unit (calculation logic), API, UI (state 1 and state 4 at
 rest render identically in structure — checkmark + points, no live
-indicator of any kind, no percent)
+indicator of any kind, no percent — for a cell with no photo; a cell with
+a photo shows neither at rest as of S-048, see that status note)
 
 **REQ-205 – Score locking at round close**
 > As a player, I want my final score to be fixed once the round closes, so I
@@ -845,14 +947,23 @@ indicator of any kind, no percent)
 > seeing a name suggested (or not) doesn't itself tell me whether it's the
 > right answer.
 
-- **Status: Proposed, queued as `docs/backlog.md` S-032 (pulled forward
-  from Tier 1, `MVP-SCOPE.md`, 2026-07-12, by deliberate choice rather than
-  the stated trigger having strictly fired).** Builds exactly what ADR-0007
-  already specifies — `PlayerNameIndex` populated via a one-time bulk
-  Wikidata query for `P106` (association football player) — no new
-  architectural decision. This story covers the suggestion-list UX only;
+- **Status: Implemented (Tier 1 pulled forward, S-032, 2026-07-17).**
+  Builds exactly what ADR-0007 already specifies — a new `PlayerNameIndex`
+  table (COMP-10, `IPlayerNameIndexRepository`/`PlayerNameIndexRepository`,
+  never merged with `IPlayerStoreRepository`/COMP-06), populated via
+  `PlayerNameIndexImporter`'s bulk, birth-year-sliced Wikidata query for
+  `P106` (association football player; originally `LIMIT`/`OFFSET`-paged,
+  replaced 2026-07-18 after every page timed out server-side in production
+  — see `implementation-document.md` §6a) — the `import-player-name-index`
+  CLI verb
+  (ADR-0024), workflow_dispatch-only, no schedule yet, per ADR-0007's own
+  follow-up note. `GET /players/autocomplete?query=&limit=` (bearer-token
+  authenticated) queries `PlayerNameIndex` only; a query under 2 characters
+  (after trimming) returns an empty array without querying the repository;
+  `limit` defaults to 10, clamped server-side to a max of 25 regardless of
+  what the caller requests. This story covers the suggestion-list UX only;
   REQ-208's alias/fuzzy-typo-tolerance clauses for guess *scoring* remain
-  separately deferred.
+  separately deferred, as does REQ-209's disambiguation UI.
 - Given a player is typing a guess
 - When autocomplete suggestions are shown
 - Then suggestions are drawn from a broad player name index covering many
@@ -1049,6 +1160,42 @@ match with no attribute data and budget exhausted → fails closed), API
   (`overflow-wrap: anywhere`, matching `.cell-state__meta`'s existing
   pattern) so a long name drops to its own line rather than disappearing
   (`CellState.css`).
+- **Status note (2026-07-19, `docs/backlog.md` S-047, direct user feedback
+  + a real bug found during that story's own required real-browser
+  verification):** on a correct cell that also has a photo (REQ-214), the
+  badge dock is **no longer** part of what click/tap reveals — at a
+  typical Tier-0 mobile cell width, the row/column badges, name, and
+  checkmark did not fit together at all (an ordinary name like "Thierry
+  Henry" rendered completely invisible, not just tightly cropped). This
+  supersedes, for the photo case only, the "the guessed player's canonical
+  name … and its badge dock … are revealed" line in the acceptance
+  criteria below: on a photo cell, click/tap now reveals the name alone
+  (clamped to a single ellipsis-truncated line — the full name remains in
+  the DOM for assistive tech, only its painted box is bounded), with the
+  badge dock staying hidden (`display: none`) whether revealed or not. The
+  no-photo case is completely unaffected — click/tap still reveals both
+  the name and the badge dock exactly as this requirement originally
+  specifies, with no clamp on the name. See `design-document.md` §2's
+  matching S-047 exception note and SCREEN-01a's S-047 status note for the
+  full before/after detail.
+- **Status note (2026-07-19, `docs/backlog.md` S-048, direct user feedback
+  — "on click name + points only in an overlay"):** on a photo cell
+  specifically, this requirement's click/tap toggle now also governs
+  whether the points value is shown — before this story, REQ-204's
+  points value was always visible at rest regardless of `revealed`, and
+  this requirement's toggle only ever affected the name/badge dock. As of
+  S-048, a photo cell shows *nothing* overlaid at rest (see REQ-204's
+  matching 2026-07-19 status note) — clicking/tapping the cell now reveals
+  the name **and** the points value together, still no checkmark icon (the
+  checkmark is dropped from the photo overlay entirely, not merely moved
+  behind the reveal toggle — see `design-document.md` §2's
+  `accent-green-scrim` token note on why that color choice is now
+  dormant), and still no badge dock (S-047's exception stands, unchanged).
+  The no-photo case is completely unaffected: click/tap there still
+  reveals only the name and badge dock exactly as this requirement's
+  acceptance criteria state, and the points value there remains
+  always-visible at rest as REQ-204 originally specifies, never gated by
+  this toggle.
 - Given a cell that is locked (REQ-210) and the player's own guess for it
   was correct — i.e. state 1 (correct, round still active) or state 4
   (correct, round closed)
@@ -1152,6 +1299,178 @@ without losing in-progress state; contains text covering all six required
 content points — presence checks against required concepts, not exact
 wording)
 
+**REQ-214 – Photo reveal on a locked, correct cell**
+> As a player, I want to see the guessed player's photo, when one is
+> available, alongside their name when I reveal a solved cell, so I can
+> visually confirm my own answer, not just read it as text.
+
+- **Status: Implemented (Tier 1, pulled forward by deliberate choice,
+  2026-07-18 — see `MVP-SCOPE.md`, `docs/backlog.md` S-043/S-044).** The
+  trigger for this pull-forward is not an observed pain point — it's a
+  direct idea request, recorded plainly rather than invented as something
+  else. The backend half (S-043) carries Wikidata's `P18` through
+  `WikidataClient`'s existing intersection queries into a new
+  `Player.PhotoUrl` column and exposes it, additive, alongside
+  `ResolvedPlayerName` in both reveal responses (`POST .../guesses`'
+  `SubmitGuessResponse.ResolvedPlayerPhotoUrl` and `GET /rounds/current`'s
+  `CurrentRoundGuessResponse.ResolvedPlayerPhotoUrl`). The frontend half
+  (S-044) landed in parallel and confirmed the field name matched exactly
+  (camelCase JSON: `resolvedPlayerPhotoUrl`) — see S-044 for the full "built
+  as" note, including the fixed-size avatar-slot approach that satisfies the
+  no-layout-change/no-broken-image-icon constraints below.
+- **Scope note:** this is a display-only addition to the correctness side
+  of player data (`Player`/`PlayerAttribute`, COMP-06) — specifically,
+  carrying Wikidata's `P18` (image) property through the cell-resolution
+  query that REQ-101/102 already run and already cache, so a photo is
+  available wherever `ResolvedPlayerName` (REQ-303) already is. It does
+  not add a new query trigger and does not change REQ-211/ADR-0018's
+  guess-time live-lookup behavior in any way. It is explicitly unrelated
+  to `PlayerNameIndex`/autocomplete (REQ-207, COMP-10): that data source
+  is for autocomplete and name matching only, per ADR-0007's boundary rule,
+  and stays out of scope here exactly as it was for the S-032 `PhotoUrl`
+  field that was built and then dropped from `PlayerNameIndex` — this
+  requirement does not reintroduce that column or revisit that decision.
+- **Backfill addendum (S-045, 2026-07-18):** `Player.PhotoUrl` is only ever
+  set at the moment a `Player` row is first created
+  (`WikidataLookupService.GetOrCreatePlayerAsync`) — a row created by an
+  earlier `warm-player-cache` run, before this requirement's `P18` addition
+  shipped, has `PhotoUrl` permanently `NULL` with no other code path that
+  will ever revisit it, so this requirement's acceptance criteria ("a photo
+  shows … whenever one is available") were silently unmet for every
+  already-cached player. `PlayerPhotoBackfillService` (`XGArcade.DataSync`),
+  run via the `backfill-player-photos` CLI verb, closes that gap: batched,
+  idempotent, safe to re-run — see `implementation-document.md`'s CLI-verb
+  section for the full shape. Not a new requirement — this is implementation
+  detail supporting REQ-214's existing acceptance criteria for players that
+  predate it, not a new user-facing behavior.
+  Club crests (`ClubCrest`, Tier 2) are also out of scope.
+- **Status note (2026-07-18): photo trigger decoupled from the click/tap
+  reveal, requested directly by the user after seeing the click-gated
+  version live.** Supersedes the click-gated presentation described in the
+  acceptance criteria below (the version shipped same-day, PR #79, commit
+  `2a8b40d`) — the photo now shows automatically, filling the cell, the
+  moment a correct guess locks the cell, with no click/tap required. This
+  is strictly a change to the photo's own trigger condition. **REQ-212
+  itself is unchanged**: the guessed player's name (and badge dock) is
+  still click/tap-gated exactly as REQ-212 defines, on the same cell, and
+  that toggle now operates independently of the photo rather than
+  revealing it — a photo, when available, is visible whether the name is
+  currently shown or hidden. The layout-invariance constraint (cell
+  footprint must not change) carries forward unchanged from the prior
+  version — it previously guarded the revealed state only and now guards
+  the at-rest state, since that's where the photo now appears. The
+  no-photo case is unaffected by this note: it already fell back to
+  today's checkmark+points-only display and continues to.
+- **Status note (2026-07-19, `docs/backlog.md` S-047):** the "reveals the
+  canonical name and badge dock (over the photo, when one is present)"
+  line below is superseded for the photo case — see REQ-212's matching
+  2026-07-19 status note for the full detail. On a photo cell, click/tap
+  now reveals the name only (clamped to a single line); the badge dock
+  stays hidden. This is a change to what REQ-212's toggle reveals on a
+  photo cell, not a change to this requirement's own photo-trigger
+  behavior (the photo itself still shows automatically, unaffected).
+- Given a cell that is locked (REQ-210) and the player's own guess for it
+  was correct — i.e. state 1 (correct, round still active) or state 4
+  (correct, round closed)
+- And the resolved player has a Wikidata photo available
+- When the cell renders, regardless of whether the player has clicked/
+  tapped it (REQ-212's reveal state)
+- Then the photo displays automatically, filling the cell, at rest — no
+  click/tap is required to show it, and clicking/tapping the cell (REQ-212)
+  neither shows nor hides the photo, only the name and (as of S-048) the
+  points value
+- **Status note (2026-07-19, `docs/backlog.md` S-051, direct user choice,
+  not a bug fix):** "filling the cell" above never specified whether the
+  photo crops to eliminate empty space or scales down to stay fully
+  visible with possible empty space on two sides — both are ways of
+  "filling the cell" in the sense of occupying its whole footprint (the
+  cell's own box, not necessarily every one of its pixels). The behavior
+  as shipped through S-050 was crop-to-fill (`object-fit: cover`); asked
+  directly which the player preferred after reporting photos looked
+  "cut off," the user chose "Show full photo, allow empty space
+  (letterbox)" over "Crop photo to fill the cell completely" — the whole
+  photo is now always visible, never cropped, at the cost of a plain
+  background strip on two opposite sides whenever the photo's aspect
+  ratio doesn't match the cell's own. This narrows what "filling the
+  cell" means going forward (the cell's footprint, not necessarily every
+  pixel within it) without changing the footprint-invariance bullet below
+  in substance — the cell's own width/height are still identical whether
+  or not a photo is shown, orientation included, confirmed via
+  real-browser measurement across both a portrait and a landscape test
+  photo at mobile and desktop viewports.
+- **Superseded 2026-07-19 (`docs/backlog.md` S-048, kept for history):**
+  "the cell's existing checkmark and points value are overlaid on top of
+  the photo, in the same position they occupy in the no-photo case … at
+  rest." This was true as first shipped and through S-047's coverage
+  tightening, but is no longer current: as of S-048 (direct user feedback
+  — "at rest, only picture"), a photo cell overlays **nothing** at rest —
+  no checkmark, no points, no scrim. The checkmark and points move behind
+  REQ-212's click/tap toggle instead, and the checkmark is dropped
+  entirely (not merely relocated) — see REQ-204's and REQ-212's own
+  matching 2026-07-19 status notes, and `design-document.md` SCREEN-01a's
+  S-048 status note, for the full before/after and the recorded trade-off
+  (a photo cell no longer has an always-visible-without-clicking score
+  signal, only an always-visible "this cell is done" signal via the photo
+  itself). The contrast-floor testing requirement below is unaffected in
+  substance — it now applies to the name/points shown on reveal rather
+  than to an always-visible overlay, using the same already-verified
+  `overlay-scrim`/`accent-gold`/`surface-card` pairings.
+- And the cell's rendered width and height are identical whether or not a
+  photo is shown — this is a testable layout constraint, not a visual
+  preference: a photo filling the cell at rest must never change the
+  cell's footprint compared to today's no-photo display, and must never
+  push or resize neighboring cells in the grid
+- **Status note (2026-07-19, `docs/backlog.md` S-050):** "filling the
+  cell" above was, for the version shipped through S-049, only ever true
+  up to a real, measured, symmetric gap between the photo and the cell's
+  actual bordered edge — exactly `.grid-table__cell`'s own CSS `padding`
+  value (4px below 960px, 12px at/above it) on every side, confirmed via
+  `getBoundingClientRect` on a real Chromium render, not the literal
+  bottom-only gap the direct user report described (measuring all four
+  edges found it symmetric; most visually obvious, per the report, where
+  two photo cells stack vertically). Root cause and fix are CSS-only
+  (`frontend/src/grid/Grid.css`'s `.grid-table__cell`/`.grid-cell`) — see
+  that story's backlog entry for the full mechanism and before/after
+  numbers. The footprint-invariance bullet above is unaffected in
+  substance and was specifically re-verified as part of this fix,
+  including a scenario this requirement's acceptance criteria didn't
+  previously call out explicitly: a photo that loads successfully and
+  *then* fails is no longer able to resize the cell either (confirmed via
+  a real, deliberately-broken photo URL) — the first fix attempted for
+  this gap (tried and rejected during the same story) would have
+  regressed exactly that case.
+- And REQ-212's click/tap toggle still applies on top of this exactly as
+  before — clicking/tapping the cell reveals the canonical name and badge
+  dock (over the photo, when one is present), and clicking/tapping again
+  hides them again; the photo's own visibility is unaffected either way
+- Given the resolved player has no Wikidata photo available
+- Then the cell falls back to exactly today's existing at-rest display —
+  checkmark and points value only (`SCREEN-01a` state 1/state 4) — no
+  broken-image icon, no visible error or loading state, and no difference
+  in cell footprint from the case where a photo is shown
+- And REQ-212's click/tap reveal of the name and badge dock still applies
+  on top of this, exactly as before this note
+- And a locked cell whose guess was incorrect is unaffected — no photo is
+  ever shown for an incorrect guess, unchanged from the existing rule for
+  names
+
+**Test level:** Unit/UI (photo displays automatically at rest when
+available, independent of the cell's click/tap-revealed state; checkmark/
+points remain present and meet the contrast floor against a photo
+background; REQ-212's name/badge-dock toggle still reveals and hides
+independently of the photo; no photo available degrades to today's
+checkmark+points-only at-rest display with no broken-image icon and no
+visible error state; rendered cell width/height are identical across a
+photo-shown case, a no-photo case, and a revealed-name-over-photo case —
+regression test against the cell's own bounding box, not a visual
+snapshot alone, given REQ-212's prior finding that a real layout bug was
+missed by tests and only caught by required manual browser verification;
+S-051 additionally requires manual verification with both a portrait and
+a landscape test photo — jsdom cannot render actual letterboxing, so the
+declared `object-fit` value is the extent of what's unit-testable, and the
+"whole photo visible, no cropping" outcome itself can only be confirmed by
+real-browser rendering)
+
 ---
 
 ### 4.3 Rounds
@@ -1160,26 +1479,44 @@ wording)
 > As an admin, I want to configure how often new rounds are created (e.g.
 > twice per week), so play frequency can be adjusted without a code change.
 
-- **Status: Partially implemented (Tier 0, S-008).** The "one round ahead"
+- **Status: Partially implemented (Tier 0, S-008; round-duration
+  configurability added 2026-07-17, ADR-0027).** The "one round ahead"
   rule itself is fully built: `RoundGenerationService`
   (`XGArcade.Core.Rounds`) skips generation if an upcoming/not-yet-started
   round already exists for the `GameKey`, otherwise resolves the owning
   `IGameModule` (via the new `IGameModuleResolver`), generates its instance,
   and chains the new round's `StartTime` from the previous round's
   `EndTime` — exactly the acceptance criteria below. `generate-round.yml`'s
-  cron (Tue+Fri 06:00 UTC) triggers this via the bearer-token-protected
+  cron (now daily, `0 6 * * *`) triggers this via the bearer-token-protected
   `POST /internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`),
   registered in every environment since this is a legitimate scheduled job
-  (CONT-05), not a test-data endpoint. What's not built: "configured...so
-  play frequency can be adjusted without a code change" — the schedule
-  lives in `generate-round.yml`'s cron expression, and `RoundSchedulingOptions`
-  (`GameKey`/`RoundDuration`/`AllowGuessChange`/`GridSize`) is a plain C#
-  object with hardcoded defaults registered in `Program.cs` (same
-  non-appsettings-bound pattern as `Games.XGGrid`'s `GridGenerationOptions`),
-  not an admin-facing configuration surface — changing frequency today means
-  editing both files together (the cron and `RoundDuration`, which must stay
-  coupled — see `RoundSchedulingOptions`' own doc comment and NOTES.md), a
-  code change either way. `GridSize`'s find-or-create-a-`GridTemplate`-by-size
+  (CONT-05), not a test-data endpoint. "configured...so play frequency can
+  be adjusted without a code change" is now also built, within a Tier 0
+  scope: `RoundSchedulingOptions.RoundDuration`'s default is read from
+  `RoundScheduling:RoundDurationHours` (`appsettings.json` ships `48`; the
+  deployed Container App can override it via the
+  `RoundScheduling__RoundDurationHours` env var, wired through
+  `infra/bicep`, with no code change or redeploy), and
+  `POST /internal/generate-round` additionally accepts an optional
+  `roundDurationHours` query parameter for a one-off override of a single
+  generation call only (validated `>= 24`, never mutates the shared
+  `RoundSchedulingOptions` singleton), exposed via `generate-round.yml`'s
+  `workflow_dispatch` input. The old requirement that `RoundDuration` and
+  the cron cadence be hand-matched against each other is gone: the cron is
+  now daily, giving a constant 24h max gap between firings, and
+  `RoundGenerationService`'s existing idempotency check makes the daily
+  firing a no-op until the current round actually ends — so any
+  `RoundDuration >= 24h` (including the 48h default) is safe by
+  construction rather than needing hand-verification every time either
+  value changes. See ADR-0027 for the full reasoning, including why a
+  cron cadence that fires exactly every N days was rejected. What's
+  **still not built**, relative to this requirement's full long-term
+  acceptance criteria below: an admin-facing configuration surface — "a
+  cron expression configured in the system" still means editing
+  `appsettings.json`/an env var (a config change, not a code change, but
+  still not an in-app admin control) and, for the cron cadence itself,
+  editing `generate-round.yml`. That remains Tier 1/2 scope
+  (`MVP-SCOPE.md`). `GridSize`'s find-or-create-a-`GridTemplate`-by-size
   shortcut is the same Tier 0 gap already noted on REQ-102, reused via the
   new shared `GridTemplateResolver` helper. The rest of this requirement's
   acceptance criteria are recorded below as the full/long-term definition.
@@ -1345,7 +1682,7 @@ case covers the game-selection step added in S-021)
 > so I can track my ranking.
 
 - **Status: Partially implemented (Tier 0, S-011; sort direction corrected
-  S-028/ADR-0021).** `GET
+  S-028/ADR-0021; paginated S-034).** `GET
   /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`)
   → `ILeaderboardService`/`LeaderboardService` (`XGArcade.Core.Leagues`)
   implements exactly this ranking (members' `SUM(FinalPoints ?? 0)`,
@@ -1354,10 +1691,12 @@ case covers the game-selection step added in S-021)
   by display name) for the global league only — custom leagues (REQ-402/403)
   don't exist yet, so there is exactly one leaderboard to read today;
   SCREEN-03's frontend (`LeaderboardScreen.tsx`) shows only the Global list,
-  no tab switcher.
-  **Known gap:** the response is unbounded (every member in one payload) —
-  see REQ-607's own status note for why this is an acknowledged, deliberate
-  Tier 0 gap rather than an oversight.
+  with a "Load more" control and a pinned "you" footer for when the
+  requesting user's row is off the currently-loaded page(s), no tab
+  switcher.
+  **Pagination (S-034):** the response is now bounded via `cursor`/
+  `pageSize` — see REQ-607's own status note for the shape. This closes
+  the gap previously noted here.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -1398,12 +1737,12 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 - Calendar-aligned vs. rolling windows → **calendar-aligned**, decided above
 - Timezone for boundary evaluation → **UTC**, decided above
 - Whether an unlocked round ever contributes → **no**, decided above
-- Performance: REQ-607's existing pagination gap (leaderboard responses are
-  currently unbounded) gets worse with four more query shapes to index for —
-  **not resolved as a product decision, still an implementation-time
-  requirement**: S-027's acceptance criteria requires a REQ-607-aligned
-  indexing plan as part of implementing this REQ, not just "add a `WHERE`
-  clause"
+- Performance: REQ-607's pagination is now implemented (S-034), but this
+  REQ still adds four more query shapes (round/week/month/year windows) on
+  top of the existing all-time one — **not resolved as a product
+  decision, still an implementation-time requirement**: S-027's acceptance
+  criteria requires a REQ-607-aligned indexing plan as part of implementing
+  this REQ, not just "add a `WHERE` clause"
 
 **Test level:** Unit, API, UI
 
@@ -1807,19 +2146,25 @@ its own explicit opt-in separate from this one, not be folded into it.
 
 **REQ-607 – Performance baseline**
 
-- **Status: Partially implemented (Tier 0, S-011).** The pagination clause
-  immediately below is a real, currently-unmet gap, not tiered out anywhere
-  else: `GET /leagues/global/leaderboard`
-  (`XGArcade.Api.Leagues.LeaderboardEndpoints`) returns every member of the
-  global league in one unbounded response, no cursor/pageSize. Flagged by
-  an architecture-reviewer pass during S-011 and deliberately left
-  unfixed for this pass — pagination itself is out of scope. **Queued as
-  `docs/backlog.md` S-034 (2026-07-12)**, ahead of the original "membership
-  grows large" trigger actually firing — decided proactively rather than
-  waited on, since the shape was already fully specified (see
-  `implementation-document.md` §6's "Leaderboard pagination" pseudocode)
-  and cheap to build now. The other two bullets below are unaffected by
-  this note.
+- **Status: Implemented (Tier 0, S-034, 2026-07-17).** The pagination
+  clause immediately below, previously a real, unmet gap (flagged by an
+  architecture-reviewer pass during S-011 and deliberately left unfixed at
+  the time), is now closed: `GET /leagues/global/leaderboard`
+  (`XGArcade.Api.Leagues.LeaderboardEndpoints` →
+  `ILeaderboardService`/`LeaderboardService`, `XGArcade.Core.Leagues`)
+  takes optional `cursor`/`pageSize` query params (default `pageSize` 50,
+  max 100, `cursor` defaults to 0, negative `cursor` or an out-of-range
+  `pageSize` → 400) and returns a bounded page — `Rows` (each with an
+  explicit, global 1-based `Rank`, not a page-local index),
+  `RequestingUserRow` (always populated, even when the caller's own rank
+  falls outside the current page), `NextCursor`, and `HasMore`. Matches
+  `implementation-document.md` §6's cursor-shaped contract; the underlying
+  implementation still composes the full member list in memory and slices
+  it there rather than doing DB-level `ORDER BY`/`LIMIT` — an explicit,
+  already-documented MVP-scale tradeoff, not a new gap (see that section's
+  "Built as (S-034)" note). SCREEN-03's frontend (`LeaderboardScreen.tsx`)
+  consumes this via a "Load more" button and a pinned "you" footer. The
+  other two bullets below are unaffected by this note.
 - Leaderboard queries (REQ-404) must be paginated; the API must never
   return an entire league's membership in one unbounded response
 - Guess correctness/uniqueness lookups (REQ-203, REQ-204) must use indexed

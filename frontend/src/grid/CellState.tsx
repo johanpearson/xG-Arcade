@@ -14,6 +14,16 @@ export interface CellStateProps {
   // as-typed text. Falls back to a plain, non-fabricated label if somehow
   // absent for a correct guess, rather than inventing a name.
   playerName?: string;
+  // REQ-214 (2026-07-18 status note): a nullable Wikidata photo URL for the
+  // resolved player, shown automatically at rest, filling the cell —
+  // independent of `revealed` below, unlike playerName. See the
+  // CurrentRoundGuess type's own doc comment for the confirmed backend
+  // field this maps to. `undefined` (field never sent), `null` (backend
+  // confirmed no photo exists), and a same-session image load failure are
+  // all treated identically: fall back to exactly today's text-only,
+  // no-photo at-rest display, no broken-image icon, no error state. Only
+  // ever meaningful for a correct guess, same as playerName.
+  photoUrl?: string | null;
   isCorrect: boolean;
   attemptCount: number;
   locked: boolean;
@@ -25,10 +35,13 @@ export interface CellStateProps {
   // S-018/REQ-204: live, provisional point estimate for state 1 only — same
   // round(uniqueScore * MaxPointsPerCell) formula REQ-205 locks at round
   // close, computed live and re-derived on every request. S-041: this is
-  // now the *only* thing state 1 shows alongside the checkmark (no dot, no
+  // the *only* thing state 1 shows alongside the checkmark (no dot, no
   // "live"/"~"/"estimated" wording, no percent) — see REQ-204's 2026-07-14
-  // status note. Never reused for state 4's finalPoints, which is a
-  // separate, locked prop.
+  // status note. S-048 exception: on a photo cell specifically, this value
+  // is no longer shown at rest at all — only once `revealed`, alongside
+  // the name, with no checkmark — see REQ-204's 2026-07-19 status note.
+  // Never reused for state 4's finalPoints, which is a separate, locked
+  // prop.
   livePoints?: number | null;
   // REQ-205/206: the locked, permanent score — only meaningful once
   // roundStatus is "closed". Not reachable via GET /rounds/current today
@@ -63,7 +76,10 @@ export interface CellStateProps {
   // the click/tap target that toggles it is the whole cell, which GridCell
   // renders, not a control inside CellState. Only meaningful when
   // isCorrect+locked (states 1/4); ignored otherwise, since states 2/3
-  // never show a name regardless (S-029).
+  // never show a name regardless (S-029). S-048: on a photo cell
+  // specifically, this prop also gates the points value (never gated by it
+  // in the no-photo case, where points stays always-visible at rest) — see
+  // REQ-212's 2026-07-19 status note.
   revealed?: boolean;
 }
 
@@ -136,13 +152,18 @@ function useShakeToken(attemptCount: number, isCorrect: boolean, submittedThisSe
 // attempt was made.
 //
 // S-041 (REQ-204/212): states 1 (correct, round active) and 4 (correct,
-// round closed) are now a single rendering branch — both show only a
-// checkmark plus a points value at rest (state 1's live estimate, state 4's
-// locked FinalPoints), with no live/final distinction on the cell itself.
-// The player name/badge dock, gated behind `revealed` (owned by GridCell,
+// round closed) are a single rendering branch — both show only a checkmark
+// plus a points value at rest (state 1's live estimate, state 4's locked
+// FinalPoints), with no live/final distinction on the cell itself. The
+// player name/badge dock, gated behind `revealed` (owned by GridCell,
 // REQ-212), is the only thing that differs by interaction, not by state.
+// S-048 exception: this description is for the no-photo case only — a
+// correct cell with a photo (`hasPhoto` below) shows nothing at rest and
+// only the name + points (no checkmark, no badge dock) once revealed. See
+// the `isCorrect` branch's own comment below for the full detail.
 export function CellState({
   playerName,
+  photoUrl,
   isCorrect,
   attemptCount,
   locked,
@@ -159,6 +180,16 @@ export function CellState({
   const name = playerName ?? 'Guess submitted';
   const revealToken = useRevealToken(revealed);
   const shakeToken = useShakeToken(attemptCount, isCorrect, submittedThisSession);
+  // REQ-214 (2026-07-18 status note): whether the photo layer is currently
+  // showing — true whenever a photoUrl was given and hasn't failed to load
+  // this session, false otherwise (missing/null field, or a load failure
+  // already observed). Deliberately NOT gated by `revealed` — that's the
+  // whole point of this status note superseding the original click-gated
+  // shipped version. Hoisted to this top level (rather than living inside
+  // Row/a nested component the way the old 18px-avatar version did) because
+  // the photo is now rendered whether or not the cell is revealed, so its
+  // failure state needs to survive independently of the reveal toggle.
+  const [photoFailed, setPhotoFailed] = useState(false);
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -171,14 +202,59 @@ export function CellState({
   // points value is shown.
   if (isCorrect) {
     const points = roundStatus === 'closed' ? finalPoints : livePoints;
-    return (
-      // key={revealToken}: forces a remount (not just a class toggle) so
-      // the badge-dock slide-in restarts on every reveal, even a second
-      // reveal after the player closed and reopened it (same className
-      // string both times, which a mere re-render wouldn't restart).
-      <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
+    const hasPhoto = Boolean(photoUrl) && !photoFailed;
+
+    // S-048 (direct user feedback: "at rest, only picture. on click name +
+    // points only in an overlay"): a photo cell's overlay is now rendered
+    // only when `revealed`, and holds only the name and points — no
+    // checkmark (dropped entirely, not merely relocated behind the toggle;
+    // see design-document.md §2's `accent-green-scrim` token note, now
+    // dormant) and no badge dock (already dropped by S-047, stays dropped).
+    // Before this story, a correct cell's checkmark+points was shown at
+    // rest unconditionally (REQ-204) and only the name/badge dock were
+    // gated by `revealed` (REQ-212) — that's still true for the no-photo
+    // case below, but no longer true for the photo case: at rest a photo
+    // cell overlays nothing at all, so its only always-visible signal that
+    // the cell is "done" is the photo's own presence, not a score value —
+    // a deliberate trade-off recorded in design-document.md SCREEN-01a's
+    // S-048 status note and requirements-document.md's matching REQ-204
+    // status note, not assumed to be obviously fine.
+    if (hasPhoto) {
+      return (
+        // key={revealToken}: forces a remount (not just a class toggle) so
+        // the reveal effect restarts on every reveal, even a second reveal
+        // after the player closed and reopened it (same className string
+        // both times, which a mere re-render wouldn't restart). The photo
+        // layer itself is unaffected by this remount — it isn't driven by
+        // revealToken at all, so it doesn't flicker/reload just because the
+        // overlay was toggled.
+        <div
+          key={revealToken}
+          className={`cell-state cell-state--correct cell-state--photo ${revealed ? 'cell-state--reveal' : ''}`}
+        >
+          <CellPhoto src={photoUrl as string} onError={() => setPhotoFailed(true)} />
+          {revealed && (
+            <div className="cell-state__overlay">
+              <span className="cell-state__name">{name}</span>
+              {points != null && <p className="cell-state__meta mono-figure">{points} pts</p>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // No-photo case, unchanged by S-048: checkmark + points always visible
+    // at rest (REQ-204), name + badge dock gated by `revealed` (REQ-212).
+    const overlayContent = (
+      <>
         <Row name={revealed ? name : undefined} correct badges={revealed ? badges : undefined} />
         {points != null && <p className="cell-state__meta mono-figure">{points} pts</p>}
+      </>
+    );
+
+    return (
+      <div key={revealToken} className={`cell-state cell-state--correct ${revealed ? 'cell-state--reveal' : ''}`}>
+        {overlayContent}
       </div>
     );
   }
@@ -232,7 +308,11 @@ function Row({
   badges,
 }: {
   // Absent for an incorrect guess (states 2/3) — no name is shown at all,
-  // only that the guess was wrong.
+  // only that the guess was wrong. Also absent for a correct-but-unrevealed
+  // cell (REQ-212). S-048: this component is no longer used at all for a
+  // correct cell that has a photo (that branch renders its name/points
+  // directly, with no checkmark) — Row now only ever renders for the
+  // no-photo correct case and the two incorrect cases, never the photo one.
   name?: string;
   correct: boolean;
   badges?: { row: CategoryRef; col: CategoryRef };
@@ -266,4 +346,34 @@ function Row({
       </span>
     </div>
   );
+}
+
+// REQ-214 (2026-07-18 status note): the resolved player's photo, filling
+// the cell's full footprint at rest — superseding the prior shipped version
+// (PR #79), which rendered a small 18px circular avatar nested inside the
+// revealed name row via a component then called `PlayerAvatar`. That name
+// and shape are both gone: this now renders full-bleed via
+// `.cell-state__photo-img` (absolutely positioned by CellState.css,
+// deliberately outside `.grid-table__cell`'s own padding box — see that
+// stylesheet's comment for why that's the mechanism that keeps the cell's
+// footprint fixed regardless of the photo, the same guarantee the old
+// fixed-18px-box used to provide a different way; S-050 moved the
+// containing block this bleeds against from the button up to the `<td>`
+// itself — see Grid.css's `.grid-table__cell`/`.grid-cell` comments for
+// why). Renders unconditionally
+// once mounted (CellState only mounts this when `hasPhoto` is true, i.e. a
+// src was given and hasn't failed to load this session yet) — this
+// component's own `onError` is what flips that state back to false one
+// level up, causing CellState to fall back to exactly today's no-photo,
+// no-scrim at-rest display on the next render, no broken-image icon ever
+// shown in between. Decorative only (`alt=""`, `aria-hidden`) — whatever
+// text is overlaid on top (the no-photo case's checkmark/points, or this
+// photo case's name/points once revealed per S-048) already carries the
+// accessible content, same pairing rule §6 applies to the flag/badge
+// glyphs elsewhere in this file. At rest, a photo cell (S-048) overlays no
+// text at all — the photo's own decorative alt="" is correct either way,
+// since REQ-201's cell-level aria-label (GridCell.tsx) is what actually
+// carries this cell's accessible name, not any text inside CellState.
+function CellPhoto({ src, onError }: { src: string; onError: () => void }) {
+  return <img className="cell-state__photo-img" src={src} alt="" aria-hidden="true" onError={onError} />;
 }

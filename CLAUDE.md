@@ -45,6 +45,7 @@ frontmatter first to decide if a doc is relevant to your current task.
 | `NOTES.md` | Informal running context/gotchas, not formal decisions | Something surprising is discovered during development worth remembering later |
 | `docs/review-2026-07-07.md` | Point-in-time critical review of every file, with fixes applied | Revisit after real code exists to check unverified findings (agent usefulness, coding guidelines accuracy) |
 | `docs/review-2026-07-07-design.md` | Design/plan review: 8 fixed flaws + what was judged and deliberately left alone | Before relitigating a settled design point; revisit after S-013 |
+| `docs/ai/agent-migration-plan.md` | WHO (among the agents) owns what: organization chart, ownership matrix, workflows, and the 2026-07-17 migration record | Changing any agent/command, moving a responsibility, or unsure which agent owns a task |
 
 **Reading order for a typical task:** `MVP-SCOPE.md` (is this even in
 scope right now?) → CHANGELOG → the relevant REQ section →
@@ -95,14 +96,20 @@ was made, it needs an ADR.
 - **Branch naming**: `feature/req-###-short-description` or
   `fix/short-description` — descriptive enough that the branch list is
   useful without opening each one.
-- **PR descriptions** should state: which REQ(s) it implements or changes,
-  whether `docs/` were updated to match (or explicitly why not), and
-  whether tests were added. A PR that changes behavior without touching
-  any doc is a signal to double back, not something to wave through.
+- **PR descriptions** follow `.github/pull_request_template.md`: Summary,
+  Why, How (only if non-obvious), Agents involved (optional — one line per
+  agent, only when it adds real signal), Testing & docs. Keep each section
+  tight — this file doubles as release-notes material later, so it should
+  read fine standalone, without the diff open next to it. State which
+  REQ(s) the PR implements or changes, whether `docs/` were updated to
+  match (or explicitly why not), and whether tests were added. A PR that
+  changes behavior without touching any doc is a signal to double back,
+  not something to wave through.
 - Claude Code's native git/PR capabilities handle the actual git operations
-  — there's no dedicated subagent for this, since wrapping a built-in
-  capability in a persona would add a layer without adding value. These
-  conventions are what keep it consistent with everything else here.
+  — there's no dedicated subagent for this (including for writing the PR
+  description itself), since wrapping a built-in capability in a persona
+  would add a layer without adding value. The template is what keeps PRs
+  consistent, not an agent.
 
 ## Conventions
 
@@ -116,7 +123,7 @@ was made, it needs an ADR.
   unit: Vitest. E2E: Playwright.
 - No secrets in source control; configuration via environment variables.
 - Code style, error handling, and testing patterns: `docs/coding-guidelines.md`
-  — `code-reviewer` checks against it specifically.
+  — `quality-architect` checks against it specifically, and owns its evolution.
 - **xG Arcade/game boundary:** never add a game-specific foreign key or type
   reference to a `XGArcade.Core` entity (e.g. `Round`, `League`, `User`).
   Games reference Core through `IGameModule`; Core references games only via
@@ -235,25 +242,35 @@ verified early with almost no code in it.
 - E2E tests: `npm run test:e2e` (Playwright)
 - Full local run: see `implementation-document.md` §9 for suggested build order
 
-## Subagents available (`.claude/agents/`)
+## Agent organization (`.claude/agents/`, `.claude/commands/`)
 
-See `.claude/README.md` for the human-facing guide to all of these,
-including full development/testing/new-game/design workflows.
+The agents form a deliberate organization — delivery agents implement,
+protection agents guard structure and quality, the main session
+orchestrates. Ownership boundaries, workflows, and the reasoning behind
+them live in `docs/ai/agent-migration-plan.md`; the human-facing usage
+guide is `.claude/README.md`. **The main session is the orchestrator**:
+for any story/feature/bug, run `/orchestrate` — it enforces intake →
+scope check → decomposition → delegation → quality gate → docs →
+completion validation, and delegates implementation to the agents below
+rather than doing it inline.
 
-| Agent | Use for |
-|---|---|
-| `test-writer` | Turning a REQ's acceptance criteria into NUnit/Playwright/Vitest tests with correct naming |
-| `doc-sync` | Reviewing a diff and updating requirements/architecture/implementation docs + CHANGELOG to match |
-| `architecture-reviewer` | Checking new code against `architecture-document.md` boundaries before merging, and flagging when an ADR is needed |
-| `game-scaffolder` | Adding a new game module with the correct `IGameModule` boundaries and matching doc stubs |
-| `ui-implementer` | Building/changing frontend screens against `design-document.md`'s token system and the `frontend-design` skill |
-| `requirements-writer` | Drafting new requirements or reviewing existing ones for testability/consistency, in the established Given/When/Then format |
-| `code-reviewer` | General code quality/refactor review against `docs/coding-guidelines.md` — distinct from `architecture-reviewer`'s structural boundary checks |
+| Agent | Role | Use for |
+|---|---|---|
+| `backend-implementer` | Delivery | Backend (C#/ASP.NET Core) features and fixes, carrying this repo's backend patterns and sandbox constraints |
+| `ui-implementer` | Delivery | Building/changing frontend screens against `design-document.md`'s token system and the `frontend-design` skill |
+| `game-scaffolder` | Delivery | Adding a new game module with the correct `IGameModule` boundaries and matching doc stubs |
+| `test-writer` | Delivery | Turning a REQ's acceptance criteria into NUnit/Playwright/Vitest tests with correct naming (on infrastructure owned by `quality-architect`) |
+| `architecture-reviewer` | Protection | Checking new code against `architecture-document.md` boundaries before merging, and flagging when an ADR is needed |
+| `quality-architect` | Protection | Code quality review against `docs/coding-guidelines.md`, deliberate refactoring, and test architecture (fakes/fixtures/helpers, flakiness, speed) — distinct from `architecture-reviewer`'s structural checks |
+| `requirements-writer` | Product | Drafting new requirements or reviewing existing ones for testability/consistency, in the established Given/When/Then format |
+| `doc-sync` | Stewardship | Reviewing a diff and updating requirements/architecture/implementation docs + CHANGELOG to match |
 
 ## Slash commands available (`.claude/commands/`)
 
 | Command | Use for |
 |---|---|
+| `/orchestrate` | Runs a story/feature/bug through the full workflow: intake, scoping, decomposition, delegation, quality gate, docs, completion validation |
+| `/quality-gate` | Runs the deterministic pre-merge gate: architecture review → quality review → tests → doc check, fails closed |
 | `/update-docs` | Runs the "after finishing work" doc-update workflow above against the current diff |
 | `/new-adr` | Scaffolds a new ADR file from the template and asks for the missing sections |
 | `/new-game` | Scaffolds a new game via `game-scaffolder` |

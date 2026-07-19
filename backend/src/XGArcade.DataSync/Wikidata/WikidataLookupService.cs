@@ -95,7 +95,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             return existing;
 
         return await playerStore.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = match.FullName, WikidataQid = match.WikidataQid },
+            new Player { Id = Guid.NewGuid(), FullName = match.FullName, WikidataQid = match.WikidataQid, PhotoUrl = match.PhotoUrl },
             cancellationToken);
     }
 

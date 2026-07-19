@@ -624,7 +624,10 @@ genuinely dangerous rather than a minor data-entry slip: a wrong QID
 doesn't fail loudly. `WikidataClient`'s SPARQL queries have no way to know
 a QID doesn't correspond to the intended entity — if it happens to be some
 *other* real Wikidata item that also satisfies the query shape (`?player
-wdt:P106 wd:Q937857. ?player wdt:P54 wd:{{clubQid}}.`), the query returns
+wdt:P106 wd:Q937857. ?player wdt:P54 wd:{{clubQid}}.` — **query shape now
+stale**: since 2026-07-17 the P54 triple is the full statement path
+`p:P54`/`ps:P54` excluding deprecated rank, see that day's entry below;
+the wrong-QID lesson here is unchanged), the query returns
 real players, persisted under the *intended* club's name, looking
 completely normal. `ReferenceDataSeeder.cs`'s own S-036 comment predicted
 exactly this ("a wrong QID here is self-limiting, not dangerous... just
@@ -728,3 +731,184 @@ confirmation phrase `delete all player data`, (3) trigger
 2 before step 3, same reasoning as S-037's clean-then-warm ordering — the
 purge has to happen before the pool is fresh, or it would just delete the
 freshly-correct data too.
+
+### 2026-07-17 — Truthy `wdt:P54` is best-rank-only; historical clubs silently vanished, tainting every seeded club's cache at once (REQ-113, REQ-111)
+
+A genuinely correct guess (Sandro Tonali × AC Milan) scored incorrect.
+Root cause: both `WikidataClient` intersection builders matched clubs via
+the truthy `wdt:P54` shortcut, and **Wikidata's truthy `wdt:` graph
+contains only best-rank statements** — the moment an editor marks a
+player's *current* club preferred rank (routine Wikidata practice), every
+normal-rank historical club vanishes from `wdt:P54` for that player.
+"Ever played for" silently became "currently plays for" for exactly the
+players whose items are well-maintained enough to use ranks. Fixed by
+switching both builders to the full statement path (`p:P54`/`ps:P54`)
+with only `wikibase:DeprecatedRank` excluded via `MINUS`; the club-club
+builder needs **two distinct statement variables** (one statement can't
+point at two clubs). `P106`/`P27`/`P21`/`P569` deliberately stay truthy —
+best-rank is the right semantics for those. Don't "simplify" P54 back;
+the trap is invisible in testing against players without preferred-rank
+statements. Pinned as REQ-113; the query-shape comment in
+`WikidataClient.cs` carries the full reasoning.
+
+**Why this was worse than S-037's wrong-QID incident:** that one tainted
+4 named clubs; this one made the cached data of **every seeded club**
+suspect-incomplete at once — every club row ever fetched under the truthy
+query may be missing that club's since-transferred former players. And
+**re-warming alone cannot repair it**: `PlayerCacheWarmingService` skips
+any pair already at `>= MinValidAnswers` cached answers, so a partial
+(but non-empty) cached pair is never re-queried — the stale rows have to
+be swept first. Hence the new `clean-stale-club-attributes --all-clubs`
+mode (`StaleClubAttributeCleaner.CleanAllSeededClubsAsync`): resolves
+every club name from `ClubDefinition` at runtime instead of hand-typing
+~32 names (one typo = one club silently left stale, since the named mode
+can't tell a typo from nothing-to-clean). Fails loudly on an empty
+`ClubDefinition` table (wrong DB / never seeded), and the named form now
+rejects any `-`-prefixed token so a mistyped `--all-club` can't
+masquerade as a club name that "removed 0 rows" successfully.
+
+**Operator recovery order, strictly:** (1) deploy the query fix, (2)
+`clean-stale-club-attributes.yml` once with input `--all-clubs`, (3)
+`warm-player-cache.yml`. Never clean after a fresh warm — same
+can't-tell-old-from-new reasoning as S-037/S-038, nothing in the
+persisted rows records which query shape fetched them.
+
+### 2026-07-17 — `RoundDuration`/cron coupling replaced: daily cron + idempotency skip instead of hand-matching an exact gap (REQ-301, ADR-0027)
+The 2026-07-10 entry above documented why `RoundDuration` had to be `>=`
+the *longest* gap between `generate-round.yml`'s Tue+Fri cron firings (4
+days) — a coupling that needed hand re-verification every time either
+value changed. That specific pairing is gone: `RoundDuration` is now
+config-bound (`RoundScheduling:RoundDurationHours`, default 48) instead of
+hardcoded, so it needed a cadence that stays safe across config changes,
+not just one hand-verified pair of numbers. The obvious next attempt — a
+`*/2` day-of-month cron to fire exactly every 2 days, matching a 48h
+`RoundDuration` — was rejected: cron's day-of-month field resets every
+calendar month, so `*/2` actually produces an irregular ~1-day gap at some
+month boundaries and an *exact* 48h gap at others, and an exact-equality
+gap against an exact-equality duration has zero margin if GitHub Actions'
+scheduler fires even slightly late (documented, real behavior, not
+hypothetical). Went with a daily cron instead (`0 6 * * *`, constant 24h
+max gap) left deliberately *uncoupled* from `RoundDuration`:
+`RoundGenerationService`'s existing idempotency skip (no-op if an
+upcoming/not-yet-started round already exists) makes the daily firing a
+no-op on every day the current round hasn't ended, so real generation
+still happens roughly every `RoundDuration` (chain-driven off each round's
+fixed `EndTime`), while the cron's own worst case is a constant 24h
+regardless of calendar month. The new invariant is simply
+`RoundDuration >= 24h` — true by construction for the 48h default and for
+any future config value at or above that floor, not something to
+re-verify by hand per change. This **supersedes the specific Tue+Fri
+pairing** the 2026-07-10 entry derived, not the general principle that
+cron cadence and round duration need *some* verified relationship — that
+principle still holds, it's just satisfied structurally now instead of by
+a hand-checked exact match. Full reasoning and the alternatives table:
+ADR-0027.
+
+**Open item, needs manual live-Wikidata verification** (sandbox can't
+reach `wikidata.org`): the same investigation surfaced a Tonali
+"Tottenham" attribution in cached data. Could be a genuine post-2026
+transfer (training-data knowledge here is stale by definition) or an
+S-037-class wrong QID resolving to the wrong entity — the user has a
+checklist for verifying it against live Wikidata pages. Don't assume
+either way until checked.
+
+### 2026-07-17 — Npgsql provider patch lagging EF Core patch produces a benign MSB3277 warning
+After merging a batch of Dependabot PRs, `Microsoft.EntityFrameworkCore`/
+`.Design` moved to 10.0.10 (direct PackageReference in
+`XGArcade.Api`/`XGArcade.Data`) while `Npgsql.EntityFrameworkCore.PostgreSQL`
+moved to 10.0.3 — the newest version published at the time — which still
+declares a floor dependency on `EntityFrameworkCore.Relational >= 10.0.4`.
+The two package families haven't released in lockstep, so every backend
+build (and any workflow that does `dotnet build`/`dotnet run` against
+`XGArcade.Api`) prints an `MSB3277` "found conflicts between different
+versions of Microsoft.EntityFrameworkCore.Relational" warning for
+`XGArcade.Core`, `XGArcade.DataSync`, and `XGArcade.Games.XGGrid`. This is
+exactly the risk `implementation-document.md` §1 already calls out for the
+Npgsql provider ("it typically follows .NET's release within weeks, but
+confirm before committing"). It's a build-time warning only — every CI run
+and a manual `import-player-name-index` run completed (exit 0) with it
+present. Don't be alarmed by it; revisit once Npgsql publishes a
+10.0.10-tracking patch (should make the warning disappear on its own), and
+only chase it earlier if something actually breaks. **Unrelated** to the
+`import-player-name-index` timeout entries below — that job's 0-rows outcome
+was a separate pre-existing issue that just happened to surface in the
+same log, not caused by this warning.
+
+### 2026-07-17 — `import-player-name-index` always upserted 0 rows: 15s client timeout too tight for the unfiltered page query
+Three consecutive manual runs of `import-player-name-index.yml` all
+completed successfully but upserted 0 `PlayerNameIndex` rows, each logging
+`Wikidata player-pool page query timed out at offset 0; treating as empty
+page` at almost exactly 15s into the query — `WikidataClient`'s
+`_queryTimeout` default. That default was tuned in ADR-0011 for the
+narrow per-cell country/club *intersection* queries (9-27s observed under
+load); `PlayerNameIndexImporter`'s page query has no club/country filter
+at all (S-032/ADR-0007's broad player-pool scan), so it's a heavier WDQS
+query than ADR-0011's evidence covers, and 15s was consistently too tight
+for it — not occasional flakiness. Fixed by passing a 60s `queryTimeout`
+specifically to the standalone `WikidataClient` the `import-player-name-index`
+CLI verb constructs in `Program.cs` (separate from the DI-registered
+client ADR-0011 governs, so the interactive guess-time/grid-generation
+paths keep their 15s default unchanged). If 60s still isn't enough, the
+next step is checking whether WDQS's own server-side timeout (~60s) is the
+real ceiling, not just raising the client-side number further.
+
+**Superseded by the 2026-07-18 entry below — the 60s bump did not and
+could not fix it.**
+
+### 2026-07-18 — `import-player-name-index` 0-rows root cause: WDQS's ~60s SERVER-side cap; `ORDER BY` over the whole pool was the real cost — never "fix" this by raising a client timeout
+The 60s client timeout above changed nothing: every player-pool page query
+still timed out, because the binding limit was never the client's. WDQS
+enforces a hard ~60-second **server-side** query timeout that no
+client-side setting can raise, and the paged query's inner
+`SELECT DISTINCT ?player ... ORDER BY ?player LIMIT 5000 OFFSET n` forced
+WDQS to materialize and sort the ENTIRE unfiltered male-footballer pool
+(hundreds of thousands of items) on every single page request — so every
+page blew the server cap, `QueryPlayerPoolPageAsync`'s swallow-to-`[]`
+contract turned the timeout into a phantom empty page, the importer read
+it as end-of-data, and the job exited 0 having imported nothing. (The
+S-032 quality review had flagged exactly this empty-page/failure ambiguity;
+it was the 100% case, not an edge case.) Fixed 2026-07-18 by replacing
+OFFSET pagination with birth-year slicing — one bounded one-year `P569`
+window per query (1939 → current year), no `ORDER BY`/`LIMIT`/`OFFSET`,
+same size class as the intersection queries that work fine — plus a
+fail-loud contract: the slice method throws `WikidataQueryException` on
+failure (empty year ≠ failure), the importer retries a slice up to 3 times
+and fails the whole run (red workflow) if any slice still fails.
+Two lessons worth keeping: (1) if a WDQS query times out at ~60s, the
+query shape is the problem — bumping any client timeout past 60s is
+self-deception because the server cap binds first; (2) a "never throws,
+returns empty" client contract is wrong for a bulk job whose success
+metric IS the row count — that contract belongs only to the interactive
+intersection queries, where REQ-103 genuinely wants failure to look like
+no-match. `PhotoUrl`/P18 was dropped in the same fix (nothing ever read
+it; `RemovePlayerNameIndexPhotoUrl` migration).
+
+### 2026-07-18 — `backfill-player-photos` crashed on a malformed `WikidataQid`: `ArgumentException` isn't a `WikidataQueryException`, so the batch loop's `catch` never saw it
+A real `dotnet run -- backfill-player-photos` run against a live Postgres
+database (seeded with this repo's own `/internal/test-data` E2E fixtures,
+whose `Player.WikidataQid` values look like `Qtest-<guid>`) crashed with an
+unhandled `System.ArgumentException: Not a valid Wikidata QID: '...'`
+instead of completing. `WikidataClient.QueryPlayerPhotosByQidsAsync`
+validates every QID in the batch up front and throws a plain
+`ArgumentException` on the first bad one (same pattern the two
+intersection-query methods use, where that's correct — their QIDs come
+from hand-curated `CategoryValueRepository` data, so a bad one really is a
+caller bug worth crashing loudly for in development).
+`PlayerPhotoBackfillService.BackfillAsync`'s per-batch loop only catches
+`WikidataQueryException`, so the `ArgumentException` propagated straight
+through `Program.cs` and killed the whole run — the opposite of the
+service's own documented log-and-continue design (a batch that fails to
+fetch photos is supposed to just leave those players' `PhotoUrl` NULL for
+the next run to retry). Fixed by extracting the QID-format check into a
+shared `WikidataQid.IsValid` helper and having `PlayerPhotoBackfillService`
+pre-filter each batch with it *before* calling
+`QueryPlayerPhotosByQidsAsync`, logging one warning per skipped player,
+rather than wrapping the exception at the client (which would have
+sacrificed the other up-to-199 valid QIDs in the same batch to one bad
+row). `WikidataClient`'s own `ArgumentException` contract on all three
+validating methods is unchanged — this fix is entirely about never letting
+an arbitrary DB row's data quality reach that validation in the first
+place. Regression tests:
+`PlayerPhotoBackfillServiceTests.REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
+and the all-malformed edge case,
+`REQ214_BackfillAsync_EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.

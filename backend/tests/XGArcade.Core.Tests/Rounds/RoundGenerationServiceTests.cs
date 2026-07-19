@@ -138,6 +138,79 @@ public class RoundGenerationServiceTests
     }
 
     [Test]
+    public async Task REQ301_GenerateNextRoundIfNeeded_RoundDurationOverrideSupplied_UsesOverrideInsteadOfOptionsRoundDuration()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = BuildService(now, TimeSpan.FromDays(3));
+
+        var round = await service.GenerateNextRoundIfNeededAsync(
+            new RoundConfig { TemplateId = Guid.NewGuid() },
+            roundDurationOverride: TimeSpan.FromHours(12));
+
+        Assert.That(round.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromHours(12)));
+    }
+
+    [Test]
+    public async Task REQ301_GenerateNextRoundIfNeeded_RoundDurationOverrideSupplied_DoesNotMutateSharedOptionsForSubsequentCall()
+    {
+        // Round A (overridden to 12h) is seeded as the only existing round;
+        // calling again without an override must chain Round B off Round A's
+        // EndTime using the *configured* 3-day duration, not the 12h override
+        // from the first call — proving RoundSchedulingOptions itself was
+        // never mutated.
+        //
+        // Both calls run against the SAME RoundGenerationService instance
+        // (and therefore the SAME RoundSchedulingOptions instance passed into
+        // its constructor) — this is deliberate, not incidental: BuildService
+        // constructs a *new* RoundSchedulingOptions on every call, which
+        // would make this test unable to detect a real mutation bug (each
+        // service would just have its own, never-shared, options object).
+        // Production shares exactly one RoundSchedulingOptions instance
+        // across every request via Program.cs's `AddSingleton` registration,
+        // so this test must reproduce that sharing to be meaningful — a
+        // future `options.RoundDuration = roundDurationOverride ??
+        // options.RoundDuration;` bug inside GenerateNextRoundIfNeededAsync
+        // must fail this test.
+        var options = new RoundSchedulingOptions { GameKey = GameKey, RoundDuration = TimeSpan.FromDays(3) };
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var service = new RoundGenerationService(
+            _roundRepository,
+            new GameModuleResolver([_gameModule]),
+            _roundCloseService,
+            options,
+            new FixedTimeProvider(now));
+
+        var roundA = await service.GenerateNextRoundIfNeededAsync(
+            new RoundConfig { TemplateId = Guid.NewGuid() },
+            roundDurationOverride: TimeSpan.FromHours(12));
+        Assert.That(roundA.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromHours(12)));
+
+        // Advance the clock so Round A now reads as active, and Round B (no
+        // upcoming round exists yet) is genuinely generated rather than the
+        // "already one round ahead" no-op path. FixedTimeProvider itself is
+        // immutable (it always returns the value fixed at construction), so
+        // advancing "now" for the second call means constructing a second
+        // RoundGenerationService with a later FixedTimeProvider — but reusing
+        // the exact same `options` instance from above, which is the part
+        // that actually matters for this test.
+        var later = now.AddHours(1);
+        var serviceAtLaterTime = new RoundGenerationService(
+            _roundRepository,
+            new GameModuleResolver([_gameModule]),
+            _roundCloseService,
+            options,
+            new FixedTimeProvider(later));
+
+        var roundB = await serviceAtLaterTime.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(roundB.StartTime, Is.EqualTo(roundA.EndTime));
+        Assert.That(roundB.EndTime, Is.EqualTo(roundA.EndTime + TimeSpan.FromDays(3)),
+            "the second call's round must use the originally configured RoundDuration, not the first call's override");
+        Assert.That(options.RoundDuration, Is.EqualTo(TimeSpan.FromDays(3)),
+            "the shared RoundSchedulingOptions instance itself must never be mutated by an override");
+    }
+
+    [Test]
     public void GenerateNextRoundIfNeeded_UnknownGameKey_ThrowsInvalidOperationException()
     {
         var service = new RoundGenerationService(

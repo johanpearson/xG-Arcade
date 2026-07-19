@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.50"
+version: "0.57"
 status: draft
-last_updated: 2026-07-14
+last_updated: 2026-07-18
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.50 · 2026-07-14
+Version 0.51 · 2026-07-17
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -282,6 +282,16 @@ public class Player
     // Nullable only for a future non-Wikidata source (Tier 1); unique
     // index where not null.
     public string WikidataQid { get; set; }
+    // REQ-214 (S-043, backend half): Wikidata's P18 (image), carried
+    // through the same intersection queries as FullName/WikidataQid and
+    // set once at player creation — never re-synced on a later lookup,
+    // same as FullName. Null whenever Wikidata has no P18 for this player
+    // (a normal case, never an error). Deliberately a Player column, NOT a
+    // PlayerAttribute row — PlayerAttribute's composite key holds many
+    // rows per player (one per career club/nationality/trophy), so a
+    // per-player scalar has no natural "which row owns it" answer there.
+    // Migration: AddPlayerPhotoUrl.
+    public string PhotoUrl { get; set; }
 }
 
 // PlayerData, PlayerOverride, and PlayerAttribute below each carry a
@@ -323,14 +333,29 @@ public class PlayerAttribute      // effective, denormalized for fast querying
 // see ADR-0007. Used ONLY for autocomplete and name matching, NEVER for
 // correctness-checking. Refreshed periodically as a whole, not built
 // incrementally.
+//
+// Built S-032 exactly as sketched below, with one implementation note not
+// obvious from the shape alone: there is deliberately no WikidataQid column
+// here (unlike Player.WikidataQid in COMP-06) — PlayerNameIndexImporter
+// instead derives PlayerId as a deterministic hash of the QID (MD5's 16
+// bytes mapped onto a Guid), so re-running the bulk import updates the same
+// row in place rather than minting a fresh random PlayerId — and duplicating
+// the row — on every re-run. See PlayerNameIndexImporter's own doc comment
+// (XGArcade.DataSync.Wikidata) for the full reasoning.
 public class PlayerNameIndex
 {
-    public Guid PlayerId { get; set; }              // same id space as PlayerAttribute's PlayerId
+    public Guid PlayerId { get; set; }              // synthetic, QID-derived key local to this table (PlayerNameIndexImporter.DeterministicPlayerId) — NOT the same id space as PlayerAttribute's PlayerId (Player.Id is a plain Guid.NewGuid()); reconciling the two per real person is unbuilt, out of scope for S-032
     public string PrimaryName { get; set; }
     public string NormalizedName { get; set; }      // lowercased, diacritics stripped — see REQ-208
     public int? BirthYear { get; set; }             // disambiguation display only
     public string PrimaryNationality { get; set; }  // disambiguation display only
-    public string PhotoUrl { get; set; }            // optional, nullable
+    // PhotoUrl was sketched here originally and shipped in S-032, then
+    // dropped 2026-07-18 (RemovePlayerNameIndexPhotoUrl migration): the
+    // autocomplete contract never exposed a photo, so fetching P18 and
+    // storing the column was dead weight. The photo feature that
+    // eventually did ship (REQ-214, S-043) lives on Player.PhotoUrl
+    // (COMP-06) instead, not here — this column stays gone; do not
+    // re-add it without a new, real autocomplete-photo requirement.
 }
 
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
@@ -575,7 +600,7 @@ public class LeagueMembership
 | `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
-| `PlayerNameIndex` | `(NormalizedName)` | Not built (Tier 1, no `PlayerNameIndex` table exists yet) — recorded here as the long-term index once autocomplete/COMP-10 exist. Every guess submission normalizes and looks up against this first (REQ-208) |
+| `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
 | `PlayerAlias` | `(NormalizedAlias)` | Alias lookup on the fallback path when the primary name doesn't match (REQ-208) |
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |
@@ -826,6 +851,29 @@ specific club name(s) just corrected — and strictly *before* the next
 `warm-player-cache` run, since running it after a fresh warm would delete
 the new, correct data too.
 
+**All-clubs mode (2026-07-17, REQ-111):** the verb also accepts the exact
+literal `--all-clubs` in place of a name list
+(`StaleClubAttributeCleaner.CleanAllSeededClubsAsync`), added for the
+REQ-113 truthy-`wdt:P54` query-shape incident, where the cached club data
+of **every** seeded club was incomplete at once — and hand-typing ~32
+club names is exactly the typo surface where one misspelled name silently
+stays stale (the named mode can't distinguish a typo from a club with
+nothing to clean; both remove zero rows and report success). It resolves
+the club-name list from the `ClubDefinition` reference table at runtime
+and then runs the same per-name cleanup — scoped by the reference table
+exactly as the named form is scoped by its list, never "every `club`-type
+row regardless of value" — and reports the resolved names back so the
+operator can verify what was swept. Two fail-loud guards: (1) all-clubs
+mode against an empty `ClubDefinition` table **throws** instead of
+cleaning nothing (zero seeded clubs means a wrong database or a
+never-seeded one, not a genuine "nothing to clean"); (2) in the named
+form, any `-`-prefixed token (e.g. a mistyped `--all-club`) **throws**
+before any deletion in `Program.cs`'s argument handling, rather than
+matching zero rows and printing a plausible "removed 0 rows" success —
+no seeded club name starts with `-`, so this never rejects a real list.
+Same manual, workflow_dispatch-only friction as the named mode, same
+clean-then-warm ordering rule, still never wired into `migrate-and-seed`.
+
 **REQ-112 player pool restriction (S-038, ADR-0025):** the same
 "can't selectively fix already-cached data" problem, but for the whole
 pool rather than a few named clubs — neither sex nor date of birth was
@@ -850,6 +898,81 @@ filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 `XGArcadeDbContext.cs`'s `OnModelCreating`), so an old `Guess` whose
 answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
+
+**REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
+moment a `Player` row is first created
+(`WikidataLookupService.GetOrCreatePlayerAsync`, see §6/REQ-214's own note
+above) — a row created by an earlier `warm-player-cache` run, before the
+`P18` addition shipped, has `PhotoUrl` permanently `NULL` with no other
+code path that will ever revisit it. `PlayerPhotoBackfillService`
+(`XGArcade.DataSync.Wikidata`, same project as `WikidataLookupService`/
+`PlayerNameIndexImporter` — it needs both `IWikidataClient` and
+`IPlayerStoreRepository`, and `XGArcade.Data` has no reference back to
+`XGArcade.DataSync`, so it can't live in `XGArcade.Data`) closes that gap
+without a destructive wipe-and-rerun — a full `purge-player-pool` +
+`warm-player-cache` cycle would cascade into `PlayerAttribute`/`Guess`/
+`GridCell` history this codebase explicitly protects (REQ-710's
+anonymize-never-hard-delete precedent is the same instinct applied to a
+different table). It's a sixth `dotnet run --` CLI verb,
+`backfill-player-photos`, same shape as every verb above (builds its
+dependencies directly, reuses `ConfigureWikidataHttpClient`), run manually
+via `backfill-player-photos.yml` (`workflow_dispatch` only) — squarely
+inside ADR-0024's existing "CLI verb, never an HTTP endpoint or background
+task" decision, not a new one.
+
+Two new members support it:
+- `IWikidataClient.QueryPlayerPhotosByQidsAsync` — a batched, direct-by-QID
+  lookup, a fundamentally different SPARQL shape from the two intersection
+  queries (`SELECT ?player ?photo WHERE { VALUES ?player { wd:Q1 wd:Q2 ... }
+  OPTIONAL { ?player wdt:P18 ?photo. } }`, no candidate-matching pattern, no
+  male/date-of-birth re-filter — every QID in the batch is already a real
+  `Player` row this codebase created). Same throw-on-failure contract as
+  `QueryPlayerPoolBirthYearAsync` (`WikidataQueryException` on timeout/HTTP/
+  parse failure), per `docs/coding-guidelines.md`'s 2026-07-18
+  error-handling guideline: this is a batch job whose success metric is a
+  backfilled-row count, so a swallowed failure would be indistinguishable
+  from "none of these QIDs have a photo."
+- `IPlayerStoreRepository.GetPlayersMissingPhotoAsync`/
+  `UpdatePlayerPhotosAsync` — a paged read (`WikidataQid IS NOT NULL AND
+  PhotoUrl IS NULL`, bounded by a batch size, never the whole table) and a
+  batch write (one `SaveChangesAsync` per batch, load-then-save per
+  `docs/coding-guidelines.md`, never `ExecuteUpdateAsync`).
+
+`PlayerPhotoBackfillService.BackfillAsync` loops: fetch up to `BatchSize`
+(200 — a conservative batch for the VALUES-clause query, safely inside
+§6a's "few-thousand-row, no ORDER BY/LIMIT/OFFSET" bounded-query class)
+missing-photo players, query Wikidata for that batch, write back whichever
+QIDs resolved to a photo. Each call to `GetPlayersMissingPhotoAsync` also
+takes an `excludingPlayerIds` set that the service grows with every player
+ID it has already attempted **this run** (success or failure) — needed
+because Guid has no LINQ-translatable ordering to keyset-paginate on, and a
+plain `Skip`/`Take` can't be used either: a successfully-backfilled batch
+removes rows from the query's own `WHERE PhotoUrl IS NULL` filter between
+calls, which would silently skip untouched rows on the next page. The
+exclusion set is what guarantees the loop terminates instead of re-fetching
+a failed batch forever.
+
+Two deliberate, documented judgment calls (both in
+`PlayerPhotoBackfillService`'s own doc comment):
+- **Per-batch failure handling: log-and-continue, not
+  `PlayerNameIndexImporter`'s retry-then-fail-loud.** The two jobs'
+  failure-detection problem differs in kind: `PlayerNameIndexImporter`
+  needs to fail loudly because an empty year result is genuinely ambiguous
+  with a swallowed failure unless it's tracked and reported. Here, a
+  failed batch just leaves those players' `PhotoUrl` `NULL`, and the very
+  next full re-run's `GetPlayersMissingPhotoAsync` call surfaces them again
+  automatically — there is no equivalent ambiguity to fail loudly about,
+  so failing the whole run over one transient batch failure would cost an
+  operator a manual re-run for no extra signal a log line doesn't already
+  give them.
+- **Accepted limitation, same class as `PlayerCacheWarmingService`'s own
+  "below `MinValidAnswers`, re-queried every run" note:** a player who
+  genuinely has no Wikidata `P18` statement stays `PhotoUrl == NULL`
+  forever (correctly — nothing to backfill), so every future full re-run
+  re-queries Wikidata for that player again. There is no persisted
+  "already checked, genuinely has no photo" signal distinct from "never
+  checked." Accepted because this job is meant to run occasionally, not on
+  a tight recurring schedule.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
@@ -991,19 +1114,40 @@ large enough for offset pagination's performance to degrade; for MVP scale,
 a simple offset is acceptable but the API contract should already look
 cursor-shaped so switching the implementation later doesn't change callers.
 
-**Tier 0 status (S-011):** the pseudocode above is the full/long-term
-shape; it is not built yet. What's actually built: `GET
+**Built as (S-034):** matches the pseudocode's contract shape, with two
+MVP-scale implementation choices called out below. `GET
 /leagues/global/leaderboard` (`XGArcade.Api.Leagues.LeaderboardEndpoints`
 → `ILeaderboardService`/`LeaderboardService`, `XGArcade.Core.Leagues`)
-implements the aggregation itself (member `DisplayName`s joined with each
-member's `SUM(Guess.FinalPoints ?? 0)`, computed database-side via
-`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s `GROUP BY`, sorted
-descending), but for the global league only (no `{leagueId}` route
-parameter — custom leagues don't exist yet) and with no pagination at all:
-the endpoint returns every member's row in one response, unbounded. This
-is a real, deliberately-acknowledged gap against REQ-607's own pagination
-clause, not a Tier-0-scoped-out item — see REQ-607's status note in
-`requirements-document.md` for the explicit trigger to revisit.
+takes optional `cursor`/`pageSize` query params — `pageSize` defaults to
+50, capped at a `MaxPageSize` of 100 (a request above the cap or `<= 0` is
+a 400, not a silent clamp); `cursor` defaults to 0 and is the last-seen
+global rank, rejected with a 400 if negative, but an out-of-range-but-valid
+cursor (e.g. stale, from a since-shrunk league) is not an error — it falls
+back to an empty final page. The response is `LeaderboardResponse { Rows,
+RequestingUserRow, NextCursor, HasMore }`; each `Rows` entry carries an
+explicit, global 1-based `Rank` (not a page-local array index — a later
+page no longer starts at rank 1), and `RequestingUserRow` is always
+populated with the caller's own row even when it falls outside the current
+page, so SCREEN-03's sticky "your position" footer never needs a second
+round-trip. Still the global league only (no `{leagueId}` route parameter
+— custom leagues don't exist yet, deferred per `MVP-SCOPE.md`/T-109).
+
+Two deliberate MVP-scale choices, not gaps: (1) member `DisplayName`s and
+each member's `SUM(Guess.FinalPoints ?? 0)` are still fetched via
+`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s database-side
+`GROUP BY` for the *full* membership, but ranking and the `cursor`/
+`pageSize` slice itself happen in memory afterward — bounding the
+*response*, not doing a DB-level `ORDER BY`/`LIMIT`; acceptable at Tier 0
+membership sizes, revisit if the global league's membership grows large
+enough for this to matter. (2) pagination is a plain in-memory offset
+under a cursor-shaped contract (per this section's original note above),
+so switching to a real keyset/cursor implementation later doesn't change
+callers. Frontend (`LeaderboardScreen.tsx`): a "Load more" button appends
+subsequent pages on top of what's already loaded; a pinned "you" footer
+renders `requestingUserRow` when it isn't already present among the loaded
+rows; the existing 15s poll re-fetches only page 1, with a dedup fix so a
+player whose rank crosses the page-1/page-2 boundary between polls isn't
+shown twice.
 
 **Account deletion — anonymize, don't hard-delete Guess rows (REQ-710)**
 
@@ -1079,13 +1223,19 @@ and column categories") looks like:
 SELECT ?player ?playerLabel WHERE {
   ?player wdt:P106 wd:Q937857.   # occupation: association football player
   ?player wdt:P27 wd:Q142.       # country of citizenship: e.g. France
-  ?player wdt:P54 wd:Q9617.      # member of sports team: e.g. Arsenal F.C.
+  ?player p:P54 ?clubStatement.  # member of sports team: full statement path,
+  ?clubStatement ps:P54 wd:Q9617.       # e.g. Arsenal F.C. — NOT truthy wdt:P54
+  MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. } # (REQ-113, rule 4 below)
   ?player wdt:P21 wd:Q6581097.   # sex or gender: male (REQ-112, ADR-0025)
   ?player wdt:P569 ?dateOfBirth. # date of birth (REQ-112, ADR-0025)
   FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime) # fixed cutoff, not rolling
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
 }
 ```
+
+(The Club × Club variant checks P54 twice, once per club, through **two
+distinct statement variables** — a single shared `?clubStatement` could
+never bind, since one P54 statement can't point at two clubs.)
 
 The response shape is SPARQL's own JSON results format (`head.vars` /
 `results.bindings`), not a simple object list — needs its own parsing
@@ -1096,7 +1246,7 @@ ADR-0011's 2026-07-09 addendum — chosen over the ADR's original "e.g.
 taking 9-27s under load) and treat a timeout the same as a miss, falling through to
 API-Football.
 
-Three rules that make this query correct, not just functional:
+Four rules that make this query correct, not just functional:
 
 - **Never `LIMIT` the intersection query.** Its results ARE the cell's
   answer key: fetching *all* matches is exactly what makes Tier 0's
@@ -1121,6 +1271,87 @@ Three rules that make this query correct, not just functional:
   recorded on the persisted `Player`/`PlayerAttribute` rows — the filter
   exists only at query time, so a player already outside these bounds is
   simply never fetched in the first place, never fetched-then-excluded.
+- **P54 must use the full statement path (`p:P54`/`ps:P54`), excluding
+  only `wikibase:DeprecatedRank` via `MINUS` — never the truthy `wdt:P54`
+  shortcut** (REQ-113). Wikidata's truthy `wdt:` graph contains only
+  best-rank statements: the moment any P54 statement on a player is
+  marked preferred rank (editors routinely mark the *current* club
+  preferred), every normal-rank historical club silently vanishes from
+  `wdt:P54` — turning "ever played for this club" into "currently plays
+  for this club" for exactly those players. This shipped as a real bug
+  (e.g. Sandro Tonali × AC Milan scored incorrect) and left the persisted
+  answer key incomplete for every seeded club at once; recovery required
+  `clean-stale-club-attributes --all-clubs` plus a fresh
+  `warm-player-cache` pass (see §6's CLI-verb notes and REQ-111). The
+  other properties (`P106`/`P27`/`P21`/`P569`) stay truthy on purpose —
+  for those, best-rank semantics match product intent. Deprecated rank is
+  still excluded: it's Wikidata's "recorded but wrong" marker, not a
+  historical spell.
+- **`P18` (image) is fetched `OPTIONAL`, same shape as `alias`** (REQ-214,
+  S-043, backend half) — added to both intersection query builders
+  (`BuildCountryClubIntersectionQuery`/`BuildClubClubIntersectionQuery`),
+  never the birth-year bulk-import query below (that one deliberately
+  still has no `P18`, unchanged from the 2026-07-18
+  `RemovePlayerNameIndexPhotoUrl` decision — see that migration's note a
+  few paragraphs down). `wdt:P18` is a `commonsMedia`-typed property, so
+  Wikidata's SPARQL endpoint resolves it directly to a fully-qualified
+  Special:FilePath URL, not an entity QID — unlike `?player`, there is no
+  `/entity/Qnnn` suffix to split off; the raw binding value is the usable
+  photo URL. Parsed into `WikidataPlayerMatch.PhotoUrl` (nullable, "first
+  non-null seen" per QID, same as the alias/nationality grouping elsewhere
+  in this file) and persisted once at player creation into a new
+  `Player.PhotoUrl` column (`AddPlayerPhotoUrl` migration) — never a
+  `PlayerAttribute` row; see Player's own doc comment in §5 for why. This
+  shape could not be verified against a live Wikidata query when built (no
+  network access in that environment) — flagged for manual verification,
+  same precedent as prior QID/property additions (S-036/S-037).
+
+**S-032 addition, revised 2026-07-18 — `PlayerNameIndex`'s bulk import
+slices by birth year, never by `LIMIT`/`OFFSET`.** `WikidataClient
+.QueryPlayerPoolBirthYearAsync` (COMP-10/ADR-0007's bulk name-index
+refresh, run by `PlayerNameIndexImporter`) queries the same
+`P106`=`Q937857` occupation broadly with the same male-only filter, but
+with no country/club filter at all — a far larger pool (hundreds of
+thousands of items) than any intersection query's "rarely >100 players."
+S-032's original shape paged it with an inner
+`SELECT DISTINCT ?player ... ORDER BY ?player LIMIT 5000 OFFSET n`
+subquery; in production that `ORDER BY` forced WDQS to materialize and
+sort the entire unfiltered pool on *every* page request, which hit WDQS's
+hard ~60s **server-side** timeout on every single page (no client-side
+timeout can raise it), and the then-swallow-to-`[]` error contract made
+the importer read the first timed-out page as end-of-data — every run
+exited 0 having imported nothing (see NOTES.md 2026-07-18). The replacement
+is the standard WDQS pattern for large pools: one bounded query per birth
+year (`?dateOfBirth >= "{year}-01-01" && < "{year+1}-01-01"`,
+1939 → current year), each a few-thousand-row query with **no `ORDER BY`,
+`LIMIT`, `OFFSET`, or subquery** — the same size/shape class as the
+intersection queries that already work. Two paired contract changes,
+deliberate and load-bearing:
+- `QueryPlayerPoolBirthYearAsync` **throws** (`WikidataQueryException`) on
+  timeout/HTTP/parse failure instead of returning `[]` — an empty list
+  means exactly "no eligible players born this year" (real for sparse
+  early years). The intersection queries' never-throw contract is
+  untouched (REQ-103 depends on it).
+- `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
+  backoff), finishes the remaining years (each successful slice is
+  upserted immediately), then **fails the whole run loudly** if any slice
+  failed — S-032's "partial import is an accepted trade-off" is reversed;
+  the job is idempotent and manually re-run, so a red workflow beats a
+  silent exit 0.
+
+Deliberately does not fetch `P54` (club) — that data belongs to
+`PlayerAttribute`, not this index (ADR-0007) — but does fetch `P569`
+(birth year, via `BIND(YEAR(?dateOfBirth) AS ?birthYear)`) and `P27`
+(nationality, display-only). `P18` (photo) was dropped in the 2026-07-18
+revision along with the `PhotoUrl` column (`RemovePlayerNameIndexPhotoUrl`
+migration): the autocomplete contract never exposed a photo
+(design-document.md's SCREEN-02 note), so it was pure query/storage cost.
+A player with more than one citizenship produces more than one result row
+for the same `?player`; the client groups these client-side, keeping the
+first non-null value seen, same shape as how alias rows are grouped for
+the intersection queries above. A player with two `P569` statements in
+different years appears in two slices — the importer's deterministic
+QID-derived `PlayerId` upsert collapses that into one row.
 
 Semantics note: the Country category means **citizenship (P27)**, not
 "capped for the national team" — a deliberate, player-visible rule
@@ -1148,12 +1379,16 @@ for dual nationals and naturalized players, so this is correct modeling,
 not incidental complexity to simplify away.
 
 Semantics note: the Club category means **senior/first-team career
-only** — a deliberate decision, not the "any P54 statement" default.
-`ClubDefinition.WikidataQid` must point at the senior club's specific
-item, not a generic club-family concept, so that a youth academy with its
-own distinct Wikidata item (common for well-documented clubs) is
-naturally excluded — the youth spell links to the youth item, not this
-one. **This is not guaranteed for every club/player**: a thin or
+only** — a deliberate decision, not the "any club *entity* a P54
+statement points at" default. This is about which club QIDs count
+(REQ-109's resolution rule), not about statement ranks — it does not
+contradict the full-statement-path rule above, which deliberately
+accepts *every* non-deprecated P54 statement against the senior club's
+QID (REQ-113's "ever played for" semantics). `ClubDefinition.WikidataQid`
+must point at the senior club's specific item, not a generic club-family
+concept, so that a youth academy with its own distinct Wikidata item
+(common for well-documented clubs) is naturally excluded — the youth
+spell links to the youth item, not this one. **This is not guaranteed for every club/player**: a thin or
 poorly-maintained Wikidata page can record a youth-only appearance
 directly against the senior club's own QID with nothing distinguishing
 it. No secondary filter is planned to catch this in Tier 0 (an

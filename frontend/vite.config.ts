@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    css: true,
     setupFiles: ['./tests/unit/setup.ts'],
     // coding-guidelines.md: "co-locate a component with its styles and
     // tests" — S-010 onward puts new component tests next to the component
