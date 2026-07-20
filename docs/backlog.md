@@ -3087,6 +3087,49 @@ median; sort order and tie-break match every other leaderboard ranking.
 API test confirms the all-time endpoint returns the median-based ranking
 and a below-threshold member is absent, not present with a placeholder.
 *Deps:* S-011 (global leaderboard), S-034 (pagination).
+**Built as:** matches the plan exactly, plus one deliberate removal beyond
+the plan's literal scope. New `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`
+joins `Guesses` to `Rounds` (`Guess` has no navigation property to
+`Round`), filters `ClosedAt != null`, groups by `(UserId, RoundId)`
+DB-side. `LeaderboardService.GetGlobalLeaderboardAsync`'s median uses
+`MidpointRounding.AwayFromZero` only for the displayed `int` value — the
+underlying `double` drives sort order/ties, so rounding never affects
+rank. The REQ-406 live-round fold was removed from this method entirely
+rather than left dormant (no resolved meaning for folding a live round
+into a median — `GetActiveRoundLeaderboardAsync`/REQ-407 is untouched and
+still live); `GetTotalFinalPointsByUserIdsAsync`/`GetUserIdsWithAnyGuessAsync`
+were deleted as dead code once this was rewritten (no other callers).
+Existing tests whose premise (single-guess ranking, live-fold behavior)
+no longer held were updated to seed real closed rounds and 5+ qualifying
+rounds rather than deleted; 9 new REQ409 unit tests and 2 new API tests
+added. Full backend suite: 580/580 passing.
+
+**S-062 · Password policy, enumeration-safe errors, signup/login rate limiting (REQ-701/606)**
+Closes REQ-701's password-policy and account-enumeration-safe-error
+clauses and REQ-606's signup/login rate-limiting clause — all three
+already fully specified, no product decision needed. Password policy is
+the existing §5 default (minimum 8 characters, no forced complexity),
+enforced server-side first among `AuthController.Signup`'s free local
+checks and client-side in `AuthScreen.tsx`. Every Supabase signup-rejection
+reason now returns the identical generic body rather than Supabase's own
+wording — deliberately not narrowed to the already-registered case, since
+a distinctly different message only for that case would itself leak which
+case occurred; Supabase's real error is logged server-side only.
+Signup/login get a 10-request/minute-per-IP rate limit via ASP.NET Core's
+built-in `RateLimiting` middleware (`QueueLimit = 0`, 429 on exceeding, no
+new package).
+*Accept:* REQ701-named tests: signup blocked under 8 characters, succeeds
+at exactly 8, generic error returned for every Supabase rejection reason
+(never the real reason). REQ606-named tests: signup/login both 429 after
+exceeding the per-minute limit; exhausting one endpoint's limit doesn't
+affect the other.
+*Deps:* S-004 (auth exists).
+**Built as:** matches the plan exactly. Rate-limit tests exploit that
+`WebApplicationFactory`'s TestServer leaves `RemoteIpAddress` null (all
+requests collapse onto one partition), so a fast in-process burst of 11
+requests deterministically trips the limit with no clock mocking needed.
+7 new backend tests, 3 new frontend tests; full backend suite (580 tests)
+and frontend suite (212 tests) both green, `tsc -b`/lint clean.
 
 **S-061 · Admin "remove the data point" action (REQ-503, closes the last gap)**
 S-057 built "approve"; this closes REQ-503's other missing action,

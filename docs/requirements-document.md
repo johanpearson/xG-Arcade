@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.79"
+version: "0.80"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1827,15 +1827,13 @@ case covers the game-selection step added in S-021)
   `GetTotalFinalPointsByUserIdsAsync`, kept as a separate call specifically
   so a member active only in the currently active (unlocked) round is not
   mistaken for never-played. See the bullet below.
-- **Status note (2026-07-20, drafted — REQ-409):** the product owner has
-  decided the `SUM(FinalPoints ?? 0)` ranking formula described above is
-  to be retired in favor of a median-based score gated by a 5-round
-  minimum — see REQ-409 for the full, implementation-ready acceptance
-  criteria. This is a decided requirement, not yet built: until REQ-409 is
-  implemented, the `SUM(FinalPoints ?? 0)`, ascending-sort behavior
-  described below remains this REQ's actual, current production behavior.
-  This note exists only so the two texts don't silently contradict each
-  other in the interim.
+- **Status note (2026-07-20, superseded by REQ-409):** the
+  `SUM(FinalPoints ?? 0)` ranking formula described below no longer
+  reflects production behavior — `GetGlobalLeaderboardAsync` now ranks by
+  REQ-409's median-per-round score (>= 5 qualifying rounds), not the raw
+  sum. This REQ's own text is kept, not rewritten in place, per this
+  document's ID-stability rule; see REQ-409 for the current, actual
+  behavior and full acceptance criteria.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -2248,11 +2246,19 @@ responses), UI (round-selection list, then that round's leaderboard, on
 SCREEN-03)
 
 **REQ-409 – Median, participation-gated score for the all-time leaderboard**
-*(Status: Proposed, implementation-ready — decided 2026-07-20. This is a
-real product-owner decision, not the earlier exploratory framing; it has
-not been built yet. See REQ-404's own added status note for the interim
-state and `docs/backlog.md` for the (separately queued) implementation
-story.)*
+*(Status: Implemented (Tier 0, S-060), 2026-07-20 — decided and built the
+same day. `LeaderboardService.GetGlobalLeaderboardAsync` ranks by the
+median of each player's per-round `SUM(FinalPoints)` totals via a new
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` (joins `Guesses`
+to `Rounds`, filters `ClosedAt != null`), filtered to members with >= 5
+qualifying rounds; ties broken by display name as decided. The REQ-406
+live-round fold was removed from this endpoint entirely, not left dormant
+— folding a still-changing round into a median has no resolved meaning
+(see this REQ's own "no live-round component" bullet); `GetActiveRoundLeaderboardAsync`
+(REQ-407) is untouched. The now-dead `GetTotalFinalPointsByUserIdsAsync`/
+`GetUserIdsWithAnyGuessAsync` repository methods were removed (no other
+callers). See REQ-404's own added status note for what it now describes as
+superseded interim behavior.)*
 > As a player, I want the all-time leaderboard to rank players by how
 > consistently they perform per round, not by a raw cumulative total that
 > only ever grows the more rounds someone plays, and only once they've
@@ -2705,7 +2711,8 @@ Tier 0, S-026)*
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
-- **Status: Partially implemented (Tier 0, S-004/S-011/S-016/S-017).** The
+- **Status: Implemented (Tier 0, S-004/S-011/S-016/S-017/S-062).** All
+  acceptance criteria are now built. The
   16+ checkbox clause below is built and enforced server-side (`POST
   /auth/signup` rejects the request with 400 before ever calling Supabase
   Auth if the checkbox is false) — see ADR-0013 (backend-mediated
@@ -2731,9 +2738,21 @@ Tier 0, S-026)*
   (`UserRepository.AddAsync` catches the constraint violation and throws
   `DisplayNameAlreadyInUseException`, which the controller maps to the same
   409 rather than letting it surface as a raw 500). The password-policy
-  clause (§5's "Decisions made as sensible technical defaults") and the
-  account-enumeration-safe error message are not yet implemented; Supabase
-  Auth's own error responses are currently passed through as-is. The rest
+  clause (§5's default: minimum 8 characters, no forced complexity) is now
+  enforced server-side (`AuthController.Signup` rejects under-8-character
+  passwords with 400, checked first among the free local checks) and
+  client-side (`AuthScreen.tsx`). **As of S-062**, the account-enumeration-safe
+  error message is also built: every Supabase signup-rejection reason
+  returns the identical generic body ("Check your email to confirm your
+  account, or reset your password if you already have one.") rather than
+  Supabase's own wording — deliberately applied to every rejection reason,
+  not narrowed to the already-registered case, since a differently-worded
+  message only for that one case would itself leak which case occurred;
+  Supabase's real error is logged server-side, never returned to the
+  client. REQ-606's signup/login rate limiting (10 requests/minute per IP,
+  no queueing, ASP.NET Core's built-in `RateLimiting` middleware, 429 on
+  exceeding) was built in the same change — see REQ-606's own status note.
+  The rest
   of this requirement's acceptance criteria are recorded below as the
   full/long-term definition, not a claim of current behavior.
 - Given a person provides an email address and a password meeting the
@@ -2876,6 +2895,16 @@ its own explicit opt-in separate from this one, not be folded into it.
   generated grid), never requiring bulk/speculative data imports
 
 **REQ-606 – Security baseline**
+- **Status note (2026-07-20, S-062): the rate-limiting bullet below is now
+  implemented**, scoped exactly as written — signup/login only, not every
+  endpoint. `[EnableRateLimiting("auth-signup"/"auth-login")]` on
+  `AuthController`'s `Signup`/`Login` actions, two named fixed-window
+  policies registered in `Program.cs` (ASP.NET Core's built-in
+  `Microsoft.AspNetCore.RateLimiting`, no new package): 10 requests/minute
+  per client IP, `QueueLimit = 0` (no queueing — over-limit requests are
+  rejected immediately, not delayed), 429 with a `{title, detail}` body the
+  existing frontend error path already renders without special-casing.
+  Every other REQ-606 bullet was already satisfied before this change.
 - All traffic between frontend, backend, and database must use HTTPS/TLS;
   no plaintext transport anywhere
 - Password credentials are never stored or logged by the platform's own

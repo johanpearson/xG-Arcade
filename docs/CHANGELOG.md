@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.79 → 0.80), `docs/
+  backlog.md` (new S-062 entry) — REQ-701/606 fully implemented: password
+  policy (min 8 chars) and account-enumeration-safe signup errors
+  (identical generic body for every Supabase rejection reason), plus
+  signup/login rate limiting (10 req/min per IP, ASP.NET Core built-in
+  `RateLimiting`, 429, no queueing). 7 new backend + 3 new frontend tests.
+  REQ-701, REQ-606.
+- 2026-07-20 — `docs/requirements-document.md` (0.79 → 0.80, REQ-404's
+  interim-state note superseded), `docs/backlog.md` (S-060 "Built as") —
+  REQ-409 implemented: the all-time leaderboard now ranks by median
+  per-round score (>= 5 qualifying rounds), replacing the raw-sum ranking.
+  REQ-406's live-round fold removed from this endpoint (no resolved
+  meaning for a live round in a median). 9 new unit + 2 new API tests;
+  full backend suite (580 tests) green. REQ-409, REQ-404 (status note).
 - 2026-07-20 — `docs/requirements-document.md` (0.78 → 0.79), `docs/
   backlog.md` (new S-061 entry) — REQ-503 fully implemented: `POST
   /admin/player-data/remove` (bulk, hard-delete, `ILogger`-based audit
