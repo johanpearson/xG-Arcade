@@ -6,9 +6,11 @@ namespace XGArcade.DataSync.Wikidata;
 // persist" arrow in architecture-document.md §6.1/6.2 — called by REQ-103
 // grid generation (S-007) on a cache miss, and by REQ-211's guess-time
 // fallback (S-011 follow-up, ADR-0018) when cached data doesn't already
-// answer a submitted guess. What Confidence the persisted data starts at
-// depends on the caller-supplied WikidataLookupOrigin, not just that it
-// came from Wikidata — see that enum and ADR-0029.
+// answer a submitted guess. The caller-supplied WikidataLookupOrigin is
+// still threaded through to the persisted PlayerData (for
+// logging/debugging/future re-differentiation), but as of ADR-0032 it no
+// longer changes what Confidence the data starts at — see that enum and
+// ADR-0032.
 public interface IWikidataLookupService
 {
     // Returns the players persisted (new or already-known) for this

@@ -12,4 +12,14 @@ public class PlayerData
     public required string Source { get; set; }     // "wikidata" | "api_football" | "live_lookup"
     public required string Confidence { get; set; } // "verified" | "unverified"
     public DateTime SyncedAt { get; set; }
+
+    // REQ-503 (2026-07-20 extension): set together, only by the admin
+    // "approve" action (POST /admin/player-data/approve) flipping this row's
+    // Confidence to "verified" — never by a routine sync/live-lookup write
+    // (WikidataLookupService always leaves both null). Same
+    // "who and when, on the row itself" shape as
+    // PlayerOverride.LockedByAdminId/LockedAt — no separate audit-log table
+    // here either.
+    public Guid? ApprovedByAdminId { get; set; }
+    public DateTime? ApprovedAt { get; set; }
 }
