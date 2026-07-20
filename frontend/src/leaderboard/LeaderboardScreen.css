@@ -50,6 +50,39 @@
   border-bottom-color: var(--color-accent-green);
 }
 
+/* REQ-405: the "Time Windows" scope's own round/week/month/year sub-tabs —
+   same underline-tab pattern as .leaderboard-screen__scope-tabs/
+   __scope-tab above, styled as a visually-quieter nested row rather than a
+   second, competing tab bar: no bottom border on the row itself (just a
+   hairline instead of the scope tabs' `border-hairline` bottom rule), and
+   a smaller font-size than the top-level tabs so the hierarchy between the
+   two rows reads clearly at a glance. Same tokens throughout — no new
+   color/font introduced for this row. */
+.leaderboard-screen__window-tabs {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.leaderboard-screen__window-tab {
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.leaderboard-screen__window-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
 /* REQ-407/408: a plain-text note under the scope tabs — the live scope's
    "estimated, can still change" framing, and the past-round detail's
    "Closed <timestamp>" label. text-muted, no new color/token. */

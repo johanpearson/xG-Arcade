@@ -1855,8 +1855,12 @@ happens to be 0)
   needs, and `Guess`'s existing unique index on `(RoundId, UserId, CellId)`
   already has `RoundId` as its leading column, so a `RoundId IN (...)` filter
   is already index-covered too — both are documented inline as code comments
-  on the new repository methods rather than re-derived. Frontend (SCREEN-03)
-  is a separate, not-yet-built follow-up task.
+  on the new repository methods rather than re-derived. Frontend (SCREEN-03,
+  same session, follow-up commit): a 4th "Time Windows" scope on
+  `LeaderboardScreen.tsx` with round/week/month/year sub-tabs, same
+  fetch-on-transition pattern as the `live`/`past` scopes, rows always
+  non-provisional (locked totals only). `design-document.md` SCREEN-03
+  updated accordingly.
 > As a player, I want to see the leaderboard filtered to the current round,
 > week, month, or year — not only the all-time total — so I can compare
 > recent performance, not just who has played longest.

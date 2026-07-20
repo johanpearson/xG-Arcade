@@ -227,6 +227,40 @@ export async function fetchClosedRoundLeaderboard(
   return (await response.json()) as LeaderboardResponse;
 }
 
+// REQ-405 (S-027): the four fixed rolling-window resolutions SCREEN-03's
+// "Time Windows" scope offers — a closed set matching the backend's
+// `{resolution}` route segment exactly (case-insensitive server-side, but
+// the frontend always sends lowercase so there's never a reason to rely on
+// that leniency).
+export type WindowResolution = 'round' | 'week' | 'month' | 'year';
+
+// REQ-405 (S-027): one rolling time-window's leaderboard (SCREEN-03's "Time
+// Windows" scope) — same cursor/pageSize/response shape as
+// fetchLeaderboard/fetchActiveRoundLeaderboard/fetchClosedRoundLeaderboard
+// above, summing only locked `FinalPoints` (never live/provisional points,
+// unlike fetchActiveRoundLeaderboard). An empty ranked list is a real,
+// expected state (nothing has happened in that window yet) — the response
+// still resolves normally with `rows: []`, not a 404, so there's no
+// empty-as-null handling needed here the way fetchCurrentRound has for its
+// own different "empty" meaning.
+export async function fetchWindowedLeaderboard(
+  accessToken: string,
+  resolution: WindowResolution,
+  cursor?: number,
+  pageSize?: number,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard/window/${resolution}${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LeaderboardResponse;
+}
+
 // REQ-207/ADR-0007 (S-032): sourced from PlayerNameIndex only, never
 // PlayerAttribute/PlayerOverride (see PlayerAutocompleteSuggestion's own
 // comment in types.ts) — GuessInput treats a failed/empty result as "no

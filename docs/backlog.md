@@ -805,8 +805,7 @@ multiple weeks/months/years; a round still in progress never appears in
 any window's totals; the "round" resolution always resolves to the most
 recently closed round, never an arbitrary one. *Deps:* S-011 (locked
 `FinalPoints`/leaderboard exist).
-**Built as:** matches the plan, backend-only (frontend is a separate,
-not-yet-built follow-up task). New `GET
+**Built as:** matches the plan. New `GET
 /leagues/global/leaderboard/window/{resolution}` route
 (`XGArcade.Api.Leagues.LeaderboardEndpoints`), `{resolution}` parsed
 case-insensitively into a new `LeaderboardWindowResolution` enum — anything
@@ -825,7 +824,16 @@ leading) already cover both new query shapes — documented inline on the
 new repository methods rather than re-derived at review time. 18 new
 REQ405-named tests (8 `LeaderboardServiceTests`, 10
 `LeaderboardEndpointTests`, including a month-boundary case and the
-invalid-resolution 400); full backend suite (510 tests) passes.
+invalid-resolution 400); full backend suite (510 tests) passes. **Frontend
+(same session, follow-up commit):** a 4th "Time Windows" scope on
+`LeaderboardScreen.tsx` with its own round/week/month/year sub-tabs, same
+prev-scope/prev-resolution-ref fetch-on-transition pattern the `live`/`past`
+scopes already established, rows rendered non-provisional (locked totals
+only). New `fetchWindowedLeaderboard` in `lib/api.ts`. 4 new REQ405 Vitest
+cases; full frontend suite (205 tests), `tsc -b`, and lint all clean.
+`design-document.md` SCREEN-03 updated to document the full scope-tab
+system (also backfilled the pre-existing gap where the `live`/`past`
+scopes from S-053/S-054 had never been documented there at all).
 
 **S-030 · Enable Club × Club grid pairing (REQ-107)**
 `CategoryPairingRules.IsAllowedPairing` already permits Club × Club (only

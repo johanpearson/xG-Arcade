@@ -24,7 +24,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   REQ-408's existing `Round(GameKey, EndTime)` index and `Guess`'s existing
   `(RoundId, UserId, CellId)` index already cover both new query shapes.
   18 new REQ405-named tests; full backend suite (510 tests) passes.
-  Frontend not touched — separate follow-up task.
+  Frontend landed same session: `LeaderboardScreen.tsx` gained a 4th "Time
+  Windows" scope with round/week/month/year sub-tabs (`design-document.md`
+  SCREEN-03 updated, also backfilling a pre-existing gap where the
+  `live`/`past` scopes were never documented there). 4 new frontend
+  REQ405 tests; full frontend suite (205 tests), `tsc -b`, lint all clean.
+  REQ-405 is now fully implemented, frontend and backend.
 
 - 2026-07-20 — **Doc-sync pass** (this entry and the four below it) —
   `docs/requirements-document.md` (0.74 → 0.75), `docs/architecture-

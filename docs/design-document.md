@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.38"
+version: "0.39"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.37 · 2026-07-20
+Version 0.39 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -868,6 +868,72 @@ row specifically to correct that assumption before a player reads any
 rank — it must never be omitted or left implicit in the ranking order
 alone. Rank #1 is always the lowest `TotalPoints`, consistent with
 `LeaderboardService`'s ascending sort.
+
+**Scope selector (REQ-406/407/408, S-053/S-054 — backfilled here 2026-07-20,
+this section had not been updated when those stories shipped) and Time
+Windows (REQ-405, S-027, added 2026-07-20):** a row of scope tabs sits
+above the ranked list, distinct from the `[Global] [My League ▾] [+ New]`
+league tabs above (those stay a deferred mock per `MVP-SCOPE.md`; this
+selector exists alongside them, not instead of them):
+
+```
+┌───────────────────────────────────────────┐
+│ [All-time] [Current Round] [Previous       │
+│  Rounds] [Time Windows]                    │
+│ Lowest total wins                          │
+├───────────────────────────────────────────┤
+│  (Time Windows only)                       │
+│  [Round] [Week] [Month] [Year]             │
+├───────────────────────────────────────────┤
+│ 1  Sam         120 pts                     │
+│ 2  You         138 pts               ← you │
+│ 3  Alex        142 pts                     │
+├───────────────────────────────────────────┤
+│               [ Load more ]                │
+└───────────────────────────────────────────┘
+```
+
+Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
+(`accent-green` underline on the active tab) — one visual tab pattern
+reused, not a second one invented. Four scopes:
+- **All-time** (REQ-401/404): the existing locked, all-time global
+  leaderboard, unchanged, and the default scope shown on first load.
+- **Current Round** (REQ-407/ADR-0031): the active round's own
+  leaderboard, recomputed live on every read. Rows and the running total
+  render with the same "~N pts estimated" wording SCREEN-01's live cell
+  value already uses (never presented as a locked final), with an
+  explicit "Live — estimated, can still change until the round closes."
+  note under the tabs. "No round is currently active — check back once
+  one starts" is a plain informational empty state (not an error) when
+  nothing is active; "No one has played this round yet" is the separate,
+  distinct empty state for an active-but-unplayed round.
+- **Previous Rounds** (REQ-408): a browsable list of closed rounds
+  (labeled by their `closedAt` timestamp — there is no round-number field
+  to fall back on), drilling into one round's own locked, final
+  leaderboard (plain "N pts", never "estimated").
+- **Time Windows** (REQ-405, S-027): a rolling leaderboard summed only
+  over locked `FinalPoints` within a fixed window, never live/provisional
+  points — so, like Previous Rounds, its rows always render plain "N pts",
+  never "estimated". Selecting this scope reveals a second, visually
+  quieter row of round/week/month/year sub-tabs directly below the
+  top-level tabs (same `role="tab"`/`aria-selected` pattern, smaller
+  font-size, no bottom border of its own — a nested row, not a second
+  competing tab bar) — "Round" is the default sub-tab, since it's the
+  most specific/recent window and the one closest to what "Current Round"
+  already trains a player to check. Switching sub-tabs re-fetches that
+  resolution's leaderboard. An empty ranked list here (nothing has
+  happened in that window yet) is a real, calm empty state — "No one
+  scored in this window yet." — never an error.
+
+Re-entering **Current Round**, **Previous Rounds**, or **Time Windows**
+after visiting a different scope always issues a fresh request and briefly
+shows a loading state again, rather than silently leaving a previous,
+possibly-stale response on screen — each of these three scopes' whole
+value proposition is "check back for something more current," so a loading
+flash is the more honest signal on re-entry than quiet staleness. **All-time**
+is the one exception: its 15-second background poll runs continuously
+regardless of which scope tab is active, so switching back to it never
+shows a loading flash — the data was never stale to begin with.
 
 ### SCREEN-04: Admin (unverified data review, round control, user deletion)
 
