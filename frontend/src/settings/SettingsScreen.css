@@ -44,3 +44,82 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* REQ-714: the display-name edit form's own section — reuses
+   .settings-screen__section's existing bordered-row treatment (same tokens
+   as the admin-link row above), plus the auth-screen__field-style label/
+   input pattern for consistency with AuthScreen.tsx's own display-name
+   field at signup. No new tokens. */
+.settings-screen__section--display-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.settings-screen__section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.settings-screen__display-name-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-screen__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.settings-screen__field input {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.settings-screen__display-name-error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* REQ-714: a confirmation, not an error — accent-green-text (not
+   accent-green, see design-document.md §2's text-contrast note) so it
+   passes the same 4.5:1 text-contrast floor every other green text/icon
+   use in this app already meets. */
+.settings-screen__display-name-success {
+  color: var(--color-accent-green-text);
+  font-size: 13px;
+  margin: 0;
+}
+
+.settings-screen__display-name-submit {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.settings-screen__display-name-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

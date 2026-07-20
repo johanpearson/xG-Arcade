@@ -3,7 +3,11 @@ import { describeError, login, signup } from '../lib/api';
 import './AuthScreen.css';
 
 export interface AuthScreenProps {
-  onAuthenticated: (accessToken: string) => void;
+  // REQ-715/ADR-0033: refreshToken is passed through alongside accessToken
+  // (previously discarded here) so App.tsx can persist it for silent
+  // session recovery — null is a real, valid case (Supabase can decline to
+  // issue one), not an error.
+  onAuthenticated: (accessToken: string, refreshToken: string | null) => void;
 }
 
 type Mode = 'login' | 'signup';
@@ -53,11 +57,11 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         await signup(email, password, confirmPassword, displayName, ageConfirmed);
         // Tier 0 UX: auto-login with the same credentials rather than
         // forcing the player through the form twice.
-        const { accessToken } = await login(email, password);
-        onAuthenticated(accessToken);
+        const { accessToken, refreshToken } = await login(email, password);
+        onAuthenticated(accessToken, refreshToken);
       } else {
-        const { accessToken } = await login(email, password);
-        onAuthenticated(accessToken);
+        const { accessToken, refreshToken } = await login(email, password);
+        onAuthenticated(accessToken, refreshToken);
       }
     } catch (err) {
       setError(describeError(err));
