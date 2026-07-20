@@ -3214,3 +3214,25 @@ documented product-shape choice since REQ-403 doesn't specify this case.
 12 new frontend tests (`LeaguesScreen.test.tsx` + `HeaderNav.test.tsx`);
 full backend suite (580 tests) and frontend suite (226 tests) both green,
 `tsc -b`/lint clean.
+
+**S-064 · Implement dark mode / selectable color themes (REQ-716)**
+Builds the design decided in the 2026-07-20 design pass (REQ-716,
+`docs/design-document.md` §2's "Dark theme" subsection, ADR-0034) — no
+new design decisions to make here, purely implementation. A three-state
+System/Light/Dark toggle on `SettingsScreen.tsx`, persisted in
+`localStorage` under a new key, applied as a `data-theme` attribute on
+`<html>` before first paint (avoid a flash of the wrong theme, same
+concern `App.tsx`'s existing `ACCESS_TOKEN_STORAGE_KEY` read-at-startup
+already has to handle). Every CSS custom property in `frontend/src/index.css`
+gets a `:root[data-theme="dark"]` (or equivalent) override matching
+ADR-0034's token table exactly — colors only, no layout/spacing/type/
+animation changes. "System" resolves `prefers-color-scheme` at load and
+reactively on its `change` event.
+*Accept:* toggling to Dark/Light pins that theme regardless of OS setting
+and persists across a reload; System (default) follows
+`prefers-color-scheme`, including a live OS-level change while the app is
+open; every screen renders legibly in both themes (spot-check each SCREEN
+mock); no flash of the wrong theme on load.
+*Deps:* the design pass above (2026-07-20, REQ-716/ADR-0034 — design
+decided), the existing `SettingsScreen.tsx` (ADR-0030's mobile-nav/
+Settings consolidation).
