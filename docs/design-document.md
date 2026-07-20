@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.37"
+version: "0.38"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1459,6 +1459,59 @@ Unchanged from v0.1 — built "equally both" from the start:
   footprint itself, the same class of change S-049 already made at a
   different breakpoint, not the "constant regardless of photo load
   outcome" rule.
+- **Grid uniform row height, ≤480px (added S-059, closes a gap S-055 left
+  open on the row axis):** every data row's cells must render at the same
+  height, regardless of how many lines that row's own row-header label
+  wraps to — the row-axis equivalent of S-055's uniform-*column*-width
+  guarantee above, reported the same way (direct user screenshots of a 3×3
+  grid, this time at real mobile widths of 390-412px specifically): "Real
+  Sociedad" (wraps 2 lines), "Paris Saint-Germain" (3 lines), and "Valencia"
+  (1 line) rendered at visibly different row heights, tracking each row's
+  own row-header line count. Root cause, confirmed via real-browser
+  `getBoundingClientRect` measurement (not guessed): `.grid-table__cell`'s
+  `height` is only ever a *floor* on a table row's height, never a ceiling
+  — the same CSS2.1 table-layout fact S-047's own note above already
+  documents for the column axis, here on the row axis instead. The
+  481-959px and ≥960px bands already carry a real, deliberate target height
+  (90px/S-055, 120px/S-049) comfortably larger than what ordinary wrapped
+  row-header content needs, so they never exhibited this bug (confirmed:
+  both rendered uniformly, 90px/120px, before and after this fix); only the
+  ≤480px band still relied on the bare 44px `--touch-target-min` floor,
+  which every real row-header (a badge/flag stacked above at least one line
+  of text, per S-040/S-055's stacking rule above) already exceeds — some
+  per-row growth beyond 44px was inevitable, the bug was that it wasn't the
+  *same* amount for every row (measured 61px/76px/53px for the three rows
+  above, before this fix, at a 390px viewport). Fixed the same way
+  S-049/S-055 already closed the equivalent floor-vs-target gap at their
+  own breakpoints: `.grid-table__cell` gets a real, explicit **78px**
+  target height at ≤480px too (a working number for this grid's own longest
+  real content — "Paris Saint-Germain"'s natural 3-line/76px need, plus a
+  small rounding margin — not derived from an existing column width the way
+  90px/120px each reuse one, since ≤480px is explicitly exempt from this
+  section's own aspect-ratio bound above and has no equivalent value to
+  reuse). Paired with a **3-line `-webkit-line-clamp`** on the row-header's
+  own name text so a label longer than any of this grid's own three
+  examples can never exceed that 78px budget and reintroduce the bug for a
+  single outlier row — the same truncation-with-ellipsis technique
+  `CellState.css`'s `.cell-state--photo .cell-state__name` (S-047) already
+  uses, not a new mechanism; the full label text stays in the DOM for
+  assistive tech regardless, only its painted box is bounded. 3 lines, not
+  fewer, specifically because "Paris Saint-Germain" itself already needs
+  exactly 3 to render in full at this column width — a smaller clamp would
+  visibly truncate the very label from the real bug report this fixes.
+  **Flagged trade-off, verified rather than assumed:** a row-header label
+  genuinely needing a 4th wrapped line (none exist in Tier-0's real
+  country/club data at the time this note was written) would truncate with
+  a trailing ellipsis instead of stretching its row past 78px — tested with
+  a deliberately long name in a real Chromium render and confirmed it reads
+  as a clean, legible truncation (e.g. "1. Fussballclu…"), not a broken
+  layout or a clipped-mid-glyph artifact. Real-browser verification (390px/
+  412px/700px/1280px, not assumed) confirmed all three example rows render
+  at an identical 78px height with no visible truncation for any of them
+  (none needs the clamp to actually engage), and that the 481-959px/≥960px
+  bands are unaffected. No change to REQ-214's fixed-cell-footprint
+  guarantee — this only sizes the footprint itself, the same class of
+  change S-049/S-055 already made at their own breakpoints.
 - **Header nav breakpoint (added 2026-07-19, REQ-712):** the mobile
   hamburger toggle (SCREEN-07) activates below **480px**, reusing this
   section's existing narrow-phone value — the same one that already
