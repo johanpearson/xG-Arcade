@@ -997,9 +997,11 @@ new ADR that references the old one.
 | ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 | ADR-0027 | Configuration-bound `RoundDuration` + daily safety-poll cron (replaces the Tue+Fri cadence's hand-matched coupling) | Accepted |
 | ADR-0028 | Single-valued Wikidata properties (e.g. a player's photo) live on `Player`, not `PlayerAttribute` | Accepted |
-| ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Accepted |
+| ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Superseded by ADR-0032 |
 | ADR-0030 | Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links | Accepted |
 | ADR-0031 | Live leaderboard contributions (REQ-406/407) are recomputed on every read, never cached or snapshotted — reverses §6.2a's DB-side-aggregate/bounded-read-cost pattern for the live component | Accepted |
+| ADR-0032 | Wikidata guess-time fallback data is now auto-verified too, reversing ADR-0029's fallback-specific carve-out | Accepted |
+| ADR-0033 | Refresh token (REQ-715) stored in `localStorage`, same mechanism as the existing access token — no new cookie/CSRF infrastructure | Accepted |
 
 ## 11. Glossary
 
