@@ -28,28 +28,8 @@ public interface IGuessRepository
     // them in one pass.
     Task<IReadOnlyList<Guess>> GetByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default);
 
-    // REQ-401/404: each user's all-time total (SUM of FinalPoints across
-    // every round they've played), for the leaderboard. A user with no
-    // guesses at all — or none yet locked by a round close — is simply
-    // absent from the returned dictionary; callers treat a missing key as 0.
-    Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
-
-    // REQ-401/404 (2026-07-20): "has this user ever submitted a single
-    // Guess row at all" — any round, locked or still active, correct or
-    // incorrect. Deliberately a separate existence check from
-    // GetTotalFinalPointsByUserIdsAsync above: that method only reflects
-    // *locked* FinalPoints, so a member who has only ever guessed in the
-    // currently active (unlocked) round would be wrongly indistinguishable
-    // from a member who has never played at all if this were derived from
-    // it instead. Used by LeaderboardService.GetGlobalLeaderboardAsync to
-    // exclude a true never-played member from the ranked list entirely,
-    // rather than defaulting their total to 0 (which ADR-0021's lowest-wins
-    // model would otherwise treat as the *best* possible score).
-    Task<IReadOnlySet<Guid>> GetUserIdsWithAnyGuessAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
-
-    // REQ-408: the same "sum FinalPoints, treating null as 0" formula as
-    // GetTotalFinalPointsByUserIdsAsync above, filtered to one round instead
-    // of summed across every round a user has ever played — a closed round's
+    // REQ-408: SUM(FinalPoints ?? 0), filtered to one round instead of
+    // summed across every round a user has ever played — a closed round's
     // own permanently-locked per-participant total, never recomputed live
     // (contrast ILiveRoundContributionService, which is the active-round
     // equivalent and genuinely live). Only ever meaningful once
@@ -63,6 +43,24 @@ public interface IGuessRepository
     // implemented in terms of this method with a one-element collection,
     // rather than keeping two independent query implementations in sync.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdsAsync(IReadOnlyCollection<Guid> roundIds, CancellationToken cancellationToken = default);
+
+    // REQ-409 (2026-07-20): for each candidate user, the list of that user's
+    // SUM(FinalPoints) totals, one entry per *qualifying* round they've ever
+    // played — a qualifying round is closed (Round.ClosedAt set) AND the
+    // user has at least one Guess row in it, the same participant
+    // definition REQ-406/407/408 and ADR-0021's
+    // MaterializeUnansweredCellsAsync already use. Deliberately NOT built
+    // from the old GetUserIdsWithAnyGuessAsync existence check this REQ
+    // retires: that method answered "has this user ever guessed at all, in
+    // any round, closed or not" (a yes/no), where this needs a genuine
+    // per-round count, and must exclude active/unlocked rounds outright — a
+    // still-active round contributes no entry here at all, not a zero one.
+    // A user with zero qualifying rounds is simply absent from the returned
+    // dictionary (never present with an empty list) — callers (currently
+    // only LeaderboardService's median ranking) treat a missing key the
+    // same as an empty list, i.e. "doesn't qualify."
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
+        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
 
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 

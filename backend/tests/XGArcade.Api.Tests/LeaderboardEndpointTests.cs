@@ -35,6 +35,15 @@ namespace XGArcade.Api.Tests;
 // cell cases and the closed-round total/ordering are already covered by
 // LeaderboardServiceTests; this file covers routing, the "no active round"
 // 404, and the not-found/not-closed-yet 404/409 distinction for REQ-408.
+//
+// REQ-409 (2026-07-20, backlog S-060) REPLACED GetGlobalLeaderboardAsync's
+// ranking outright, including retiring REQ-406's live-fold onto this same
+// route — the REQ404/REQ406-named tests that previously covered those
+// behaviors here were removed (not adapted, since the behaviors themselves
+// no longer exist on this route) and replaced with a small REQ409-named
+// pair; the median/threshold logic itself is unit-tested exhaustively at
+// Core level (LeaderboardServiceTests) per this file's existing "only what
+// the real HTTP pipeline proves" split.
 public class LeaderboardEndpointTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -114,14 +123,31 @@ public class LeaderboardEndpointTests
         return user.Id;
     }
 
+    // REQ-409 (2026-07-20): each call now also persists a real, already-
+    // closed Round row backing the seeded Guess — see the matching comment
+    // on LeaderboardServiceTests' own SeedLockedGuessAsync for why this
+    // became necessary: REQ-409's per-round query joins against Rounds and
+    // requires ClosedAt != null, so a "qualifying round" needs a genuine
+    // closed Round row, not just an unbacked random RoundId.
     private async Task SeedLockedGuessAsync(Guid userId, int finalPoints)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = Guid.NewGuid(),
+            StartTime = DateTime.UtcNow.AddDays(-2),
+            EndTime = DateTime.UtcNow.AddDays(-1),
+            AllowGuessChange = true,
+            ClosedAt = DateTime.UtcNow.AddDays(-1),
+        };
+        dbContext.Rounds.Add(round);
         dbContext.Guesses.Add(new Guess
         {
             Id = Guid.NewGuid(),
-            RoundId = Guid.NewGuid(),
+            RoundId = round.Id,
             UserId = userId,
             CellId = Guid.NewGuid(),
             SubmittedName = "Someone",
@@ -132,6 +158,15 @@ public class LeaderboardEndpointTests
             CreatedAt = DateTime.UtcNow,
         });
         await dbContext.SaveChangesAsync();
+    }
+
+    // REQ-409: convenience for building a player's qualifying-round history
+    // (>=5 needed to appear on the ranked list at all) — one call per
+    // qualifying round, in the order given.
+    private async Task SeedQualifyingRoundsAsync(Guid userId, params int[] finalPointsPerRound)
+    {
+        foreach (var finalPoints in finalPointsPerRound)
+            await SeedLockedGuessAsync(userId, finalPoints);
     }
 
     // REQ-406/407: a real GridInstance/GridCell pair backing an active
@@ -181,64 +216,6 @@ public class LeaderboardEndpointTests
 
         await dbContext.SaveChangesAsync();
         return (round.Id, cellId);
-    }
-
-    // REQ-406/407 (2026-07-20): same pattern as SeedActiveRoundWithOneCellAsync
-    // above, but with two cells — needed to exercise the "participant has
-    // guessed on one cell but made zero guesses on another" case, which a
-    // single-cell round can never produce.
-    private async Task<(Guid RoundId, Guid CellIdA, Guid CellIdB)> SeedActiveRoundWithTwoCellsAsync()
-    {
-        using var scope = _factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
-
-        var instanceId = Guid.NewGuid();
-        var cellIdA = Guid.NewGuid();
-        var cellIdB = Guid.NewGuid();
-        dbContext.GridInstances.Add(new GridInstance
-        {
-            Id = instanceId,
-            TemplateId = Guid.NewGuid(),
-            Cells =
-            [
-                new GridCell
-                {
-                    Id = cellIdA,
-                    GridInstanceId = instanceId,
-                    Row = 0,
-                    Col = 0,
-                    RowCategoryType = CategoryPairingRules.Country,
-                    RowCategoryValue = "France",
-                    ColCategoryType = CategoryPairingRules.Club,
-                    ColCategoryValue = "Arsenal",
-                },
-                new GridCell
-                {
-                    Id = cellIdB,
-                    GridInstanceId = instanceId,
-                    Row = 0,
-                    Col = 1,
-                    RowCategoryType = CategoryPairingRules.Country,
-                    RowCategoryValue = "France",
-                    ColCategoryType = CategoryPairingRules.Club,
-                    ColCategoryValue = "Chelsea",
-                },
-            ],
-        });
-
-        var round = new Round
-        {
-            Id = Guid.NewGuid(),
-            GameKey = GridGameModule.XGGridGameKey,
-            GameInstanceId = instanceId,
-            StartTime = DateTime.UtcNow.AddHours(-1),
-            EndTime = DateTime.UtcNow.AddHours(1),
-            AllowGuessChange = true,
-        };
-        dbContext.Rounds.Add(round);
-
-        await dbContext.SaveChangesAsync();
-        return (round.Id, cellIdA, cellIdB);
     }
 
     // REQ-408: a closed round with no cells needed — GetClosedRoundLeaderboardAsync
@@ -349,8 +326,11 @@ public class LeaderboardEndpointTests
         var requestingAuthProviderUserId = Guid.NewGuid();
         var requestingUserId = await SeedMemberAsync(requestingAuthProviderUserId, "You");
         var otherUserId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
-        await SeedLockedGuessAsync(requestingUserId, 50);
-        await SeedLockedGuessAsync(otherUserId, 90);
+        // REQ-409: 5 identical-valued qualifying rounds each — trivially
+        // meets the 5-round minimum with a median equal to that value, so
+        // this shape/pagination test's assertions are otherwise unchanged.
+        await SeedQualifyingRoundsAsync(requestingUserId, 50, 50, 50, 50, 50);
+        await SeedQualifyingRoundsAsync(otherUserId, 90, 90, 90, 90, 90);
         var client = CreateAuthenticatedClient(requestingAuthProviderUserId);
 
         var response = await client.GetAsync("/leagues/global/leaderboard");
@@ -359,7 +339,7 @@ public class LeaderboardEndpointTests
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
         Assert.That(body, Is.Not.Null);
 
-        // Ascending by TotalPoints (ADR-0021): You (50) ranks before Alex (90).
+        // Ascending by median (ADR-0021, REQ-409): You (50) ranks before Alex (90).
         Assert.That(body!.Rows, Has.Count.EqualTo(2));
         Assert.That(body.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }));
         Assert.That(body.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 50, 90 }));
@@ -388,7 +368,8 @@ public class LeaderboardEndpointTests
                 ? await SeedMemberAsync(authProviderUserId, "Member0")
                 : await SeedMemberAsync(Guid.NewGuid(), $"Member{i}");
             seededUserIds.Add(userId);
-            await SeedLockedGuessAsync(userId, i * 10);
+            var value = i * 10;
+            await SeedQualifyingRoundsAsync(userId, value, value, value, value, value);
         }
         var client = CreateAuthenticatedClient(authProviderUserId);
 
@@ -429,9 +410,9 @@ public class LeaderboardEndpointTests
     {
         var authProviderUserId = Guid.NewGuid();
         var firstUserId = await SeedMemberAsync(authProviderUserId, "Member0");
-        await SeedLockedGuessAsync(firstUserId, 0);
+        await SeedQualifyingRoundsAsync(firstUserId, 0, 0, 0, 0, 0);
         var secondUserId = await SeedMemberAsync(Guid.NewGuid(), "Member1");
-        await SeedLockedGuessAsync(secondUserId, 10);
+        await SeedQualifyingRoundsAsync(secondUserId, 10, 10, 10, 10, 10);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.GetAsync("/leagues/global/leaderboard?pageSize=1");
@@ -449,9 +430,9 @@ public class LeaderboardEndpointTests
     {
         var authProviderUserId = Guid.NewGuid();
         var firstUserId = await SeedMemberAsync(authProviderUserId, "Member0");
-        await SeedLockedGuessAsync(firstUserId, 0);
+        await SeedQualifyingRoundsAsync(firstUserId, 0, 0, 0, 0, 0);
         var secondUserId = await SeedMemberAsync(Guid.NewGuid(), "Member1");
-        await SeedLockedGuessAsync(secondUserId, 10);
+        await SeedQualifyingRoundsAsync(secondUserId, 10, 10, 10, 10, 10);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.GetAsync("/leagues/global/leaderboard?pageSize=100");
@@ -464,15 +445,24 @@ public class LeaderboardEndpointTests
         Assert.That(body.NextCursor, Is.Null);
     }
 
-    // ---- REQ-401/404: never-played members excluded entirely (2026-07-20) ----
+    // ---- REQ-409: median, participation-gated all-time ranking (2026-07-20) ----
+    // Replaces REQ-401/404's old SUM(FinalPoints ?? 0) ranking outright, and
+    // retires REQ-406's live-fold onto this same route entirely (no live
+    // component in a median, see ILeaderboardService's doc comment) — the
+    // REQ404/REQ406-named tests that previously covered those behaviors on
+    // this route were removed rather than adapted, since the behaviors
+    // themselves no longer exist here (REQ-407's own still-live route below
+    // is unaffected).
 
     [Test]
-    public async Task REQ404_LeaderboardGet_MemberWithNoGuessesEver_ExcludedEntirelyFromResponse()
+    public async Task REQ409_LeaderboardGet_MemberWithFewerThanFiveQualifyingRounds_AbsentNotPlaceholder()
     {
         var requestingAuthProviderUserId = Guid.NewGuid();
         var requestingUserId = await SeedMemberAsync(requestingAuthProviderUserId, "You");
-        await SeedLockedGuessAsync(requestingUserId, 30);
-        await SeedMemberAsync(Guid.NewGuid(), "NeverPlayed"); // a global-league member with no guesses at all.
+        await SeedQualifyingRoundsAsync(requestingUserId, 10, 20, 30, 40, 50); // 5 -> included.
+        var belowThresholdUserId = await SeedMemberAsync(Guid.NewGuid(), "BelowThreshold");
+        await SeedQualifyingRoundsAsync(belowThresholdUserId, 10, 20, 30, 40); // only 4 -> excluded.
+        await SeedMemberAsync(Guid.NewGuid(), "NeverPlayed"); // 0 -> excluded.
         var client = CreateAuthenticatedClient(requestingAuthProviderUserId);
 
         var response = await client.GetAsync("/leagues/global/leaderboard");
@@ -483,72 +473,29 @@ public class LeaderboardEndpointTests
         Assert.That(body.Rows.Single().DisplayName, Is.EqualTo("You"));
     }
 
-    // ---- REQ-406: active-round live contribution folded into the shared total ----
-
     [Test]
-    public async Task REQ406_LeaderboardGet_ParticipantZeroGuessCellInActiveRound_AddsMaxPointsPerCellToSharedTotal()
+    public async Task REQ409_LeaderboardGet_ReturnsMedianBasedRankingNotSum()
     {
-        // 2026-07-20 status note: a participant's cell with zero guesses at
-        // all now contributes MaxPointsPerCell, same as a locked-incorrect
-        // cell — proven here through the real HTTP pipeline with a
-        // two-cell round (a single-cell round, as REQ-406's other tests
-        // below use, can never produce a genuine zero-guess cell).
-        var authProviderUserId = Guid.NewGuid();
-        var userId = await SeedMemberAsync(authProviderUserId, "You");
-        var (roundId, cellIdA, _) = await SeedActiveRoundWithTwoCellsAsync();
-        // Lone correct guesser on cellA -> LivePoints 0 (ADR-0020); cellB is
-        // never guessed on at all.
-        await SeedGuessAsync(roundId, userId, cellIdA, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
-        var client = CreateAuthenticatedClient(authProviderUserId);
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        var requestingUserId = await SeedMemberAsync(requestingAuthProviderUserId, "You");
+        var otherUserId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
+        // "You": sorted [10, 20, 30, 40, 50] -> median 30, SUM would be 150.
+        await SeedQualifyingRoundsAsync(requestingUserId, 50, 10, 30, 20, 40);
+        // "Alex": sorted [5, 6, 7, 8, 9] -> median 7, SUM would be 35 (lower
+        // than "You"'s SUM of 150, which would rank Alex first under the
+        // old formula) — but Alex's median (7) is also lower than "You"'s
+        // (30), so this alone can't distinguish the two formulas. The real
+        // proof is the exact TotalPoints values below: 30 and 7 are only
+        // reachable via the median, never the SUM (150/35).
+        await SeedQualifyingRoundsAsync(otherUserId, 9, 5, 7, 6, 8);
+        var client = CreateAuthenticatedClient(requestingAuthProviderUserId);
 
         var response = await client.GetAsync("/leagues/global/leaderboard");
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
-        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
-    }
-
-    [Test]
-    public async Task REQ406_LeaderboardGet_ActiveRoundLockedIncorrectCell_AddsMaxPointsPerCellToSharedTotal()
-    {
-        var authProviderUserId = Guid.NewGuid();
-        var userId = await SeedMemberAsync(authProviderUserId, "You");
-        var (roundId, cellId) = await SeedActiveRoundWithOneCellAsync();
-        await SeedGuessAsync(roundId, userId, cellId, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
-        var client = CreateAuthenticatedClient(authProviderUserId);
-
-        var response = await client.GetAsync("/leagues/global/leaderboard");
-
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
-        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
-    }
-
-    [Test]
-    public async Task REQ406_LeaderboardGet_TwoSuccessiveRequestsAfterAnotherPlayersGuessChangesUniqueness_ReflectDifferentTotalsWithNoInvalidationStep()
-    {
-        // ADR-0031: recomputed fresh on every read — no cache to invalidate.
-        var authProviderUserId = Guid.NewGuid();
-        var userId = await SeedMemberAsync(authProviderUserId, "You");
-        var (roundId, cellId) = await SeedActiveRoundWithOneCellAsync();
-        var sharedAnswerId = Guid.NewGuid();
-        await SeedGuessAsync(roundId, userId, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: sharedAnswerId);
-        var client = CreateAuthenticatedClient(authProviderUserId);
-
-        var firstResponse = await client.GetAsync("/leagues/global/leaderboard");
-        var firstBody = await firstResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
-        Assert.That(firstBody!.Rows.Single().TotalPoints, Is.EqualTo(0), "lone correct guesser is 100% unique (ADR-0020)");
-
-        // Another player now shares the same answer on the same cell — with
-        // exactly 2 correct guessers total and both sharing one answer,
-        // that answer is now fully common (ADR-0020: 1 of 1 other correct
-        // guesser shares it), the worst-case uniqueness.
-        await SeedGuessAsync(roundId, Guid.NewGuid(), cellId, isCorrect: true, attemptCount: 1, playerAnswerId: sharedAnswerId);
-
-        var secondResponse = await client.GetAsync("/leagues/global/leaderboard");
-        var secondBody = await secondResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
-        Assert.That(secondBody!.Rows.Single(r => r.UserId == userId).TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell),
-            "recomputed fresh on this second read, no explicit invalidation step");
+        Assert.That(body!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You" }));
+        Assert.That(body.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 7, 30 }));
     }
 
     // ---- REQ-407: standalone active-round leaderboard -----------------------

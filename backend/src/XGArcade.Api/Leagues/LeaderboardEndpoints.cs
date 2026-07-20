@@ -34,6 +34,12 @@ namespace XGArcade.Api.Leagues;
 // /leagues/global/leaderboard/window/{resolution}, for the
 // round/week/month/year time-window resolutions alongside the all-time
 // default — same auth/paging/gameKey shape as every route above.
+//
+// REQ-409 (2026-07-20, backlog S-060): the original all-time route's
+// *ranking formula* changes (median, 5-round-qualified) but its route,
+// auth, and paging contract stay exactly the same — this is a same-route
+// replacement, not a new endpoint. It no longer resolves "the active
+// round" before calling ILeaderboardService, unlike REQ-406/407 above.
 public static class LeaderboardEndpoints
 {
     // implementation-document.md §6's example (`pageSize=50`) as the
@@ -48,9 +54,7 @@ public static class LeaderboardEndpoints
         app.MapGet("/leagues/global/leaderboard", async (
             ClaimsPrincipal principal,
             IUserRepository userRepository,
-            IRoundRepository roundRepository,
             ILeaderboardService leaderboardService,
-            TimeProvider timeProvider,
             int? cursor,
             int? pageSize,
             CancellationToken cancellationToken) =>
@@ -66,14 +70,13 @@ public static class LeaderboardEndpoints
             if (requestingUser is null)
                 return Results.Unauthorized();
 
-            // REQ-406: folded on top of the locked total when a round is
-            // currently active; unaffected (identical to pre-REQ-406
-            // behavior) when none is.
-            var now = timeProvider.GetUtcNow().UtcDateTime;
-            var activeRound = await roundRepository.GetActiveByGameKeyAsync(GridGameModule.XGGridGameKey, now, cancellationToken);
-
+            // REQ-409 (2026-07-20): median-based ranking, locked rounds only
+            // — no active-round resolution needed here any more (REQ-406's
+            // old live-fold onto this same route is retired along with the
+            // sum-based ranking it applied to; see ILeaderboardService's own
+            // doc comment on GetGlobalLeaderboardAsync for the full reasoning).
             var page = await leaderboardService.GetGlobalLeaderboardAsync(
-                requestingUser.Id, cursor ?? 0, pageSize ?? DefaultPageSize, activeRound, cancellationToken);
+                requestingUser.Id, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             return Results.Ok(ToResponse(page));
         }).RequireAuthorization();
