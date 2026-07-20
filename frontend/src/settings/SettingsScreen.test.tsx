@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsScreen } from './SettingsScreen';
@@ -133,6 +133,42 @@ describe('SettingsScreen', () => {
     renderSettingsScreen({ displayName: 'Current Name' });
 
     expect(screen.getByLabelText('Display name')).toHaveAttribute('maxLength', '30');
+  });
+
+  // Exact upper boundary (the valid edge): SettingsScreen.tsx's own client-
+  // side check is `trimmed.length > 30`, so 30 characters exactly must be
+  // accepted. The value is set with fireEvent.change directly rather than
+  // userEvent.type/the maxLength=30 attribute above (REQ-714: the
+  // maxLength=30 test at line ~132), so this proves the component's own JS
+  // validation accepts the boundary rather than merely relying on a
+  // browser-enforced HTML constraint that a bypass (e.g. pasting) wouldn't
+  // go through.
+  it('REQ-714: entering exactly 30 characters (set directly, bypassing the maxLength attribute) is accepted and submits successfully', async () => {
+    const thirtyCharacterName = 'x'.repeat(30);
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => jsonResponse({ id: 'user-1', displayName: thirtyCharacterName }));
+    const user = userEvent.setup();
+    const { onDisplayNameUpdated } = renderSettingsScreen(
+      { displayName: 'Current Name' },
+      fetchMock,
+    );
+
+    const input = screen.getByLabelText('Display name');
+    fireEvent.change(input, { target: { value: thirtyCharacterName } });
+    await user.click(screen.getByRole('button', { name: 'Save name' }));
+
+    await waitFor(() => expect(onDisplayNameUpdated).toHaveBeenCalledWith(thirtyCharacterName));
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/display-name'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ displayName: thirtyCharacterName }),
+      }),
+    );
+    expect(
+      screen.queryByText('Display name must be between 1 and 30 characters.'),
+    ).not.toBeInTheDocument();
   });
 
   it('REQ-714: submitting a valid new name calls PUT /auth/display-name and, on success, calls onDisplayNameUpdated without a page reload', async () => {

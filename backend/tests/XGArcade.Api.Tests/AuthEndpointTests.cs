@@ -586,6 +586,28 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
     }
 
+    // Exact upper boundary (the valid edge): AuthController.UpdateDisplayName
+    // rejects only length > 30, so 30 characters exactly must be accepted.
+    // Pairs with REQ714_UpdateDisplayName_Put_ReturnsBadRequest_ForNameOutsideLengthBound
+    // above, which covers the 31-character (invalid) side of the same boundary.
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_Succeeds_ForNameExactly30Characters()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId, displayName: "Original Name");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var thirtyCharacterName = new string('x', 30);
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest(thirtyCharacterName));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<UpdateDisplayNameResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.DisplayName, Is.EqualTo(thirtyCharacterName));
+    }
+
     [Test]
     public async Task REQ714_UpdateDisplayName_Put_Unauthenticated_Returns401()
     {
