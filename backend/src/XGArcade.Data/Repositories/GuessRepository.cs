@@ -44,6 +44,23 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
             .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
 
+    // REQ-401/404 (2026-07-20): plain existence check, deliberately not
+    // derived from GetTotalFinalPointsByUserIdsAsync (which only reflects
+    // *locked* FinalPoints and would miss a user whose only guesses are in
+    // the currently active, still-unlocked round) — see this method's own
+    // doc comment on IGuessRepository.
+    public async Task<IReadOnlySet<Guid>> GetUserIdsWithAnyGuessAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
+    {
+        var idsWithGuesses = await dbContext.Guesses
+            .AsNoTracking()
+            .Where(g => g.UserId != null && userIds.Contains(g.UserId.Value))
+            .Select(g => g.UserId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return idsWithGuesses.ToHashSet();
+    }
+
     // REQ-408: same DB-side GroupBy/Sum shape as GetTotalFinalPointsByUserIdsAsync
     // above, scoped to one round instead of a user's whole history.
     public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>

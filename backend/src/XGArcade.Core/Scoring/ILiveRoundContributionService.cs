@@ -39,14 +39,22 @@ public interface ILiveRoundContributionService
     //   third formula)
     // - a locked-incorrect cell (AttemptCount >= GuessRules.MaxAttemptsPerCell,
     //   both attempts used but never correct): ScoringRules.MaxPointsPerCell
-    // - any other cell (not yet attempted at all, or attempted once but
-    //   still incorrect with an attempt remaining): contributes nothing —
-    //   deliberately not 0 (ADR-0021's golf model: 0 is the BEST possible
-    //   score, and a cell that hasn't resolved one way or the other yet must
-    //   not silently count as the best) and not MaxPointsPerCell either
-    //   (that penalty is only ever applied at round close,
-    //   MaterializeUnansweredCellsAsync, which never runs against an active
-    //   round and is never invoked from this path).
+    // - a cell the participant has made ZERO guesses on at all (no Guess row
+    //   for that cell): ScoringRules.MaxPointsPerCell, same as a
+    //   locked-incorrect cell (REQ-406/407, 2026-07-20 — a freshly-initiated
+    //   grid's live estimate should start near the theoretical max and count
+    //   down as guesses resolve, not sit near zero until every cell is
+    //   attempted). This mirrors ScoreLockingService
+    //   .MaterializeUnansweredCellsAsync's own round-close behavior for the
+    //   same "unanswered cell" case, just computed live instead of
+    //   materialized as rows.
+    // - a cell attempted once but still incorrect with an attempt remaining
+    //   (REQ-210): contributes nothing — deliberately not 0 (ADR-0021's golf
+    //   model: 0 is the BEST possible score, and a cell that hasn't resolved
+    //   one way or the other yet must not silently count as the best) and
+    //   not MaxPointsPerCell either, since it is NOT the same case as a
+    //   zero-guess cell above — a genuinely in-progress cell stays
+    //   unresolved until its second attempt or round close.
     Task<IReadOnlyDictionary<Guid, int>> GetContributionsByUserIdAsync(
         Round round, CancellationToken cancellationToken = default);
 }

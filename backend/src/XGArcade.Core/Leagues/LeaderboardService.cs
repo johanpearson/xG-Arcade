@@ -19,6 +19,15 @@ public class LeaderboardService(
         var members = await userRepository.GetByIdsAsync(memberUserIds, cancellationToken);
         var totalsByUserId = await guessRepository.GetTotalFinalPointsByUserIdsAsync(memberUserIds, cancellationToken);
 
+        // REQ-401/404 (2026-07-20): a member for whom no Guess row has ever
+        // existed — in any round, locked or still active — is excluded from
+        // the ranked list entirely, not shown ranked with a default total of
+        // 0 (which ADR-0021's lowest-wins model would otherwise treat as the
+        // *best* possible score, letting a never-played member rank #1).
+        // Distinct from REQ-406/407's own, narrower "zero guesses in this
+        // specific round" concept — this is an all-time, ever-played check.
+        var everGuessedUserIds = await guessRepository.GetUserIdsWithAnyGuessAsync(memberUserIds, cancellationToken);
+
         // REQ-406/ADR-0031: folded on top of the locked total, recomputed
         // fresh on every read — never cached or snapshotted anywhere in this
         // path. A member with zero guesses in the active round (or no active
@@ -31,11 +40,13 @@ public class LeaderboardService(
         // REQ-404/ADR-0021: sorted ascending by total score — xG Arcade is
         // scored like golf, lowest total wins. A member with no locked
         // FinalPoints yet (no rounds closed for them) is absent from
-        // totalsByUserId — treated as 0, not omitted from the list (and 0
-        // is the best possible score under this model, so an
-        // unlocked/never-played member legitimately ranks at the top until
-        // their first round locks).
+        // totalsByUserId — treated as 0, not omitted from the list, but ONLY
+        // once they've been confirmed as an ever-played member via
+        // everGuessedUserIds above; a true never-played member is filtered
+        // out entirely before this default ever applies (REQ-401/404,
+        // 2026-07-20).
         var ranked = members
+            .Where(member => everGuessedUserIds.Contains(member.Id))
             .Select(member => (
                 member.Id,
                 member.DisplayName,

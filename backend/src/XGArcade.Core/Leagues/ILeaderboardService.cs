@@ -77,11 +77,14 @@ public interface ILeaderboardService
 // mid-list.
 public record LeaderboardEntry(int Rank, Guid UserId, string DisplayName, int TotalPoints, bool IsRequestingUser);
 
-// RequestingUserEntry is always populated when the requesting user is a
-// league member (true for every authenticated caller today — signup
-// auto-adds every user to the global league, AuthController.cs) even when
-// their row falls outside Rows for the current page. Nullable only as a
-// defensive fallback if that invariant is ever broken.
+// RequestingUserEntry is populated whenever the requesting user appears
+// anywhere in the ranked list — including when their row falls outside Rows
+// for the current page — but is null when they don't appear in the ranked
+// list at all. For GetGlobalLeaderboardAsync specifically (REQ-401/404,
+// 2026-07-20), that now includes a requesting user who is a league member
+// but has never submitted a single Guess: membership alone (every
+// authenticated caller today, via signup auto-add, AuthController.cs) no
+// longer guarantees a ranked row.
 public record LeaderboardPage(
     IReadOnlyList<LeaderboardEntry> Rows,
     LeaderboardEntry? RequestingUserEntry,
