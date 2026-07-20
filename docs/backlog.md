@@ -3171,6 +3171,46 @@ S-031 — automated ID resolution for team-competition trophies is T-105's
 unclaimed remainder) ·
 T-106 dev/prod split + sync (ADR-0006/0009, REQ-801-804) · T-107 backups +
 alerting (REQ-901/902 — **bright line: before any non-self user**) ·
-T-108 email confirmation + Resend (REQ-701-705) · T-109 custom leagues
-(REQ-402-404) · T-110 legal docs finalized (**bright line: before public
+T-108 email confirmation + Resend (REQ-702-705 — REQ-701's own
+password-policy/enumeration-safe-error clauses are built, S-062) ·
+~~T-109 custom leagues~~ (create/join pulled forward and built, see
+S-063 — REQ-404's full per-custom-league leaderboard is T-109's unclaimed
+remainder) · T-110 legal docs finalized (**bright line: before public
 launch**).
+
+**S-063 · Custom leagues create/join (REQ-402/403)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 placement — no
+trigger fired (no request was actually observed), same "pulled forward by
+deliberate choice" pattern as REQ-108/REQ-214. Scope: create a league
+(auto-enrolls the creator), join via a 6-character invite code (887M-symbol
+alphabet excluding visually-ambiguous characters), list a player's own
+custom leagues by name/code. New `Core.Leagues.LeagueService`/
+`ILeagueService`, `Api.Leagues.LeagueEndpoints` (`POST /leagues`,
+`POST /leagues/join`, `GET /leagues/mine`), `LeaguesScreen.tsx` (new nav
+entry alongside Leaderboard/Settings). Explicitly out of scope: REQ-404's
+full per-custom-league leaderboard (no tab switcher, no per-league
+leaderboard reads — `LeaderboardScreen.tsx`/`LeaderboardService.cs`/
+`LeaderboardEndpoints.cs` untouched) and the per-user league caps
+(25 created / 100 joined) requirements-document.md mentions elsewhere —
+neither was requested for this story.
+*Accept:* REQ402-named tests: create succeeds and auto-adds the creator,
+invite codes are unique. REQ403-named tests: join with a valid code
+succeeds; join with an invalid code returns a clear error and creates no
+membership; unauthenticated calls are rejected.
+*Deps:* S-004 (auth).
+**Built as:** matches the plan, plus one gap caught and fixed before
+merge: the new `League.InviteCode` unique index was added to
+`XGArcadeDbContext.OnModelCreating` but the corresponding EF Core
+migration was missing — generated and included
+(`20260720163147_AddLeagueInviteCodeUniqueIndex`) so the constraint
+actually exists against a real database, not just the in-memory test
+provider. Invite-code collision handling: an in-app pre-check
+(`InviteCodeExistsAsync`, retried up to 5 times) plus the DB unique index
+as the real race-safety net, mirroring `User.NormalizedDisplayName`'s
+existing pattern; re-joining a league the caller already belongs to is an
+idempotent success (`JoinLeagueOutcome.AlreadyMember`), not an error — a
+documented product-shape choice since REQ-403 doesn't specify this case.
+18 new backend tests (8 `LeagueServiceTests`, 10 `LeagueEndpointTests`),
+12 new frontend tests (`LeaguesScreen.test.tsx` + `HeaderNav.test.tsx`);
+full backend suite (580 tests) and frontend suite (226 tests) both green,
+`tsc -b`/lint clean.

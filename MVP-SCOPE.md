@@ -241,8 +241,10 @@ required to play** (REQ-701-705 — defer; turn off Supabase's
 confirmation requirement in project settings). Resend integration
 (ADR-0005) — defer entirely, not needed if nothing requires confirmation yet.
 
-**Leagues**: global leaderboard only (REQ-401). Custom leagues
-(REQ-402-404) — defer.
+**Leagues**: global leaderboard (REQ-401). Custom leagues create/join
+(REQ-402/403) pulled forward and built 2026-07-20, `docs/backlog.md`
+S-063 — see the Tier 1 section below. REQ-404's full per-custom-league
+leaderboard (tab switching, per-league reads) remains deferred.
 
 **Not needed yet**: backups (REQ-901), failure alerting (REQ-902), legal
 docs (`docs/legal/`) — none of these have real stakes until real users and
@@ -360,8 +362,13 @@ is written as something you can actually observe, not a vague feeling:
   once real people's accounts/scores exist
 - **Email confirmation + Resend** (REQ-701-705, ADR-0005) — trigger:
   opening the game to anyone you don't personally know/trust
-- **Custom leagues** (REQ-402-404) — trigger: someone actually asks for a
-  private group with friends
+- ~~**Custom leagues** (REQ-402-404)~~ — **create/join (REQ-402/403)
+  pulled forward and built 2026-07-20, `docs/backlog.md` S-063**, ahead of
+  the trigger firing (no request was actually observed — pulled forward by
+  deliberate choice, same pattern as REQ-108/REQ-214's own precedent).
+  REQ-404's full per-custom-league leaderboard remains deferred — trigger:
+  someone actually wants to see a ranked view scoped to one custom league,
+  not just membership
 - **Legal docs finalized** (`docs/legal/`) — trigger: before any public
   launch to strangers — also a bright line, not a judgment call
 

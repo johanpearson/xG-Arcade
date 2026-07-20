@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.80 → 0.81), `MVP-SCOPE.md`
+  (Tier 0/Tier 1 sections updated), `docs/backlog.md` (new S-063 entry) —
+  REQ-402/403 (custom leagues create/join) pulled forward and implemented,
+  ahead of `MVP-SCOPE.md`'s original Tier 1 trigger, by deliberate choice.
+  `POST /leagues`, `POST /leagues/join`, `GET /leagues/mine`
+  (`LeagueEndpoints`/`LeagueService`), `LeaguesScreen.tsx`. 6-character
+  invite codes, uniqueness via an in-app pre-check plus a new DB unique
+  index (migration included). REQ-404's full per-custom-league leaderboard
+  remains deferred. 18 new backend + 12 new frontend tests. REQ-402,
+  REQ-403.
 - 2026-07-20 — `docs/requirements-document.md` (0.79 → 0.80), `docs/
   backlog.md` (new S-062 entry) — REQ-701/606 fully implemented: password
   policy (min 8 chars) and account-enumeration-safe signup errors

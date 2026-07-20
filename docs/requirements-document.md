@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.80"
+version: "0.81"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1761,6 +1761,20 @@ case covers the game-selection step added in S-021)
 **Test level:** Unit, API
 
 **REQ-402 – Create a custom league**
+*(Status: Implemented (S-063), 2026-07-20 — pulled forward ahead of
+`MVP-SCOPE.md`'s original Tier 1 placement; see that file's own updated
+note.)* `POST /leagues` (`LeagueEndpoints`, `Api.Leagues`) →
+`LeagueService.CreateCustomLeagueAsync` (`Core.Leagues`) creates a
+`League(Type="custom")` with a unique 6-character `InviteCode` (887M-symbol
+alphabet, visually-ambiguous characters excluded) and enrolls the creator
+as its first member in the same call. Uniqueness: an in-app pre-check plus
+a DB-level unique index (`IX_Leagues_InviteCode`) as the real race-safety
+net, same pattern as `User.NormalizedDisplayName`'s uniqueness handling.
+**Not built, tracked separately:** REQ-404's full per-custom-league
+leaderboard (this story only lists a member's own custom leagues by
+name/code, no leaderboard rendering) and the per-user league caps
+mentioned in this document (25 created / 100 joined) — neither was
+requested for this story.
 > As a player, I want to create my own league and invite friends, so we can
 > compete in a smaller group.
 
@@ -1772,6 +1786,15 @@ case covers the game-selection step added in S-021)
 **Test level:** Unit, API
 
 **REQ-403 – Join a league via code**
+*(Status: Implemented (S-063), 2026-07-20.)* `POST /leagues/join`
+(`LeagueEndpoints`) → `LeagueService.JoinByInviteCodeAsync` — the code is
+trimmed and upper-cased before lookup (codes are only ever generated
+uppercase, so a lowercase-typed code still resolves). An unrecognized code
+is a 404 with a specific detail message and creates no membership.
+Re-joining a league the caller already belongs to is treated as an
+idempotent success, not an error — this REQ doesn't specify that case, and
+a documented product-shape choice was made rather than leaving it
+undefined.
 > As a player, I want to join a friend league via a code, so I can compete
 > with specific people.
 
