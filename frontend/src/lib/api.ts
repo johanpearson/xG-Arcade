@@ -9,6 +9,7 @@ import type {
   LoginResponse,
   PlayerAutocompleteSuggestion,
   PlayerOverride,
+  RemovePlayerDataResponse,
   SignupResponse,
   SubmitGuessResponse,
   UnverifiedPlayerData,
@@ -364,6 +365,30 @@ export async function approvePlayerData(
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as ApprovePlayerDataResponse;
+}
+
+// REQ-503 (2026-07-20 extension): the bulk "remove" action — sibling to
+// approvePlayerData above in every respect except the endpoint it calls: a
+// single id is just the N=1 case, same endpoint. Always resolves (never
+// throws) with a 200 and one result per requested id; a row that no longer
+// exists fails independently of the rest of the batch (surfaced per-row via
+// each result's `failureReason`), never as an all-or-nothing batch
+// success/failure. No `reason` field — same as approve, unlike
+// createPlayerOverride below.
+export async function removePlayerData(
+  accessToken: string,
+  playerDataIds: string[],
+): Promise<RemovePlayerDataResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-data/remove`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerDataIds }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as RemovePlayerDataResponse;
 }
 
 // REQ-501: 409 (an override already exists for this playerId/field) is left

@@ -190,6 +190,25 @@ export interface ApprovePlayerDataResponse {
   results: PlayerDataApprovalResult[];
 }
 
+// REQ-503 (2026-07-20 extension): a single row's outcome from
+// POST /admin/player-data/remove — `failureReason` is `"NotFound"` (the
+// only reason removal can fail — unlike approve, removal has no
+// "must still be unverified" precondition) when `removed` is false, `null`
+// when true.
+export interface PlayerDataRemovalResult {
+  playerDataId: string;
+  removed: boolean;
+  failureReason: string | null;
+}
+
+// REQ-503 (2026-07-20 extension): POST /admin/player-data/remove's
+// response — same shape as ApprovePlayerDataResponse above: always 200
+// with one result per requested id (bulk, with a single id as the N=1
+// case), never an all-or-nothing batch result.
+export interface RemovePlayerDataResponse {
+  results: PlayerDataRemovalResult[];
+}
+
 // REQ-501: the PlayerOverride record created by POST /admin/player-overrides.
 export interface PlayerOverride {
   id: string;

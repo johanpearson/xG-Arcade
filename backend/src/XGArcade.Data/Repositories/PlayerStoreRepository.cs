@@ -91,6 +91,39 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         return outcomes;
     }
 
+    public async Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
+        IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default)
+    {
+        if (playerDataIds.Count == 0)
+            return [];
+
+        var idList = playerDataIds.ToList();
+        var rowsById = await dbContext.PlayerData
+            .Where(pd => idList.Contains(pd.Id))
+            .ToDictionaryAsync(pd => pd.Id, cancellationToken);
+
+        var outcomes = new List<PlayerDataRemovalOutcome>(idList.Count);
+
+        foreach (var id in idList)
+        {
+            if (!rowsById.TryGetValue(id, out var row))
+            {
+                outcomes.Add(new PlayerDataRemovalOutcome(id, false, PlayerDataRemovalFailureReason.NotFound));
+                continue;
+            }
+
+            dbContext.PlayerData.Remove(row);
+            outcomes.Add(new PlayerDataRemovalOutcome(id, true, null));
+        }
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteDeleteAsync (the InMemory test provider can't translate it).
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return outcomes;
+    }
+
     public async Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerAttributes

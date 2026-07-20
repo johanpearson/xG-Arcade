@@ -50,6 +50,34 @@ public interface IPlayerStoreRepository
     Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
         IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default);
 
+    // REQ-503 (2026-07-20 extension): the "remove" action — hard-deletes one
+    // or more PlayerData rows in a single call. Unlike
+    // ApprovePlayerDataAsync, there is no "must still be unverified"
+    // precondition: removing a data point is a general corrective action,
+    // not exclusively tied to the review queue's current state, so a row
+    // already flipped to "verified" (by another admin, between selection
+    // and submission) can still be removed. Bulk includes single-row as the
+    // N=1 case. Each id is evaluated independently and never fails the rest
+    // of the batch — a row that no longer exists (already removed by
+    // another admin between selection and submission) is reported as a
+    // failed outcome for that id only. One SaveChangesAsync call for the
+    // whole batch (load-then-SaveChangesAsync, coding-guidelines.md).
+    //
+    // No ApprovedByAdminId/ApprovedAt-style audit columns for removal: once
+    // a row is deleted there's nothing left in this table to attach
+    // "who/when" to. Nothing else in the schema references a PlayerData
+    // row by its own Id (PlayerOverride keys on (PlayerId, Field), not a
+    // PlayerData row id; PlayerAttribute has no PlayerData reference at
+    // all), so a hard delete is safe here without a soft-delete flag to
+    // protect some other table's foreign key. The "who and when" REQ-503
+    // requires ("the action is logged with admin_id and a timestamp") is
+    // satisfied by a structured ILogger line at the call site
+    // (AdminEndpoints.cs) instead — matching this codebase's established
+    // preference (PlayerOverride/PlayerData's own audit columns) for not
+    // introducing a general-purpose audit-log table.
+    Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
+        IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
@@ -127,4 +155,15 @@ public enum PlayerDataApprovalFailureReason
     // write time — already approved, or otherwise changed, by another
     // admin between selection and submission.
     NotUnverified,
+}
+
+// REQ-503 (2026-07-20 extension): per-row outcome of
+// IPlayerStoreRepository.RemovePlayerDataAsync.
+public record PlayerDataRemovalOutcome(Guid PlayerDataId, bool Removed, PlayerDataRemovalFailureReason? FailureReason);
+
+public enum PlayerDataRemovalFailureReason
+{
+    // The id didn't match any PlayerData row — already removed (or never
+    // existed) between selection and submission.
+    NotFound,
 }
