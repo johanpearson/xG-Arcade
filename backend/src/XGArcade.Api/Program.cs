@@ -1,6 +1,8 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -379,6 +381,16 @@ if (args is ["purge-player-pool", ..])
 // runs). A local function declaration is visible throughout this file's
 // top-level statements regardless of textual position, so this can stay
 // defined here rather than duplicated at the top.
+// REQ-606: the partition key the auth-signup/auth-login rate-limit policies
+// above key their per-IP counters on. TestServer (WebApplicationFactory)
+// leaves Connection.RemoteIpAddress null, so every request in a given test
+// host collapses onto the same "unknown" partition — that's fine, it's what
+// makes AuthEndpointTests.cs's REQ606 tests able to trip the limit
+// deterministically with a same-process burst of requests rather than
+// needing a real distinct client IP or a mocked clock.
+static string GetClientIpPartitionKey(HttpContext httpContext) =>
+    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
 static void ConfigureWikidataHttpClient(HttpClient client)
 {
     client.BaseAddress = new Uri("https://query.wikidata.org/");
@@ -402,6 +414,57 @@ builder.Services.AddCors(options =>
     // post-first-deploy) means the policy allows nothing rather than falling
     // back to permissive.
     options.AddPolicy("Frontend", policy => policy.WithOrigins(corsAllowedOrigins).AllowAnyHeader().AllowAnyMethod());
+});
+
+// REQ-606: rate limiting scoped narrowly to POST /auth/signup and
+// POST /auth/login (AuthController's [EnableRateLimiting("auth-signup"/
+// "auth-login")] attributes below) — not every endpoint, per REQ-606's own
+// scoping. Two separate named policies so exhausting one endpoint's limit
+// never blocks the other. Partitioned per client IP (GetClientIpPartitionKey
+// below): a fixed 1-minute window, 10 permits, no queueing — a request over
+// the limit is rejected immediately with 429 (OnRejected/RejectionStatusCode
+// below), never silently queued or left to fall through as a generic 500.
+// Uses ASP.NET Core's built-in Microsoft.AspNetCore.RateLimiting middleware
+// (available since .NET 7, part of the shared framework) — no new package.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Errors as problem-details (docs/coding-guidelines.md): the framework's
+    // own rejection response has no body by default, so this gives the
+    // frontend the same {title, detail} shape every other error response
+    // uses (AuthScreen.tsx's describeError already reads exactly this shape,
+    // no special-casing needed there).
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new
+            {
+                title = "Too many attempts",
+                detail = "Too many attempts. Please wait a minute and try again.",
+                status = StatusCodes.Status429TooManyRequests,
+            },
+            cancellationToken);
+    };
+
+    options.AddPolicy("auth-signup", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        GetClientIpPartitionKey(httpContext),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy("auth-login", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        GetClientIpPartitionKey(httpContext),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
 });
 
 var databaseConnectionString = builder.Configuration.GetConnectionString("Database")
@@ -435,6 +498,11 @@ builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
 // resolves the dependency graph regardless of registration order.
 builder.Services.AddScoped<ILeagueRepository, LeagueRepository>();
 builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+// REQ-402/403: custom league create/join — a stateless RNG-based generator
+// (AddSingleton is fine, same as TimeProvider.System above) plus the
+// scoped service that owns the collision-retry/membership logic around it.
+builder.Services.AddSingleton<IInviteCodeGenerator, InviteCodeGenerator>();
+builder.Services.AddScoped<ILeagueService, LeagueService>();
 
 // COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
 // Service, per implementation-document.md §6a. No API-Football fallback
@@ -645,6 +713,13 @@ app.UseHttpsRedirection();
 
 app.UseCors("Frontend");
 
+// REQ-606: before authentication, so an unauthenticated brute-force burst
+// against /auth/signup or /auth/login is rejected as cheaply as possible —
+// matches the recommended ordering for Microsoft.AspNetCore.RateLimiting
+// (after routing/CORS, no requirement to run after authentication since the
+// two endpoints it applies to are both anonymous anyway).
+app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -657,6 +732,7 @@ app.MapInternalRoundEndpoints();
 app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
+app.MapLeagueEndpoints();
 app.MapAdminEndpoints();
 // S-026: REQ-505/506, non-Production only — see that file's own doc comment
 // for why these are kept separate from MapAdminEndpoints above.

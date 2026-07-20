@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using XGArcade.Core.Auth;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -20,9 +21,26 @@ public class AuthController(
     IConfiguration configuration,
     ILogger<AuthController> logger) : ControllerBase
 {
+    // REQ-606: 10 signups per IP per minute — see Program.cs's
+    // AddRateLimiter registration for the shared policy/OnRejected details.
+    [EnableRateLimiting("auth-signup")]
     [HttpPost("signup")]
     public async Task<IActionResult> Signup([FromBody] SignupRequest request, CancellationToken cancellationToken)
     {
+        // REQ-701 password policy (docs/requirements-document.md §5's
+        // "sensible technical default": minimum 8 characters, no forced
+        // complexity rules, following NIST 800-63B) — checked first among
+        // the free, local-only checks (no DB round trip, no Supabase call)
+        // since a password failing this makes the confirm-password match
+        // below moot. Matches AuthScreen.tsx's client-side check order.
+        if (request.Password.Length < 8)
+        {
+            return Problem(
+                title: "Password too short",
+                detail: "Password must be at least 8 characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         // REQ-701: confirm-password must match before Supabase Auth is ever
         // called — same "checked before any call to Supabase" discipline as
         // the age checkbox and DisplayName checks below. Checked first,
@@ -73,9 +91,23 @@ public class AuthController(
         var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, cancellationToken);
         if (!signUpResult.Success)
         {
+            // REQ-701 account-enumeration-safe error: Supabase's own
+            // rejection reason (e.g. "User already registered") is
+            // deliberately never passed through to the client, and — unlike
+            // the DisplayName conflict above — this is not narrowed to only
+            // the already-registered case. Giving a distinct, specific
+            // message just for "already registered" (while passing every
+            // other Supabase rejection's own text through unchanged) would
+            // itself leak which case occurred, exactly the enumeration this
+            // exists to prevent. So every Supabase signup rejection gets
+            // this same generic detail, worded to read sensibly whether or
+            // not an account already exists for this address — logged
+            // server-side (full reason, per docs/coding-guidelines.md) so a
+            // genuine misconfiguration is still diagnosable from logs.
+            logger.LogWarning("Signup rejected by Supabase Auth: {ErrorMessage}", signUpResult.ErrorMessage);
             return Problem(
-                title: "Signup failed",
-                detail: signUpResult.ErrorMessage,
+                title: "Signup could not be completed",
+                detail: "Check your email to confirm your account, or reset your password if you already have one.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
@@ -115,6 +147,11 @@ public class AuthController(
         return CreatedAtAction(nameof(Me), null, new SignupResponse(user.Id, user.Email, user.DisplayName));
     }
 
+    // REQ-606: 10 logins per IP per minute — a separate policy/counter from
+    // signup's above, so exhausting one never blocks the other. See
+    // Program.cs's AddRateLimiter registration for the shared policy/
+    // OnRejected details.
+    [EnableRateLimiting("auth-login")]
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
