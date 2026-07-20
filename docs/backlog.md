@@ -2942,6 +2942,67 @@ display-name form mock/description) and `docs/legal/privacy-policy-draft.md`
 (display name is editable, not only chosen at signup) both caught and
 fixed by a later doc-sync pass.
 
+**S-059 · Fix real-mobile grid cell sizing: uniform row heights regardless of row-header label length (follow-up to S-055)**
+Direct user report, with a real-device screenshot, one session after S-055
+shipped: "cells still not the same size" on real mobile. Pixel measurement
+of that screenshot confirmed S-055's own fix held (columns uniform, ~238px
+each) but surfaced a second, previously-undetected bug on the *row* axis at
+real mobile widths (390-412px) specifically — "Real Sociedad" (row-header
+wraps 2 lines), "Paris Saint-Germain" (3 lines), and "Valencia" (1 line)
+rendered at visibly different row heights (measured ~185px/238px/157px in
+the screenshot), tracking each row's own row-header line count. Same
+underlying CSS2.1 mechanism S-055 already fixed for columns
+(`table-layout`/an explicit floor acting as a ceiling only by coincidence),
+just on the axis S-055 never checked: `.grid-table__cell`'s `height` is
+only ever a *floor* on a table row's height, and the 481-959px/≥960px bands
+already carry a real target height comfortably larger than what wrapped
+row-header content needs (so never exhibited this), but ≤480px still relied
+on the bare 44px touch-target floor every real row-header already exceeds.
+No REQ change — visual bug fix against `design-document.md` §4's existing
+uniform-cell-size intent, same class of change as S-055.
+*Accept:* every data row's cells render at an identical, explicit height at
+the ≤480px breakpoint regardless of row-header label length, confirmed via
+real-browser measurement (not visual inspection alone) at 390px/412px, with
+390-1280px all re-verified for no regression; row-header text still wraps
+(not silently clipped) up to 3 lines, with graceful ellipsis truncation,
+full text preserved in the DOM for assistive tech, beyond that (flagged,
+not silently shipped); touch targets stay ≥44px; REQ-214's
+fixed-cell-footprint photo invariant is unaffected. *Deps:* S-040 (row-header
+stacking/wrap treatment this story reuses), S-047 (the floor-vs-ceiling
+table-row mechanism this story's own root-cause note is the row-axis twin
+of), S-049/S-055 (existing "give it a real target height instead of a bare
+floor" precedent, reused rather than reinvented, at the one breakpoint that
+still lacked it).
+**Built as:** `.grid-table__cell` gets an explicit 78px target height at
+≤480px (a working number for this grid's own longest real content —
+"Paris Saint-Germain"'s natural 3-line/76px need, plus a small rounding
+margin), in a *second*, separate `@media (max-width: 480px)` block placed
+after the base (unconditional) `.grid-table__cell` rule — not merged into
+the existing, earlier ≤480px block, since that block is declared *before*
+the base rule in source order and an override placed there loses the
+cascade to it despite its own media condition matching (verified directly:
+an earlier version of this fix placed the override in the wrong block and
+real-browser measurement showed no change at all). Paired with a 3-line
+`-webkit-line-clamp` on the row-header's own name text (the existing
+≤480px block) — the same truncation-with-ellipsis technique
+`CellState.css`'s `.cell-state--photo .cell-state__name` (S-047) already
+uses — so a label longer than any of this grid's own three examples can
+never exceed the 78px budget and reintroduce the bug for a single outlier
+row; 3 lines specifically because "Paris Saint-Germain" itself already
+needs exactly 3 to render in full, so none of the three real examples in
+the bug report actually gets truncated. Verified via real Chromium render
+(not-committed diagnostic Playwright + Vite harness, same approach
+S-047/S-050/S-055 each used) at 390px/412px/700px/1280px: all three
+example rows render at an identical height per breakpoint (78px/78px/90px/
+120px), 700px/1280px unchanged from before this story (regression check),
+and a deliberately-long stress-test row-header name truncates cleanly with
+an ellipsis rather than breaking layout or stretching its row. 201/201
+frontend tests pass (4 new, `Grid.test.tsx`), `tsc -b`/lint clean. No E2E
+spec change needed — `play-grid.spec.ts`'s cell-footprint checks run at
+the suite's default (desktop-sized) viewport, unaffected by a ≤480px-only
+fix. `docs/design-document.md` updated in the same story (§4's cell-sizing
+notes, new S-059 bullet).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

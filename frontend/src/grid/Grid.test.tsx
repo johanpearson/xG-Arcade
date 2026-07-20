@@ -445,3 +445,114 @@ describe('Grid cell aspect ratio, 481-959px band (S-055)', () => {
     expect(desktopCellRule).toContain('padding: var(--space-3)');
   });
 });
+
+// S-059 (root cause verified via getBoundingClientRect on a real Chromium
+// render at 390px/412px, not guessed — real user screenshots of a 3x3 grid
+// showed row heights of 61px/76px/53px for "Real Sociedad"/"Paris
+// Saint-Germain"/"Valencia" row-headers respectively, tracking each row's
+// own row-header wrapped-line count instead of a uniform value): the
+// column-width fix S-055 shipped never addressed the equivalent bug on the
+// row axis — `.grid-table__cell`'s `height` is only ever a floor on a table
+// row's height (same CSS2.1 table-row mechanism S-047's own note already
+// documents for the column axis), and this breakpoint alone (unlike
+// 481-959px/≥960px, which already carry a real target height) still relied
+// on the bare 44px `--touch-target-min` floor every real row-header
+// (badge + at least one line of text) already exceeds. jsdom has no real
+// table-layout engine (this file's own S-047 describe block's comment), so
+// these tests check the CSS mechanism/DOM structure the real-browser check
+// (this story's own verification, recorded in backlog.md's S-059 entry)
+// actually relies on, not a computed pixel box jsdom can't produce anyway.
+describe('Grid uniform row height, ≤480px (S-059)', () => {
+  it("gives .grid-table__cell a real target height (78px) in its own dedicated ≤480px block placed AFTER the base (unconditional) .grid-table__cell rule — not inside the earlier ≤480px block above, which loses the cascade to that later, unconditional rule despite its own media condition matching (verified directly: an earlier version of this fix placed the override in the wrong block and real-browser measurement showed no change at all)", () => {
+    const baseCellRuleIndex = gridCss.indexOf('.grid-table__cell {');
+    expect(baseCellRuleIndex, 'expected to find the base .grid-table__cell rule').toBeGreaterThanOrEqual(0);
+
+    const secondMobileMediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {', baseCellRuleIndex);
+    expect(
+      secondMobileMediaOpenIndex,
+      'expected a second ≤480px media block, after the base .grid-table__cell rule',
+    ).toBeGreaterThan(baseCellRuleIndex);
+
+    const secondMobileBlock = extractBraceBlock(
+      gridCss,
+      secondMobileMediaOpenIndex + '@media (max-width: 480px) '.length,
+    );
+    const cellRuleIndex = secondMobileBlock.indexOf('.grid-table__cell {');
+    expect(cellRuleIndex, 'expected .grid-table__cell to be styled inside this second ≤480px block').toBeGreaterThanOrEqual(
+      0,
+    );
+    const cellRule = extractBraceBlock(secondMobileBlock, cellRuleIndex + '.grid-table__cell '.length);
+    expect(cellRule).toContain('height: 78px');
+  });
+
+  it('leaves the first (earlier, S-040/S-055) ≤480px block\'s own .grid-table__cell-related rules alone — the new height override lives in a separate, later block (asserted above), not merged into this one', () => {
+    const firstMobileMediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {');
+    expect(firstMobileMediaOpenIndex, 'expected to find the first ≤480px media block').toBeGreaterThanOrEqual(0);
+    const firstMobileBlock = extractBraceBlock(
+      gridCss,
+      firstMobileMediaOpenIndex + '@media (max-width: 480px) '.length,
+    );
+    // Same regression guard S-049's own describe block already asserts
+    // (line ~437 above) — still true after this story, since the height
+    // override was deliberately placed in the second block instead.
+    expect(firstMobileBlock).not.toContain('.grid-table__cell {');
+  });
+
+  it('caps the row-header name to 3 lines via -webkit-line-clamp inside the first ≤480px block, so a row-header label longer than any of this grid\'s own real examples can never re-introduce uneven row heights by exceeding the 78px budget above', () => {
+    const firstMobileMediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {');
+    const firstMobileBlock = extractBraceBlock(
+      gridCss,
+      firstMobileMediaOpenIndex + '@media (max-width: 480px) '.length,
+    );
+    const nameRuleIndex = firstMobileBlock.indexOf('.grid-table__row-header .category-label__name {');
+    expect(
+      nameRuleIndex,
+      'expected a .grid-table__row-header .category-label__name rule inside the first ≤480px block',
+    ).toBeGreaterThanOrEqual(0);
+    const nameRule = extractBraceBlock(
+      firstMobileBlock,
+      nameRuleIndex + '.grid-table__row-header .category-label__name '.length,
+    );
+    // 3 lines, not fewer — "Paris Saint-Germain" (the real reported example)
+    // already needs exactly 3 to render in full at this column width; a
+    // smaller clamp would visibly truncate it, which real-browser
+    // verification (backlog.md S-059) confirmed this value does not.
+    expect(nameRule).toContain('-webkit-line-clamp: 3');
+    expect(nameRule).toContain('overflow: hidden');
+    expect(nameRule).toContain('display: -webkit-box');
+  });
+
+  it('renders every row-header label inside .category-label__name — the DOM structure the ≤480px line-clamp rule (Grid.css) targets, so a long label ("Paris Saint-Germain") and a short one ("Valencia") share the identical clamp mechanism regardless of content length', () => {
+    const cells: CurrentRoundCell[] = [];
+    const rows = ['Real Sociedad', 'Paris Saint-Germain', 'Valencia'];
+    const cols = ['Sevilla', 'Benfica', 'Atletico Madrid'];
+    rows.forEach((rowValue, row) => {
+      cols.forEach((colValue, col) => {
+        cells.push({
+          cellId: `cell-${row}-${col}`,
+          row,
+          col,
+          rowCategoryType: 'club',
+          rowCategoryValue: rowValue,
+          colCategoryType: 'club',
+          colCategoryValue: colValue,
+          guess: null,
+        });
+      });
+    });
+
+    const { container } = render(
+      <Grid
+        cells={cells}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const rowHeaders = container.querySelectorAll('.grid-table__row-header .category-label__name');
+    expect(rowHeaders.length).toBe(3);
+    const rowHeaderTexts = Array.from(rowHeaders).map((el) => el.textContent);
+    expect(rowHeaderTexts).toEqual(['Real Sociedad', 'Paris Saint-Germain', 'Valencia']);
+  });
+});

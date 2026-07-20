@@ -255,6 +255,75 @@
      selectors, values, and reasoning (stacking gives the name the column's
      full content width instead of sharing it with the glyph) are exactly
      what this block used to declare directly. */
+
+  /* S-059 (root cause verified via getBoundingClientRect on a real Chromium
+     render at 390px/412px, not guessed — real user screenshots of a 3x3
+     grid: the "Real Sociedad"/"Paris Saint-Germain"/"Valencia" row-header
+     labels wrap to 2/3/1 lines respectively at this breakpoint's 88px
+     row-header column, measuring row heights of 61px/76px/53px before this
+     fix — uneven, tracking each row's own row-header line count). Root
+     cause: `.grid-table__cell`'s `height` (base rule above) is only ever a
+     floor on a table row's height, never a ceiling (same CSS2.1 table-row
+     mechanism S-047's own note already documents for the *column* axis,
+     here on the row axis instead) — at every other breakpoint,
+     `.grid-table__cell` already carries an explicit, real (not just
+     44px-floor) target height (90px at 481-959px, the ≥960px block's own
+     desktop value further down this file) that's tall enough to swallow
+     ordinary wrapped row-header content without the row ever needing to
+     grow past it; this breakpoint alone still used the
+     44px `--touch-target-min` floor, which every real row-header (badge +
+     at least one line of text) already exceeds, so *some* per-row growth
+     was inevitable — the bug is that growth wasn't the same amount for
+     every row.
+
+     Fixed the same way S-049/S-055 already fixed the equivalent floor-vs-
+     target gap at their own breakpoints: give `.grid-table__cell` a real,
+     explicit target height here too (78px — a working number *for this
+     grid's own longest real content*, `Paris Saint-Germain`'s natural
+     3-line/76px need, plus a small rounding margin; not derived from a
+     visual-design ratio the way the 481-959px/≥960px bands' own values
+     each reuse an existing column width, since ≤480px is explicitly
+     exempt from this file's aspect-ratio bound
+     — see design-document.md §4's S-047 note — so there's no existing
+     value to reuse here). Paired with a 3-line clamp on the row-header's
+     own name text (`.grid-table__row-header .category-label__name` below)
+     so a *longer* name than any of this grid's own three examples can
+     never exceed that same 78px budget and reintroduce this bug for a
+     single outlier row — the same `-webkit-line-clamp` truncation-with-
+     ellipsis technique `CellState.css`'s `.cell-state--photo
+     .cell-state__name` (S-047) already uses for exactly this reason, not a
+     new mechanism. 3 lines, not fewer, specifically because "Paris
+     Saint-Germain" itself already needs exactly 3 to render in full at this
+     column width — a smaller clamp would visibly truncate the very label
+     from the real bug report this story fixes. Real-browser verification
+     (390px/412px/700px/1280px, not assumed) confirmed: all three example
+     rows render at an identical 78px height with no visible truncation
+     (none of the three needs the clamp to actually engage), and the
+     481-959px/≥960px bands — already uniform before this story, per their
+     own dedicated target-height blocks — are unaffected (this block's
+     selectors are scoped to `max-width: 480px` only). A name genuinely
+     needing a 4th wrapped line (none exist in this grid's own data) would
+     truncate with a trailing ellipsis rather than stretch its row past
+     78px — an accepted, flagged trade-off (see design-document.md §4's own
+     S-059 note and `docs/backlog.md`'s S-059 entry for the full
+     reasoning), not a silently-shipped one. The actual `height: 78px`
+     override lives in a second, separate `@media (max-width: 480px)` block
+     further down this file, after the base (unconditional)
+     `.grid-table__cell` rule — not here, alongside this comment — for the
+     same cascade reason `.grid-cell`'s own mobile padding override
+     (further down this file) already documents: the base rule is declared
+     *after* this early block in source order, so an override placed here,
+     before it, would lose to it despite this block's own media condition
+     matching. The 3-line clamp below has no such conflict (nothing else in
+     this file sets `.grid-table__row-header .category-label__name`'s
+     `-webkit-line-clamp`), so it stays here with the rest of this
+     breakpoint's row-header treatment. */
+  .grid-table__row-header .category-label__name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
 }
 
 /* S-050 (root cause verified via getBoundingClientRect on a real Chromium
@@ -316,6 +385,28 @@
   min-width: var(--touch-target-min);
   height: var(--touch-target-min);
   position: relative;
+}
+
+/* S-059 (real-browser root cause — see this file's other S-059 comment,
+   inside the earlier `@media (max-width: 480px)` block, for the full
+   before/after numbers and why the 78px figure/3-line clamp pair was
+   chosen): the actual `height` override lives here, in its own
+   `max-width: 480px` block placed *after* the base `.grid-table__cell`
+   rule directly above — not inside that earlier block — because this
+   file's cascade is source-order-sensitive for this exact selector: the
+   base rule above is declared later in the file than that earlier ≤480px
+   block, so an override placed there would lose to this unconditional
+   rule despite its own media condition matching, the same reason
+   `.grid-cell`'s own mobile padding override (further down this file) is
+   already placed after `.grid-cell`'s base rule rather than inside the
+   earlier block. Verified directly, not assumed: an earlier version of
+   this fix placed the override inside the earlier block and real-browser
+   measurement showed no change at all (still 61px/76px/53px) until it was
+   moved here. */
+@media (max-width: 480px) {
+  .grid-table__cell {
+    height: 78px;
+  }
 }
 
 /* S-055 (design-document.md §4's aspect-ratio bound: cells must render
