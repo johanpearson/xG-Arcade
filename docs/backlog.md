@@ -3088,6 +3088,35 @@ API test confirms the all-time endpoint returns the median-based ranking
 and a below-threshold member is absent, not present with a placeholder.
 *Deps:* S-011 (global leaderboard), S-034 (pagination).
 
+**S-061 · Admin "remove the data point" action (REQ-503, closes the last gap)**
+S-057 built "approve"; this closes REQ-503's other missing action,
+"remove," the same day. `POST /admin/player-data/remove` (`AdminEndpoints`,
+Admin policy), bulk-capable from the start like "approve," per-id
+success/failure reporting. Hard-deletes the `PlayerData` row — checked
+first that nothing holds a foreign key to a specific row id
+(`PlayerOverride` keys on `(PlayerId, Field)`, not a `PlayerData` id;
+`PlayerAttribute` has no reference to it at all), so a real delete is safe
+and matches the REQ's own "remove," not "hide," wording. Unlike "approve,"
+removal has no "must still be unverified" precondition — it's a general
+corrective action, not tied to the review queue's current state. No new
+`RemovedByAdminId`/`RemovedAt` audit columns (nothing survives to attach
+them to once the row is gone) — audit logging is a structured `ILogger`
+line at removal time instead, matching this codebase's established
+preference against a general-purpose audit-log table (same reasoning
+`PlayerOverride`'s own audit columns already established elsewhere).
+`AdminScreen.tsx` gained a "Remove selected" action in the same
+bulk-selection bar as "Approve selected."
+*Accept:* REQ503-named tests: single remove deletes one row; bulk remove
+(including select-all) deletes every selected row; a row already removed
+between selection and submission reports `NotFound` for that id without
+failing the rest of the batch; a non-admin gets 403 and the row survives.
+*Deps:* S-057 (existing review list/approve action this extends).
+**Built as:** matches the plan exactly. 5 new backend tests
+(`AdminEndpointTests.cs`), 4 new frontend tests (`AdminScreen.test.tsx`);
+full backend suite (557 tests) and frontend suite (209 tests) both green,
+`tsc -b`/lint clean. REQ-503's full acceptance criteria (approve, correct,
+remove) are now all built.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

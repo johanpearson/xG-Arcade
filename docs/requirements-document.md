@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.78"
+version: "0.79"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -2478,9 +2478,25 @@ absent from the response, not present with a placeholder value)
   unbuilt, out of scope here) — when that exists, it becomes the queue's
   sole source, exactly as ADR-0029 originally anticipated. The
   still-missing "approve"/"remove" actions this REQ's status note flags
-  are partially addressed below — see the 2026-07-20 extension for
-  "approve," including bulk/select-all; "remove" remains unbuilt and out
-  of scope for that extension.
+  are addressed below — see the 2026-07-20 extension for "approve,"
+  including bulk/select-all.
+- **Status note (2026-07-20, "remove" built):** `POST
+  /admin/player-data/remove` (`AdminEndpoints`, Admin policy) closes the
+  last gap — bulk-capable from the start like "approve," hard-deletes the
+  `PlayerData` row (nothing in this codebase holds a foreign key to a
+  specific `PlayerData` row id, so a real delete is safe, matching this
+  REQ's own "remove," not "hide," wording), and does not require the row
+  still be unverified (removal is a general corrective action, not tied to
+  the review queue's current state — a row another admin already approved
+  can still be removed). No new `RemovedByAdminId`/`RemovedAt` columns:
+  once a row is deleted there's nothing left to attach them to, so "logged
+  with admin_id and a timestamp" is satisfied via a structured `ILogger`
+  line at removal time instead, matching this codebase's established
+  preference against a general-purpose audit-log table.
+  `AdminScreen.tsx` gained a "Remove selected" action alongside "Approve
+  selected," same bulk-selection UI. **This REQ's acceptance criteria are
+  now fully met** — approve, correct (via the pre-existing
+  `PlayerOverride` path), and remove are all built.
 - Given data with `confidence = "unverified"`
 - When an admin opens the review view
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),

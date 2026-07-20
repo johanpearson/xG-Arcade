@@ -13,6 +13,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.78 → 0.79), `docs/
+  backlog.md` (new S-061 entry) — REQ-503 fully implemented: `POST
+  /admin/player-data/remove` (bulk, hard-delete, `ILogger`-based audit
+  logging, no "must be unverified" precondition unlike "approve"),
+  `AdminScreen.tsx` gained "Remove selected." Approve/correct/remove are
+  now all built. REQ-503.
 - 2026-07-20 — `docs/requirements-document.md` (0.77 → 0.78) — REQ-409
   decided (Status: Proposed, implementation-ready, not yet built): the
   all-time leaderboard ranks by the median of each player's per-round
