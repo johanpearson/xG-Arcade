@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.71"
+version: "0.72"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.71 · 2026-07-19
+Version 0.72 · 2026-07-19
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -1786,13 +1786,30 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
 **Test level:** Unit, API, UI
 
 **REQ-406 – Leaderboard totals include live points from the active round**
-*(Status: Proposed, not yet implemented — drafted 2026-07-19, this is the
-revisit REQ-206's status note has flagged since S-029.)*
+*(Status: Implemented (Tier 0, S-053), 2026-07-19 — this is the revisit
+REQ-206's status note flagged since S-029.)*
 > As a player, I want the leaderboard to reflect what I've done in the
 > round that's happening right now, not only my finished rounds, so I can
 > see where I actually stand instead of a total that ignores whatever I'm
 > currently playing.
 
+- **Status note (S-053):** built exactly as drafted below, plus one shared
+  computation reused by REQ-407. `GET /leagues/global/leaderboard`
+  (`XGArcade.Api.Leagues.LeaderboardEndpoints`, unchanged route) resolves
+  the currently active round (`IRoundRepository.GetActiveByGameKeyAsync`,
+  same REQ-303 pattern `RoundEndpoints` already uses) and passes it into
+  `LeaderboardService.GetGlobalLeaderboardAsync`, which now takes a
+  nullable `Round? activeRound` parameter. The three-case per-cell formula
+  (correct → `LivePoints`; locked-incorrect → `MaxPointsPerCell`;
+  unattempted → nothing) lives in one place, a new
+  `ILiveRoundContributionService`/`LiveRoundContributionService`
+  (`XGArcade.Core.Scoring`), reused verbatim by REQ-407 below — never two
+  independently-written formulas. Cells are resolved only through
+  `IGameModuleResolver`/`IGameModule.GetCellIdsAsync`, never a direct
+  `GridInstance`/`GridCell` reach-in (ADR-0003), confirmed by
+  `architecture-reviewer`'s quality-gate pass. No caching anywhere in this
+  path (ADR-0031) — verified in the same review. A member with zero
+  guesses in the active round is unaffected, exactly as specified.
 - **Relationship to existing behavior:** today, `LeaderboardService` sums
   only `Guess.FinalPoints` (REQ-401/404), which is `null` until a round is
   locked at close (REQ-205/ADR-0022) — REQ-206's status note already
@@ -1840,12 +1857,44 @@ per-league leaderboard endpoint reflects the live contribution and updates
 across two successive requests as underlying guesses change)
 
 **REQ-407 – Leaderboard scoped to the currently active round (live)**
-*(Status: Proposed, not yet implemented — drafted 2026-07-19.)*
+*(Status: Implemented (Tier 0, S-053), 2026-07-19.)*
 > As a player, I want a leaderboard scoped to just the round being played
 > right now, updating live as guesses come in, so I can see how I compare
 > to others on this specific round, not only my all-time or last-closed
 > total.
 
+- **Status note (S-053):** new `GET /leagues/global/leaderboard/active-round`
+  route (`cursor`/`pageSize`, same shape as every other leaderboard route
+  here), participant-only, backed by `LeaderboardService
+  .GetActiveRoundLeaderboardAsync` calling the same
+  `ILiveRoundContributionService` REQ-406 uses. Returns a 404 ("No active
+  round") exactly mirroring `RoundEndpoints`' REQ-303 "no active round"
+  response when none is active, per this REQ's own acceptance criterion.
+  Frontend: `LeaderboardScreen.tsx` (SCREEN-03) gained a three-way scope
+  selector — "All-time" / "This round (live)" / "Past rounds" (REQ-408) —
+  as an additional selector alongside (not replacing) the not-yet-built
+  custom-league tabs, exactly the placement this REQ specifies. The live
+  scope renders every row with the same "~N pts estimated" wording
+  `GridScreen.tsx`/`CellState.tsx` already established for a single cell's
+  live point value (REQ-204/S-018), satisfying "presented as visibly
+  provisional" without a new token/color/icon (no `design-document.md` §2
+  change needed). **One clarification on "recomputed fresh on each
+  request," found and corrected during this story's own quality gate:**
+  the frontend does not poll this route on an interval the way the
+  all-time scope's 15s poll does — `ADR-0031` explicitly flags this read as
+  materially more expensive than the all-time one, so the frontend instead
+  fetches once per genuine *entry* into the "This round (live)" tab
+  (switching to it fresh, including re-entering after visiting a different
+  scope) rather than continuously in the background. Each such fetch still
+  recomputes fully fresh server-side, satisfying this REQ's actual
+  acceptance criterion ("every rank and total returned is computed fresh on
+  each request") — the criterion governs what a request returns, not how
+  often the frontend chooses to issue one. An earlier draft of this
+  behavior had a real bug (a `useRef` "fetch once ever" latch that never
+  reset, so re-entering the tab after leaving it showed indefinitely stale
+  data with no refresh) — caught by `quality-architect`'s pre-merge review
+  and fixed before merge; regression tests now cover the leave-and-return
+  case explicitly.
 - **Relationship to REQ-405:** REQ-405's "round" resolution is, by its own
   explicit, already-resolved design decision, the single most recently
   *closed* round only — no live component, no browsing of arbitrary past
@@ -1909,11 +1958,38 @@ intervening guess change), UI (leaderboard is visibly marked provisional;
 reachable from SCREEN-03 as an additional scope option)
 
 **REQ-408 – Browsing a past (closed) round's leaderboard**
-*(Status: Proposed, not yet implemented — drafted 2026-07-19.)*
+*(Status: Implemented (Tier 0, S-054), 2026-07-19.)*
 > As a player, I want to open any individual past round and see its final
 > leaderboard, not only the current all-time total or the most recent
 > round, so I can look back at how a specific round played out.
 
+- **Status note (S-054):** required adding a new `Round.ClosedAt` (nullable
+  `DateTime`) column, via a real EF Core migration (`AddRoundClosedAt`) —
+  this executes the exact follow-up ADR-0022's own "Follow-up" section
+  anticipated ("if a past-round-detail screen is ever built... revisit
+  adding an explicit `Round.ClosedAt` column then"); no new ADR was needed,
+  ADR-0022 already reasoned through it. `RoundCloseService.CloseRoundAsync`
+  sets it once, first-close-wins, same idempotent shape as its existing
+  `EndTime` pull-forward. **Correctness detail found and fixed during this
+  story's own quality gate:** `ClosedAt` must only ever be persisted
+  *after* `LockRoundScoresAsync` completes, never before or concurrently —
+  an earlier version of this change set it first, which could let a reader
+  see a round as "closed"/browsable via this REQ while some guesses still
+  had `FinalPoints == null`, understating totals as if final. Reordered so
+  a throw during locking leaves `ClosedAt` null and a later retry
+  resumes/redoes locking before ever closing. New routes: `GET
+  /leagues/global/leaderboard/closed-rounds` (paginated round list,
+  `cursor`/`pageSize` matching REQ-607's exact shape/defaults, most
+  recently closed first) and `GET
+  /leagues/global/leaderboard/closed-rounds/{roundId}` (that round's
+  locked, never-recomputed leaderboard — `IGuessRepository
+  .GetTotalFinalPointsByRoundIdAsync`, REQ-206's own formula filtered to
+  one round). Not-found (404) and not-closed-yet (409) are distinct
+  responses, exactly as specified. Frontend: SCREEN-03's "Past rounds"
+  scope shows the round list (labelled by close time, no fabricated round
+  numbering since none exists in the data), drilling into one round's
+  leaderboard rendered with plain, non-provisional point text (contrast
+  REQ-407's "~N pts estimated").
 - **Relationship to REQ-405:** REQ-405's "round" resolution only ever
   exposes the single most-recently-closed round, folded into the same
   shape as its week/month/year windows. This REQ is a different concept:

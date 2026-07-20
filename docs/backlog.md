@@ -2674,6 +2674,28 @@ error. *Deps:* S-011 (REQ-401/404/206 baseline), S-018 (REQ-204 `LivePoints`),
 S-028/ADR-0021 (golf model + participant definition + `GetCellIdsAsync`),
 S-034 (REQ-607 pagination pattern the shared total's page slicing still
 uses), ADR-0031 (governs this story's implementation approach directly).
+**Built as:** `backend-implementer` implemented exactly as scoped — one
+shared `ILiveRoundContributionService`/`LiveRoundContributionService`
+(`XGArcade.Core.Scoring`) computing the three-case per-cell contribution,
+consumed by both `LeaderboardService.GetGlobalLeaderboardAsync` (now takes
+a nullable `Round? activeRound`, REQ-406) and the new
+`GetActiveRoundLeaderboardAsync` (REQ-407, new `GET
+/leagues/global/leaderboard/active-round` route, 404 "No active round"
+when none exists). Cells resolved only via `IGameModuleResolver`/
+`IGameModule.GetCellIdsAsync` (ADR-0003 intact — confirmed by
+`architecture-reviewer`). `ui-implementer` added SCREEN-03's three-way
+scope selector ("All-time" / "This round (live)" / "Past rounds") reusing
+the existing "~N pts estimated" wording (`GridScreen.tsx`/`CellState.tsx`
+precedent) for the provisional framing, no new token. **Quality-gate bug
+found and fixed before merge:** the live scope's `useRef` "fetch once"
+guard never reset, so re-entering the tab after switching away silently
+kept showing stale data indefinitely — the opposite of "come back to see
+the update." Fixed to refetch on every genuine transition into the scope
+(previous-scope comparison instead of a permanent latch), while still
+avoiding the original React StrictMode double-fetch race the guard existed
+to prevent; regression tests added for the leave-and-return case.
+Full backend suite 465/465, full frontend suite 170/170, `tsc -b`/lint
+clean.
 
 **S-054 · Browsable per-round leaderboard for past closed rounds (REQ-408)**
 Companion story to S-053, product-requested in the same round of feedback
@@ -2700,6 +2722,28 @@ responses. *Deps:* S-011 (REQ-206 locked total, REQ-205 close), S-034
 (REQ-607 pagination shape reused for the round list), S-053 (shares
 SCREEN-03's scope-selector UI this story adds its own option to — build
 after S-053 to avoid two stories independently adding the same selector).
+**Built as:** required a new `Round.ClosedAt` (nullable `DateTime`) column
+— a real EF Core migration (`AddRoundClosedAt`), executing the exact
+follow-up ADR-0022's own "Follow-up" section already anticipated ("revisit
+adding an explicit `Round.ClosedAt` column then, when a real `dotnet`
+environment is available"); no new ADR needed. New `GET
+/leagues/global/leaderboard/closed-rounds` (paginated list) and `GET
+/leagues/global/leaderboard/closed-rounds/{roundId}` (404 not-found / 409
+not-closed-yet) routes, backed by new `IRoundRepository
+.GetClosedByGameKeyAsync` and `IGuessRepository
+.GetTotalFinalPointsByRoundIdAsync`. **Quality-gate bug found and fixed
+before merge:** the original `RoundCloseService.CloseRoundAsync` persisted
+`ClosedAt` *before* `LockRoundScoresAsync` finished, opening a window where
+this story's own "closed round" endpoint could read a round as final while
+some guesses still had `FinalPoints == null`. Reordered so `ClosedAt` is
+only ever set after locking completes successfully — a throw during
+locking now leaves `ClosedAt` null and a later retry resumes/redoes locking
+before ever closing; new tests cover both the failure and the successful-
+retry paths. `ui-implementer` built the "Past rounds" scope on SCREEN-03:
+round-selection list (labelled by close time, no fabricated round
+numbering) drilling into that round's locked, non-provisional leaderboard.
+Full backend suite 465/465, full frontend suite 170/170, `tsc -b`/lint
+clean.
 
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
