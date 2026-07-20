@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.73"
+version: "0.74"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.73 · 2026-07-20
+Version 0.74 · 2026-07-20
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -2168,6 +2168,69 @@ pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
 responses), UI (round-selection list, then that round's leaderboard, on
 SCREEN-03)
 
+**REQ-409 – Participation-adjusted score for the all-time leaderboard**
+*(Status: Proposed — drafted 2026-07-20. Exploratory product-owner
+request, not a specified decision. See open questions below and §7.)*
+> As a player, I want the all-time leaderboard to reflect how consistently
+> I've played, not only my raw point total, so a player who has entered
+> many rounds isn't ranked behind someone who has only played a small,
+> lucky handful.
+
+- **Context:** REQ-401/404's all-time leaderboard ranks by
+  `SUM(FinalPoints ?? 0)` ascending — lowest total wins (ADR-0021, golf-
+  style scoring). Under a pure sum, a player who has participated in only
+  a few rounds needs only a few low (good) totals to sit near the top,
+  while a player who has played many rounds accumulates a larger total
+  simply by having played more often, even if their per-round performance
+  is just as good or better on average — so the raw sum can rank a small,
+  lucky sample ahead of a larger, consistent one. Note the framing: under
+  ADR-0021's lowest-wins model this is *not* "reward high scores for
+  volume" (that would be backwards here, since more play only ever adds
+  more to the total, which is worse) — it's about the current total
+  unfairly disadvantaging a player with a long, consistent participation
+  history relative to one with a short one.
+- **Product owner's own framing (2026-07-20, exploratory, not a spec):**
+  "maybe it should or could show a score based on x points/x amount of
+  grids participation or something." No formula has been decided — what
+  follows is a **candidate starting point for discussion, not a
+  decision.**
+- **Candidate formula (proposal only, to be confirmed):** average points
+  per round participated in — `SUM(FinalPoints) / COUNT(rounds the player
+  participated in)` — still sorted **ascending** (lowest average wins), to
+  stay consistent with ADR-0021's existing direction rather than
+  introducing a second, reversed convention on the same leaderboard.
+- This REQ does **not** specify final acceptance criteria. The formula
+  above, and every question below, needs product-owner confirmation before
+  this can move to an implementation-ready status.
+
+**Open questions a real decision needs to resolve (not answered by this
+REQ — see also §7):**
+- Does a participation-adjusted score **replace** the existing raw-total
+  ranking (REQ-401/404), or sit alongside it as a second, selectable
+  ranking/tab (similar in spirit to how REQ-405 adds selectable scopes to
+  the same leaderboard screen)?
+- What counts as "participated in a round" for the denominator — reuse the
+  existing participant definition (at least one `Guess` row in a round,
+  the same definition ADR-0021's `MaterializeUnansweredCellsAsync` and
+  REQ-406/407 already use) for consistency, or something narrower/
+  broader? Reusing the existing definition is the obvious default, but
+  this REQ does not decide it.
+- How does this interact with REQ-401/404's 2026-07-20 zero-guess
+  exclusion rule, which already excludes a member with zero guesses ever
+  from the ranked list entirely? Does a participation-adjusted score need
+  that same exclusion (a zero-participation player has an undefined
+  average — divide by zero), or does the averaging formula make a
+  separate exclusion rule moot?
+- Is a minimum-rounds threshold needed before a player is eligible to
+  appear in this ranking at all, to stop a single lucky round from
+  dominating an average-based score? If so, what threshold — and is a
+  player below it excluded from this view entirely, or only shown in the
+  raw-total view?
+
+**Test level:** Not applicable — no acceptance criteria has been
+finalized; testable criteria can only be written once the open questions
+above are resolved.
+
 ---
 
 ### 4.5 Data management and overrides
@@ -3133,6 +3196,63 @@ a valid stored refresh token but a missing/expired access token stays
 logged in without showing a login prompt; an invalid stored refresh token
 returns to the login screen; logging out clears the stored refresh token)
 
+**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed —
+drafted 2026-07-20, placeholder only. Needs its own design session before
+REQ/ADR-level specification — see `docs/backlog.md`'s note on this exact
+item. Not implementation-ready.)*
+> As a player, I want to choose a different color theme (e.g. dark mode)
+> for the app, so I can use it comfortably in different lighting
+> conditions or to match my own preference.
+
+- **Context:** raised as part of a broader Settings-page expansion
+  request. The request itself is vague as given — it is not yet clear
+  whether "change color themes" means a single light/dark toggle, multiple
+  named themes, or something else; this REQ records that the request
+  exists rather than assuming a specific scope on the product owner's
+  behalf.
+- `docs/design-document.md` §2 defines the current token system as
+  explicitly **light theme only for v1** — every color token (`bg-base`,
+  `surface-card`, `text-primary`, `accent-gold-text`, and the rest of that
+  table) has exactly one value, with several individually verified against
+  WCAG contrast floors for that one light background, documented with
+  dated entries in `docs/CHANGELOG.md`.
+- `docs/backlog.md` already flags this explicitly: "selectable color
+  themes/dark mode ... a reversal of the light-only v1 direction deserves
+  its own design session, not a quick story." This REQ does not override
+  that — it exists only to give the request a stable REQ ID to reference,
+  not to specify it.
+
+**What a real design pass would need to cover (not resolved here):**
+- Scope of "theme" — a single light/dark toggle vs. multiple named themes
+  vs. something else; the request as given does not distinguish between
+  these.
+- Every existing token in `docs/design-document.md` §2 would need a value
+  per theme. That table today defines one flat value per token with no
+  existing raw/semantic split to build on — adding a second theme means
+  deciding how each token's per-theme value is authored and stored, not
+  just adding a parallel set of hex values ad hoc.
+- Every WCAG contrast ratio verified for the current light theme
+  (`docs/CHANGELOG.md` has several dated entries computing exact ratios
+  for specific tokens, e.g. `accent-gold-text`, `overlay-scrim`) would
+  need to be **re-verified independently for a dark theme**, not assumed
+  to carry over — a value that clears a contrast floor against
+  `#FBFBFA`/`#FFFFFF` has no guaranteed relationship to its contrast
+  against a dark background.
+- A persistence mechanism for the chosen theme — `localStorage`
+  (device-local) vs. a `User`-level stored preference (follows the account
+  across devices) — is an open decision, not something this REQ defaults
+  on.
+- Whether theme selection should also consider the system-level
+  `prefers-color-scheme` preference as a default, separate from an
+  explicit in-app choice.
+
+- **Status: Proposed, explicitly not implementation-ready.** No
+  acceptance criteria are written below because none of the above has
+  been decided — writing Given/When/Then criteria now would mean
+  inventing a scope the product owner hasn't confirmed.
+
+**Test level:** Not applicable until scoped by a dedicated design session.
+
 ---
 
 ### 4.11 Operational resilience
@@ -3234,9 +3354,28 @@ shows the default is wrong.
 
 ## 7. Open questions (remaining)
 
-None — REQ-405's leaderboard time-window questions (the last entry in this
+REQ-405's leaderboard time-window questions (the previous entry in this
 section) were resolved 2026-07-12: calendar-aligned windows, UTC, locked
 rounds only. See REQ-405's own status note and `docs/backlog.md` S-027.
+
+Two genuine open questions were added 2026-07-20, both currently recorded
+as `Status: Proposed` REQs rather than decided here:
+
+- **REQ-409 (participation-adjusted all-time score):** whether the
+  all-time leaderboard should show, instead of or alongside the existing
+  raw `SUM(FinalPoints ?? 0)` total, a participation-adjusted score (a
+  candidate formula — average points per round participated in — is
+  proposed for discussion, not decided). Open: replace vs. second view,
+  the participation definition to use, interaction with REQ-401/404's
+  zero-guess exclusion, and whether a minimum-rounds threshold is needed.
+  No formula, display mode, or threshold has been chosen.
+- **REQ-716 (selectable color themes / dark mode):** whether/how to offer
+  a non-light color theme. `docs/backlog.md` already flags this as
+  deserving its own design session rather than a quick story; this REQ
+  exists only as a placeholder recording the request, not a scoped spec.
+  Open: single toggle vs. multiple themes, per-theme token values and
+  re-verified contrast ratios, persistence mechanism, and whether to
+  honor `prefers-color-scheme`.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:
