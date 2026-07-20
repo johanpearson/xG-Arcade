@@ -80,6 +80,54 @@
   margin: 0;
 }
 
+/* Checkbox pattern reused from AuthScreen.css's `.auth-screen__checkbox`
+   (the age-confirmation checkbox) — same token-only sizing, kept
+   consistent rather than inventing a second checkbox style. */
+.admin-screen__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  min-height: var(--touch-target-min);
+  cursor: pointer;
+}
+
+.admin-screen__checkbox input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.admin-screen__bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.admin-screen__selected-count {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.admin-screen__approval-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.admin-screen__approval-result {
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.admin-screen__approval-result--failed {
+  color: var(--color-accent-red);
+}
+
 .admin-screen__inline-form {
   display: flex;
   flex-direction: column;

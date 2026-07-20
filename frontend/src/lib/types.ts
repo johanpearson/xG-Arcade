@@ -173,6 +173,23 @@ export interface UnverifiedPlayerData {
   syncedAt: string;
 }
 
+// REQ-503 (2026-07-20 extension): a single row's outcome from
+// POST /admin/player-data/approve — `failureReason` is `"NotFound"` or
+// `"NotUnverified"` (as plain strings, not a shared enum type) when
+// `approved` is false, `null` when true.
+export interface PlayerDataApprovalResult {
+  playerDataId: string;
+  approved: boolean;
+  failureReason: string | null;
+}
+
+// REQ-503 (2026-07-20 extension): POST /admin/player-data/approve's
+// response — always 200 with one result per requested id (bulk, with a
+// single id as the N=1 case), never an all-or-nothing batch result.
+export interface ApprovePlayerDataResponse {
+  results: PlayerDataApprovalResult[];
+}
+
 // REQ-501: the PlayerOverride record created by POST /admin/player-overrides.
 export interface PlayerOverride {
   id: string;
@@ -200,4 +217,11 @@ export interface AdminRound {
 export interface AdminActiveRound {
   hasActiveRound: boolean;
   round: AdminRound | null;
+}
+
+// REQ-714: PUT /auth/display-name's response shape
+// (AuthController.UpdateDisplayName / UpdateDisplayNameResponse).
+export interface UpdateDisplayNameResponse {
+  id: string;
+  displayName: string;
 }

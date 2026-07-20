@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.35"
+version: "0.36"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -899,6 +899,20 @@ states explicitly for the round-control/user-deletion sections'
 Production gating. The two sections below (round control, user deletion)
 are new as of S-026.
 
+**Status note (2026-07-20, REQ-503's "approve" extension):** `Approve` is
+back, in bulk-first form — `POST /admin/player-data/approve` now exists
+server-side (bulk, a single id is just the N=1 case), so the mock below
+adds a checkbox per row, a "select all" control, a selected-count readout,
+and an "Approve selected" button. `Remove` still doesn't exist server-side
+and is still not shown. No new tokens: the checkbox reuses the exact sizing/spacing the
+login/signup screen's REQ-701 age-confirmation checkbox already
+established (`AuthScreen.css`'s `.auth-screen__checkbox` — 20×20px box,
+`--space-2` gap, `--touch-target-min` row height; that screen still has no
+formal `SCREEN-xx` entry of its own, §7's open item) rather than inventing
+a second checkbox style, and the failed row color reuses `accent-red` —
+the same token this document already uses for every other error/incorrect
+state, not a new "failure" color.
+
 **Unverified data review (REQ-501/502/503) — always rendered, no
 `ASPNETCORE_ENVIRONMENT` gate:**
 
@@ -906,9 +920,26 @@ are new as of S-026.
 ┌─────────────────────────────────────────────┐
 │ Unverified data (14)                          │
 ├─────────────────────────────────────────────┤
-│ Henry · nationality · France · live_lookup    │
-│   [Correct]                                    │
+│ [ ] Select all         3 selected  [Approve   │
+│                                     selected] │
+├─────────────────────────────────────────────┤
+│ [✓] Henry · nationality · France · live_lookup│
+│       [Correct]                                │
+│ [ ] Mbappe · club · PSG · wikidata             │
+│       [Correct]                                │
 │ ...                                            │
+└─────────────────────────────────────────────┘
+```
+
+After an approve submits, a persistent results list appears above the row
+list until dismissed:
+
+```
+┌─────────────────────────────────────────────┐
+│ Henry · nationality · France — Approved.       │
+│ Mbappe · club · PSG — Not approved — already   │
+│   reviewed by someone else.                    │
+│ [Dismiss]                                      │
 └─────────────────────────────────────────────┘
 ```
 
@@ -921,6 +952,25 @@ player/field) shows the server's own detail text inline rather than
 crashing — there's still no dedicated "edit an existing override" UI (S-012
 never built a browsable override list), so an admin hitting this picks a
 different row for now.
+
+Each row's own checkbox (not a substitute for `[Correct]` — both actions
+exist independently on the same row) selects it for the bulk approve
+below; "Select all" selects every row currently loaded in the view, not
+every unverified row that exists server-side (this view has no pagination
+yet, so today they're the same set, but the control's own meaning is
+scoped to what's on screen). "Approve selected" is disabled at zero
+selected. Submitting calls `POST /admin/player-data/approve` with every
+selected id — no reason field, unlike `[Correct]`'s form. The response is
+always a per-row result, never a single pass/fail for the whole batch: the
+results list above shows each selected row's own outcome ("Approved." or
+"Not approved — " plus what happened, e.g. "this row no longer exists" or
+"already reviewed by someone else" — never the raw `NotFound`/
+`NotUnverified` value shown as-is), and the underlying row list is
+refetched the same way `[Correct]`'s successful submit already does — a
+row that succeeded drops out of the refetched list (it's no longer
+unverified), a row that failed stays in the list precisely because its
+`Confidence` is still whatever it already was, so an admin can act on it
+again in either case: it's readable directly, no separate lookup needed.
 
 **Round control (REQ-505) — entirely absent from the page, not merely
 disabled, when `ASPNETCORE_ENVIRONMENT == Production` (the round-control
