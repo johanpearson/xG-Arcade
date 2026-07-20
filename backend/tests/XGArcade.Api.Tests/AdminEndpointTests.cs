@@ -305,16 +305,16 @@ public class AdminEndpointTests
         var playerId = await SeedPlayerAsync();
         var firstId = await SeedUnverifiedPlayerDataAsync(playerId);
         Guid secondId;
-        using (var scope = _factory.Services.CreateScope())
+        using (var seedScope = _factory.Services.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
             var second = new PlayerData
             {
                 Id = Guid.NewGuid(), PlayerId = playerId, Field = "nationality", Value = "France",
                 Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
             };
-            dbContext.PlayerData.Add(second);
-            await dbContext.SaveChangesAsync();
+            seedDbContext.PlayerData.Add(second);
+            await seedDbContext.SaveChangesAsync();
             secondId = second.Id;
         }
         var client = CreateAdminClient();
