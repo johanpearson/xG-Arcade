@@ -27,3 +27,18 @@ public record MeResponse(Guid Id, string Email, string DisplayName, bool EmailCo
 // than a bare confirmation flag a client could set without the user
 // actually re-affirming intent.
 public record DeleteAccountRequest(string Password);
+
+// REQ-714: edit an existing account's DisplayName from Settings. Reuses
+// REQ-701's exact 1-30 character bound and case-insensitive uniqueness
+// check (AuthController.UpdateDisplayName), this time excluding the
+// caller's own row so a no-op/casing-only resubmission of their own name
+// is never treated as a conflict against itself.
+public record UpdateDisplayNameRequest(string DisplayName);
+
+public record UpdateDisplayNameResponse(Guid Id, string DisplayName);
+
+// REQ-715: exchanges a stored refresh token for a new access token (and,
+// if Supabase's own rotation returns one, a new refresh token) without the
+// person re-entering credentials — mediated through the backend the same
+// way POST /auth/login/signup already are (ADR-0013).
+public record RefreshRequest(string RefreshToken);

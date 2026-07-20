@@ -30,10 +30,17 @@ public record SupabaseServiceRoleKey(string Value);
 public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey serviceRoleKey) : ISupabaseAuthClient
 {
     public Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default) =>
-        PostCredentialsAsync("auth/v1/signup", email, password, cancellationToken);
+        PostAuthRequestAsync("auth/v1/signup", new { email, password }, cancellationToken);
 
     public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
-        PostCredentialsAsync("auth/v1/token?grant_type=password", email, password, cancellationToken);
+        PostAuthRequestAsync("auth/v1/token?grant_type=password", new { email, password }, cancellationToken);
+
+    // REQ-715: same anon-keyed HttpClient defaults as SignUp/SignInWithPassword
+    // above (no service_role key needed — unlike DeleteUserAsync below, this
+    // isn't an Admin API call) and the exact same
+    // success/failure-shape-not-exception contract.
+    public Task<SupabaseAuthResult> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default) =>
+        PostAuthRequestAsync("auth/v1/token?grant_type=refresh_token", new { refresh_token = refreshToken }, cancellationToken);
 
     public async Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default)
     {
@@ -49,10 +56,15 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
         return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
     }
 
-    private async Task<SupabaseAuthResult> PostCredentialsAsync(
-        string path, string email, string password, CancellationToken cancellationToken)
+    // Shared by SignUpAsync/SignInWithPasswordAsync/RefreshTokenAsync above —
+    // all three are anon-keyed POSTs to Supabase Auth's token/signup
+    // endpoints that return the same session-shaped response on success and
+    // the same error shape on failure; only the path and request body
+    // differ per call.
+    private async Task<SupabaseAuthResult> PostAuthRequestAsync(
+        string path, object requestBody, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.PostAsJsonAsync(path, new { email, password }, cancellationToken);
+        using var response = await httpClient.PostAsJsonAsync(path, requestBody, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
