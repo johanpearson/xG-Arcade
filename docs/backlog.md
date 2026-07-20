@@ -3069,6 +3069,25 @@ the suite's default (desktop-sized) viewport, unaffected by a ≤480px-only
 fix. `docs/design-document.md` updated in the same story (§4's cell-sizing
 notes, new S-059 bullet).
 
+**S-060 · Median, participation-gated all-time leaderboard (REQ-409)**
+Implements REQ-409's 2026-07-20 decision (see that REQ's full text): the
+all-time leaderboard ranks by the median of each player's per-round
+`SUM(FinalPoints)` totals (locked rounds only, no live component) instead
+of the raw sum, gated by a minimum of 5 qualifying rounds (closed round +
+at least one `Guess` in it) to appear ranked at all — replacing, not
+adding a tab alongside, the existing `GetGlobalLeaderboardAsync` ranking.
+Below-threshold players are excluded the same way REQ-404's zero-guess
+exclusion already works. Ties broken by display name, same as every other
+ranking. See REQ-404's added status note for how the interim (pre-this-
+story) behavior is described.
+*Accept:* REQ409-named tests: median computed correctly for odd/even
+qualifying-round counts; exactly-4-rounds excluded, exactly-5 included and
+ranked; an active/unlocked round never counts toward the threshold or the
+median; sort order and tie-break match every other leaderboard ranking.
+API test confirms the all-time endpoint returns the median-based ranking
+and a below-threshold member is absent, not present with a placeholder.
+*Deps:* S-011 (global leaderboard), S-034 (pagination).
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
