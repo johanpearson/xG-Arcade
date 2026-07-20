@@ -474,7 +474,7 @@ describe('LeaderboardScreen', () => {
 
   // REQ-406/407/408 (S-053/S-054): the three-way scope selector.
   describe('scope selector', () => {
-    it('REQ407: switching to "This round (live)" fetches the active-round endpoint, not the all-time one', async () => {
+    it('REQ407: switching to "Current Round" fetches the active-round endpoint, not the all-time one', async () => {
       const fetchMock = routedFetch([
         [
           '/leagues/global/leaderboard/active-round',
@@ -493,7 +493,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
 
       await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
       const activeRoundCalls = fetchMock.mock.calls.filter((call) =>
@@ -502,7 +502,7 @@ describe('LeaderboardScreen', () => {
       expect(activeRoundCalls).toHaveLength(1);
     });
 
-    it('REQ408: switching to "Past rounds" fetches the closed-rounds list endpoint', async () => {
+    it('REQ408: switching to "Previous Rounds" fetches the closed-rounds list endpoint', async () => {
       const fetchMock = routedFetch([
         [
           '/leagues/global/leaderboard/closed-rounds',
@@ -520,7 +520,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
 
       await waitFor(() => expect(screen.getByText('Closed 2026-07-10T18:05:00Z')).toBeInTheDocument());
       const closedRoundsCalls = fetchMock.mock.calls.filter((call) =>
@@ -548,7 +548,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
 
       // Same "~N pts estimated" wording GridScreen.tsx/CellState.tsx already
       // established for a live point value (S-018/REQ-204) — not a plain
@@ -569,7 +569,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
 
       await waitFor(() =>
         expect(screen.getByText('No round is currently active — check back once one starts.')).toBeInTheDocument(),
@@ -592,7 +592,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
 
       await waitFor(() =>
         expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument(),
@@ -636,7 +636,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-12T18:05:00Z')).toBeInTheDocument());
 
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
@@ -678,7 +678,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
 
       fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
@@ -689,8 +689,8 @@ describe('LeaderboardScreen', () => {
       expect(screen.getByText('120 pts')).toBeInTheDocument();
       expect(screen.queryByText(/estimated/)).not.toBeInTheDocument();
 
-      // "Back to past rounds" returns to the round list without refetching it.
-      fireEvent.click(screen.getByRole('button', { name: 'Back to past rounds' }));
+      // "Back to previous rounds" returns to the round list without refetching it.
+      fireEvent.click(screen.getByRole('button', { name: 'Back to previous rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
     });
 
@@ -714,7 +714,7 @@ describe('LeaderboardScreen', () => {
 
       const { unmount } = render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
       fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
       await waitFor(() => expect(screen.getByText("This round couldn’t be found.")).toBeInTheDocument());
@@ -740,12 +740,12 @@ describe('LeaderboardScreen', () => {
 
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
       fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
       await waitFor(() =>
         expect(
-          screen.getByText('This round hasn’t closed yet — its live leaderboard is under “This round (live).”'),
+          screen.getByText('This round hasn’t closed yet — its live leaderboard is under “Current Round.”'),
         ).toBeInTheDocument(),
       );
 
@@ -775,7 +775,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('10 pts')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
       await waitFor(() =>
         expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument(),
       );
@@ -792,7 +792,7 @@ describe('LeaderboardScreen', () => {
     // "check back once one starts"/"come back to see the update" promise is
     // moot, since the frontend would never actually issue that later
     // request.
-    it('REQ407: re-selecting "This round (live)" after switching away fetches again, replacing the previously shown rows', async () => {
+    it('REQ407: re-selecting "Current Round" after switching away fetches again, replacing the previously shown rows', async () => {
       let activeRoundCallCount = 0;
       const fetchMock = routedFetch([
         [
@@ -823,13 +823,13 @@ describe('LeaderboardScreen', () => {
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
       // First entry into "live".
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
       await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
 
       // Away, then back — this is the exact "check back later" scenario
       // REQ-407 promises works, and the bug broke.
       fireEvent.click(screen.getByRole('tab', { name: 'All-time' }));
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
 
       // Second, fresh response lands — proving a second real request was
       // made, not the first response silently reused.
@@ -841,7 +841,7 @@ describe('LeaderboardScreen', () => {
 
     // Regression test for the "hasFetchedPastListRef never resets" bug —
     // same shape as the live-scope test above, for the past-rounds list.
-    it('REQ408: re-selecting "Past rounds" after switching away fetches the closed-rounds list again', async () => {
+    it('REQ408: re-selecting "Previous Rounds" after switching away fetches the closed-rounds list again', async () => {
       let closedRoundsCallCount = 0;
       const fetchMock = routedFetch([
         [
@@ -884,12 +884,12 @@ describe('LeaderboardScreen', () => {
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
       // First entry into "past".
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
 
       // Away, then back.
       fireEvent.click(screen.getByRole('tab', { name: 'All-time' }));
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
 
       // Second, fresh response lands — proving a second real request was
       // made, not the first list silently reused.
@@ -934,7 +934,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'This round (live)' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
       await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
 
       fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
@@ -1003,7 +1003,7 @@ describe('LeaderboardScreen', () => {
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
       await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Past rounds' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
       await waitFor(() => expect(screen.getByText('Closed 2026-07-05T18:05:00Z')).toBeInTheDocument());
       fireEvent.click(screen.getByRole('button', { name: 'Closed 2026-07-05T18:05:00Z' }));
       await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());

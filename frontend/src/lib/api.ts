@@ -137,7 +137,7 @@ export async function fetchLeaderboard(
 }
 
 // REQ-407/ADR-0031 (S-053): the active round's own leaderboard (SCREEN-03's
-// "This round (live)" scope) — participant-only, recomputed live on every
+// "Current Round" scope) — participant-only, recomputed live on every
 // call, never cached (ADR-0031). Same cursor/pageSize shape as
 // fetchLeaderboard above. Deliberately does NOT swallow the "no active
 // round" 404 the way fetchCurrentRound does for its own 404 — the caller

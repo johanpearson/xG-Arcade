@@ -429,7 +429,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     }
   }
 
-  // ---- Past rounds scope (REQ-408) --------------------------------------
+  // ---- Previous Rounds scope (REQ-408) -----------------------------------
 
   // The round-selection list, fetched on every transition into this
   // scope — same "idle until picked" and "re-entry, not a one-time latch"
@@ -595,7 +595,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
 
   function renderLive() {
     if (liveState.phase === 'idle' || liveState.phase === 'loading') {
-      return <p className="leaderboard-screen__status">Loading this round’s leaderboard…</p>;
+      return <p className="leaderboard-screen__status">Loading the current round’s leaderboard…</p>;
     }
     if (liveState.phase === 'error') {
       return <p className="leaderboard-screen__status leaderboard-screen__status--error">{liveState.message}</p>;
@@ -644,7 +644,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
               className="leaderboard-screen__back"
               onClick={handleBackToRoundList}
             >
-              Back to past rounds
+              Back to previous rounds
             </button>
             <p className="leaderboard-screen__scope-note">Closed {selectedRound.closedAt}</p>
           </div>
@@ -658,7 +658,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
           )}
           {pastDetailState.phase === 'not-closed' && (
             <p className="leaderboard-screen__empty">
-              This round hasn’t closed yet — its live leaderboard is under “This round (live).”
+              This round hasn’t closed yet — its live leaderboard is under “Current Round.”
             </p>
           )}
           {pastDetailState.phase === 'error' && (
@@ -683,7 +683,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     }
 
     if (pastListState.phase === 'idle' || pastListState.phase === 'loading') {
-      return <p className="leaderboard-screen__status">Loading past rounds…</p>;
+      return <p className="leaderboard-screen__status">Loading previous rounds…</p>;
     }
     if (pastListState.phase === 'error') {
       return (
@@ -758,7 +758,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
           className={`leaderboard-screen__scope-tab ${scope === 'live' ? 'leaderboard-screen__scope-tab--active' : ''}`}
           onClick={() => setScope('live')}
         >
-          This round (live)
+          Current Round
         </button>
         <button
           type="button"
@@ -767,7 +767,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
           className={`leaderboard-screen__scope-tab ${scope === 'past' ? 'leaderboard-screen__scope-tab--active' : ''}`}
           onClick={() => setScope('past')}
         >
-          Past rounds
+          Previous Rounds
         </button>
       </div>
       {scope === 'all-time' && renderAllTime()}

@@ -126,8 +126,8 @@ export interface LeaderboardResponse {
 
 // REQ-408 (S-054): a single closed round, as returned by
 // GET /leagues/global/leaderboard/closed-rounds — one entry in SCREEN-03's
-// "past rounds" scope's round-selection list. Only ever a *closed* round
-// (never active/upcoming, which is REQ-407/S-053's "This round (live)"
+// "Previous Rounds" scope's round-selection list. Only ever a *closed* round
+// (never active/upcoming, which is REQ-407/S-053's "Current Round"
 // scope's territory instead) — `closedAt` is the field the list is ordered
 // by (most recently closed first), `startTime`/`endTime` are the round's own
 // window. There is no round-number field anywhere in this data, so the UI
