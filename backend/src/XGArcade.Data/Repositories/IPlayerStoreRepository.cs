@@ -20,12 +20,41 @@ public interface IPlayerStoreRepository
 
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
-    // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): guess-time name matching
-    // queries Player.NormalizedFullName directly — no PlayerNameIndex/COMP-10
-    // (deferred, Tier 1) and no PlayerAlias (also deferred for matching
-    // purposes — "defer the alias table" in MVP-SCOPE.md's Tier 0 scoping).
+    // REQ-208: guess-time name matching's primary-name path — queries
+    // Player.NormalizedFullName directly. Still never PlayerNameIndex/
+    // COMP-10 (ADR-0007's autocomplete/correctness separation, permanent,
+    // not a Tier boundary).
     Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
         string normalizedFullName, CancellationToken cancellationToken = default);
+
+    // REQ-208: guess-time name matching's alias path, checked only when the
+    // primary-name path above found no candidate satisfying the cell's
+    // categories — PlayerAlias.NormalizedAlias is populated at persist time
+    // (WikidataLookupService.PersistAliasesAsync) with the same
+    // PlayerNameNormalizer.Normalize used here, so an exact string match is
+    // enough. Never PlayerNameIndex — same boundary as the method above.
+    Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
+        string normalizedAlias, CancellationToken cancellationToken = default);
+
+    // REQ-208: the bounded candidate pool for fuzzy/edit-distance matching
+    // (GridGameModule.FindFuzzyCandidatesAsync) — every player already known
+    // (via a cached PlayerAttribute row) to satisfy at least one of the
+    // cell's two categories. A player satisfying neither category can never
+    // be a correct answer for this cell regardless of how close their name
+    // is, so this never excludes a genuine match while keeping the fuzzy
+    // pass's cost bounded by this cell's own category population rather
+    // than a full-table scan.
+    Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
+
+    // REQ-208: bulk alias fetch for the fuzzy pass's bounded candidate pool
+    // above — one query for every candidate's aliases rather than one
+    // GetPlayerAliasesAsync call per candidate. A playerId with no aliases
+    // is simply absent from the result (not present with an empty list).
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
 
     Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default);
 

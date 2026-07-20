@@ -124,6 +124,95 @@ public class PlayerStoreRepositoryTests
         Assert.That(aliases, Is.Empty);
     }
 
+    // ---- REQ-208: guess-time alias/fuzzy matching's supporting repository
+    // methods (GridGameModule.FindMatchAsync/FindFuzzyCandidatesAsync) -------
+
+    [Test]
+    public async Task GetPlayersByNormalizedAliasAsync_ReturnsPlayer_WhenNormalizedAliasMatches()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Q123" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+
+        var found = await _repository.GetPlayersByNormalizedAliasAsync("kaka");
+
+        Assert.That(found, Has.Count.EqualTo(1));
+        Assert.That(found[0].Id, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task GetPlayersByNormalizedAliasAsync_ReturnsEmpty_WhenNoAliasMatches()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Titi", NormalizedAlias = "titi" });
+
+        var found = await _repository.GetPlayersByNormalizedAliasAsync("kaka");
+
+        Assert.That(found, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetPlayersWithEitherAttributeAsync_ReturnsPlayersSatisfyingEitherAttribute_DistinctAndNoOthers()
+    {
+        var satisfiesFirst = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var satisfiesSecond = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        var satisfiesBoth = new Player { Id = Guid.NewGuid(), FullName = "Player C", WikidataQid = "QC" };
+        var satisfiesNeither = new Player { Id = Guid.NewGuid(), FullName = "Player D", WikidataQid = "QD" };
+        foreach (var p in new[] { satisfiesFirst, satisfiesSecond, satisfiesBoth, satisfiesNeither })
+            await _repository.AddPlayerAsync(p);
+
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesFirst.Id, AttributeType = "nationality", AttributeValue = "France" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesSecond.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesBoth.Id, AttributeType = "nationality", AttributeValue = "France" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesBoth.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesNeither.Id, AttributeType = "nationality", AttributeValue = "England" });
+
+        var found = await _repository.GetPlayersWithEitherAttributeAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(found.Select(p => p.Id), Is.EquivalentTo(new[] { satisfiesFirst.Id, satisfiesSecond.Id, satisfiesBoth.Id }));
+    }
+
+    [Test]
+    public async Task GetPlayersWithEitherAttributeAsync_ReturnsEmpty_WhenNoPlayerSatisfiesEither()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "England" });
+
+        var found = await _repository.GetPlayersWithEitherAttributeAsync("nationality", "France", "club", "Arsenal");
+
+        Assert.That(found, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetPlayerAliasesByPlayerIdsAsync_ReturnsOnlyRequestedPlayersAliases_GroupedByPlayerId()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Q123" };
+        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var uninvolvedPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q999" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAsync(otherPlayer);
+        await _repository.AddPlayerAsync(uninvolvedPlayer);
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = otherPlayer.Id, Alias = "Titi", NormalizedAlias = "titi" });
+        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = uninvolvedPlayer.Id, Alias = "Nope", NormalizedAlias = "nope" });
+
+        var aliasesByPlayerId = await _repository.GetPlayerAliasesByPlayerIdsAsync([player.Id, otherPlayer.Id]);
+
+        Assert.That(aliasesByPlayerId.Keys, Is.EquivalentTo(new[] { player.Id, otherPlayer.Id }));
+        Assert.That(aliasesByPlayerId[player.Id].Single().NormalizedAlias, Is.EqualTo("kaka"));
+        Assert.That(aliasesByPlayerId[otherPlayer.Id].Single().NormalizedAlias, Is.EqualTo("titi"));
+    }
+
+    [Test]
+    public async Task GetPlayerAliasesByPlayerIdsAsync_EmptyIdList_ReturnsEmptyDictionary()
+    {
+        var aliasesByPlayerId = await _repository.GetPlayerAliasesByPlayerIdsAsync([]);
+
+        Assert.That(aliasesByPlayerId, Is.Empty);
+    }
+
     // ---- REQ-203: an override always takes precedence over synced/unverified
     // data ---------------------------------------------------------------
 

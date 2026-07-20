@@ -37,6 +37,65 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             .Where(p => p.NormalizedFullName == normalizedFullName)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
+        string normalizedAlias, CancellationToken cancellationToken = default)
+    {
+        var playerIds = await dbContext.PlayerAliases
+            .AsNoTracking()
+            .Where(pa => pa.NormalizedAlias == normalizedAlias)
+            .Select(pa => pa.PlayerId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (playerIds.Count == 0)
+            return [];
+
+        return await dbContext.Players
+            .AsNoTracking()
+            .Where(p => playerIds.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default)
+    {
+        var playerIds = await dbContext.PlayerAttributes
+            .AsNoTracking()
+            .Where(pa =>
+                (pa.AttributeType == firstAttributeType && pa.AttributeValue == firstAttributeValue) ||
+                (pa.AttributeType == secondAttributeType && pa.AttributeValue == secondAttributeValue))
+            .Select(pa => pa.PlayerId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        if (playerIds.Count == 0)
+            return [];
+
+        return await dbContext.Players
+            .AsNoTracking()
+            .Where(p => playerIds.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
+    {
+        if (playerIds.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<PlayerAlias>>();
+
+        var idList = playerIds.ToList();
+        var aliases = await dbContext.PlayerAliases
+            .AsNoTracking()
+            .Where(pa => idList.Contains(pa.PlayerId))
+            .ToListAsync(cancellationToken);
+
+        return aliases
+            .GroupBy(a => a.PlayerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerAlias>)g.ToList());
+    }
+
     public async Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default)
     {
         dbContext.PlayerData.Add(data);

@@ -67,8 +67,9 @@ public class GridGameModuleTests
     private GridGameModule BuildModule(
         int minValidAnswers, int maxAttempts, Random? random = null,
         TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
-        IWikidataLookupService? wikidataLookupService = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
+        IWikidataLookupService? wikidataLookupService = null,
+        IPlayerStoreRepository? playerStoreRepository = null) =>
+        new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
             random ?? new FixedChoiceRandom(0),
@@ -1263,6 +1264,116 @@ public class GridGameModuleTests
 
     // ---- REQ-208: name normalization and matching --------------------------
 
+    // Thin call-counting wrapper around the real, InMemory-backed
+    // IPlayerStoreRepository (never a hand-rolled reimplementation of its
+    // behavior — every method just delegates) used only to verify REQ-208's
+    // "exact match first, then alias, then fuzzy — fuzzy only runs when the
+    // first two produced nothing" ordering: the alias/fuzzy repository
+    // calls must never happen once an earlier stage already resolved a fit.
+    private sealed class CallCountingPlayerStoreRepository(IPlayerStoreRepository inner) : IPlayerStoreRepository
+    {
+        public int GetPlayersByNormalizedAliasAsyncCallCount { get; private set; }
+        public int GetPlayersWithEitherAttributeAsyncCallCount { get; private set; }
+
+        public Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByWikidataQidAsync(wikidataQid, cancellationToken);
+
+        public Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByIdAsync(id, cancellationToken);
+
+        public Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
+            IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByIdsAsync(ids, cancellationToken);
+
+        public Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAsync(player, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
+            string normalizedFullName, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByNormalizedFullNameAsync(normalizedFullName, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
+            string normalizedAlias, CancellationToken cancellationToken = default)
+        {
+            GetPlayersByNormalizedAliasAsyncCallCount++;
+            return inner.GetPlayersByNormalizedAliasAsync(normalizedAlias, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default)
+        {
+            GetPlayersWithEitherAttributeAsyncCallCount++;
+            return inner.GetPlayersWithEitherAttributeAsync(
+                firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+        }
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
+            IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAliasesByPlayerIdsAsync(playerIds, cancellationToken);
+
+        public Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerDataAsync(data, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default) =>
+            inner.GetUnverifiedPlayerDataAsync(cancellationToken);
+
+        public Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
+            IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default) =>
+            inner.ApprovePlayerDataAsync(playerDataIds, adminId, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
+            IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default) =>
+            inner.RemovePlayerDataAsync(playerDataIds, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
+            string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAttributesAsync(attributeType, attributeValue, cancellationToken);
+
+        public Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAttributeAsync(attribute, cancellationToken);
+
+        public Task<int> CountPlayersWithBothAttributesAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.CountPlayersWithBothAttributesAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAliasesAsync(playerId, cancellationToken);
+
+        public Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAliasAsync(alias, cancellationToken);
+
+        public Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default) =>
+            inner.GetOverrideAsync(playerId, field, cancellationToken);
+
+        public Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetOverrideByIdAsync(id, cancellationToken);
+
+        public Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
+            inner.AddOverrideAsync(playerOverride, cancellationToken);
+
+        public Task UpdateOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
+            inner.UpdateOverrideAsync(playerOverride, cancellationToken);
+
+        public Task<bool> DeleteOverrideAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.DeleteOverrideAsync(id, cancellationToken);
+
+        public Task<bool> HasEffectiveAttributeAsync(
+            Guid playerId, string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
+            inner.HasEffectiveAttributeAsync(playerId, attributeType, attributeValue, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersMissingPhotoAsync(
+            IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersMissingPhotoAsync(excludingPlayerIds, batchSize, cancellationToken);
+
+        public Task UpdatePlayerPhotosAsync(
+            IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default) =>
+            inner.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
+    }
+
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
     [TestCase("thierry henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_CaseIgnored")]
     [TestCase("Thierry   Henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_ExtraWhitespaceIgnored")]
@@ -1292,17 +1403,12 @@ public class GridGameModuleTests
     }
 
     [Test]
-    public async Task REQ208_ScoreSubmissionAsync_AliasOnlyMatch_DoesNotMatch_TierZeroScopeBoundary()
+    public async Task REQ208_ScoreSubmissionAsync_AliasExactMatch_ScoresCorrect()
     {
-        // Tier 0 explicitly defers the alias table for matching purposes
-        // (MVP-SCOPE.md, "defer the alias table and fuzzy typo tolerance") —
-        // guess-time matching queries only Player.NormalizedFullName
-        // (GetPlayersByNormalizedFullNameAsync), never PlayerAlias. A guess
-        // that only matches a recorded alias, with no exact FullName match,
-        // is therefore NOT found in Tier 0, even though the alias itself
-        // exists in the data. This documents that scope boundary rather than
-        // asserting REQ-208's full "known aliases/stage names" criterion,
-        // which is not yet implemented.
+        // Known aliases/stage names are matched via PlayerAlias, not just
+        // the primary name field — a guess that only matches a recorded
+        // alias, with no exact Player.FullName match, must still score
+        // correct if that player fits the cell's categories.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
         await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
@@ -1310,7 +1416,170 @@ public class GridGameModuleTests
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
 
-        Assert.That(result.IsCorrect, Is.False, "Tier 0 matches only Player.FullName, not PlayerAlias — see MVP-SCOPE.md");
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_AliasMatch_RequiresCategoryFit_JustLikeAPrimaryNameMatch()
+    {
+        // An alias match is handled by exactly the same category-fit check
+        // as a primary-name match (REQ-203/REQ-209) — an alias belonging to
+        // a player who doesn't satisfy this cell's categories must not score
+        // correct just because the name string matched.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "England", "Chelsea");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_ExactPrimaryNameMatch_AliasAndFuzzyStagesNeverConsulted()
+    {
+        // REQ-208's ordering: exact match first, then alias, then fuzzy —
+        // the alias/fuzzy repository calls must never happen once the exact
+        // primary-name stage already resolved a fit. A distinct player whose
+        // name is one edit away from the guess (would fuzzy-match if the
+        // fuzzy stage ran) is deliberately seeded to prove this isn't just
+        // "no alias/fuzzy data exists to find."
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var exactPlayer = await SeedPlayerAsync("Henry", "France", "Arsenal");
+        await SeedPlayerAsync("Henri", "France", "Arsenal"); // distance 1 from "henry" — would fuzzy-match if reached
+        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Henry"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(exactPlayer.Id));
+        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(0),
+            "the alias stage must never be consulted once the exact primary-name stage already resolved a fit");
+        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+            "the fuzzy stage must never be consulted once the exact primary-name stage already resolved a fit");
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_AliasMatch_FuzzyStageNeverConsulted()
+    {
+        // Same ordering guarantee as above, one stage later: once the alias
+        // stage resolves a fit, the fuzzy stage must never run either.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var aliasPlayer = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = aliasPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(1),
+            "the alias stage must be consulted once the exact primary-name stage found nothing");
+        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+            "the fuzzy stage must never be consulted once the alias stage already resolved a fit");
+    }
+
+    [TestCase("Zidane", "Zidan", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_SingleDroppedLetter_MatchesViaPrimaryName")]
+    [TestCase("Ronaldinho", "Ronaldinoh", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_TrailingTransposition_MatchesViaPrimaryName_LongerName")]
+    [TestCase("Zinedine Zidane", "Zinedine Zidence", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_ExactlyAtThreshold_Matches")]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_MatchesViaPrimaryName(string storedFullName, string submittedName)
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync(storedFullName, "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, submittedName));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_MatchesViaAlias()
+    {
+        // A typo of a known alias deserves the same tolerance as a typo of
+        // the primary name — "Kaeka" is one edit away from the alias "Kaka",
+        // not from the player's full legal name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaeka"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyMatch_CandidateMustStillSatisfyBothCategories_DoesNotMatch()
+    {
+        // The fuzzy pass's bounded candidate pool is "satisfies at least one
+        // of the cell's two categories" (never a full-table scan) — but a
+        // name being fuzzy-close is not enough on its own: the same
+        // both-categories check as every other stage still applies
+        // afterwards. This player satisfies the row category (France) only,
+        // so a fuzzy name match must not score correct.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        await SeedPlayerAsync("Zidane", "France", "Chelsea");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zidan"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_SimilarButDistinctPlayerName_DoesNotMatch()
+    {
+        // "Ronaldo" and "Rivaldo" are two different real players, seven
+        // characters each, edit distance 2 apart — this codebase's chosen
+        // tolerance for that length tier is 1, so this must NOT match. Guards
+        // against an edit-distance threshold loose enough to make guessing
+        // trivially easy by accepting a similarly-shaped but wrong name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "Barcelona");
+        await SeedPlayerAsync("Rivaldo", "Brazil", "Barcelona");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Ronaldo"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_ShortNickname_NoFuzzyToleranceForDistanceOne_DoesNotMatch()
+    {
+        // Names of 4 normalized characters or fewer get zero fuzzy
+        // tolerance — "Pele" and "Dele" (Dele Alli's own nickname) are one
+        // edit apart but are two different real players; at this length any
+        // fuzzy pass would already have been an exact/alias hit if it were
+        // really the same name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "Santos");
+        await SeedPlayerAsync("Pele", "Brazil", "Santos");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Dele"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_DistanceExceedsThreshold_DoesNotMatch()
+    {
+        // One edit past this length tier's threshold (2) — "Zinedin
+        // Zidence" is distance 3 from "Zinedine Zidane" — must not match,
+        // confirming the threshold has a real ceiling rather than silently
+        // accepting anything vaguely similar.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Real Madrid");
+        await SeedPlayerAsync("Zinedine Zidane", "France", "Real Madrid");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedin Zidence"));
+
+        Assert.That(result.IsCorrect, Is.False);
     }
 
     // ---- REQ-209: disambiguating multiple players with a matching name -----

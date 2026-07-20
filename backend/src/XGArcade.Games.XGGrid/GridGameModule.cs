@@ -196,9 +196,9 @@ public class GridGameModule(
         var cell = instance.Cells.FirstOrDefault(c => c.Id == guessSubmission.CellId)
             ?? throw new GuessScoringException($"Cell '{guessSubmission.CellId}' not found in grid instance '{instanceId}'.");
 
-        // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): normalize only — no
-        // PlayerAlias/fuzzy tolerance (both deferred, "defer the alias table
-        // and fuzzy typo tolerance").
+        // REQ-208: normalize once — FindMatchAsync below applies the
+        // normalized/alias/fuzzy comparisons in order (exact primary name,
+        // then alias, then bounded fuzzy).
         var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
 
         var result = await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
@@ -239,11 +239,49 @@ public class GridGameModule(
         return instance.Cells.Select(c => c.Id).ToList();
     }
 
+    // REQ-208's three-stage matching order — exact primary name, then
+    // alias, then bounded fuzzy — each stage only runs if the previous one
+    // resolved to zero candidates satisfying both of the cell's categories.
+    // Each stage reuses FilterByCategoriesAsync/AcceptMatch so REQ-209's
+    // Tier 0 disambiguation rule (any fitting candidate accepted,
+    // deterministically the lowest Id, logged if more than one fits) applies
+    // identically regardless of which stage produced the candidates.
     private async Task<ScoreResult> FindMatchAsync(
         GridCell cell, string normalizedName, Guid instanceId, CancellationToken cancellationToken)
     {
-        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        var exactCandidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        var matching = await FilterByCategoriesAsync(cell, exactCandidates, cancellationToken);
 
+        if (matching.Count == 0)
+        {
+            // REQ-208: known aliases/stage names, matched via PlayerAlias —
+            // an exact NormalizedAlias equality check, same normalization as
+            // the primary-name path (PlayerNameNormalizer.Normalize applied
+            // at persist time, WikidataLookupService.PersistAliasesAsync).
+            var aliasCandidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
+            matching = await FilterByCategoriesAsync(cell, aliasCandidates, cancellationToken);
+        }
+
+        if (matching.Count == 0)
+        {
+            // REQ-208: minor-typo tolerance — only reached when neither an
+            // exact primary-name nor an exact alias match resolved anything,
+            // per REQ-208's own ordering ("applied only when no exact or
+            // alias match is found").
+            var fuzzyCandidates = await FindFuzzyCandidatesAsync(cell, normalizedName, cancellationToken);
+            matching = await FilterByCategoriesAsync(cell, fuzzyCandidates, cancellationToken);
+        }
+
+        return AcceptMatch(cell, instanceId, matching);
+    }
+
+    // The category-fit half of FindMatchAsync's pipeline, shared by every
+    // stage: a candidate is only ever a real answer for this cell if it
+    // satisfies both the row and column category (REQ-203's effective-data
+    // check, override-aware).
+    private async Task<List<Player>> FilterByCategoriesAsync(
+        GridCell cell, IReadOnlyList<Player> candidates, CancellationToken cancellationToken)
+    {
         var matching = new List<Player>();
         foreach (var candidate in candidates)
         {
@@ -258,21 +296,24 @@ public class GridGameModule(
                 matching.Add(candidate);
         }
 
+        return matching;
+    }
+
+    // REQ-209 (Tier 0 simplified, MVP-SCOPE.md): any fitting candidate is
+    // accepted, no disambiguation picker — REQ-204's deterministic pick
+    // (lowest Id) is used whenever more than one candidate fits, logged so a
+    // real occurrence trips the Tier 1 "disambiguation UI" trigger. Shared
+    // by every stage of FindMatchAsync above so this rule can't drift
+    // between the exact/alias/fuzzy paths.
+    private ScoreResult AcceptMatch(GridCell cell, Guid instanceId, IReadOnlyList<Player> matching)
+    {
         if (matching.Count == 0)
             return new ScoreResult { IsCorrect = false };
 
-        // REQ-204: identical guesses by different players must always group
-        // as the same answer — the lowest Id among fits is the deterministic
-        // pick, same rule REQ-209's simplified Tier 0 disambiguation uses.
         var accepted = matching.OrderBy(p => p.Id).First();
 
         if (matching.Count > 1)
         {
-            // REQ-209 (Tier 0 simplified, MVP-SCOPE.md): any fitting
-            // candidate is accepted, no disambiguation picker — logged so a
-            // real occurrence trips the Tier 1 "disambiguation UI" trigger
-            // ("log this case even in the simplified Tier 0 handling, so
-            // you'd notice if it happened").
             logger.LogWarning(
                 "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
                 "accepted the lowest Id ({PlayerId}) per REQ-204's deterministic-pick rule.",
@@ -281,6 +322,79 @@ public class GridGameModule(
 
         return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
     }
+
+    // REQ-208's fuzzy/edit-distance pass. Bounded candidate pool: only
+    // players already known (via a cached PlayerAttribute row) to satisfy at
+    // least one of this cell's two categories — a player satisfying neither
+    // can never be a correct answer for this cell regardless of name, so
+    // narrowing here loses no genuine match while keeping the per-guess cost
+    // bounded by this cell's own category population, never a full-table
+    // scan across every player in the store. Both the candidate's primary
+    // name and every recorded alias are checked — a typo of an alias
+    // deserves the same tolerance as a typo of the primary name.
+    private async Task<IReadOnlyList<Player>> FindFuzzyCandidatesAsync(
+        GridCell cell, string normalizedName, CancellationToken cancellationToken)
+    {
+        var pool = await playerStoreRepository.GetPlayersWithEitherAttributeAsync(
+            MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
+            MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
+            cancellationToken);
+
+        if (pool.Count == 0)
+            return [];
+
+        var aliasesByPlayerId = await playerStoreRepository.GetPlayerAliasesByPlayerIdsAsync(
+            pool.Select(p => p.Id).ToList(), cancellationToken);
+
+        var maxDistance = MaxEditDistance(normalizedName.Length);
+        var fuzzyMatches = new List<Player>();
+
+        foreach (var candidate in pool)
+        {
+            if (NameEditDistance.Distance(normalizedName, candidate.NormalizedFullName) <= maxDistance)
+            {
+                fuzzyMatches.Add(candidate);
+                continue;
+            }
+
+            if (aliasesByPlayerId.TryGetValue(candidate.Id, out var aliases) &&
+                aliases.Any(alias => NameEditDistance.Distance(normalizedName, alias.NormalizedAlias) <= maxDistance))
+            {
+                fuzzyMatches.Add(candidate);
+            }
+        }
+
+        return fuzzyMatches;
+    }
+
+    // REQ-208: "a small edit-distance tolerance" — three tiers, proportional
+    // to the guessed name's normalized length rather than one fixed number
+    // for every name. Measured against real name pairs (NameEditDistance),
+    // not guessed:
+    //   - length <= 4 (e.g. "pele", "zico", "kaka"): tolerance 0 (exact
+    //     only). Real 4-letter football nicknames collide at distance 1 far
+    //     too often to safely tolerate — "pele" vs "dele" (Dele Alli's own
+    //     nickname) is distance 1, and those are two different real
+    //     players. At this length, any fuzzy pass would already have been
+    //     an exact/alias hit if it were the "same" name, so 0 here costs
+    //     nothing genuine while closing that collision.
+    //   - length 5-8 (e.g. "zidane", "ronaldo"): tolerance 1. Covers a
+    //     single dropped/doubled/substituted letter ("zidane" -> "zidan" is
+    //     distance 1) while still rejecting two different real players of
+    //     similar length — "ronaldo" vs "rivaldo" is distance 2, correctly
+    //     over this tier's tolerance of 1.
+    //   - length >= 9 (e.g. "ronaldinho", full "first last" names):
+    //     tolerance 2. A two-character slip is still a small fraction of a
+    //     name this long ("ronaldinho" -> "ronaldinoh", a trailing
+    //     transposition, is distance 2) and stays well short of matching an
+    //     unrelated name of similar length (a genuinely different full name
+    //     is reliably >2 edits away).
+    private static int MaxEditDistance(int normalizedNameLength) => normalizedNameLength switch
+    {
+        <= 4 => 0,
+        <= 8 => 1,
+        _ => 2,
+    };
 
     // REQ-211's Tier 0 fallback (ADR-0018) knows how to refresh a
     // Country x Club cell, a Club x Club cell (S-030), and, as of S-031, a
