@@ -64,13 +64,13 @@ should be triggered by an actual observed problem, not by this list existing:
   (only once you want more clubs than manual QID lookup is worth, or hit
   poor Wikidata coverage for a specific club/player)
 - [x] Guess-time live verification — built 2026-07-10, ADR-0018
-- [ ] Autocomplete + `PlayerNameIndex` — pulled forward 2026-07-12, queued as
-  `docs/backlog.md` S-032, not yet built
+- [x] Autocomplete + `PlayerNameIndex` — pulled forward 2026-07-12, built
+  2026-07-17, `docs/backlog.md` S-032
 - [ ] Disambiguation UI (only if a real name collision actually happens)
-- [ ] Trophy category + full `CountryDefinition`/`ClubDefinition` external-ID
-  resolution — individual-awards-only v1 (Ballon d'Or) pulled forward
-  2026-07-12, queued as `docs/backlog.md` S-031, not yet built; the full
-  external-ID-resolution/team-competition scope remains genuinely deferred
+- [x] Trophy category, individual-awards-only v1 (Ballon d'Or) — pulled
+  forward 2026-07-12, built 2026-07-20, `docs/backlog.md` S-031; full
+  `CountryDefinition`/`ClubDefinition` external-ID resolution and
+  team-competition trophies remain genuinely deferred
 - [ ] Create a real "prod" environment (dev already exists from Tier 0) —
   bidirectional sync, test-data API
 - [ ] Backups + failure alerting
