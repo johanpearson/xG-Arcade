@@ -124,6 +124,31 @@ export interface LeaderboardResponse {
   hasMore: boolean;
 }
 
+// REQ-408 (S-054): a single closed round, as returned by
+// GET /leagues/global/leaderboard/closed-rounds — one entry in SCREEN-03's
+// "past rounds" scope's round-selection list. Only ever a *closed* round
+// (never active/upcoming, which is REQ-407/S-053's "This round (live)"
+// scope's territory instead) — `closedAt` is the field the list is ordered
+// by (most recently closed first), `startTime`/`endTime` are the round's own
+// window. There is no round-number field anywhere in this data, so the UI
+// must label a row using these timestamps, never a fabricated "round #N."
+export interface ClosedRoundSummary {
+  roundId: string;
+  startTime: string;
+  endTime: string;
+  closedAt: string;
+}
+
+// REQ-408/REQ-607 (S-054): the round-selection list's own pagination shape —
+// deliberately the exact same cursor/pageSize/hasMore contract
+// LeaderboardResponse below already uses, not a second, differently-shaped
+// convention (REQ-408's explicit resolution of that question).
+export interface ClosedRoundListResponse {
+  rounds: ClosedRoundSummary[];
+  nextCursor: number | null;
+  hasMore: boolean;
+}
+
 // REQ-504: GET /auth/me — `isAdmin` is the only signal the frontend has for
 // whether to show the admin nav entry point at all (App.tsx); the actual
 // authorization is always re-checked server-side per request regardless.

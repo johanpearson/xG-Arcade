@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.40"
+version: "0.42"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.40 · 2026-07-19
+Version 0.42 · 2026-07-19
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -226,6 +226,25 @@ REQ-402/403, are deferred per `MVP-SCOPE.md`). Same thin-endpoint/
 owning-Core-service shape `GuessEndpoints` → `GuessSubmissionService`
 already establishes.
 
+**COMP-02 status (S-053/S-054, REQ-406/407/408, ADR-0031):** `LeaderboardService`
+now depends on `IRoundRepository` (COMP-03) and a new
+`ILiveRoundContributionService` (COMP-04, `XGArcade.Core.Scoring`) —
+ADR-0031 already documented this coupling growth as an accepted
+consequence of the "always recompute live, never cache" decision; it is
+now real, not hypothetical. `GetGlobalLeaderboardAsync` takes a nullable
+`Round? activeRound` (resolved by the Api layer, `LeaderboardEndpoints`,
+via the same `IRoundRepository.GetActiveByGameKeyAsync` pattern
+`RoundEndpoints` already uses — COMP-02 itself still never references
+`GridGameModule`/`XGGridGameKey` directly, ADR-0003 intact, confirmed by
+`architecture-reviewer`'s quality-gate pass) and folds
+`ILiveRoundContributionService`'s live per-cell contribution on top of the
+existing locked `SUM(FinalPoints ?? 0)` (REQ-406). Two new methods expose
+the same underlying computation as standalone scopes:
+`GetActiveRoundLeaderboardAsync` (REQ-407, participant-only) and
+`GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync` (REQ-408, locked,
+gated on the new `Round.ClosedAt` column — see COMP-03's status note
+below).
+
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index
 (`XGArcadeDbContext`) backing `IUserRepository.DisplayNameExistsAsync`'s
@@ -361,6 +380,20 @@ closed is never `latest` itself but its predecessor (`IRoundRepository
 .GetPreviousByGameKeyAsync`, new) — see ADR-0022 for why "latest" is the
 wrong round to check, and REQ-205's status note for the leaderboard-facing
 effect.
+
+**COMP-03 status (S-054, REQ-408, executing ADR-0022's own anticipated
+follow-up):** `Round` gained a nullable `ClosedAt` column (`AddRoundClosedAt`
+migration) — the explicit revisit ADR-0022's "Follow-up" section already
+named ("if a past-round-detail screen is ever built... revisit adding an
+explicit `Round.ClosedAt` column then"). No new ADR needed; this is that
+decision executing, not a new one. `RoundCloseService.CloseRoundAsync` sets
+it once, first-close-wins, only *after* `IScoreLockingService
+.LockRoundScoresAsync` completes successfully — never before or
+concurrently, so a reader can never observe `ClosedAt` set while some
+guesses in that round still have `FinalPoints == null` (a real ordering bug
+caught by `quality-architect`'s S-054 quality-gate pass and fixed before
+merge). COMP-02's `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`
+gate purely on this column.
 
 **COMP-03 status (S-026):** `XGArcade.Api.Admin.AdminManagementEndpoints`
 (REQ-505) is now a third caller of `IRoundCloseService.CloseRoundAsync`,
@@ -652,7 +685,12 @@ Person → Web Frontend → Backend API: POST /auth/signup (new account)
     separate step
 
 Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
-  → Core.Leagues (COMP-02): GetGlobalLeaderboardAsync
+  → Backend API (LeaderboardEndpoints): resolve the currently active round,
+    if any (IRoundRepository.GetActiveByGameKeyAsync, same REQ-303 pattern
+    RoundEndpoints uses — the Api layer is the one place allowed to
+    hardcode GridGameModule.XGGridGameKey, ADR-0003; Core.Leagues below
+    never does)
+  → Core.Leagues (COMP-02): GetGlobalLeaderboardAsync(activeRound)
     → Core.Leagues' own persistence: member user ids for the global league
     → Core.Users (COMP-01): resolve each member's DisplayName
     → Core.Scoring (COMP-04): each member's all-time SUM(FinalPoints ?? 0)
@@ -660,15 +698,39 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
       per-round ScoreCalculator in memory (see ScoreCalculator's own doc
       comment on why these two call sites intentionally reimplement the
       same formula at different scopes)
-  → sorted ascending by total (ADR-0021: lowest wins), then ranked and
-    sliced into a `cursor`/`pageSize`-bounded page in memory (REQ-607,
-    S-034) — the SUM above is still database-side, but ranking/pagination
-    is not; see implementation-document.md §6 for why this is an accepted
-    MVP-scale tradeoff, not a boundary change
+    → Core.Scoring (COMP-04, ILiveRoundContributionService, S-053/REQ-406/
+      ADR-0031, if activeRound is not null): the active round's per-cell
+      live contribution, folded on top of the locked SUM above — recomputed
+      fully in memory on every single request, no caching/snapshot anywhere
+      in this path (ADR-0031)
+  → sorted ascending by combined total (ADR-0021: lowest wins), then ranked
+    and sliced into a `cursor`/`pageSize`-bounded page in memory (REQ-607,
+    S-034) — the locked SUM is still database-side, but the live
+    contribution, ranking, and pagination are not; see
+    implementation-document.md §6 and ADR-0031 for why this is an accepted
+    tradeoff, not a boundary change
+
+Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/active-round
+  (S-053, REQ-407) → Core.Leagues (COMP-02): GetActiveRoundLeaderboardAsync
+  → same ILiveRoundContributionService call as above, exposed as its own
+    standalone, participant-only, always-live scope instead of folded onto
+    the locked total — 404 ("No active round") when none exists
+
+Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/closed-rounds[/{roundId}]
+  (S-054, REQ-408) → Core.Leagues (COMP-02): GetClosedRoundsAsync /
+  GetClosedRoundLeaderboardAsync → Core.Rounds (COMP-03, via
+  IRoundRepository, gated on the new Round.ClosedAt column — see COMP-03's
+  status note above) for the browsable round list, then Core.Scoring
+  (COMP-04) for that one round's locked, never-recomputed
+  SUM(final_points) — REQ-206's own formula, filtered to a single round;
+  404/409 distinguish "round not found" from "round not closed yet"
 ```
 
 Custom leagues (REQ-402/403 — create/join via invite code) are not built;
-this flow only ever has the one global league to read.
+this flow only ever has the one global league to read. All three routes
+above share SCREEN-03 as a single leaderboard surface with a scope selector
+("All-time" / "This round (live)" / "Past rounds"), not three separate
+screens (REQ-407/408's own resolved UX placement decision).
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
@@ -937,6 +999,7 @@ new ADR that references the old one.
 | ADR-0028 | Single-valued Wikidata properties (e.g. a player's photo) live on `Player`, not `PlayerAttribute` | Accepted |
 | ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Accepted |
 | ADR-0030 | Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links | Accepted |
+| ADR-0031 | Live leaderboard contributions (REQ-406/407) are recomputed on every read, never cached or snapshotted — reverses §6.2a's DB-side-aggregate/bounded-read-cost pattern for the live component | Accepted |
 
 ## 11. Glossary
 

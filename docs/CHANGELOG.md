@@ -13,6 +13,114 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-19 — `docs/requirements-document.md` (0.71 → 0.72),
+  `docs/architecture-document.md` (0.41 → 0.42),
+  `docs/implementation-document.md` (0.58 → 0.59), `docs/backlog.md`
+  (S-053/S-054 entries gain "Built as" notes) — implements REQ-406, REQ-407,
+  REQ-408 (`docs/backlog.md` S-053/S-054), the live/per-round leaderboard
+  feature whose requirements were drafted in the immediately preceding
+  session. REQ-406/407 flip from "Proposed" to "Implemented (S-053)":
+  `GET /leagues/global/leaderboard` now folds a live, recomputed-on-every-
+  read contribution from the active round on top of the existing locked
+  `SUM(FinalPoints ?? 0)`, and a new `GET
+  /leagues/global/leaderboard/active-round` route exposes that same
+  contribution as its own participant-only, standalone scope (404 "No
+  active round" when none exists) — both share one computation, a new
+  `ILiveRoundContributionService`/`LiveRoundContributionService`
+  (`XGArcade.Core.Scoring`), resolving cells only through
+  `IGameModuleResolver`/`IGameModule.GetCellIdsAsync` per ADR-0003. REQ-408
+  flips to "Implemented (S-054)": a new nullable `Round.ClosedAt` column
+  (`AddRoundClosedAt` migration) — executing the exact follow-up ADR-0022's
+  own "Follow-up" section already anticipated, no new ADR needed — backs
+  two new routes (`GET /leagues/global/leaderboard/closed-rounds`,
+  paginated list, and `.../closed-rounds/{roundId}`, that round's locked
+  leaderboard, with distinct 404/409 responses for not-found vs.
+  not-closed-yet). Frontend: `LeaderboardScreen.tsx` (SCREEN-03) gained a
+  three-way scope selector ("All-time" / "This round (live)" / "Past
+  rounds"), reusing the existing "~N pts estimated" wording
+  (`GridScreen.tsx`/`CellState.tsx` precedent) for the live scope's
+  provisional framing — no new design token. **Two real bugs were found by
+  `architecture-reviewer`/`quality-architect`'s pre-merge quality-gate pass
+  and fixed before merge, not after:** (1) frontend — the live/past-rounds
+  scopes' `useRef` "fetch once" guards never reset, so re-entering a scope
+  after switching away silently showed indefinitely stale data; fixed to
+  refetch on every genuine transition into the scope (previous-scope
+  comparison) while still avoiding the original React StrictMode
+  double-fetch race the guard existed to prevent, with new regression tests
+  for the leave-and-return case. (2) backend —
+  `RoundCloseService.CloseRoundAsync` originally persisted `ClosedAt`
+  *before* `LockRoundScoresAsync` finished, which could let REQ-408's
+  closed-round endpoint read a round as final while some guesses still had
+  `FinalPoints == null`; reordered so `ClosedAt` is only set after locking
+  completes successfully, with new tests covering both the failure and
+  successful-retry paths. Also deduplicated `LeaderboardEndpoints.cs`'s
+  four routes' identical requesting-user-resolution block into one helper
+  (a `quality-architect` low-severity finding, fixed alongside the two
+  above). `docs/architecture-document.md`: COMP-02's dependency on
+  `IRoundRepository`/`ILiveRoundContributionService` — already accepted as
+  a consequence in ADR-0031 — is now described as built, not hypothetical;
+  §6.2a's global leaderboard flow diagram updated for all three routes; new
+  COMP-03 status note on `Round.ClosedAt`. `docs/implementation-document.md`:
+  `Round`'s entity sketch gains the `ClosedAt` field.
+  `docs/backlog.md`'s S-053/S-054 entries gain "Built as" notes recording
+  both quality-gate bugs and fixes, per this repo's convention for
+  completed stories. Full backend suite: 465/465 passing. Full frontend
+  suite: 170/170 passing, `tsc -b --noEmit`/lint clean. No new ADR beyond
+  the already-existing ADR-0031 (governed this story's live-recompute
+  approach directly) and ADR-0022 (whose own anticipated follow-up,
+  `Round.ClosedAt`, this story executes). REQ-406, REQ-407, REQ-408.
+- 2026-07-19 — `docs/requirements-document.md` (0.70 → 0.71),
+  `docs/architecture-document.md` (0.40 → 0.41), `docs/decisions/0031-live-leaderboard-recomputed-on-every-read.md`
+  (new), `docs/backlog.md` (new S-053, S-054 entries) — feature request,
+  routed through `requirements-writer` first per instruction (real product/
+  scoring decisions, not rendering fixes): make the leaderboard reflect
+  live/provisional points while a round is in progress, not only after
+  close, and add a per-round leaderboard view. Drafted as three new REQs
+  rather than rewriting REQ-206/401/404 (whose existing definitions are
+  unchanged, not superseded): **REQ-406** folds a live, recomputed-on-every-
+  read contribution from the active round into the existing shared/
+  per-league total; **REQ-407** exposes that same live contribution as its
+  own standalone active-round-scoped leaderboard, reached from SCREEN-03 as
+  an additional scope option, not a separate screen; **REQ-408** adds
+  individually browsable past *closed* round leaderboards (locked-only, no
+  live component), paginated per REQ-607's existing `cursor`/`pageSize`
+  shape. REQ-206 and REQ-404 each gained a dated status note cross-
+  referencing the new REQs rather than having their existing text silently
+  rewritten. Deliberately does **not** touch REQ-405/S-027 ("leaderboard
+  time-window resolutions") — that REQ's "round" already means the single
+  most-recently-*closed* round only, is fully drafted, and is already
+  implementation-ready; the product owner explicitly asked for it to be
+  routed separately, not folded into this work. The three open product
+  questions (does a live rank include still-changeable guesses and what
+  happens when one flips before close; separate view vs. tab; bounded vs.
+  unbounded past-round browsing) are resolved explicitly in the new REQs'
+  own text, not left open: live figures recompute on every read with no
+  snapshot (a not-yet-attempted cell in an active round contributes
+  nothing — deliberately neither `0`, ADR-0021's "best score," nor
+  `MaxPointsPerCell`, which only applies at close); per-round leaderboards
+  are an additional scope/tab on SCREEN-03, not a new screen; past-round
+  browsing reuses REQ-607's exact pagination shape rather than inventing a
+  second convention. **ADR-0031** (new): `architecture-reviewer`, asked to
+  assess REQ-406/407's "always live, never cached" requirement before any
+  code is written, found this is a genuine architectural decision, not
+  just a bigger instance of REQ-204's existing per-cell live-points
+  pattern — it reverses `architecture-document.md` §6.2a's deliberate
+  DB-side-aggregate leaderboard computation and narrows REQ-607/S-034's
+  bounded-read-cost guarantee (the response page stays bounded; the cost
+  to produce the full ranking behind it no longer is). ADR-0031 records
+  that tradeoff explicitly — full live recompute chosen over a periodic
+  snapshot/materialized view, a push-based incremental update on guess
+  submission, or a short-TTL cache — with an explicit, observable revisit
+  trigger (participant count, real-environment latency, or grid-size
+  growth), matching the existing ADR-0016/0019/0021 "small now, revisit on
+  evidence" pattern. `docs/backlog.md` gained two new Tier 0 stories
+  queuing the actual implementation for a future session (**S-053** for
+  REQ-406/407, **S-054** for REQ-408, depending on S-053 for the shared
+  SCREEN-03 scope-selector) — per this repo's one-story-per-session rule
+  and the product owner's own instruction, no `backend-implementer`/
+  `ui-implementer` work was started in this session; this iteration is
+  requirements + architecture decision only. REQ-406, REQ-407, REQ-408,
+  ADR-0031.
 - 2026-07-19 — `docs/decisions/0029-wikidata-sync-data-is-auto-verified.md`
   (new), `docs/requirements-document.md` (0.69 → 0.70),
   `docs/architecture-document.md` (0.38 → 0.39), `docs/backlog.md` (new S-052

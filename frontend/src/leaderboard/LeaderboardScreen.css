@@ -22,6 +22,102 @@
   font-size: 13px;
 }
 
+/* REQ-406/407/408: the scope selector — same tab-underline treatment as
+   .auth-screen__tabs/.auth-screen__tab (accent-green underline on the
+   active tab, §2's "tab underline" use of accent-green), reused rather than
+   inventing a second tab pattern. Distinct from the not-yet-built custom-
+   league tabs design-document.md's SCREEN-03 mock still only describes. */
+.leaderboard-screen__scope-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.leaderboard-screen__scope-tab {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.leaderboard-screen__scope-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
+/* REQ-407/408: a plain-text note under the scope tabs — the live scope's
+   "estimated, can still change" framing, and the past-round detail's
+   "Closed <timestamp>" label. text-muted, no new color/token. */
+.leaderboard-screen__scope-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+/* REQ-408: "Back to past rounds" — a plain text-style button (not a second
+   green CTA), naming the action per design-document.md §5. */
+.leaderboard-screen__back {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-accent-green-text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.leaderboard-screen__past-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* REQ-408: the round-selection list — same card/hairline/row treatment as
+   .leaderboard-screen__list/__row above, just wrapping a button per row
+   instead of static text, since each row drills into that round's
+   leaderboard. */
+.leaderboard-screen__round-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.leaderboard-screen__round-list-item:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.leaderboard-screen__round-list-button {
+  display: block;
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-card);
+  border: none;
+  text-align: left;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.leaderboard-screen__round-list-button:hover {
+  background: var(--color-surface-sunken);
+}
+
 .leaderboard-screen__status {
   padding: var(--space-6) var(--space-4);
   text-align: center;

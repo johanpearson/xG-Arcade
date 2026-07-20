@@ -1,6 +1,7 @@
 import type {
   AdminActiveRound,
   AdminRound,
+  ClosedRoundListResponse,
   CurrentRoundResponse,
   CurrentUser,
   LeaderboardResponse,
@@ -129,6 +130,77 @@ export async function fetchLeaderboard(
   const query = params.toString();
   const response = await fetch(
     `${API_BASE_URL}/leagues/global/leaderboard${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LeaderboardResponse;
+}
+
+// REQ-407/ADR-0031 (S-053): the active round's own leaderboard (SCREEN-03's
+// "This round (live)" scope) — participant-only, recomputed live on every
+// call, never cached (ADR-0031). Same cursor/pageSize shape as
+// fetchLeaderboard above. Deliberately does NOT swallow the "no active
+// round" 404 the way fetchCurrentRound does for its own 404 — the caller
+// needs to tell that apart from any other failure, so it's left to throw as
+// an ApiError (status 404, title "No active round") and the caller branches
+// on `error.status` (mirroring LeaderboardScreen's existing
+// `error instanceof ApiError && error.status === 401` check elsewhere).
+export async function fetchActiveRoundLeaderboard(
+  accessToken: string,
+  cursor?: number,
+  pageSize?: number,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard/active-round${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LeaderboardResponse;
+}
+
+// REQ-408 (S-054): the browsable round-selection list (SCREEN-03's "past
+// rounds" scope) — closed rounds only, most recently closed first, same
+// cursor/pageSize shape as fetchLeaderboard/fetchActiveRoundLeaderboard
+// above (REQ-408's explicit "one pagination convention, not two" resolution).
+export async function fetchClosedRounds(
+  accessToken: string,
+  cursor?: number,
+  pageSize?: number,
+): Promise<ClosedRoundListResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard/closed-rounds${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as ClosedRoundListResponse;
+}
+
+// REQ-408 (S-054): one specific closed round's final, locked leaderboard
+// (never recomputed once closed, unlike fetchActiveRoundLeaderboard above).
+// A 404 ("Round not found") and a 409 ("Round not closed yet") are two
+// distinct, real states the caller must tell apart — both are left to throw
+// as an ApiError so the caller can branch on `error.status`, same reasoning
+// as fetchActiveRoundLeaderboard's 404 above.
+export async function fetchClosedRoundLeaderboard(
+  accessToken: string,
+  roundId: string,
+  cursor?: number,
+  pageSize?: number,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard/closed-rounds/${roundId}${query ? `?${query}` : ''}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!response.ok) await throwApiError(response);

@@ -23,6 +23,15 @@ public interface IRoundRepository
     // (REQ-301) and "latest" is often that not-yet-started upcoming round.
     Task<Round?> GetActiveByGameKeyAsync(string gameKey, DateTime now, CancellationToken cancellationToken = default);
 
+    // REQ-408: browsable past rounds, most recently closed first — never the
+    // active/upcoming round (ClosedAt is only ever set by RoundCloseService).
+    // `take` is deliberately the caller's own page-size-plus-one "peek"
+    // (LeaderboardService's convention here, since this is a real DB-side
+    // OrderBy/Skip/Take unlike the leaderboard's necessarily in-memory
+    // pagination) so the caller can detect "is there another page" without a
+    // second COUNT query.
+    Task<IReadOnlyList<Round>> GetClosedByGameKeyAsync(string gameKey, int skip, int take, CancellationToken cancellationToken = default);
+
     Task<Round?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<Round> AddAsync(Round round, CancellationToken cancellationToken = default);

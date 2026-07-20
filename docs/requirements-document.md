@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.70"
+version: "0.72"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.70 · 2026-07-19
+Version 0.72 · 2026-07-19
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -940,6 +940,25 @@ a photo shows neither at rest as of S-048, see that status note)
   into a game-specific table directly, per ADR-0003). A user who never
   opened the round at all is not penalized for it — this only applies
   within a round someone actually played.
+- **Status note (2026-07-19) — the "revisit" flagged above is drafted:**
+  the gap this note has flagged since S-029 ("Tier 0 has no past-round-
+  browsing UI at all... there is still nowhere to show one closed round's
+  final total distinctly from the leaderboard's all-time running total")
+  is now addressed by two new requirements, not by changing this one:
+  **REQ-408** gives a closed round its own browsable leaderboard, using
+  exactly this REQ's own `SUM(final_points)` definition (unchanged) as the
+  per-round total once every cell is locked — REQ-408 is a new way to
+  *view* this REQ's existing number, not a new formula. **REQ-407**
+  separately gives the *currently active* (not-yet-closed) round a live,
+  provisional leaderboard — a genuinely different, recomputed-on-read
+  number, not this REQ's locked total, since this REQ only ever applies
+  once a round's cells are locked (REQ-205). **REQ-406** additionally
+  changes REQ-401/404's shared, all-time leaderboard so it folds in the
+  same live provisional contribution while a round is still active,
+  instead of only counting `FinalPoints` once locked — see REQ-404's
+  matching 2026-07-19 status note. This REQ-206 itself is unchanged and
+  not superseded — it still defines the one true locked per-round total;
+  REQ-406/407/408 all consume or parallel it, they don't replace it.
 - Given all cells in a round have been locked (REQ-205)
 - When the total score is calculated
 - Then the sum of `final_points` across all N×N cells for the player is shown
@@ -1705,6 +1724,18 @@ case covers the game-selection step added in S-021)
   **Pagination (S-034):** the response is now bounded via `cursor`/
   `pageSize` — see REQ-607's own status note for the shape. This closes
   the gap previously noted here.
+- **Status note (2026-07-19, drafted — REQ-406):** the `SUM(FinalPoints ??
+  0)` formula described above is, per REQ-206's own status note,
+  deliberately locked-only today — a round still in progress contributes
+  nothing to this total until it closes. **REQ-406** now specifies the
+  revisit: this leaderboard's total additionally includes a live,
+  recomputed-on-every-read contribution from the currently active round
+  (correctly-guessed cells' current `LivePoints`, REQ-204, plus
+  locked-incorrect cells' `MaxPointsPerCell`), on top of the unchanged
+  `SUM(FinalPoints ?? 0)` over closed rounds. See REQ-406 for the full
+  acceptance criteria — this note only cross-references it so the
+  contradiction between "only sums `Guess.FinalPoints`" above and the new
+  behavior isn't silently left standing.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -1753,6 +1784,258 @@ questions resolved 2026-07-12 — see below; implementation-ready.)*
   this REQ, not just "add a `WHERE` clause"
 
 **Test level:** Unit, API, UI
+
+**REQ-406 – Leaderboard totals include live points from the active round**
+*(Status: Implemented (Tier 0, S-053), 2026-07-19 — this is the revisit
+REQ-206's status note flagged since S-029.)*
+> As a player, I want the leaderboard to reflect what I've done in the
+> round that's happening right now, not only my finished rounds, so I can
+> see where I actually stand instead of a total that ignores whatever I'm
+> currently playing.
+
+- **Status note (S-053):** built exactly as drafted below, plus one shared
+  computation reused by REQ-407. `GET /leagues/global/leaderboard`
+  (`XGArcade.Api.Leagues.LeaderboardEndpoints`, unchanged route) resolves
+  the currently active round (`IRoundRepository.GetActiveByGameKeyAsync`,
+  same REQ-303 pattern `RoundEndpoints` already uses) and passes it into
+  `LeaderboardService.GetGlobalLeaderboardAsync`, which now takes a
+  nullable `Round? activeRound` parameter. The three-case per-cell formula
+  (correct → `LivePoints`; locked-incorrect → `MaxPointsPerCell`;
+  unattempted → nothing) lives in one place, a new
+  `ILiveRoundContributionService`/`LiveRoundContributionService`
+  (`XGArcade.Core.Scoring`), reused verbatim by REQ-407 below — never two
+  independently-written formulas. Cells are resolved only through
+  `IGameModuleResolver`/`IGameModule.GetCellIdsAsync`, never a direct
+  `GridInstance`/`GridCell` reach-in (ADR-0003), confirmed by
+  `architecture-reviewer`'s quality-gate pass. No caching anywhere in this
+  path (ADR-0031) — verified in the same review. A member with zero
+  guesses in the active round is unaffected, exactly as specified.
+- **Relationship to existing behavior:** today, `LeaderboardService` sums
+  only `Guess.FinalPoints` (REQ-401/404), which is `null` until a round is
+  locked at close (REQ-205/ADR-0022) — REQ-206's status note already
+  documents this as deliberate, not a bug, "revisit once/if a past-round-
+  detail view exists." This REQ is that revisit for the *shared, all-time*
+  leaderboard specifically (REQ-401/404); REQ-407 is the companion REQ for
+  a leaderboard scoped to *only* the active round.
+- Given a player is a member of a league (global, REQ-401, or custom,
+  REQ-402) and a game the league tracks has a currently active round
+  (REQ-302)
+- When that league's leaderboard (REQ-404) is requested
+- Then each member's total is the existing `SUM(FinalPoints ?? 0)` over
+  every closed round (unchanged), **plus** a live contribution from the
+  currently active round only, computed per cell exactly as REQ-407
+  defines it: a correctly-guessed cell contributes its current
+  `LivePoints` (REQ-204); a locked-incorrect cell (both attempts used,
+  REQ-210) contributes `ScoringRules.MaxPointsPerCell`; a cell that
+  member has not yet attempted in the active round contributes nothing to
+  the total — not `0`, since `0` already means "best possible score"
+  under ADR-0021's golf model, and not `MaxPointsPerCell` either, since
+  that penalty is only ever applied at round close (REQ-206/ADR-0021's
+  `MaterializeUnansweredCellsAsync`, which does not run against an active
+  round)
+- And this combined total is recomputed on every request — no stored or
+  cached snapshot of the live component, the same "always live, never
+  persisted until close" rule REQ-204's `LivePoints` and REQ-206's client-
+  side running total already follow
+- And the sort order is unchanged: ascending, lowest combined total first
+  (ADR-0021), same tie-break as REQ-404 (display name)
+- And a league member with zero guesses in the currently active round is
+  unaffected by this REQ — their total is exactly what REQ-401/404 already
+  compute today (locked rounds only)
+- And this REQ does not change REQ-405's round/week/month/year
+  time-window leaderboard, which remains explicitly locked-only by its own
+  resolved design question ("a round whose `EndTime` is null … never
+  contributes to any window") — REQ-405 itself is not modified by this REQ
+
+**Test level:** Unit (combined total sums a closed round's locked points
+plus the active round's live contribution correctly; a never-attempted
+cell in the active round contributes nothing, not `0` and not
+`MaxPointsPerCell`; recomputing after a cell's `LivePoints` changes — e.g.
+another player submits a matching guess — produces a different total on
+the next read without any explicit invalidation step), API (global/
+per-league leaderboard endpoint reflects the live contribution and updates
+across two successive requests as underlying guesses change)
+
+**REQ-407 – Leaderboard scoped to the currently active round (live)**
+*(Status: Implemented (Tier 0, S-053), 2026-07-19.)*
+> As a player, I want a leaderboard scoped to just the round being played
+> right now, updating live as guesses come in, so I can see how I compare
+> to others on this specific round, not only my all-time or last-closed
+> total.
+
+- **Status note (S-053):** new `GET /leagues/global/leaderboard/active-round`
+  route (`cursor`/`pageSize`, same shape as every other leaderboard route
+  here), participant-only, backed by `LeaderboardService
+  .GetActiveRoundLeaderboardAsync` calling the same
+  `ILiveRoundContributionService` REQ-406 uses. Returns a 404 ("No active
+  round") exactly mirroring `RoundEndpoints`' REQ-303 "no active round"
+  response when none is active, per this REQ's own acceptance criterion.
+  Frontend: `LeaderboardScreen.tsx` (SCREEN-03) gained a three-way scope
+  selector — "All-time" / "This round (live)" / "Past rounds" (REQ-408) —
+  as an additional selector alongside (not replacing) the not-yet-built
+  custom-league tabs, exactly the placement this REQ specifies. The live
+  scope renders every row with the same "~N pts estimated" wording
+  `GridScreen.tsx`/`CellState.tsx` already established for a single cell's
+  live point value (REQ-204/S-018), satisfying "presented as visibly
+  provisional" without a new token/color/icon (no `design-document.md` §2
+  change needed). **One clarification on "recomputed fresh on each
+  request," found and corrected during this story's own quality gate:**
+  the frontend does not poll this route on an interval the way the
+  all-time scope's 15s poll does — `ADR-0031` explicitly flags this read as
+  materially more expensive than the all-time one, so the frontend instead
+  fetches once per genuine *entry* into the "This round (live)" tab
+  (switching to it fresh, including re-entering after visiting a different
+  scope) rather than continuously in the background. Each such fetch still
+  recomputes fully fresh server-side, satisfying this REQ's actual
+  acceptance criterion ("every rank and total returned is computed fresh on
+  each request") — the criterion governs what a request returns, not how
+  often the frontend chooses to issue one. An earlier draft of this
+  behavior had a real bug (a `useRef` "fetch once ever" latch that never
+  reset, so re-entering the tab after leaving it showed indefinitely stale
+  data with no refresh) — caught by `quality-architect`'s pre-merge review
+  and fixed before merge; regression tests now cover the leave-and-return
+  case explicitly.
+- **Relationship to REQ-405:** REQ-405's "round" resolution is, by its own
+  explicit, already-resolved design decision, the single most recently
+  *closed* round only — no live component, no browsing of arbitrary past
+  rounds. This REQ is a different concept: a live, in-progress round's own
+  leaderboard. REQ-405 is not modified, weakened, or merged by this REQ.
+- **Relationship to REQ-406:** REQ-406 folds this same live, per-round
+  contribution into the shared all-time leaderboard's total. This REQ is
+  the same contribution exposed as its own standalone, round-scoped view —
+  the two share one underlying computation, not two independently-written
+  formulas.
+- **UX placement (resolved, not left open):** this leaderboard is reached
+  from the same leaderboard screen (SCREEN-03) REQ-401/404/405 already
+  use, as an additional selectable scope alongside REQ-405's existing
+  round/week/month/year resolution options — e.g. "This round (live)" —
+  not a separate top-level screen. This keeps a single leaderboard
+  surface with one consistent list/pagination/"you"-row pattern
+  (REQ-607) rather than duplicating that UI for a second, parallel screen.
+- Given a game has a currently active round (REQ-302)
+- When a player requests that round's leaderboard
+- Then every round *participant* — a player with at least one `Guess` row
+  in this specific round, the same participant definition ADR-0021's
+  `MaterializeUnansweredCellsAsync` already uses — has a provisional total
+  computed as: for each of the round's cells, a correctly-guessed cell
+  contributes its current `LivePoints` (REQ-204, itself recomputed live
+  and free to change as more players answer, per ADR-0020); a
+  locked-incorrect cell (both attempts used, REQ-210) contributes
+  `ScoringRules.MaxPointsPerCell`; a cell that participant has not yet
+  attempted contributes nothing to their total (explicitly not `0` — see
+  REQ-406's identical resolution of this — and not `MaxPointsPerCell`,
+  since that penalty only ever applies at round close)
+- And a player who is not a participant in this round (zero guesses) does
+  not appear on this leaderboard at all
+- And ranking sorts ascending — lowest provisional total first (ADR-0021)
+  — with the same tie-break REQ-404 already uses (display name)
+- And every rank and total returned is computed fresh on each request —
+  there is no snapshot, cache, or "freeze" of a rank: if a participant's
+  guess, or another participant's guess on a shared cell, changes the
+  underlying data between two requests (e.g. a second attempt flips a
+  cell from incorrect to correct, or another player's new guess changes a
+  cell's uniqueness and therefore its `LivePoints`), the next request
+  reflects the new value immediately — a rank shown at one moment
+  legitimately differing from the next request's rank is expected
+  behavior, not a bug, the same way REQ-204's live point estimate is
+  already understood to be able to change before a cell locks
+- And this leaderboard is presented as visibly provisional (mirroring
+  REQ-204/213's existing "estimated"/"can still change before the round
+  closes" framing) — a player must not be able to mistake a live rank
+  shown here for a locked, final one
+- And requesting this leaderboard when no round is currently active
+  returns a clear "no active round" response, mirroring REQ-303's existing
+  pattern for the same situation — not a generic error
+- And once this round closes (REQ-205), it is no longer reachable via this
+  REQ — its final leaderboard is reached only via REQ-408 from that point on
+
+**Test level:** Unit (provisional-total computation per the three cell
+cases above; ranking and tie-break match REQ-404's rules; recompute-on-read
+produces a different rank after an underlying guess changes, with no
+caching layer to invalidate), API (endpoint returns a clear "no active
+round" response when none exists; two successive requests reflect an
+intervening guess change), UI (leaderboard is visibly marked provisional;
+reachable from SCREEN-03 as an additional scope option)
+
+**REQ-408 – Browsing a past (closed) round's leaderboard**
+*(Status: Implemented (Tier 0, S-054), 2026-07-19.)*
+> As a player, I want to open any individual past round and see its final
+> leaderboard, not only the current all-time total or the most recent
+> round, so I can look back at how a specific round played out.
+
+- **Status note (S-054):** required adding a new `Round.ClosedAt` (nullable
+  `DateTime`) column, via a real EF Core migration (`AddRoundClosedAt`) —
+  this executes the exact follow-up ADR-0022's own "Follow-up" section
+  anticipated ("if a past-round-detail screen is ever built... revisit
+  adding an explicit `Round.ClosedAt` column then"); no new ADR was needed,
+  ADR-0022 already reasoned through it. `RoundCloseService.CloseRoundAsync`
+  sets it once, first-close-wins, same idempotent shape as its existing
+  `EndTime` pull-forward. **Correctness detail found and fixed during this
+  story's own quality gate:** `ClosedAt` must only ever be persisted
+  *after* `LockRoundScoresAsync` completes, never before or concurrently —
+  an earlier version of this change set it first, which could let a reader
+  see a round as "closed"/browsable via this REQ while some guesses still
+  had `FinalPoints == null`, understating totals as if final. Reordered so
+  a throw during locking leaves `ClosedAt` null and a later retry
+  resumes/redoes locking before ever closing. New routes: `GET
+  /leagues/global/leaderboard/closed-rounds` (paginated round list,
+  `cursor`/`pageSize` matching REQ-607's exact shape/defaults, most
+  recently closed first) and `GET
+  /leagues/global/leaderboard/closed-rounds/{roundId}` (that round's
+  locked, never-recomputed leaderboard — `IGuessRepository
+  .GetTotalFinalPointsByRoundIdAsync`, REQ-206's own formula filtered to
+  one round). Not-found (404) and not-closed-yet (409) are distinct
+  responses, exactly as specified. Frontend: SCREEN-03's "Past rounds"
+  scope shows the round list (labelled by close time, no fabricated round
+  numbering since none exists in the data), drilling into one round's
+  leaderboard rendered with plain, non-provisional point text (contrast
+  REQ-407's "~N pts estimated").
+- **Relationship to REQ-405:** REQ-405's "round" resolution only ever
+  exposes the single most-recently-closed round, folded into the same
+  shape as its week/month/year windows. This REQ is a different concept:
+  every closed round, individually selectable and browsable by id, as its
+  own standalone view — not limited to the most recent one. REQ-405 is
+  not modified by this REQ.
+- **Relationship to REQ-206:** a closed round's total here is exactly
+  REQ-206's own `SUM(final_points)` definition, per participant, applied
+  per round — this REQ is a new way to *view* that number (individually,
+  by round, browsable), not a new scoring formula.
+- **UX placement (resolved, not left open):** reached from the same
+  leaderboard screen (SCREEN-03) as REQ-401/404/405/407, via a "past
+  rounds" scope that first shows the round-selection list below, then that
+  round's leaderboard — not a separate top-level screen, consistent with
+  REQ-407's placement decision.
+- Given a game with one or more closed rounds (REQ-302)
+- When a player requests the list of browsable past rounds for that game
+- Then the system returns only closed rounds (never the active or
+  upcoming one — the active round is reachable only via REQ-407), most
+  recently closed first
+- And this list is paginated the same way REQ-607 already paginates
+  leaderboard membership — `cursor`/`pageSize` query parameters on the
+  round list itself, with the same default/maximum `pageSize` REQ-607
+  already established (default 50, max 100), so the platform has one
+  consistent pagination shape rather than a second, differently-shaped one
+  for round browsing specifically
+- Given a specific closed round's id
+- When a player requests that round's leaderboard
+- Then each participant's total is `SUM(final_points)` for that round only
+  (REQ-206's own definition, unchanged) — a permanently locked value,
+  never recomputed live, ranked ascending (ADR-0021) with REQ-404's
+  existing tie-break
+- And requesting a round id that does not exist returns a clear "not
+  found" response
+- And requesting a round id that exists but has not yet closed (still
+  `active` or `upcoming`, REQ-302) returns a clear, distinct "not closed
+  yet" response — a not-yet-closed round is never silently served through
+  this endpoint as if it were a completed one; it is only ever reachable
+  through REQ-407 while active
+
+**Test level:** Unit (round-list query returns only closed rounds, most
+recent first; a specific round's total matches REQ-206's own locked
+formula exactly), API (round-list pagination matches REQ-607's cursor/
+pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
+responses), UI (round-selection list, then that round's leaderboard, on
+SCREEN-03)
 
 ---
 

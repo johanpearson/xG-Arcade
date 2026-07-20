@@ -34,6 +34,16 @@ public interface IGuessRepository
     // absent from the returned dictionary; callers treat a missing key as 0.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
 
+    // REQ-408: the same "sum FinalPoints, treating null as 0" formula as
+    // GetTotalFinalPointsByUserIdsAsync above, filtered to one round instead
+    // of summed across every round a user has ever played — a closed round's
+    // own permanently-locked per-participant total, never recomputed live
+    // (contrast ILiveRoundContributionService, which is the active-round
+    // equivalent and genuinely live). Only ever meaningful once
+    // ScoreLockingService has run for this round (REQ-205) — callers must
+    // check Round.ClosedAt first (LeaderboardService does).
+    Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default);
+
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 
     // REQ-206/ADR-0021: round-close materializes one synthetic Guess row per

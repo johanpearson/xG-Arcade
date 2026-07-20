@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.58"
+version: "0.59"
 status: draft
 last_updated: 2026-07-19
 owner: Johan
@@ -541,6 +541,16 @@ public class Round
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public bool AllowGuessChange { get; set; }
+    // REQ-408 (S-054, migration AddRoundClosedAt): null until
+    // RoundCloseService.CloseRoundAsync's score-locking step (REQ-205)
+    // completes successfully — set only after, never before or
+    // concurrently, so a reader can never see this non-null while some of
+    // the round's guesses still have FinalPoints == null. First-close-wins,
+    // never overwritten by a later CloseRoundAsync call. Executes ADR-0022's
+    // own "Follow-up" section, which named this exact column/trigger in
+    // advance — no new ADR needed. GetClosedRoundLeaderboardAsync
+    // (Core.Leagues) gates purely on this field.
+    public DateTime? ClosedAt { get; set; }
 }
 
 // Note: Guess.CellId currently references a GridCell, which technically

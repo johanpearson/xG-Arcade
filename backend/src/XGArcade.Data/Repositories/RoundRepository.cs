@@ -27,6 +27,16 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
             .OrderByDescending(r => r.StartTime)
             .FirstOrDefaultAsync(cancellationToken);
 
+    // REQ-408: only ever ClosedAt != null rows, most recently closed first.
+    public async Task<IReadOnlyList<Round>> GetClosedByGameKeyAsync(string gameKey, int skip, int take, CancellationToken cancellationToken = default) =>
+        await dbContext.Rounds
+            .AsNoTracking()
+            .Where(r => r.GameKey == gameKey && r.ClosedAt != null)
+            .OrderByDescending(r => r.ClosedAt)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
     public async Task<Round?> GetPreviousByGameKeyAsync(string gameKey, DateTime beforeStartTime, CancellationToken cancellationToken = default) =>
         await dbContext.Rounds
             .AsNoTracking()
