@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.74"
+version: "0.75"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.74 · 2026-07-20
+Version 0.75 · 2026-07-20
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -1790,14 +1790,19 @@ case covers the game-selection step added in S-021)
   acceptance criteria — this note only cross-references it so the
   contradiction between "only sums `Guess.FinalPoints`" above and the new
   behavior isn't silently left standing.
-- **Status note (2026-07-20 — new acceptance criterion, Status: Proposed,
-  not yet implemented):** `LeaderboardService.GetGlobalLeaderboardAsync`
-  today includes every league member regardless of guess history,
+- **Status note (2026-07-20 — new acceptance criterion, Status: Implemented,
+  Tier 0, S-056):** `LeaderboardService.GetGlobalLeaderboardAsync`
+  previously included every league member regardless of guess history,
   defaulting an absent total to `0` — under ADR-0021's lowest-wins model,
-  `0` is the *best* possible score, so a member who has never submitted a
-  single guess currently ranks #1 ahead of everyone who has actually
-  played. The product owner has confirmed this is wrong: such a member
-  should not be ranked at all, not ranked first. See the new bullet below.
+  `0` is the *best* possible score, so a member who had never submitted a
+  single guess ranked #1 ahead of everyone who had actually played. The
+  product owner confirmed this was wrong: such a member should not be
+  ranked at all, not ranked first. Built exactly as specified below — a new
+  `IGuessRepository.GetUserIdsWithAnyGuessAsync` (`GuessRepository`) is
+  queried alongside the existing locked-only
+  `GetTotalFinalPointsByUserIdsAsync`, kept as a separate call specifically
+  so a member active only in the currently active (unlocked) round is not
+  mistaken for never-played. See the bullet below.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -1917,7 +1922,7 @@ REQ-206's status note flagged since S-029.)*
   compute today (locked rounds only)
 - **Status note (2026-07-20 — narrows, does not supersede, the bullet
   above it and the "unattempted cell contributes nothing" clause earlier
-  in this REQ; Status: Proposed, not yet implemented):** the product owner
+  in this REQ; Status: Implemented, Tier 0, S-056):** the product owner
   has confirmed a live estimate that never credits an untouched cell reads
   as unfairly low the moment a player has genuinely started a grid — a
   freshly-initiated grid's live total should start near the theoretical
@@ -1929,7 +1934,11 @@ REQ-206's status note flagged since S-029.)*
   uses) — it does **not** change the bullet immediately above this note: a
   member with **zero** guesses anywhere in the active round is still
   entirely unaffected by this REQ, exactly as that bullet already states
-  verbatim; that bullet is correct and stays as-is.
+  verbatim; that bullet is correct and stays as-is. Built exactly as
+  described: `ILiveRoundContributionService`/`LiveRoundContributionService`
+  (`XGArcade.Core.Scoring`) now tracks each participant's per-cell
+  attempted set and adds `MaxPointsPerCell` for every round cell outside
+  it, leaving a cell with one of two attempts used untouched.
 - Given a player is a member of a league and a game the league tracks has
   a currently active round, and that player has made at least one guess —
   any attempt count, correct or incorrect — somewhere in that round's grid
@@ -1980,7 +1989,9 @@ successive requests as underlying guesses change)
   round") exactly mirroring `RoundEndpoints`' REQ-303 "no active round"
   response when none is active, per this REQ's own acceptance criterion.
   Frontend: `LeaderboardScreen.tsx` (SCREEN-03) gained a three-way scope
-  selector — "All-time" / "This round (live)" / "Past rounds" (REQ-408) —
+  selector — "All-time" / "Current Round" / "Previous Rounds" (REQ-408;
+  renamed from "This round (live)"/"Past rounds" on 2026-07-20, S-056 —
+  purely cosmetic, no REQ specifies exact tab wording) —
   as an additional selector alongside (not replacing) the not-yet-built
   custom-league tabs, exactly the placement this REQ specifies. The live
   scope renders every row with the same "~N pts estimated" wording
@@ -1992,7 +2003,7 @@ successive requests as underlying guesses change)
   the frontend does not poll this route on an interval the way the
   all-time scope's 15s poll does — `ADR-0031` explicitly flags this read as
   materially more expensive than the all-time one, so the frontend instead
-  fetches once per genuine *entry* into the "This round (live)" tab
+  fetches once per genuine *entry* into the "Current Round" tab
   (switching to it fresh, including re-entering after visiting a different
   scope) rather than continuously in the background. Each such fetch still
   recomputes fully fresh server-side, satisfying this REQ's actual
@@ -2016,7 +2027,7 @@ successive requests as underlying guesses change)
   formulas.
 - **Status note (2026-07-20 — carries REQ-406's matching change over,
   since both consume the same `ILiveRoundContributionService` computation;
-  Status: Proposed, not yet implemented):** REQ-406 was revised the same
+  Status: Implemented, Tier 0, S-056):** REQ-406 was revised the same
   day to credit `ScoringRules.MaxPointsPerCell` for a cell with **zero**
   guesses, specifically for a player who has made at least one guess
   somewhere in that round's grid. Every player who appears on *this*
@@ -2027,7 +2038,7 @@ successive requests as underlying guesses change)
 - **UX placement (resolved, not left open):** this leaderboard is reached
   from the same leaderboard screen (SCREEN-03) REQ-401/404/405 already
   use, as an additional selectable scope alongside REQ-405's existing
-  round/week/month/year resolution options — e.g. "This round (live)" —
+  round/week/month/year resolution options — e.g. "Current Round" —
   not a separate top-level screen. This keeps a single leaderboard
   surface with one consistent list/pagination/"you"-row pattern
   (REQ-607) rather than duplicating that UI for a second, parallel screen.
@@ -2116,7 +2127,7 @@ reachable from SCREEN-03 as an additional scope option)
   locked, never-recomputed leaderboard — `IGuessRepository
   .GetTotalFinalPointsByRoundIdAsync`, REQ-206's own formula filtered to
   one round). Not-found (404) and not-closed-yet (409) are distinct
-  responses, exactly as specified. Frontend: SCREEN-03's "Past rounds"
+  responses, exactly as specified. Frontend: SCREEN-03's "Previous Rounds"
   scope shows the round list (labelled by close time, no fabricated round
   numbering since none exists in the data), drilling into one round's
   leaderboard rendered with plain, non-provisional point text (contrast
@@ -2354,7 +2365,7 @@ above are resolved.
   or remove the data point
 - And the action is logged with `admin_id` and a timestamp
 
-**Extended (2026-07-20, Status: Proposed — not yet implemented) — the
+**Extended (2026-07-20, Status: Implemented, Tier 0, S-057) — the
 "approve" action, including bulk/select-all, and confirming no reason is
 required:**
 - Given one or more `PlayerData` rows with `confidence = "unverified"` are
@@ -2389,6 +2400,21 @@ required:**
   point." REQ-503's existing "remove" action (still unbuilt) remains
   single-row, scoped however a future story defines it — this extension
   covers "approve" only.
+- **Built as (S-057):** built exactly as specified. `POST
+  /admin/player-data/approve` (`XGArcade.Api.Admin.AdminEndpoints`, Admin
+  policy) takes a list of `PlayerData` ids (a single id is just the N=1
+  case, no separate single-row endpoint); `IPlayerStoreRepository
+  .ApprovePlayerDataAsync`/`PlayerStoreRepository` evaluates each id
+  independently in one `SaveChangesAsync` call and returns a per-id
+  outcome (`NotFound`/`NotUnverified`/success), never an all-or-nothing
+  batch result. Audit fields (`PlayerData.ApprovedByAdminId`/`ApprovedAt`,
+  new columns via the `AddPlayerDataApproval` migration) mirror
+  `PlayerOverride.LockedByAdminId`/`LockedAt`'s existing shape rather than
+  a separate audit-log table — satisfying "the action is logged with
+  `admin_id` and a timestamp" the same way the override path already does.
+  `AdminScreen.tsx` (SCREEN-04) adds the checkbox/"select all"/"Approve
+  selected" UI, no `reason` field, and a per-row results list after
+  submit.
 
 **Test level:** API, UI (single approve; bulk approve including
 select-all; no `reason` field required or accepted, for either form;
@@ -3098,12 +3124,25 @@ flow within Settings still passes REQ-710's existing tests unmodified)
 
 ---
 
-**REQ-714 – Edit display name from Settings** *(Status: Proposed, not yet
-implemented — drafted 2026-07-20)*
+**REQ-714 – Edit display name from Settings** *(Status: Implemented, Tier 0,
+S-058, 2026-07-20)*
 > As a player, I want to change my display name from the Settings screen,
 > so I can update how I appear on the leaderboard without creating a new
 > account.
 
+- **Status note (S-058):** built exactly as drafted below. `PUT
+  /auth/display-name` (`AuthController.UpdateDisplayName`) reuses REQ-701's
+  exact 1-30 character bound and `IUserRepository.DisplayNameExistsAsync`
+  uniqueness check, now with an `excludeUserId` parameter so a no-op
+  resubmission of the caller's own current name — including a pure-casing
+  change — is never treated as a conflict against itself; a losing race
+  against another caller's concurrent signup/edit falls back to the same
+  `DisplayNameAlreadyInUseException` → 409 path `Signup` already uses.
+  `frontend/src/settings/SettingsScreen.tsx` hosts the edit form, and
+  `App.tsx` updates the in-memory `currentUser.displayName` on success so
+  every other screen reflects it immediately without a re-fetch. Covered by
+  `UserRepositoryTests.cs`, `AuthEndpointTests.cs` (including an explicit
+  exact-30-character boundary test), and `SettingsScreen.test.tsx`.
 - **Context:** `frontend/src/settings/SettingsScreen.tsx` today only hosts
   the delete-account flow (REQ-710) plus, admin-only, a link to
   `AdminScreen` (REQ-504/713) — there is no way to change `User.DisplayName`
@@ -3147,25 +3186,44 @@ length validation), API, UI (Settings screen edit form; conflict error
 shown inline, not a generic failure)
 
 **REQ-715 – Persistent login (remember-me) via refresh token** *(Status:
-Proposed, not yet implemented — drafted 2026-07-20)*
+Implemented, Tier 0, S-058, 2026-07-20)*
 > As a player, I want to stay logged in across sessions without re-entering
 > my password every time, so I don't have to sign back in every time I
 > return to the app while my session is still valid.
 
-- **Context:** `frontend/src/App.tsx` stores only the Supabase access token
-  in `localStorage`; the backend's `POST /auth/login` response
-  (`AuthController.Login`, `LoginResponse.RefreshToken`) already carries a
-  refresh token — Supabase Auth returns one on every successful token
-  exchange — but `AuthScreen.tsx` destructures only `accessToken` and the
-  refresh token is discarded. No refresh flow exists anywhere in the
-  frontend or backend today. Per ADR-0013, the frontend never calls
-  Supabase Auth directly — any refresh mechanism must be mediated through
-  the backend, the same way `POST /auth/login`/`POST /auth/signup` already
-  are, not a direct frontend-to-Supabase call.
+- **Status note (S-058):** built exactly as drafted below, plus one
+  deliberate omission called out at implementation time: no explicit
+  server-side refresh-token revocation call on logout — REQ-715's own
+  acceptance criteria below only require clearing the frontend's stored
+  copy, which `App.tsx`'s `handleLogout` does (alongside the access
+  token); account deletion (REQ-710) already invalidates any outstanding
+  refresh token as a side effect of deleting the underlying Supabase
+  identity, so no separate revoke call was added there either. `POST
+  /auth/refresh` (`AuthController.Refresh`, `ISupabaseAuthClient
+  .RefreshTokenAsync`) is unauthenticated by design (the caller's access
+  token may itself be missing/expired) and mediates through Supabase Auth
+  the same way `/auth/login`/`/auth/signup` already do (ADR-0013), sharing
+  `SupabaseAuthClient`'s request plumbing rather than a parallel
+  implementation; `LocalE2EAuth` implements the same contract
+  deterministically for the local E2E stack. Storage location
+  (`localStorage`, alongside the access token) is ADR-0033's own decision,
+  not repeated here. Covered by `AuthEndpointTests.cs` and
+  `frontend/src/App.test.tsx`.
+- **Context:** `frontend/src/App.tsx` now stores both the Supabase access
+  token and the refresh token in `localStorage`; the backend's `POST
+  /auth/login` response (`AuthController.Login`, `LoginResponse
+  .RefreshToken`) already carried a refresh token — Supabase Auth returns
+  one on every successful token exchange — but `AuthScreen.tsx` previously
+  destructured only `accessToken`, discarding it, and no refresh flow
+  existed anywhere in the frontend or backend. Per ADR-0013, the frontend
+  never calls Supabase Auth directly — any refresh mechanism must be
+  mediated through the backend, the same way `POST /auth/login`/`POST
+  /auth/signup` already are, not a direct frontend-to-Supabase call.
 - Given a person logs in successfully (`POST /auth/login`)
 - Then the frontend stores the returned `RefreshToken` (already present in
-  `LoginResponse`, currently discarded), not only the access token, so it
-  survives a page reload or a new browser session
+  `LoginResponse`, previously discarded before this REQ was built), not
+  only the access token, so it survives a page reload or a new browser
+  session
 - Given the frontend's stored access token is missing or expired, or a
   request to the backend receives a 401 that is not itself a
   wrong-password/wrong-credential response (e.g. not REQ-710's "Incorrect

@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.59"
+version: "0.60"
 status: draft
-last_updated: 2026-07-19
+last_updated: 2026-07-20
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # Implementation Document – xG Arcade (working title)
 
-Version 0.51 · 2026-07-17
+Version 0.60 · 2026-07-20
 References: `requirements-document.md`, `architecture-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -316,6 +316,15 @@ public class PlayerData          // raw, per source
     public string Source { get; set; }    // "wikidata" | "api_football" | "live_lookup"
     public string Confidence { get; set; } // "verified" | "unverified"
     public DateTime SyncedAt { get; set; }
+    // REQ-503 (S-057, migration AddPlayerDataApproval, 2026-07-20
+    // extension): set together, only by the admin "approve" action (POST
+    // /admin/player-data/approve) flipping this row's Confidence to
+    // "verified" — never by a routine sync/live-lookup write
+    // (WikidataLookupService always leaves both null). Same "who and when,
+    // on the row itself" shape as PlayerOverride.LockedByAdminId/LockedAt
+    // below — no separate audit-log table here either.
+    public Guid? ApprovedByAdminId { get; set; }
+    public DateTime? ApprovedAt { get; set; }
 }
 
 public class PlayerOverride       // manual, always wins

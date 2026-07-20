@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.36"
+version: "0.37"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.33 · 2026-07-19
+Version 0.37 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -1194,6 +1194,11 @@ standalone "Delete account" and "Admin" links.
 ├───────────────────────────────┤
 │ [ Admin ]      (admin-only)    │
 ├───────────────────────────────┤
+│ Display name                   │
+│ [__________________]           │
+│         [ Save name ]          │
+│         Display name updated.  │
+├───────────────────────────────┤
 │ Delete account                 │
 │ This permanently deletes your  │
 │ account. It cannot be undone.  │
@@ -1223,6 +1228,23 @@ link, on this screen or in SCREEN-07's nav menu — the same "no visible
 entry point" guarantee REQ-504 already makes for `AdminScreen` itself, now
 also true of its one remaining entry point. Tokens only (`surface-card`,
 `border-hairline`, existing spacing/type scale) — no new visual treatment.
+
+**Added 2026-07-20, REQ-714:** a "Display name" section, between the
+admin-only link and the delete-account section, hosting a single-field
+form (pre-filled with the account's current name) and a "Save name"
+button — same 1-30 character bound and inline-error convention
+`AuthScreen.tsx`'s signup form already established for the same field, and
+the same "server's own detail text shown inline, not a generic failure
+banner" convention `DeleteAccountScreen`'s own 401/409-shaped errors
+already use (so a name-taken conflict shows the server's specific message,
+not a generic one). A successful save shows "Display name updated." in
+`accent-green-text` (the text-contrast-safe green variant, not
+`accent-green` — see §2's text-contrast note) directly below the field, and
+the caller's own state updates immediately from the server's confirmed
+response, with no page reload or refetch needed for the new name to show
+up everywhere else it's read. No new tokens — reuses `settings-screen__section`'s
+existing bordered-row treatment plus the same field/input pattern
+`AuthScreen.tsx` already established.
 
 ## 4. Responsive strategy
 
