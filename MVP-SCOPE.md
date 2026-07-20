@@ -161,8 +161,10 @@ E2E against.
 **Grid content**: Country × Club, plus Club × Club as of `docs/backlog.md`
 S-030 (2026-07-12) — REQ-107 already permitted this pairing, Tier 0 grid
 generation just never used it; no new reference data needed. REQ-108's
-Trophy category is a separate pull-forward, S-031 — see the Tier 1 section
-below for why it's scoped narrower than REQ-108's full definition.
+Trophy category is a separate pull-forward, **built 2026-07-20 as S-031** —
+see the Tier 1 section below for why it's scoped narrower than REQ-108's
+full definition, and why it's mechanically wired up but structurally
+dormant (won't actually be selected) until more than one trophy is seeded.
 **Revised, per an explicit decision to prioritize full historical
 correctness over club-count breadth**: a small, **hand-curated** list of
 roughly **15 clubs** and **15-20 countries** in `CountryDefinition`/
@@ -315,14 +317,22 @@ is written as something you can actually observe, not a vague feeling:
   played enough rounds that it feels repetitive, a subjective call but one
   you'll notice by just playing it yourself for a couple of weeks~~ —
   **Trigger judged hit, 2026-07-12**, after two weeks/29 stories' worth of
-  real play. Queued as `docs/backlog.md` S-031, deliberately scoped
-  narrower than REQ-108's full definition: **individual awards only for
-  v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received") —
-  the same simple query shape as the existing Country×Club intersection
+  real play. **Built 2026-07-20, `docs/backlog.md` S-031**, deliberately
+  scoped narrower than REQ-108's full definition: **individual awards only
+  for v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received")
+  — the same simple query shape as the existing Country×Club intersection
   query. Team-competition trophies (World Cup, Champions League) need a
   genuinely different query pattern (squad membership + tournament result
   — no single property links a player directly to "won this tournament")
-  and stay explicitly deferred to a follow-up story, not folded into S-031
+  and stay explicitly deferred to a follow-up story, not folded into S-031.
+  Two things worth knowing about what actually shipped, not just that it
+  did: (1) Ballon d'Or's QID was a training-knowledge guess, not verified
+  against a live Wikidata page (same sandbox limitation that bit S-036) —
+  needs a human check before real reliance; (2) with only this one trophy
+  seeded, every Trophy pairing is currently infeasible for any realistic
+  grid size, so Trophy is mechanically wired up but won't actually be
+  selected until more trophies are added as reference data — exactly the
+  "a data change, not a code change" growth path REQ-108 was designed for.
 - **National teams as distinct footballing entities** (England, Scotland,
   Wales, Northern Ireland) — trigger: "United Kingdom" as a category
   starts feeling wrong/generic for football trivia, or you specifically

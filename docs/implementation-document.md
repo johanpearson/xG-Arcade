@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.60"
+version: "0.61"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -485,15 +485,14 @@ public class GridCell
     public Guid GridInstanceId { get; set; }
     public int Row { get; set; }
     public int Col { get; set; }
-    // RowCategoryType/ColCategoryType ("country" | "club") were added in
-    // S-007, beyond this section's original illustrative shape: Tier 0
-    // generates either Country x Club or, as of S-030, Club x Club
-    // (MVP-SCOPE.md) — recording the type per cell (rather than assuming a
-    // fixed axis) is what lets guess-checking (S-009) know whether to query
-    // PlayerAttribute's "nationality" or "club" AttributeType for a given
-    // cell without re-deriving it, and keeps the schema correct once a
-    // future Tier 1 grid mixes in further category types (REQ-108's
-    // Trophy) across an axis.
+    // RowCategoryType/ColCategoryType ("country" | "club" | "trophy") were
+    // added in S-007, beyond this section's original illustrative shape:
+    // Tier 0 generates Country x Club, Club x Club (S-030), or a
+    // Trophy-involving pairing (S-031, REQ-108) (MVP-SCOPE.md) — recording
+    // the type per cell (rather than assuming a fixed axis) is what lets
+    // guess-checking (S-009) know whether to query PlayerAttribute's
+    // "nationality"/"club"/"trophy" AttributeType for a given cell without
+    // re-deriving it.
     public string RowCategoryType { get; set; }
     public string RowCategoryValue { get; set; }
     public string ColCategoryType { get; set; }
@@ -815,12 +814,19 @@ or (as of S-008) `POST /internal/generate-round`
 `GridGenerationException` — and, as of the 2026-07-12 fix, any other
 exception too — and surfaces it the same way), no separate alerting
 channel exists yet.
-This shape is also Tier 0-scoped to two possible pairings, chosen once per
-instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
-Country (rows) × Club (columns), or, as of S-030, Club × Club — never a
-mixed axis within one grid, never Trophy — so the "whichever category
-types this GridTemplate allows" line above still doesn't vary *within* a
-single grid, only across grids.
+This shape is also Tier 0-scoped to (up to) five possible pairings, chosen
+once per instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
+Country (rows) × Club (columns), Club × Club (S-030), Country × Trophy,
+Club × Trophy, or Trophy × Trophy (S-031, REQ-108, Trophy always kept
+second in a mixed pairing) — never a mixed axis *within* one grid, so the
+"whichever category types this GridTemplate allows" line above still
+doesn't vary within a single grid, only across grids. In production,
+Trophy pairings are mechanically wired up but structurally never chosen —
+`ReferenceDataSeeder` seeds only one trophy (Ballon d'Or), and
+`trophyCount(1)` can never clear `size` for any realistic grid (see
+`SelectPairing`'s own comment and REQ-108's status note) — proven as a
+mechanism via a larger faked trophy pool in `GridGameModuleTests`, not by
+anything production data triggers yet.
 
 **REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
 iterates every Country × Club and Club × Club pair the reference tables can

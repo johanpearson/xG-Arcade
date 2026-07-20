@@ -921,6 +921,43 @@ scored correct only via a `PlayerAttribute`/`PlayerOverride` record of type
 the live-lookup fallback. *Deps:* S-007, S-030 (shares the generalized
 header-selection and live-lookup-fallback work).
 
+**Built as:** `CategoryPairingRules.Trophy` added; `GridGameModule.
+SelectPairing` generalized from S-030's two-way coin flip to a uniform
+random choice among however many of five candidate pairings (Country×Club,
+Club×Club, Country×Trophy, Club×Trophy, Trophy×Trophy) the seeded reference
+data can support — Trophy is always kept second in a mixed pairing, same
+precedent Country×Club already set for Country preceding Club.
+`MapAttributeType`/`ResolveCandidateAsync`/`LookupLiveMatchesAsync` all gained
+a Trophy branch; Trophy×Trophy has no dedicated live-lookup persist method
+(unreachable in practice, see below) and falls through to the existing
+fail-closed `null` return. `WikidataClient` gained
+`QueryTrophyCountryIntersectionAsync`/`QueryTrophyClubIntersectionAsync`
+(P166 "award received", truthy — a deliberate, documented call distinct from
+P54's non-truthy rule, see the query builders' own comments — + P27/P54
+respectively), reusing `BuildIntersectionQuery`'s shared plumbing.
+`WikidataLookupService` gained `LookupAndPersistTrophyCountryAsync`/
+`LookupAndPersistTrophyClubAsync`, reusing the existing `PersistMatchesAsync`
+helper, persisting matches under `PlayerAttribute.AttributeType="trophy"`.
+`ReferenceDataSeeder` gained a `Trophies` array seeding exactly one row,
+Ballon d'Or (`Q166177`, `IsTeamTrophy=false`) — **this QID was not
+independently verified against a live Wikidata page this session** (same
+sandbox network limitation `ReferenceDataSeeder`'s own doc comment already
+documents for S-036/S-037's guessed club QIDs, 4 of which turned out wrong)
+— a human must check it before relying on this in production; `Trophy
+Definition.Name` already had a unique index (`ADR-0012` scaffolding), so no
+new migration was needed. **Confirmed, asserted-not-just-commented
+consequence:** with only this one seeded trophy, every Trophy pairing is
+infeasible for any realistic grid size and so structurally never selected
+in production (`REQ108_SelectPairing_OnlyOneTrophySeeded_MatchingRealSeedData
+_NeverSelectsAnyTrophyPairing`) — the mechanism itself is proven correct via
+a faked larger trophy pool (5+/3+ values) in the rest of the new
+`GridGameModuleTests` coverage. 42 new REQ108/REQ211-named tests added
+across `GridGameModuleTests.cs`, `WikidataClientTests.cs`,
+`WikidataLookupServiceTests.cs`, and `ReferenceDataSeederTests.cs`; full
+backend suite (552 tests) passes. `docs/requirements-document.md` (REQ-107/
+REQ-108 status notes), `MVP-SCOPE.md`, and `GridTemplate`/`IWikidataClient`'s
+own doc comments updated to describe Trophy as built, not deferred.
+
 **S-032 · Autocomplete + `PlayerNameIndex` (REQ-207, ADR-0007)**
 Pulled forward from Tier 1 by deliberate choice, 2026-07-12 — not because
 the `MVP-SCOPE.md` trigger strictly fired (no unprompted "typing is

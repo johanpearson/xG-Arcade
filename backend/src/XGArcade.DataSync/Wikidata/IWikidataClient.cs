@@ -1,10 +1,13 @@
 namespace XGArcade.DataSync.Wikidata;
 
 // COMP-07 (DataSync.Clients), Tier 0 half: the Wikidata half of ADR-0011's
-// live-lookup waterfall. Tier 0 grids are Country x Club and, as of
-// docs/backlog.md S-030, Club x Club (MVP-SCOPE.md) — so this is scoped to
-// those two intersections rather than a generic n-category query — Trophy
-// support is Tier 1.
+// live-lookup waterfall. Tier 0 grids are Country x Club, Club x Club (as of
+// docs/backlog.md S-030), and a Trophy-involving pairing (as of S-031,
+// REQ-108, individual awards only) (MVP-SCOPE.md) — so this is scoped to
+// those intersections rather than a generic n-category query. Team-
+// competition trophies (World Cup, Champions League) need a structurally
+// different query (squad membership + tournament result) and remain
+// deferred to a follow-up story.
 public interface IWikidataClient
 {
     // Never LIMITs the underlying SPARQL query — see implementation-document.md
@@ -22,6 +25,27 @@ public interface IWikidataClient
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: "received this individual award AND holds this
+    // citizenship" — P166 ("award received") + P27, the Trophy counterpart
+    // of QueryCountryClubIntersectionAsync's P27+P54 shape. Uses the truthy
+    // wdt:P166 shortcut (unlike P54) — see BuildIntersectionQuery's Trophy
+    // comment in WikidataClient for why that's safe here. Same
+    // no-LIMIT/never-throws contract as every other intersection query.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: "received this individual award AND ever played for
+    // this club" — P166 (truthy) + P54 (full statement path, same
+    // non-truthy reasoning as QueryCountryClubIntersectionAsync/
+    // QueryClubClubIntersectionAsync's P54 halves). Same
+    // no-LIMIT/never-throws contract.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
+        string trophyWikidataQid,
+        string clubWikidataQid,
         CancellationToken cancellationToken = default);
 
     // S-032/ADR-0007/REQ-207: PlayerNameIndexImporter's bulk-import query —

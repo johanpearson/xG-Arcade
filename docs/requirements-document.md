@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.76"
+version: "0.77"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -218,21 +218,26 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want every grid to be answerable with a real footballer, so
 > the puzzle stays fair and interesting rather than impossible or trivial.
 
-- **Status note (2026-07-12):** Club × Club is implemented, `docs/backlog.md`
-  S-030 — `GridGameModule.GenerateInstanceAsync` now picks between
-  Country × Club and Club × Club per instance (`SelectPairing`): randomly,
-  whenever the seeded reference data can support either (enough countries
-  and clubs for Country × Club, and at least `2 × Size` distinct clubs for
-  Club × Club, since REQ-102 forbids a value appearing on both axes),
-  falling back deterministically to whichever single pairing is feasible
-  when only one is. This was a scope restriction in `MVP-SCOPE.md`, not a
-  limit this REQ ever imposed — `CategoryPairingRules.IsAllowedPairing`
-  already permitted Club × Club before S-030. Trophy pairings are queued as
-  S-031, scoped to Trophy × Country/Trophy × Club only for v1 (a
-  single-trophy pool can't satisfy REQ-102's N-unique-headers rule for
-  Trophy × Trophy, so that
-  pairing is structurally unreachable until more trophies exist, not
-  separately banned).
+- **Status note (2026-07-20):** Club × Club (`docs/backlog.md` S-030) and
+  every Trophy pairing (S-031) are both implemented.
+  `GridGameModule.GenerateInstanceAsync` picks a pairing per instance
+  (`SelectPairing`) uniformly at random among whichever of five candidates —
+  Country × Club, Club × Club, Country × Trophy, Club × Trophy, Trophy ×
+  Trophy — the seeded reference data can support (a same-type pairing needs
+  at least `2 × Size` distinct values, since REQ-102 forbids a value
+  appearing on both axes; a mixed pairing just needs `>= Size` in each
+  pool), falling back deterministically whenever only a subset is feasible.
+  This generalizes S-030's two-way coin flip to an N-way choice. This was a
+  scope restriction in `MVP-SCOPE.md`, not a limit this REQ ever imposed —
+  `CategoryPairingRules.IsAllowedPairing` already permitted every one of
+  these pairings before S-030/S-031 built the selection logic for them.
+  **Load-bearing caveat:** with only one trophy seeded in production
+  (Ballon d'Or, `ReferenceDataSeeder`), `trophyCount(1)` can never clear
+  `Size` for any realistic grid, so every Trophy pairing is structurally
+  infeasible today — Trophy is mechanically wired up but will not actually
+  be selected until more trophies are added as reference data (a data
+  change, not a code change, matching REQ-108's own design intent). See
+  REQ-108's own status note for that requirement's full detail.
 - Given a grid is being generated
 - When row and column categories are assigned
 - Then a Country × Country pairing is never generated (two nationality
@@ -255,16 +260,35 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want trophies to be a category alongside country and club,
 > so grids have more variety than just nationality/club combinations.
 
-- **Status: Proposed, queued as `docs/backlog.md` S-031 (pulled forward
-  from Tier 1, `MVP-SCOPE.md`, 2026-07-12).** v1 is deliberately narrower
-  than the acceptance criteria below: exactly one trophy, **Ballon d'Or**,
+- **Status: Implemented (Tier 0, S-031, 2026-07-20), narrower than the
+  acceptance criteria below.** `TrophyDefinition` gained a `(Name)` unique
+  index; `ReferenceDataSeeder` seeds exactly one trophy, **Ballon d'Or**,
   an individual award resolvable via Wikidata's `P166` ("award received") —
   the same simple query shape as the existing Country/Club intersection
-  query. Team-competition trophies (World Cup, Champions League, the rest
-  of the example list below) need a structurally different query (squad
-  membership + tournament result, no single property linking a player to
-  "won this tournament") and are explicitly deferred to a follow-up story,
-  not part of S-031.
+  query (`WikidataClient.QueryTrophyCountryIntersectionAsync`/
+  `QueryTrophyClubIntersectionAsync`, `IWikidataLookupService.
+  LookupAndPersistTrophyCountryAsync`/`LookupAndPersistTrophyClubAsync`).
+  `GridGameModule` treats Trophy as a third category type throughout
+  generation, guess-scoring, and REQ-211's guess-time live-lookup fallback
+  (Trophy × Trophy has no dedicated live-lookup method — see REQ-107's own
+  status note, it's unreachable in practice anyway). Team-competition
+  trophies (World Cup, Champions League, the rest of the example list
+  below) need a structurally different query (squad membership + tournament
+  result, no single property linking a player to "won this tournament") and
+  remain deferred to a follow-up story, not part of S-031.
+  **Two caveats, both load-bearing for what actually ships:**
+  (1) **Structurally dormant in production** — `ReferenceDataSeeder` seeds
+  only this one trophy, and `trophyCount(1)` can never clear `Size` for any
+  realistic grid (`GridGameModule.SelectPairing`), so no Trophy pairing can
+  actually be selected yet; this is expected per this REQ's own "a data
+  change, not a code change" design, proven by injecting a larger fake
+  trophy pool in `GridGameModuleTests`, not by anything production data
+  will trigger today. (2) **Ballon d'Or's QID (`Q166177`) was not
+  independently verified against a live Wikidata page this session** — this
+  sandbox cannot reach wikidata.org (same limitation `ReferenceDataSeeder`'s
+  own doc comment already documents for S-036/S-037's guessed club QIDs,
+  4 of which turned out wrong) — a human must check it against the live
+  page before this is relied on in a real deployment.
 - Given the platform's list of recognized trophies (e.g. FIFA World Cup,
   UEFA Champions League, Ballon d'Or, UEFA European Championship, Copa
   América — an initial, extensible list, not hardcoded into game logic)

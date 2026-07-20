@@ -86,6 +86,18 @@ internal sealed class FakeWikidataClient : IWikidataClient
         string clubAWikidataQid, string clubBWikidataQid, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
+    // S-031/REQ-108: neither Trophy intersection is touched by
+    // PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests, same
+    // "never touched by either caller" reasoning as the two intersection
+    // methods above — stays stubbed to an empty result.
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
+        string trophyWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
     public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear, CancellationToken cancellationToken = default)
     {

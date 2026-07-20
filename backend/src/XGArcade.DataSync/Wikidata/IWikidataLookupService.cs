@@ -32,4 +32,23 @@ public interface IWikidataLookupService
         ClubDefinition clubB,
         WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: the Trophy x Country counterpart, same
+    // empty-on-unresolved-QID/never-throws contract. Persists matched
+    // players under AttributeType "trophy"/trophy.Name and
+    // "nationality"/country.Name.
+    Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+        TrophyDefinition trophy,
+        CountryDefinition country,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: the Trophy x Club counterpart, same
+    // empty-on-unresolved-QID/never-throws contract. Persists matched
+    // players under AttributeType "trophy"/trophy.Name and "club"/club.Name.
+    Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+        TrophyDefinition trophy,
+        ClubDefinition club,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default);
 }

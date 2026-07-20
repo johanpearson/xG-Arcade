@@ -98,6 +98,15 @@ public class GridGameModuleTests
         return club;
     }
 
+    // S-031/REQ-108.
+    private TrophyDefinition SeedTrophy(string name, string? wikidataQid = "unset")
+    {
+        var trophy = new TrophyDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qtrophy-{name}" : wikidataQid };
+        _dbContext.TrophyDefinitions.Add(trophy);
+        _dbContext.SaveChanges();
+        return trophy;
+    }
+
     // Seeds `count` distinct players in the local cache, each satisfying
     // both (nationality = countryName) and (club = clubName), so
     // CountPlayersWithBothAttributesAsync(countryName, clubName) == count.
@@ -137,6 +146,44 @@ public class GridGameModuleTests
             _dbContext.Players.Add(player);
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubAName });
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubBName });
+        }
+        _dbContext.SaveChanges();
+    }
+
+    // S-031: Trophy x Country counterpart to SeedCachedMatches — one side is
+    // AttributeType "trophy", the other "nationality".
+    private void SeedCachedTrophyCountryMatches(string trophyName, string countryName, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = $"{trophyName}-{countryName}-Player{i}",
+                WikidataQid = $"Qplayer-{trophyName}-{countryName}-{i}",
+            };
+            _dbContext.Players.Add(player);
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = trophyName });
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = countryName });
+        }
+        _dbContext.SaveChanges();
+    }
+
+    // S-031: Trophy x Club counterpart to SeedCachedMatches — one side is
+    // AttributeType "trophy", the other "club".
+    private void SeedCachedTrophyClubMatches(string trophyName, string clubName, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = $"{trophyName}-{clubName}-Player{i}",
+                WikidataQid = $"Qplayer-{trophyName}-{clubName}-{i}",
+            };
+            _dbContext.Players.Add(player);
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = trophyName });
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubName });
         }
         _dbContext.SaveChanges();
     }
@@ -599,6 +646,257 @@ public class GridGameModuleTests
         Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
             c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Club),
             "with both pairings feasible, FixedChoiceRandom(1) must steer SelectPairing to Club x Club, not the Country x Club default");
+    }
+
+    // ---- REQ-108/S-031: Trophy category ------------------------------------
+    // Production only ever seeds one trophy (Ballon d'Or, ReferenceDataSeeder)
+    // — trophyCount(1) can never clear `size` for any realistic grid, so a
+    // Trophy pairing structurally never gets selected in production (see
+    // SelectPairing's own comment). Tests below inject a larger fake trophy
+    // pool (SeedTrophy, 3+ values) specifically to prove the mechanism itself
+    // works even though production data won't trigger it yet.
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TrophyCountryPairing_ProducesGridUsingTrophyCategoryType()
+    {
+        // Zero clubs seeded -> every Club-involving pairing is infeasible.
+        // Three trophies (>= size but < 2*size) makes Trophy x Trophy
+        // infeasible too, leaving Country x Trophy as the only feasible
+        // pairing — deterministic regardless of the injected Random.
+        var template = SeedTemplate(size: 2);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
+        foreach (var trophyName in trophyNames)
+            SeedTrophy(trophyName);
+        foreach (var countryName in new[] { "France", "Spain" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyCountryMatches(trophyName, countryName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
+        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "SelectPairing must have picked Country x Trophy — Trophy always second, per the Country/Club-first precedent");
+        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
+        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
+        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
+        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TrophyClubPairing_ProducesGridUsingTrophyCategoryType()
+    {
+        // Zero countries seeded -> every Country-involving pairing is
+        // infeasible. Three trophies (>= size but < 2*size) makes
+        // Trophy x Trophy infeasible too, leaving Club x Trophy as the only
+        // feasible pairing — deterministic regardless of the injected Random.
+        var template = SeedTemplate(size: 2);
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
+        foreach (var trophyName in trophyNames)
+            SeedTrophy(trophyName);
+        foreach (var clubName in new[] { "Arsenal", "Barcelona" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyClubMatches(trophyName, clubName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
+        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "SelectPairing must have picked Club x Trophy — Trophy always second, per the Country/Club-first precedent");
+        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
+        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
+        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
+        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
+    }
+
+    [Test]
+    public async Task REQ108_SelectPairing_OnlyOneTrophySeeded_MatchingRealSeedData_NeverSelectsAnyTrophyPairing()
+    {
+        // The real ReferenceDataSeeder shape: exactly one trophy (Ballon
+        // d'Or). With size >= 2, trophyCount(1) can never clear `size` for
+        // any mixed pairing, nor `size * 2` for Trophy x Trophy — so every
+        // Trophy pairing is infeasible and Country x Club is the only
+        // choice, regardless of the injected Random. This documents S-031's
+        // "structurally dormant in production" consequence as an asserted
+        // behavior, not just a code comment.
+        var template = SeedTemplate(size: 2);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedTrophy("Ballon d'Or");
+        SeedCachedMatches("France", "Arsenal", 2);
+        SeedCachedMatches("France", "Barcelona", 2);
+        SeedCachedMatches("Spain", "Arsenal", 2);
+        SeedCachedMatches("Spain", "Barcelona", 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Trophy || c.ColCategoryType == CategoryPairingRules.Trophy),
+            "with only one trophy seeded (matching real seed data), Trophy can never be selected for any realistic grid size");
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyCountryCell_CandidateSatisfiesBothCategories_ReturnsCorrect()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True, "a PlayerAttribute record of type 'trophy' must satisfy a Trophy category cell");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyClubCell_CandidateSatisfiesBothCategories_ReturnsCorrect()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Real Madrid", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Luka Modric", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Real Madrid" });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Luka Modric"));
+
+        Assert.That(result.IsCorrect, Is.True, "a PlayerAttribute record of type 'trophy' must satisfy a Trophy category cell");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyCell_PlayerLacksTrophyAttribute_ReturnsIncorrect()
+    {
+        // Right nationality, but no "trophy"/"Ballon d'Or" PlayerAttribute —
+        // must satisfy BOTH categories, not just the non-Trophy one.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Some Frenchman", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Some Frenchman"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyOverride_WinsOverConflictingCachedPlayerAttribute()
+    {
+        // Mirrors REQ203_ScoreSubmissionAsync_OverridePresent_WinsOverConflictingCachedPlayerAttribute_EndToEnd
+        // for the Trophy category — "a PlayerAttribute (or override) record
+        // of type trophy" (REQ-108's acceptance text) explicitly includes
+        // PlayerOverride, not just the raw cached attribute.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        // Cached (unverified) data has no trophy attribute at all — an
+        // admin override supplies it instead.
+        await _dbContext.SaveChangesAsync();
+        await _playerStoreRepository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = player.Id,
+            Field = "trophy",
+            Value = "Ballon d'Or",
+            Reason = "Manual correction",
+            LockedByAdminId = Guid.NewGuid(),
+            LockedAt = DateTime.UtcNow,
+        });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True, "the override must be effective even though nothing cached confirms the trophy category");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyCountryCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        SeedCountry("France");
+        SeedTrophy("Ballon d'Or");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var zidane = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = "Qzidane" };
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "France", [zidane]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata Trophy x Country lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(zidane.Id));
+        Assert.That(_wikidataLookupService.GetTrophyCountryCallCount("Ballon d'Or", "France"), Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastOrigin("Ballon d'Or", "France"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyClubCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        SeedClub("Real Madrid");
+        SeedTrophy("Ballon d'Or");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Real Madrid", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Trophy);
+        var modric = new Player { Id = Guid.NewGuid(), FullName = "Luka Modric", WikidataQid = "Qmodric" };
+        _wikidataLookupService.SetTrophyClubMatches("Ballon d'Or", "Real Madrid", [modric]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Luka Modric"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata Trophy x Club lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(modric.Id));
+        Assert.That(_wikidataLookupService.GetTrophyClubCallCount("Ballon d'Or", "Real Madrid"), Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetTrophyClubLastOrigin("Ballon d'Or", "Real Madrid"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyTrophyCell_UnhandledByFallback_SkipsLiveLookup_DoesNotThrow()
+    {
+        // Trophy x Trophy has no dedicated IWikidataLookupService method
+        // (never generated in practice — see SelectPairing's own comment —
+        // but not otherwise impossible for a cell to have) and must
+        // gracefully skip the fallback (stay incorrect) rather than throw,
+        // same guard as the existing Club(rows) x Country(cols) test above.
+        SeedTrophy("Ballon d'Or");
+        SeedTrophy("Golden Boot");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Ballon d'Or", "Golden Boot", rowCategoryType: CategoryPairingRules.Trophy, colCategoryType: CategoryPairingRules.Trophy);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () =>
+            result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Anyone")));
+
+        Assert.That(result!.IsCorrect, Is.False);
     }
 
     // ---- REQ-109: category value reference tables --------------------------

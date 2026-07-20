@@ -8,6 +8,10 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
+    // S-031/REQ-108: PlayerAttribute.AttributeType's vocabulary spells this
+    // one identically to CategoryPairingRules' "trophy" — no mapping needed,
+    // unlike Country/Club.
+    private const string TrophyAttributeType = "trophy";
     private const string WikidataSource = "wikidata";
     // ADR-0032: no code path in this class persists "unverified" anymore —
     // both WikidataLookupOrigin values map to VerifiedConfidence below.
@@ -62,6 +66,38 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
 
         return await PersistMatchesAsync(
             matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, origin, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+        TrophyDefinition trophy,
+        CountryDefinition country,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default)
+    {
+        if (trophy.WikidataQid is null || country.WikidataQid is null)
+            return [];
+
+        var matches = await wikidataClient.QueryTrophyCountryIntersectionAsync(
+            trophy.WikidataQid, country.WikidataQid, cancellationToken);
+
+        return await PersistMatchesAsync(
+            matches, TrophyAttributeType, trophy.Name, NationalityAttributeType, country.Name, origin, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+        TrophyDefinition trophy,
+        ClubDefinition club,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default)
+    {
+        if (trophy.WikidataQid is null || club.WikidataQid is null)
+            return [];
+
+        var matches = await wikidataClient.QueryTrophyClubIntersectionAsync(
+            trophy.WikidataQid, club.WikidataQid, cancellationToken);
+
+        return await PersistMatchesAsync(
+            matches, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, origin, cancellationToken);
     }
 
     // Fetched once for the whole batch rather than re-queried per player —

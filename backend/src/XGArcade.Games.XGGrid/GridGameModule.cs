@@ -9,11 +9,12 @@ namespace XGArcade.Games.XGGrid;
 
 // COMP-05: IGameModule implementation for the xG Grid game.
 //
-// Tier 0 scope (MVP-SCOPE.md): grids are always Country x Club or, as of
-// docs/backlog.md S-030, Club x Club — never Country x Country (REQ-107),
-// never Trophy (REQ-108, deferred). Which pairing a given instance uses is
-// picked once per call (SelectPairing), randomly whenever the seeded
-// reference data can support either. Row/column headers are then fixed
+// Tier 0 scope (MVP-SCOPE.md): grids are Country x Club, Club x Club (as of
+// docs/backlog.md S-030), or, as of S-031 (REQ-108), a Trophy-involving
+// pairing (Country x Trophy, Club x Trophy, or Trophy x Trophy) — never
+// Country x Country (REQ-107). Which pairing a given instance uses is
+// picked once per call (SelectPairing), uniformly at random among whichever
+// pairings the seeded reference data can support. Row/column headers are then fixed
 // once chosen (REQ-102's "N unique row categories and N unique column
 // categories") — rows are picked first (any candidate satisfies REQ-107 on
 // its own, since the ban only applies to a Country/Country pairing), then
@@ -37,14 +38,16 @@ public class GridGameModule(
 {
     public const string XGGridGameKey = "xg-grid";
 
-    // PlayerAttribute.AttributeType's vocabulary for these two category
-    // types — see CategoryPairingRules' doc comment for why this differs
-    // from "country"/"club".
+    // PlayerAttribute.AttributeType's vocabulary for these category types —
+    // see CategoryPairingRules' doc comment for why this differs from
+    // "country"/"club"/"trophy". Trophy's own AttributeType happens to be
+    // spelled identically ("trophy") in both vocabularies, so it needs no
+    // constant of its own here (see MapAttributeType).
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
 
-    // Only the Country x Club / Club x Club pairing coin-flip goes through
-    // this field (see SelectPairing) — candidate-order shuffling still uses
+    // SelectPairing's uniform-at-random choice among every feasible pairing
+    // goes through this field — candidate-order shuffling still uses
     // Random.Shared, same as before S-030, since no test relies on
     // controlling shuffle order. Optional constructor param (like
     // WikidataClient's queryTimeout) so tests can pin the pairing choice
@@ -62,8 +65,9 @@ public class GridGameModule(
     public string GameKey => XGGridGameKey;
 
     // A row/column header candidate, abstracted away from which reference
-    // table (CountryDefinition/ClubDefinition) it came from — REQ-107's
-    // generalized pairing selection (S-030) needs to treat both uniformly.
+    // table (CountryDefinition/ClubDefinition/TrophyDefinition) it came from
+    // — REQ-107's generalized pairing selection (S-030, extended S-031)
+    // needs to treat all three uniformly.
     private readonly record struct CategoryCandidate(string Name, string? WikidataQid);
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
@@ -77,11 +81,13 @@ public class GridGameModule(
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
         var clubs = (await categoryValueRepository.GetClubsAsync(cancellationToken))
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+        var trophies = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
+            .Select(t => new CategoryCandidate(t.Name, t.WikidataQid)).ToList();
 
-        var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count);
+        var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count, trophies.Count);
 
-        var rowPool = rowCategoryType == CategoryPairingRules.Country ? countries : clubs;
-        var colPool = colCategoryType == CategoryPairingRules.Country ? countries : clubs;
+        var rowPool = PoolFor(rowCategoryType, countries, clubs, trophies);
+        var colPool = PoolFor(colCategoryType, countries, clubs, trophies);
 
         // REQ-102: N unique row categories. Any candidate is a valid row
         // header on its own — REQ-107's ban only bites once paired with a
@@ -113,36 +119,67 @@ public class GridGameModule(
         return new GameInstance { Id = instance.Id };
     }
 
-    // REQ-107 (S-030): Country x Club and Club x Club are the only two
-    // pairings Tier 0 ever generates (Trophy is Tier 1, REQ-108) —
-    // Country x Country is never a candidate, so there's nothing to filter
-    // out here, only to choose between. Prefers whichever pairing(s) the
-    // seeded reference data can actually support (Club x Club needs 2xSize
-    // distinct clubs, since REQ-102 forbids a value appearing on both
-    // axes), choosing randomly between the two only when both are feasible.
-    private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount)
+    // REQ-107/REQ-108 (S-030, extended S-031): Country x Country is never a
+    // candidate, so there's nothing to filter out here, only to choose
+    // between. Every other pairing CategoryPairingRules.IsAllowedPairing
+    // permits is a candidate: Country x Club, Club x Club, Country x Trophy,
+    // Club x Trophy, and Trophy x Trophy — Trophy is always kept as the
+    // *second* type in a mixed pairing (Country/Club always first), the
+    // same precedent Country x Club already set for Country preceding Club.
+    // A same-type pairing (Club x Club, Trophy x Trophy) needs 2xSize
+    // distinct values, since REQ-102 forbids a value appearing on both axes;
+    // a mixed pairing just needs >= size in each of the two pools. Chooses
+    // uniformly at random among whichever pairings the seeded reference
+    // data can actually support — generalizing S-030's two-way coin flip to
+    // an N-way choice.
+    //
+    // Non-obvious consequence, load-bearing for what actually ships (see
+    // ReferenceDataSeeder and docs/backlog.md S-031): with only one trophy
+    // seeded (Ballon d'Or), trophyCount(1) is smaller than `size` for any
+    // realistic grid size, so every Trophy pairing below is infeasible in
+    // production — Trophy can never actually be selected yet. That's
+    // expected, not a bug: REQ-108 describes the trophy list as reference
+    // data meant to grow later ("a data change, not a code change"), so this
+    // mechanism only becomes live once more trophies are added — see this
+    // class's unit tests for proof the mechanism itself works, using a
+    // larger injected trophy pool.
+    private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount, int trophyCount)
     {
-        var countryClubFeasible = countryCount >= size && clubCount >= size;
-        var clubClubFeasible = clubCount >= size * 2;
+        var candidates = new (string RowType, string ColType, bool Feasible)[]
+        {
+            (CategoryPairingRules.Country, CategoryPairingRules.Club, countryCount >= size && clubCount >= size),
+            (CategoryPairingRules.Club, CategoryPairingRules.Club, clubCount >= size * 2),
+            (CategoryPairingRules.Country, CategoryPairingRules.Trophy, countryCount >= size && trophyCount >= size),
+            (CategoryPairingRules.Club, CategoryPairingRules.Trophy, clubCount >= size && trophyCount >= size),
+            (CategoryPairingRules.Trophy, CategoryPairingRules.Trophy, trophyCount >= size * 2),
+        };
 
-        if (!countryClubFeasible && !clubClubFeasible)
+        var feasible = candidates.Where(c => c.Feasible).Select(c => (c.RowType, c.ColType)).ToList();
+
+        if (feasible.Count == 0)
         {
             throw new GridGenerationException(
                 $"Not enough reference data to build a {size}x{size} grid " +
-                $"({countryCount} countries, {clubCount} clubs available).");
+                $"({countryCount} countries, {clubCount} clubs, {trophyCount} trophies available).");
         }
 
-        if (countryClubFeasible && clubClubFeasible)
-        {
-            return _random.Next(2) == 0
-                ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
-                : (CategoryPairingRules.Club, CategoryPairingRules.Club);
-        }
-
-        return countryClubFeasible
-            ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
-            : (CategoryPairingRules.Club, CategoryPairingRules.Club);
+        return feasible[_random.Next(feasible.Count)];
     }
+
+    // PlayerAttribute.AttributeType's reference-table equivalent — which
+    // seeded pool a given category type's candidates are drawn from.
+    // Distinct from MapAttributeType below (that one maps to
+    // PlayerAttribute's vocabulary for guess-checking; this one picks a
+    // CategoryCandidate pool for generation).
+    private static List<CategoryCandidate> PoolFor(
+        string categoryType, List<CategoryCandidate> countries, List<CategoryCandidate> clubs, List<CategoryCandidate> trophies) =>
+        categoryType switch
+        {
+            CategoryPairingRules.Country => countries,
+            CategoryPairingRules.Club => clubs,
+            CategoryPairingRules.Trophy => trophies,
+            _ => throw new GridGenerationException($"Unknown category type '{categoryType}'."),
+        };
 
     // S-009: REQ-210's lock/attempt-cap checks and REQ-202's guess-change
     // policy already happened in Core.Scoring before this was ever called
@@ -246,8 +283,10 @@ public class GridGameModule(
     }
 
     // REQ-211's Tier 0 fallback (ADR-0018) knows how to refresh a
-    // Country x Club cell and, as of S-030, a Club x Club cell too — any
-    // other pairing (e.g. a future Trophy cell) can't be resolved from the
+    // Country x Club cell, a Club x Club cell (S-030), and, as of S-031, a
+    // Country x Trophy or Club x Trophy cell — any other pairing (e.g.
+    // Trophy x Trophy, which has no dedicated persist method — see
+    // LookupLiveMatchesAsync's own comment) can't be resolved from the
     // reference tables this way at all, and is left to fail closed via the
     // caller's existing cached-only result, same as a genuinely-incorrect
     // guess. Routes through the same LookupLiveMatchesAsync dispatcher
@@ -290,17 +329,27 @@ public class GridGameModule(
             return club is null ? null : new CategoryCandidate(club.Name, club.WikidataQid);
         }
 
+        if (categoryType == CategoryPairingRules.Trophy)
+        {
+            var trophy = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
+                .FirstOrDefault(t => t.Name == categoryValue);
+            return trophy is null ? null : new CategoryCandidate(trophy.Name, trophy.WikidataQid);
+        }
+
         return null;
     }
 
-    // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")
-    // differs from GridCell's RowCategoryType/ColCategoryType vocabulary
-    // ("country" | "club") — same mapping GetMatchCountAsync below already
-    // needs for grid generation.
+    // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club" |
+    // "trophy") differs from GridCell's RowCategoryType/ColCategoryType
+    // vocabulary ("country" | "club" | "trophy") only for Country — Trophy
+    // happens to be spelled identically in both, per REQ-108's acceptance
+    // text. Same mapping GetMatchCountAsync below already needs for grid
+    // generation.
     private static string MapAttributeType(string categoryType) => categoryType switch
     {
         CategoryPairingRules.Country => NationalityAttributeType,
         CategoryPairingRules.Club => ClubAttributeType,
+        CategoryPairingRules.Trophy => CategoryPairingRules.Trophy,
         _ => throw new GuessScoringException($"Unknown category type '{categoryType}'."),
     };
 
@@ -338,10 +387,12 @@ public class GridGameModule(
         CancellationToken cancellationToken)
     {
         // REQ-107: checked once, before any matching-count query — every
-        // column candidate in this call pairs the same two category types,
-        // so this is invariant per call, not per candidate. Tier 1 mixed
-        // axes (e.g. Trophy) would call this per candidate instead, once
-        // row/column category types can vary within one grid.
+        // column candidate in this call pairs the same two category types
+        // (including a Trophy pairing, S-031 — still fixed for the whole
+        // call, never varying per candidate), so this is invariant per
+        // call. A hypothetical future grid whose row/column category types
+        // vary *within* one call would need to check this per candidate
+        // instead.
         if (!CategoryPairingRules.IsAllowedPairing(rowCategoryType, colCategoryType))
             throw new GridGenerationException("Country x Country pairing is never allowed (REQ-107).");
 
@@ -434,7 +485,8 @@ public class GridGameModule(
     // GetMatchCountAsync (generation-time) and RefreshCellFromLiveLookupAsync
     // (REQ-211 guess-time fallback) so the two can't drift on which pairings
     // are handled. Returns null for a pairing neither method knows how to
-    // resolve (e.g. a future Trophy cell) — distinct from an empty list,
+    // resolve (e.g. Trophy x Trophy, which has no dedicated persist method)
+    // — distinct from an empty list,
     // which means the pairing IS handled but Wikidata found no match.
     // WikidataLookupService only ever reads Name/WikidataQid off the
     // CountryDefinition/ClubDefinition it's given (never Id) — safe to
@@ -467,6 +519,39 @@ public class GridGameModule(
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
                 origin,
                 cancellationToken);
+        }
+
+        // S-031/REQ-108: SelectPairing always keeps Trophy as the *second*
+        // type in a mixed pairing (Country/Club always first) — only these
+        // three orderings are ever produced, never Trophy first.
+        if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            return await wikidataLookupService.LookupAndPersistTrophyCountryAsync(
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                origin,
+                cancellationToken);
+        }
+
+        if (rowCategoryType == CategoryPairingRules.Club && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            return await wikidataLookupService.LookupAndPersistTrophyClubAsync(
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                origin,
+                cancellationToken);
+        }
+
+        if (rowCategoryType == CategoryPairingRules.Trophy && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            // Trophy x Trophy has no dedicated IWikidataLookupService method
+            // (S-031 scoped the two new methods to Country/Club x Trophy
+            // only, per docs/backlog.md — a live-lookup fallback for this
+            // pairing is unreachable in practice anyway, see SelectPairing's
+            // own comment on trophyCount(1) never clearing `size`). Falls
+            // through to `return null` below, same as any other
+            // not-yet-handled pairing — fails closed, never throws.
+            return null;
         }
 
         return null;

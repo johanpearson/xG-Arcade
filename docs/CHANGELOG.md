@@ -13,6 +13,40 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.76 → 0.77),
+  `docs/architecture-document.md` (0.43 → 0.44), `docs/
+  implementation-document.md` (0.60 → 0.61), `docs/backlog.md` (S-031
+  "Built as"), `MVP-SCOPE.md` — REQ-108 implemented
+  (Tier 0, S-031, ADR-0012): Trophy as a third grid category type, seeded
+  with exactly one value, Ballon d'Or (individual award, Wikidata `P166`
+  "award received"). `CategoryPairingRules.Trophy` added;
+  `GridGameModule.SelectPairing` generalized from S-030's two-way coin flip
+  to a uniform-random choice among however many of five candidate pairings
+  (Country×Club, Club×Club, Country×Trophy, Club×Trophy, Trophy×Trophy)
+  the seeded data supports; `MapAttributeType`/`ResolveCandidateAsync`/
+  `LookupLiveMatchesAsync` gained Trophy branches (Trophy×Trophy has no
+  live-lookup persist method — unreachable in practice, so falls through to
+  the existing fail-closed `null`). `WikidataClient` gained
+  `QueryTrophyCountryIntersectionAsync`/`QueryTrophyClubIntersectionAsync`
+  (P166 truthy — a documented, deliberate call distinct from P54's
+  non-truthy rule — + P27/P54), reusing `BuildIntersectionQuery`'s shared
+  plumbing; `WikidataLookupService` gained
+  `LookupAndPersistTrophyCountryAsync`/`LookupAndPersistTrophyClubAsync`,
+  reusing `PersistMatchesAsync`. `ReferenceDataSeeder` gained a `Trophies`
+  array seeding Ballon d'Or (`Q166177`, `IsTeamTrophy=false`) — **this QID
+  was not independently verified against a live Wikidata page this
+  session** (sandbox has no wikidata.org access, same limitation that bit
+  S-036/S-037's guessed club QIDs) — flagged for a human to check before
+  relying on it in production. **Load-bearing consequence, asserted by
+  test, not just documented:** with only this one seeded trophy, every
+  Trophy pairing is infeasible for any realistic grid size, so Trophy is
+  mechanically wired up but structurally never selected in production yet —
+  proven correct via a larger faked trophy pool in `GridGameModuleTests`
+  instead. 42 new REQ108/REQ211-named tests across
+  `GridGameModuleTests.cs`, `WikidataClientTests.cs`,
+  `WikidataLookupServiceTests.cs`, `ReferenceDataSeederTests.cs`; full
+  backend suite (552 tests) passes. Frontend not touched.
+
 - 2026-07-20 — `docs/requirements-document.md` (0.75 → 0.76), `docs/
   backlog.md` (S-027 "Built as") — REQ-405 implemented (Tier 0, S-027):
   round/week/month/year leaderboard resolutions, `GET

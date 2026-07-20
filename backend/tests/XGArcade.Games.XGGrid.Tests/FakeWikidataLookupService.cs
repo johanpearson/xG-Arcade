@@ -36,6 +36,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
+    private const string TrophyAttributeType = "trophy";
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
     private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
@@ -53,12 +54,27 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     private readonly Dictionary<(string ClubA, string ClubB), List<Player>> _clubClubMatches = new();
     private readonly Dictionary<(string ClubA, string ClubB), int> _clubClubCallCounts = new();
     private readonly Dictionary<(string ClubA, string ClubB), WikidataLookupOrigin> _clubClubLastOrigin = new();
+    // S-031: Trophy x Country and Trophy x Club, kept separate from the
+    // dictionaries above for the same "no accidental cross-contamination"
+    // reason as the Club x Club ones.
+    private readonly Dictionary<(string Trophy, string Country), List<Player>> _trophyCountryMatches = new();
+    private readonly Dictionary<(string Trophy, string Country), int> _trophyCountryCallCounts = new();
+    private readonly Dictionary<(string Trophy, string Country), WikidataLookupOrigin> _trophyCountryLastOrigin = new();
+    private readonly Dictionary<(string Trophy, string Club), List<Player>> _trophyClubMatches = new();
+    private readonly Dictionary<(string Trophy, string Club), int> _trophyClubCallCounts = new();
+    private readonly Dictionary<(string Trophy, string Club), WikidataLookupOrigin> _trophyClubLastOrigin = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
 
     public void SetClubClubMatches(string clubAName, string clubBName, IReadOnlyList<Player> players) =>
         _clubClubMatches[(clubAName, clubBName)] = players.ToList();
+
+    public void SetTrophyCountryMatches(string trophyName, string countryName, IReadOnlyList<Player> players) =>
+        _trophyCountryMatches[(trophyName, countryName)] = players.ToList();
+
+    public void SetTrophyClubMatches(string trophyName, string clubName, IReadOnlyList<Player> players) =>
+        _trophyClubMatches[(trophyName, clubName)] = players.ToList();
 
     // REQ-211's fallback must call this at most once per guess (bounded by
     // REQ-210's attempt cap, ADR-0018) — exposed so a test can assert the
@@ -75,6 +91,18 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     public WikidataLookupOrigin? GetClubClubLastOrigin(string clubAName, string clubBName) =>
         _clubClubLastOrigin.TryGetValue((clubAName, clubBName), out var origin) ? origin : null;
+
+    public int GetTrophyCountryCallCount(string trophyName, string countryName) =>
+        _trophyCountryCallCounts.TryGetValue((trophyName, countryName), out var count) ? count : 0;
+
+    public int GetTrophyClubCallCount(string trophyName, string clubName) =>
+        _trophyClubCallCounts.TryGetValue((trophyName, clubName), out var count) ? count : 0;
+
+    public WikidataLookupOrigin? GetTrophyCountryLastOrigin(string trophyName, string countryName) =>
+        _trophyCountryLastOrigin.TryGetValue((trophyName, countryName), out var origin) ? origin : null;
+
+    public WikidataLookupOrigin? GetTrophyClubLastOrigin(string trophyName, string clubName) =>
+        _trophyClubLastOrigin.TryGetValue((trophyName, clubName), out var origin) ? origin : null;
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
@@ -115,6 +143,50 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         {
             foreach (var player in players)
                 await PersistAsync(player, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, cancellationToken);
+        }
+
+        return players;
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+        TrophyDefinition trophy, CountryDefinition country, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+    {
+        onCalled?.Invoke();
+        _trophyCountryCallCounts[(trophy.Name, country.Name)] = GetTrophyCountryCallCount(trophy.Name, country.Name) + 1;
+        _trophyCountryLastOrigin[(trophy.Name, country.Name)] = origin;
+
+        if (trophy.WikidataQid is null || country.WikidataQid is null)
+            return [];
+
+        if (!_trophyCountryMatches.TryGetValue((trophy.Name, country.Name), out var players))
+            return [];
+
+        if (playerStore is not null)
+        {
+            foreach (var player in players)
+                await PersistAsync(player, TrophyAttributeType, trophy.Name, NationalityAttributeType, country.Name, cancellationToken);
+        }
+
+        return players;
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+        TrophyDefinition trophy, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+    {
+        onCalled?.Invoke();
+        _trophyClubCallCounts[(trophy.Name, club.Name)] = GetTrophyClubCallCount(trophy.Name, club.Name) + 1;
+        _trophyClubLastOrigin[(trophy.Name, club.Name)] = origin;
+
+        if (trophy.WikidataQid is null || club.WikidataQid is null)
+            return [];
+
+        if (!_trophyClubMatches.TryGetValue((trophy.Name, club.Name), out var players))
+            return [];
+
+        if (playerStore is not null)
+        {
+            foreach (var player in players)
+                await PersistAsync(player, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, cancellationToken);
         }
 
         return players;

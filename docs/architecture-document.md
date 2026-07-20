@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.43"
+version: "0.44"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -131,7 +131,7 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-02 | Core.Leagues | Global + custom leagues, membership | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
-| COMP-05 | Games.XGGrid | Grid generation, category logic, `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair, run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
+| COMP-05 | Games.XGGrid | Grid generation, category logic (Country/Club/Trophy, REQ-107/REQ-108), `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair; not yet extended to Trophy pairs (a known, harmless gap — S-031's Trophy pairings are structurally unselectable in production anyway, see REQ-108's status note), run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
 | COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
@@ -435,17 +435,23 @@ selection (`Data.PlayerStore`/COMP-06 → `CountryDefinition`/`ClubDefinition`,
 ADR-0012), cache-first-then-live-lookup per combination (S-006's
 Wikidata-only half — no API-Football leg, see REQ-103's status note), and
 persistence of the resulting `GridInstance`/`GridCell`s and the chaining
-`Round`. Scoped further to Tier 0 (`MVP-SCOPE.md`): every grid is either
-Country × Club or, as of `docs/backlog.md` S-030, Club × Club — never
-Country×Country (REQ-107), never Trophy (REQ-108, deferred). Which of the
-two allowed pairings a given instance uses is chosen once per
-`GenerateInstanceAsync` call (`GridGameModule.SelectPairing`) — randomly
-whenever the seeded reference data can support either, deterministically
-falling back to whichever single pairing is feasible otherwise. REQ-107's
-Country×Country ban is enforced by `CategoryPairingRules.IsAllowedPairing`,
-checked once per `PickHeadersAsync` call (invariant for that call, since
-every candidate in one call shares the same two category types) — not by a
-fixed-axis assumption baked into the code.
+`Round`. Scoped further to Tier 0 (`MVP-SCOPE.md`): every grid is Country ×
+Club, Club × Club (`docs/backlog.md` S-030), or, as of S-031, a
+Trophy-involving pairing (Country × Trophy, Club × Trophy, or Trophy ×
+Trophy) — never Country×Country (REQ-107). Which of the (up to five)
+allowed pairings a given instance uses is chosen once per
+`GenerateInstanceAsync` call (`GridGameModule.SelectPairing`) — uniformly at
+random among whichever the seeded reference data can support,
+deterministically falling back to whichever subset is feasible otherwise.
+REQ-107's Country×Country ban is enforced by
+`CategoryPairingRules.IsAllowedPairing`, checked once per `PickHeadersAsync`
+call (invariant for that call, since every candidate in one call shares the
+same two category types) — not by a fixed-axis assumption baked into the
+code. **Load-bearing caveat (REQ-108's status note has the full detail):**
+with only one trophy seeded in production, every Trophy pairing is
+structurally infeasible for any realistic grid size, so Trophy is
+mechanically wired up but not yet actually selectable — this becomes live
+only once more trophies are added as reference data.
 
 **Explicit rule, not just implied by the diagram below:** every live
 lookup this round's cells will ever need to reach `MinValidAnswers` happens
@@ -568,14 +574,17 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   re-running the cell's own Wikidata intersection query
   (`DataSync.Wikidata.WikidataLookupService`, the same call
   `GenerateInstanceAsync` uses) whenever cached data doesn't already answer
-  the guess, then re-checks. As of `docs/backlog.md` S-030, this covers
-  both pairings a grid can actually be generated with — a Country×Club cell
-  (`LookupAndPersistAsync`) and a Club×Club cell
-  (`LookupAndPersistClubClubAsync`) — dispatched from one shared
+  the guess, then re-checks. As of `docs/backlog.md` S-030/S-031, this
+  covers every pairing a grid can actually be generated with except
+  Trophy×Trophy — Country×Club (`LookupAndPersistAsync`), Club×Club
+  (`LookupAndPersistClubClubAsync`), Country×Trophy
+  (`LookupAndPersistTrophyCountryAsync`), and Club×Trophy
+  (`LookupAndPersistTrophyClubAsync`) — dispatched from one shared
   `LookupLiveMatchesAsync` helper also used by generation-time matching
-  (`GetMatchCountAsync`), so the two call sites can't drift on which
-  pairings are handled; any other pairing (e.g. a future Trophy cell) fails
-  closed rather than throwing. This differs from the diagram's full shape in
+  (`GetMatchCountAsync`), so the call sites can't drift on which pairings
+  are handled; Trophy×Trophy has no dedicated persist method (unreachable
+  in production anyway, see REQ-108's status note) and, like any other
+  unhandled pairing, fails closed rather than throwing. This differs from the diagram's full shape in
   one deliberate way: the trigger is "cached data didn't resolve this
   guess," not "guess matched a `Data.PlayerNameIndex` candidate" — even
   though `PlayerNameIndex`/COMP-10 (REQ-207) is now built (S-032), REQ-211's

@@ -13,6 +13,7 @@ public class WikidataClientTests
     private const string ClubQid = "Q9617";   // Arsenal
     private const string ClubAQid = "Q9617";  // Arsenal
     private const string ClubBQid = "Q7156";  // Barcelona
+    private const string TrophyQid = "Q166177"; // Ballon d'Or (unverified this session — see ReferenceDataSeeder)
 
     private static HttpClient BuildHttpClient(FakeHttpMessageHandler handler) =>
         new(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
@@ -508,6 +509,209 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryClubClubIntersectionAsync(ClubAQid, "Barcelona"));
+    }
+
+    // ---- QueryTrophyCountryIntersectionAsync / QueryTrophyClubIntersectionAsync (S-031/REQ-108) ----
+    // Same RunIntersectionQueryAsync/ParseBindings code path as every query
+    // above, just different query builders (BuildTrophyCountryIntersectionQuery/
+    // BuildTrophyClubIntersectionQuery) — so only the query-shape assertions
+    // and the QID-validation guards get their own coverage here; the
+    // parsing/error-handling behavior (alias grouping, timeout, malformed
+    // JSON, etc.) is already proven generically by the tests above.
+
+    [Test]
+    public async Task QueryTrophyCountryIntersectionAsync_GroupsMultipleAliasRowsUnderOnePlayer()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "TH14" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
+        Assert.That(result[0].Aliases, Is.EquivalentTo(new[] { "Titi", "TH14" }));
+    }
+
+    [Test]
+    public async Task QueryTrophyCountryIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTrophyCountryIntersectionAsync_HttpErrorStatus_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTrophyCountryIntersectionAsync_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTrophyCountryIntersectionAsync_SentQuery_NeverContainsLimit()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+    }
+
+    [Test]
+    public async Task REQ108_QueryTrophyCountryIntersectionAsync_SentQuery_UsesTruthyP166AndP27()
+    {
+        // P166 ("award received") is truthy here — a deliberate, documented
+        // judgment call (see BuildTrophyCountryIntersectionQuery's own
+        // comment): unlike P54, no Wikidata editorial convention marks one
+        // award win as "superseding" another, so best-rank and "received
+        // this award at all" coincide.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P166 wd:{TrophyQid}."));
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P27 wd:{CountryQid}."));
+        Assert.That(sentQuery, Does.Not.Contain("P54"));
+    }
+
+    [Test]
+    public void QueryTrophyCountryIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyCountryIntersectionAsync("Ballon d'Or", CountryQid));
+    }
+
+    [Test]
+    public void QueryTrophyCountryIntersectionAsync_RejectsNonQidCountryValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyCountryIntersectionAsync(TrophyQid, "France"));
+    }
+
+    [Test]
+    public async Task QueryTrophyClubIntersectionAsync_GroupsMultipleAliasRowsUnderOnePlayer()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "TH14" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
+        Assert.That(result[0].Aliases, Is.EquivalentTo(new[] { "Titi", "TH14" }));
+    }
+
+    [Test]
+    public async Task QueryTrophyClubIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTrophyClubIntersectionAsync_HttpErrorStatus_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTrophyClubIntersectionAsync_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ108_QueryTrophyClubIntersectionAsync_SentQuery_UsesTruthyP166AndFullStatementPathP54()
+    {
+        // P166 stays truthy (same reasoning as the Trophy x Country query
+        // above); P54 must NOT go truthy — same non-negotiable "ever played
+        // for," not "currently plays for," reasoning as every other P54 use
+        // in this client.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P166 wd:{TrophyQid}."));
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubStatement ps:P54 wd:{ClubQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+            "truthy wdt:P54 is best-rank-only — reintroducing it silently reduces 'ever played for' to 'currently plays for'");
+        Assert.That(sentQuery, Does.Not.Contain("P27"));
+    }
+
+    [Test]
+    public void QueryTrophyClubIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyClubIntersectionAsync("Ballon d'Or", ClubQid));
+    }
+
+    [Test]
+    public void QueryTrophyClubIntersectionAsync_RejectsNonQidClubValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyClubIntersectionAsync(TrophyQid, "Arsenal"));
     }
 
     // ---- QueryPlayerPoolBirthYearAsync (S-032/ADR-0007/REQ-207, ------------

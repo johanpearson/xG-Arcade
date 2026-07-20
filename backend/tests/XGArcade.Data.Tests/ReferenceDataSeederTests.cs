@@ -125,4 +125,51 @@ public class ReferenceDataSeederTests
         Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "Sevilla" && c.WikidataQid == "Q10329"), Is.True);
         Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Name == "Porto" && c.WikidataQid == "Q128446"), Is.True);
     }
+
+    // ---- S-031/REQ-108: Trophy seeding ----------------------------------
+
+    [Test]
+    public async Task REQ108_SeedAsync_PopulatesExactlyOneTrophy_BallonDor_AsIndividualAward()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        // v1 seeds exactly one trophy (REQ-108's narrower S-031 scope) —
+        // hardcoded, not read back from ReferenceDataSeeder itself, same
+        // "catch a future accidental change" reasoning as the Country/Club
+        // counts above.
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(1));
+        var ballonDor = await _dbContext.TrophyDefinitions.SingleAsync(t => t.Name == "Ballon d'Or");
+        // Q166177 is a training-knowledge QID, not independently verified
+        // against a live Wikidata page this session — see this file's own
+        // doc comment for why that caveat matters and what to do if it
+        // turns out wrong.
+        Assert.That(ballonDor.WikidataQid, Is.EqualTo("Q166177"));
+        Assert.That(ballonDor.IsTeamTrophy, Is.False, "REQ-108/S-031: v1 is individual awards only");
+    }
+
+    [Test]
+    public async Task REQ108_SeedAsync_RunTwice_TrophiesAreIdempotent_CreatesNoDuplicateRows()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ108_SeedAsync_CorrectsExistingTrophyRow_WhenSeededQidHasChanged()
+    {
+        // Same S-037-style correction-in-place proof as
+        // REQ109_SeedAsync_CorrectsExistingRow_WhenSeededQidHasChanged above,
+        // for TrophyDefinition's own by-Name upsert.
+        _dbContext.TrophyDefinitions.Add(new TrophyDefinition { Id = Guid.NewGuid(), Name = "Ballon d'Or", WikidataQid = "Qstale", IsTeamTrophy = true });
+        await _dbContext.SaveChangesAsync();
+
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        var ballonDor = await _dbContext.TrophyDefinitions.AsNoTracking().SingleAsync(t => t.Name == "Ballon d'Or");
+        Assert.That(ballonDor.WikidataQid, Is.EqualTo("Q166177"));
+        Assert.That(ballonDor.IsTeamTrophy, Is.False);
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(t => t.Name == "Ballon d'Or"), Is.EqualTo(1));
+    }
 }
