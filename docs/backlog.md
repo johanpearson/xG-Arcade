@@ -3236,3 +3236,40 @@ mock); no flash of the wrong theme on load.
 *Deps:* the design pass above (2026-07-20, REQ-716/ADR-0034 — design
 decided), the existing `SettingsScreen.tsx` (ADR-0030's mobile-nav/
 Settings consolidation).
+
+**S-065 · Alias and fuzzy-typo matching for guess scoring (REQ-208)**
+Closes REQ-208's two still-deferred clauses — the "simple half" (lowercase/
+diacritics/punctuation normalization) was already built, S-009.
+`GridGameModule.FindMatchAsync` now tries three stages in order, each only
+reached if the previous produced no candidate fitting both of the cell's
+categories: exact `Player.NormalizedFullName` match (unchanged),
+`PlayerAlias.NormalizedAlias` exact match, then a bounded edit-distance
+fuzzy pass. Stays entirely on the correctness-checking side
+(`PlayerAttribute`/`PlayerAlias`, COMP-06) — no new read path into
+`PlayerNameIndex` (COMP-10), per ADR-0007's boundary rule (autocomplete
+and correctness matching must never merge).
+*Accept:* REQ208-named tests: diacritics (existing coverage), a new
+alias-match case, fuzzy-typo cases that should match, and near-miss
+strings that should NOT match (confirms the edit-distance threshold
+doesn't make the game trivially easy).
+*Deps:* S-009 (name normalization, exact matching).
+**Built as:** matches the plan, plus a length-tiered edit-distance
+threshold rather than one fixed number — 0 for names <=4 characters
+normalized length, 1 for 5-8, 2 for >=9 — verified against concrete name
+pairs before committing to the thresholds (e.g. "Pele"/"Dele," two
+different real players, is distance 1, so a flat tolerance of 1 would
+have made them collide; "Ronaldo"/"Rivaldo" is distance 2, correctly
+rejected at the 5-8 tier's tolerance of 1). New
+`XGArcade.Data.NameEditDistance` (plain Levenshtein, O(n·m) DP — the
+smallest well-understood metric for "minor typos," not
+transposition-aware or phonetic matching). The fuzzy candidate pool is
+bounded to players already known (via a cached `PlayerAttribute` row) to
+satisfy at least one of the cell's two categories, never a full-table
+scan — a player satisfying neither can never be a correct answer for this
+cell regardless of name. `FilterByCategoriesAsync`/`AcceptMatch` extracted
+so all three stages (exact/alias/fuzzy) share identical
+category-fit/REQ-209-disambiguation handling, preventing drift between
+them. 27 new tests (`GridGameModuleTests.cs`, `PlayerStoreRepositoryTests.cs`,
+new `NameEditDistanceTests.cs`), including two ordering tests proving
+alias/fuzzy repository calls never happen once an earlier stage already
+resolved a match. Full backend suite (607 tests) green.

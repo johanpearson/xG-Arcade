@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.82"
+version: "0.83"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1063,24 +1063,28 @@ grids don't make guessing trivially easy)
 > player's name to be accepted, so I'm not penalized for not knowing exact
 > diacritics or punctuation.
 
-- **Status: Partially implemented (Tier 0's "simple half" only, S-009, per
-  `MVP-SCOPE.md`).** Built: `PlayerNameNormalizer.Normalize`
+- **Status: Implemented (Tier 0, S-009 + S-065), 2026-07-20.** All
+  acceptance criteria below are now built. `PlayerNameNormalizer.Normalize`
   (`XGArcade.Data`) lowercases, strips diacritics, strips punctuation
   (added in S-009 — this closes a real pre-existing gap left over from
   S-006, which stripped diacritics but not punctuation), and collapses
   whitespace; `Player.NormalizedFullName` is kept in lockstep with
   `FullName` via its setter and backfilled for pre-existing rows
-  (`PlayerNormalizedFullNameBackfiller`); `GridGameModule
-  .ScoreSubmissionAsync` compares the normalized guess directly against
-  `Player.NormalizedFullName` (`IPlayerStoreRepository
-  .GetPlayersByNormalizedFullNameAsync`). **Not built** (deliberately
-  deferred per `MVP-SCOPE.md`'s Tier 0 scoping, not an oversight): matching
-  via a maintained alias/stage-name list (`PlayerAlias` exists as an entity
-  since S-006 but is not queried for guess-time matching at all — only
-  exact `NormalizedFullName` equality is checked), and edit-distance/fuzzy
-  typo tolerance. A guess with a typo or an alias name (e.g. "Kaká" typed
-  as a nickname rather than a spelling variant of the same string) that
-  isn't an exact normalized match to `FullName` is scored incorrect today.
+  (`PlayerNormalizedFullNameBackfiller`). **As of S-065**,
+  `GridGameModule.FindMatchAsync` tries three stages in order, each only
+  reached if the previous produced no candidate fitting both of the cell's
+  categories: exact `Player.NormalizedFullName` match (unchanged),
+  `PlayerAlias.NormalizedAlias` exact match, then a bounded
+  edit-distance/fuzzy pass (`NameEditDistance`, plain Levenshtein) scoped
+  to players already known to satisfy at least one of the cell's two
+  categories — never a full-table scan. The fuzzy tolerance scales with
+  the guessed name's normalized length (0 for <=4 characters, 1 for 5-8,
+  2 for >=9) rather than one fixed threshold, specifically to avoid
+  colliding real short football nicknames (e.g. "Pele"/"Dele" is distance
+  1 between two different real players) while still catching a genuine
+  typo on a longer name. Stays entirely on the correctness-checking side
+  (`PlayerAttribute`/`PlayerAlias`/`Player`, COMP-06) — no new read path
+  into `PlayerNameIndex` (COMP-10), per ADR-0007's boundary rule.
 - Given a submitted guess
 - When it is compared against a candidate player's known name(s)
 - Then comparison is done on a normalized form: lowercased, diacritics

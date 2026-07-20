@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.82 → 0.83), `docs/
+  backlog.md` (new S-065 entry) — REQ-208 fully implemented: guess-time
+  matching now tries exact name, then `PlayerAlias`, then a bounded
+  edit-distance fuzzy pass (length-tiered tolerance: 0/1/2 for
+  <=4/5-8/>=9 character names), each stage only reached if the previous
+  found nothing. Stays on the correctness-checking side only, no new read
+  path into `PlayerNameIndex` (ADR-0007). 27 new tests; full backend
+  suite (607 tests) green. REQ-208.
 - 2026-07-20 — `docs/design-document.md` (0.39 → 0.40), `docs/
   requirements-document.md` (0.81 → 0.82) — REQ-716 (selectable color
   themes / dark mode) design pass: decided and contrast-verified a full
