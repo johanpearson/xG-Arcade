@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.81"
+version: "0.82"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -3444,62 +3444,99 @@ a valid stored refresh token but a missing/expired access token stays
 logged in without showing a login prompt; an invalid stored refresh token
 returns to the login screen; logging out clears the stored refresh token)
 
-**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed —
-drafted 2026-07-20, placeholder only. Needs its own design session before
-REQ/ADR-level specification — see `docs/backlog.md`'s note on this exact
-item. Not implementation-ready.)*
+**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed,
+implementation-ready — design pass completed 2026-07-20. Originally
+drafted 2026-07-20 as a placeholder; the design session
+`docs/backlog.md` flagged as needed has now happened and is recorded
+below and in `docs/design-document.md` §2's new **Dark theme**
+subsection. Mechanism/persistence choice recorded in ADR-0034. Not yet
+built — that's a separate, not-yet-queued implementation story in
+`docs/backlog.md`.)*
 > As a player, I want to choose a different color theme (e.g. dark mode)
 > for the app, so I can use it comfortably in different lighting
 > conditions or to match my own preference.
 
 - **Context:** raised as part of a broader Settings-page expansion
-  request. The request itself is vague as given — it is not yet clear
-  whether "change color themes" means a single light/dark toggle, multiple
-  named themes, or something else; this REQ records that the request
-  exists rather than assuming a specific scope on the product owner's
-  behalf.
-- `docs/design-document.md` §2 defines the current token system as
-  explicitly **light theme only for v1** — every color token (`bg-base`,
-  `surface-card`, `text-primary`, `accent-gold-text`, and the rest of that
-  table) has exactly one value, with several individually verified against
-  WCAG contrast floors for that one light background, documented with
-  dated entries in `docs/CHANGELOG.md`.
-- `docs/backlog.md` already flags this explicitly: "selectable color
-  themes/dark mode ... a reversal of the light-only v1 direction deserves
-  its own design session, not a quick story." This REQ does not override
-  that — it exists only to give the request a stable REQ ID to reference,
-  not to specify it.
+  request.
+- **Status note (2026-07-20 design pass):** every question this REQ
+  previously left open (below) is now decided. `docs/design-document.md`
+  §2 gained a full dark-theme token table — every existing color token
+  that carries real information (`text-primary`, `text-muted`,
+  `surface-card`/`surface-sunken`/`bg-base`, the `accent-green`/
+  `accent-gold`/`accent-red` text/icon pairings) has a contrast-verified
+  dark counterpart; the photo-overlay set (`overlay-scrim`,
+  `accent-green-scrim`, and the `accent-gold`/`surface-card` foreground
+  pairing used on it) needs no theme-specific value at all, since it's
+  calibrated against a photo's own worst-case brightness, not the app's
+  chrome. Layout, spacing, typography, and animation tokens are
+  unaffected — this is a colors-only change.
+- `docs/backlog.md` already flagged this as deserving its own design
+  session rather than a quick story — this status note **is** that
+  session's outcome, not a shortcut around it.
 
-**What a real design pass would need to cover (not resolved here):**
-- Scope of "theme" — a single light/dark toggle vs. multiple named themes
-  vs. something else; the request as given does not distinguish between
-  these.
-- Every existing token in `docs/design-document.md` §2 would need a value
-  per theme. That table today defines one flat value per token with no
-  existing raw/semantic split to build on — adding a second theme means
-  deciding how each token's per-theme value is authored and stored, not
-  just adding a parallel set of hex values ad hoc.
-- Every WCAG contrast ratio verified for the current light theme
-  (`docs/CHANGELOG.md` has several dated entries computing exact ratios
-  for specific tokens, e.g. `accent-gold-text`, `overlay-scrim`) would
-  need to be **re-verified independently for a dark theme**, not assumed
-  to carry over — a value that clears a contrast floor against
-  `#FBFBFA`/`#FFFFFF` has no guaranteed relationship to its contrast
-  against a dark background.
-- A persistence mechanism for the chosen theme — `localStorage`
-  (device-local) vs. a `User`-level stored preference (follows the account
-  across devices) — is an open decision, not something this REQ defaults
-  on.
-- Whether theme selection should also consider the system-level
-  `prefers-color-scheme` preference as a default, separate from an
-  explicit in-app choice.
+**Scope of "theme" (resolved):** three states, not a plain on/off toggle
+— **System** (follows `prefers-color-scheme`, the default for anyone who
+has never touched the setting), **Light**, **Dark** (either pins the
+theme regardless of the OS setting). Not multiple named/branded themes —
+REQ-716's own request text asks for "a different color theme (e.g. dark
+mode)," singular, and `docs/design-document.md` §1's brand direction (real
+football imagery, a quiet neutral shell) doesn't call for more than a
+light/dark pair.
 
-- **Status: Proposed, explicitly not implementation-ready.** No
-  acceptance criteria are written below because none of the above has
-  been decided — writing Given/When/Then criteria now would mean
-  inventing a scope the product owner hasn't confirmed.
+**Mechanism (resolved):** an explicit toggle on `SettingsScreen.tsx`
+(SCREEN-08), not an automatic-`prefers-color-scheme`-only approach with no
+in-app control — see `docs/design-document.md` §2's Dark theme subsection
+for the full reasoning (short version: the request explicitly asks to
+*choose*, not just to have the OS setting respected). The choice persists
+in `localStorage` (a new key, device-local, no `User`-level/account-synced
+row and no new backend endpoint — same reasoning ADR-0033 already used for
+refresh-token storage: match the existing device-local pattern rather than
+add new server-side surface for something this low-stakes at Tier 0).
 
-**Test level:** Not applicable until scoped by a dedicated design session.
+- Given a player has never set a theme preference before
+- When the app loads
+- Then the UI renders using the OS-level `prefers-color-scheme` result
+  (light or dark), re-evaluated live if the OS setting changes mid-session
+  while "System" is selected
+- Given a player opens Settings and selects "Light" or "Dark" explicitly
+- When that choice is made
+- Then the chosen theme applies immediately (no reload required), persists
+  across reloads and new sessions via `localStorage`, and no longer
+  follows the OS setting even if it changes
+- Given a player has previously chosen "Light" or "Dark" explicitly
+- When they select "System" again
+- Then the app reverts to following `prefers-color-scheme` live, and the
+  explicit pin is cleared from `localStorage`
+- Given any of the four load-bearing correctness/state signals this app
+  already never renders as color-only (REQ-204's points/attempt text,
+  REQ-210's attempt count, the correct/incorrect icon-plus-text pairing)
+- When the dark theme is active
+- Then those signals remain text-paired, not color-only, in the dark
+  theme exactly as they already are in light theme — this REQ changes
+  color values only, never removes an existing text pairing
+- Given every text/icon-on-background pairing `docs/design-document.md`
+  §2 has previously verified for the light theme (body text, muted text,
+  the three accent-*-text correctness colors)
+- Then each has an independently-computed WCAG contrast ratio for its dark
+  counterpart, documented in §2's Dark theme subsection — not assumed to
+  carry over from the light-theme derivation
+
+**Design questions this REQ previously left open — resolved 2026-07-20:**
+- Scope of "theme" → **System/Light/Dark**, decided above
+- Per-theme token values and re-verified contrast ratios → done, see
+  `docs/design-document.md` §2's Dark theme subsection
+- Persistence mechanism → **`localStorage`**, device-local, decided above
+- Whether to also consider `prefers-color-scheme` → **yes, as the
+  "System" default**, decided above
+
+**Test level:** Unit/UI (Vitest) once built — the theme resolution logic
+(System resolves to the live OS preference; Light/Dark pin regardless of
+OS preference; the explicit choice persists across a simulated reload via
+`localStorage`); visual/contrast verification is a manual/design-review
+check against the ratios already computed in `docs/design-document.md`
+§2, not an automated test. E2E: not required to gate merge (Playwright
+only runs in CI per this repo's convention), but should get a smoke check
+that switching the toggle actually changes rendered colors, once built.
 
 ---
 
@@ -3616,15 +3653,14 @@ document already uses. See REQ-409's own text for the full decision and
 REQ-404's added status note for the interim state — implementation is a
 separately queued story, not yet built.
 
-One genuine open question remains from 2026-07-20:
+REQ-716's selectable-color-themes/dark-mode question was resolved
+2026-07-20: a System/Light/Dark toggle on `SettingsScreen.tsx`, persisted
+in `localStorage`, with a fully token-valued and contrast-verified dark
+theme in `docs/design-document.md` §2. See REQ-716's own status note and
+that document's Dark theme subsection — implementation not yet queued in
+`docs/backlog.md`.
 
-- **REQ-716 (selectable color themes / dark mode):** whether/how to offer
-  a non-light color theme. `docs/backlog.md` already flags this as
-  deserving its own design session rather than a quick story; this REQ
-  exists only as a placeholder recording the request, not a scoped spec.
-  Open: single toggle vs. multiple themes, per-theme token values and
-  re-verified contrast ratios, persistence mechanism, and whether to
-  honor `prefers-color-scheme`.
+No open questions remain from 2026-07-20 as of this pass.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:

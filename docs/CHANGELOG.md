@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/design-document.md` (0.39 → 0.40), `docs/
+  requirements-document.md` (0.81 → 0.82) — REQ-716 (selectable color
+  themes / dark mode) design pass: decided and contrast-verified a full
+  dark-theme token set in `design-document.md` §2 (WCAG relative-luminance
+  ratios computed for every text/icon-on-background pairing that carries
+  real information — body/muted text, and the `accent-green`/`accent-gold`/
+  `accent-red` correctness colors; the photo-overlay scrim set needs no
+  theme-specific value at all, since it's calibrated against a photo's own
+  brightness, not app chrome). Mechanism decided: an explicit System/Light/
+  Dark toggle on `SettingsScreen.tsx`, persisted in `localStorage`
+  (device-local, no `User`-level sync, same reasoning as ADR-0033),
+  defaulting to `prefers-color-scheme` — not an automatic-only approach,
+  since REQ-716's own request text asks to *choose*. Colors only — layout,
+  spacing, type, and animation tokens are unaffected. Design/spec only;
+  no component code changed. REQ-716 moved from "Proposed, placeholder,
+  not implementation-ready" to "Proposed, implementation-ready" (not
+  Implemented). §7 open questions in both docs updated to record the
+  resolution. Implementation is a separate, not-yet-queued
+  `docs/backlog.md` story. `docs/decisions/0034-dark-mode-explicit-toggle-localstorage.md`
+  (new) records the mechanism/persistence choice (explicit toggle over
+  automatic-only; `localStorage` over a `User`-level column) — a real,
+  could-have-gone-another-way decision, same bar as ADR-0033. REQ-716,
+  ADR-0034.
 - 2026-07-20 — `docs/requirements-document.md` (0.80 → 0.81), `MVP-SCOPE.md`
   (Tier 0/Tier 1 sections updated), `docs/backlog.md` (new S-063 entry) —
   REQ-402/403 (custom leagues create/join) pulled forward and implemented,
