@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.77 → 0.78) — REQ-409
+  decided (Status: Proposed, implementation-ready, not yet built): the
+  all-time leaderboard ranks by the median of each player's per-round
+  `SUM(FinalPoints)` totals (locked rounds only, no live component),
+  requiring at least 5 qualifying rounds to appear ranked, replacing (not
+  adding a tab alongside) REQ-401/404's raw-sum ranking; below-threshold
+  players excluded the same way REQ-404's zero-guess exclusion already
+  works. REQ-404 gained a cross-referencing status note; removed from §7's
+  open-questions list as resolved. Implementation not yet queued in
+  `docs/backlog.md`.
 - 2026-07-20 — `docs/requirements-document.md` (0.76 → 0.77),
   `docs/architecture-document.md` (0.43 → 0.44), `docs/
   implementation-document.md` (0.60 → 0.61), `docs/backlog.md` (S-031

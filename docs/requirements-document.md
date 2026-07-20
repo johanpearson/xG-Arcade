@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.77"
+version: "0.78"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1827,6 +1827,15 @@ case covers the game-selection step added in S-021)
   `GetTotalFinalPointsByUserIdsAsync`, kept as a separate call specifically
   so a member active only in the currently active (unlocked) round is not
   mistaken for never-played. See the bullet below.
+- **Status note (2026-07-20, drafted — REQ-409):** the product owner has
+  decided the `SUM(FinalPoints ?? 0)` ranking formula described above is
+  to be retired in favor of a median-based score gated by a 5-round
+  minimum — see REQ-409 for the full, implementation-ready acceptance
+  criteria. This is a decided requirement, not yet built: until REQ-409 is
+  implemented, the `SUM(FinalPoints ?? 0)`, ascending-sort behavior
+  described below remains this REQ's actual, current production behavior.
+  This note exists only so the two texts don't silently contradict each
+  other in the interim.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -2238,68 +2247,122 @@ pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
 responses), UI (round-selection list, then that round's leaderboard, on
 SCREEN-03)
 
-**REQ-409 – Participation-adjusted score for the all-time leaderboard**
-*(Status: Proposed — drafted 2026-07-20. Exploratory product-owner
-request, not a specified decision. See open questions below and §7.)*
-> As a player, I want the all-time leaderboard to reflect how consistently
-> I've played, not only my raw point total, so a player who has entered
-> many rounds isn't ranked behind someone who has only played a small,
-> lucky handful.
+**REQ-409 – Median, participation-gated score for the all-time leaderboard**
+*(Status: Proposed, implementation-ready — decided 2026-07-20. This is a
+real product-owner decision, not the earlier exploratory framing; it has
+not been built yet. See REQ-404's own added status note for the interim
+state and `docs/backlog.md` for the (separately queued) implementation
+story.)*
+> As a player, I want the all-time leaderboard to rank players by how
+> consistently they perform per round, not by a raw cumulative total that
+> only ever grows the more rounds someone plays, and only once they've
+> played enough rounds for that comparison to be meaningful, so a player
+> with a long, consistent history isn't ranked behind someone who has
+> only played a small, lucky handful of rounds.
 
 - **Context:** REQ-401/404's all-time leaderboard ranks by
-  `SUM(FinalPoints ?? 0)` ascending — lowest total wins (ADR-0021, golf-
-  style scoring). Under a pure sum, a player who has participated in only
-  a few rounds needs only a few low (good) totals to sit near the top,
-  while a player who has played many rounds accumulates a larger total
-  simply by having played more often, even if their per-round performance
-  is just as good or better on average — so the raw sum can rank a small,
-  lucky sample ahead of a larger, consistent one. Note the framing: under
-  ADR-0021's lowest-wins model this is *not* "reward high scores for
-  volume" (that would be backwards here, since more play only ever adds
-  more to the total, which is worse) — it's about the current total
-  unfairly disadvantaging a player with a long, consistent participation
-  history relative to one with a short one.
-- **Product owner's own framing (2026-07-20, exploratory, not a spec):**
-  "maybe it should or could show a score based on x points/x amount of
-  grids participation or something." No formula has been decided — what
-  follows is a **candidate starting point for discussion, not a
-  decision.**
-- **Candidate formula (proposal only, to be confirmed):** average points
-  per round participated in — `SUM(FinalPoints) / COUNT(rounds the player
-  participated in)` — still sorted **ascending** (lowest average wins), to
-  stay consistent with ADR-0021's existing direction rather than
-  introducing a second, reversed convention on the same leaderboard.
-- This REQ does **not** specify final acceptance criteria. The formula
-  above, and every question below, needs product-owner confirmation before
-  this can move to an implementation-ready status.
+  `SUM(FinalPoints ?? 0)` ascending (ADR-0021: lowest total wins). Under a
+  pure sum, every closed round a player plays adds strictly more to their
+  total — there is no way a round reduces it — so a player who has played
+  50 rounds necessarily carries more accumulated total than one who has
+  played 2, independent of actual per-round performance. The sum measures
+  volume as much as it measures skill; this REQ replaces it with a measure
+  that doesn't.
+- **Product owner's decision (2026-07-20):** the all-time leaderboard
+  ranks players by their **median per-round score**, not the sum, and a
+  player must have played **at least 5 rounds** before they qualify to
+  appear on the ranked list at all.
+- **Per-round score used for the median:** for each qualifying round (see
+  below), the same per-round total REQ-408 already defines and computes
+  for its closed-round leaderboard — `SUM(FinalPoints)` for that player,
+  that round only. This REQ introduces no new per-round metric; it only
+  changes how those existing per-round totals are combined into a single
+  all-time ranking number.
+- **"Played a round" / qualifying-round definition:** a round counts
+  towards both the 5-round minimum and the median itself if and only if it
+  is **closed** (`Round.ClosedAt` is set, REQ-408) **and** the player has
+  at least one `Guess` row in it — the same "at least one guess in this
+  specific round" participant definition REQ-406/407/408 and ADR-0021's
+  `MaterializeUnansweredCellsAsync` already use. This is a **different**
+  check from the existing `IGuessRepository.GetUserIdsWithAnyGuessAsync`
+  REQ-404 already uses for its zero-guess-ever exclusion — that method
+  answers a yes/no question ("has this user ever submitted any guess, in
+  any round at all, closed or still active") and does not count rounds.
+  REQ-409 needs a per-round, closed-rounds-only count, so it requires a
+  new query (the exact method name/shape is an implementation detail, not
+  part of this REQ), not a reuse of that existing boolean method. An
+  active (unlocked) round is never a qualifying round, matching
+  REQ-401/404/405's existing locked-only rule for all-time computations.
+- **Median definition:** the standard median of the qualifying rounds'
+  per-round totals — the middle value once those totals are sorted
+  ascending, or the arithmetic mean of the two middle values when the
+  qualifying-round count is even. The median is computed over **every**
+  qualifying round the player has ever played, not only their 5 most
+  recent — the 5-round minimum is a qualification floor, not a rolling
+  window.
+- **Scope: this replaces, rather than adds to, REQ-401/404's existing
+  all-time ranking.** The product owner's own framing — making "the
+  all-time leaderboard" fairer — describes a correction to the existing
+  ranking, not a new, separate lens meant to coexist with the old one.
+  Contrast REQ-406/407/408: each of those answers a genuinely different
+  question (live in-progress standing, one specific round, browsing past
+  rounds) that a player might reasonably still want the old total for
+  alongside it. REQ-409 answers the exact same question REQ-401/404's
+  "All-time" scope already answers ("where do I rank overall?"), just with
+  a fairer formula — there is no reason to keep the old, PO-identified-as-
+  unfair sum as a second, coexisting tab. There remains exactly one
+  "All-time" scope on the leaderboard screen (SCREEN-03); once this REQ is
+  implemented, that scope's ranking is the median described here, and the
+  raw-sum formula REQ-404 currently describes is retired for ranking
+  purposes. Per this document's ID-stability rule, REQ-404's own text and
+  status notes are not rewritten in place to reflect this — see REQ-404's
+  own newly added status note, which cross-references this REQ instead of
+  silently going stale.
+- **No live-round component.** Unlike REQ-406's sum-based total, this
+  median ranking does **not** fold in a live contribution from the
+  currently active round. Precedent: REQ-405's round/week/month/year
+  windows already remain locked-only and are explicitly unaffected by
+  REQ-406 ("this REQ does not change REQ-405's... time-window leaderboard,
+  which remains explicitly locked-only") — REQ-409 follows that same
+  precedent rather than inventing a new one. Folding a live, still-
+  changing round into a median (which round would count, and what
+  per-round figure to use for a round still in progress) has no existing
+  analogue in this document and is not resolved by this REQ; a live-
+  updating version of this median, if ever wanted, is a separate future
+  requirement.
+- Given a player has fewer than 5 qualifying rounds (per the definition
+  above)
+- Then that player does not appear on the all-time ranked list at all —
+  the same "absent, not ranked with a default value" exclusion pattern
+  REQ-404's 2026-07-20 zero-guess exclusion already established, extended
+  here from "zero qualifying rounds" to "fewer than 5 qualifying rounds"
+- Given a player has 5 or more qualifying rounds
+- When the all-time leaderboard is requested
+- Then that player's rank is based on the median of their per-round
+  `SUM(FinalPoints)` totals across every qualifying round they have ever
+  played, sorted **ascending** — the lowest median wins (ADR-0021, same
+  direction as every other ranking in this document)
+- And ties (equal median) are broken by display name, ordinal
+  case-insensitive comparison — the same tie-break rule used by every
+  other leaderboard ranking in this document (REQ-404/405/406/407/408)
+- And the currently active (unlocked) round never contributes to the
+  median or to the qualifying-round count, regardless of how many guesses
+  the player has made in it — matching REQ-401/404/405's existing
+  locked-only rule
+- And a player's median is recomputed from the full, current set of their
+  qualifying rounds on every leaderboard read (no stored, precomputed
+  median) — consistent with every other ranking in this document being
+  computed from source rows on read, not maintained as a running/cached
+  value
 
-**Open questions a real decision needs to resolve (not answered by this
-REQ — see also §7):**
-- Does a participation-adjusted score **replace** the existing raw-total
-  ranking (REQ-401/404), or sit alongside it as a second, selectable
-  ranking/tab (similar in spirit to how REQ-405 adds selectable scopes to
-  the same leaderboard screen)?
-- What counts as "participated in a round" for the denominator — reuse the
-  existing participant definition (at least one `Guess` row in a round,
-  the same definition ADR-0021's `MaterializeUnansweredCellsAsync` and
-  REQ-406/407 already use) for consistency, or something narrower/
-  broader? Reusing the existing definition is the obvious default, but
-  this REQ does not decide it.
-- How does this interact with REQ-401/404's 2026-07-20 zero-guess
-  exclusion rule, which already excludes a member with zero guesses ever
-  from the ranked list entirely? Does a participation-adjusted score need
-  that same exclusion (a zero-participation player has an undefined
-  average — divide by zero), or does the averaging formula make a
-  separate exclusion rule moot?
-- Is a minimum-rounds threshold needed before a player is eligible to
-  appear in this ranking at all, to stop a single lucky round from
-  dominating an average-based score? If so, what threshold — and is a
-  player below it excluded from this view entirely, or only shown in the
-  raw-total view?
-
-**Test level:** Not applicable — no acceptance criteria has been
-finalized; testable criteria can only be written once the open questions
-above are resolved.
+**Test level:** Unit (median computed correctly for an odd and an even
+qualifying-round count; a player with exactly 4 qualifying rounds is
+excluded while a player with exactly 5 is included and ranked; a round
+still active never counts toward the 5-round minimum or the median
+regardless of guesses made in it; sort order and tie-break match every
+other leaderboard ranking in this document), API (all-time leaderboard
+endpoint returns the median-based ranking; a below-threshold member is
+absent from the response, not present with a placeholder value)
 
 ---
 
@@ -3475,17 +3538,18 @@ REQ-405's leaderboard time-window questions (the previous entry in this
 section) were resolved 2026-07-12: calendar-aligned windows, UTC, locked
 rounds only. See REQ-405's own status note and `docs/backlog.md` S-027.
 
-Two genuine open questions were added 2026-07-20, both currently recorded
-as `Status: Proposed` REQs rather than decided here:
+REQ-409's participation-adjusted all-time score question was resolved
+2026-07-20: the all-time leaderboard's ranking becomes a median of each
+player's per-round `SUM(FinalPoints)` totals (locked rounds only, no live
+component), gated by a minimum of 5 qualifying rounds to appear ranked at
+all, replacing (not sitting alongside) the existing raw-sum ranking, with
+the same display-name tie-break every other leaderboard ranking in this
+document already uses. See REQ-409's own text for the full decision and
+REQ-404's added status note for the interim state — implementation is a
+separately queued story, not yet built.
 
-- **REQ-409 (participation-adjusted all-time score):** whether the
-  all-time leaderboard should show, instead of or alongside the existing
-  raw `SUM(FinalPoints ?? 0)` total, a participation-adjusted score (a
-  candidate formula — average points per round participated in — is
-  proposed for discussion, not decided). Open: replace vs. second view,
-  the participation definition to use, interaction with REQ-401/404's
-  zero-guess exclusion, and whether a minimum-rounds threshold is needed.
-  No formula, display mode, or threshold has been chosen.
+One genuine open question remains from 2026-07-20:
+
 - **REQ-716 (selectable color themes / dark mode):** whether/how to offer
   a non-light color theme. `docs/backlog.md` already flags this as
   deserving its own design session rather than a quick story; this REQ
