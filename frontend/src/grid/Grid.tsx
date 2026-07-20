@@ -31,11 +31,24 @@ export function Grid({ cells, roundStatus, submittedThisSessionCellIds, onCellCl
             alone is not enough, since the browser's column-width algorithm
             reads it from the *first row's* cell in that column (the empty
             corner cell in <thead>), not from the row-header cells that
-            actually live in <tbody> (Grid.css). */}
+            actually live in <tbody> (Grid.css).
+
+            S-055: every data <col> now also carries `grid-table__data-col`
+            (previously unclassed) — table-layout: fixed applies at every
+            breakpoint as of this story (Grid.css), not just ≤480px, and an
+            unclassed <col> would fall back to that algorithm's "equally
+            divide whatever width is left" rule, which only produces equal
+            columns when the *table's* own width is itself a known,
+            deliberate total (true at ≤480px, where the table is forced to
+            width: 100%; not true above it, where the table is deliberately
+            left at width: auto/shrink-to-fit, per S-047/S-049 — see
+            Grid.css). Giving every data column the same explicit width
+            directly is what makes columns uniform at those breakpoints too,
+            regardless of table width being open-ended. */}
         <colgroup>
           <col className="grid-table__row-header-col" />
           {colHeaders.map((col) => (
-            <col key={`colgroup-${col.col}`} />
+            <col key={`colgroup-${col.col}`} className="grid-table__data-col" />
           ))}
         </colgroup>
         <thead>

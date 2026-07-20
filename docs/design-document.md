@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.34"
+version: "0.35"
 status: draft
-last_updated: 2026-07-19
+last_updated: 2026-07-20
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1258,7 +1258,12 @@ Unchanged from v0.1 — built "equally both" from the start:
   re-verification when the fit mode changed separately. The 481-959px
   shrink-to-fit range and the ≤480px
   `table-layout: fixed` range are both unaffected — this change is scoped
-  to the existing `≥960px` breakpoint only. No change to REQ-214's
+  to the existing `≥960px` breakpoint only. **Superseded (2026-07-20,
+  S-055):** the 481-959px range described as "unaffected" here is no
+  longer shrink-to-fit-from-content at all — see S-055's own note below for
+  why (a different bug, uneven column widths, forced a mechanism change for
+  that range specifically) and for the deliberate target size S-055 also
+  gives it, closing the gap this sentence originally left open. No change to REQ-214's
   fixed-cell-footprint constraint — this is a target-size increase within
   the same "constant regardless of photo presence" rule, not a relaxation
   of it. **CellState.css companion change:** the photo-overlay's revealed
@@ -1284,7 +1289,9 @@ Unchanged from v0.1 — built "equally both" from the start:
   site" viewport, reported a visible white gap between the photo and the
   cell's own border. Root-caused via `getBoundingClientRect` on a real
   Chromium render (not guessed): the gap was real, measured, and
-  **symmetric** on all four sides (4px below 960px, 12px at/above it) —
+  **symmetric** on all four sides (4px below 960px, 12px at/above it, at
+  the time this note was written — S-055 below adds a third padding value,
+  8px, for the 481-959px band specifically) —
   not literally bottom-only as first described, though most visually
   obvious where two photo cells stack vertically (that gap, doubled across
   the shared row border, reads as a noticeably wide blank band, which is
@@ -1313,6 +1320,73 @@ Unchanged from v0.1 — built "equally both" from the start:
   the same way. No change to the aspect-ratio or target-size rules above —
   this only changes how much of the same footprint the photo fills, not
   the footprint's own size.
+- **Grid cell uniform column width (added S-055, closes a gap the S-047
+  note above assumed away):** every data column in a Tier-0 grid must
+  render at the same width, regardless of how long the row/column category
+  name in that column happens to be — direct user screenshots of a 3×3
+  grid showed "Sevilla"'s column visibly narrower than "Atletico Madrid"'s.
+  S-047's own fix (shrink-to-fit `.grid-table` width, `.grid-table__cell`'s
+  min-width as a floor) assumed "nothing in a cell's content forces a
+  column wider than [the floor]" — true for a single column in isolation,
+  but never actually checked *across* columns: `table-layout: auto` (the
+  browser default, left in place above 480px since S-047/S-049) sizes each
+  column independently from the widest cell/header content in *that*
+  column specifically, so a column with a long name still rendered wider
+  than a column with a short one, on every breakpoint except ≤480px
+  (S-040's own fix already sidesteps this there via `table-layout: fixed` +
+  explicit `<colgroup>` widths). Confirmed via real-browser measurement,
+  not assumed: before this fix, a 3×3 grid's "Sevilla"/"Atletico
+  Madrid"/"Real Sociedad" columns measured 92.75px/147.97px/141.59px at a
+  700px viewport and 120px/155.97px/149.59px at 1280px — the bug reproduces
+  at desktop width too, just less visibly since the 120px floor there
+  (S-049) is already fairly wide. Fixed by making `table-layout: fixed`
+  unconditional (previously only inside the ≤480px block) and giving every
+  data column an explicit, equal `<col>` width via a new `grid-table__data-col`
+  class (`Grid.tsx`'s `<colgroup>`, previously unclassed for data columns) —
+  fixed layout takes each column's width from its own `<col>` rather than
+  its widest cell, so an explicit, identical width per data column is what
+  actually guarantees identical columns. Chosen widths reuse existing
+  values where one already existed rather than inventing new ones: 90px for
+  the 481-959px band (already `.grid-table__col-header`'s own min-width),
+  120px at ≥960px (already `.grid-table__cell`'s S-049-verified target) —
+  the row-header column scales in step (110px / 140px). Verified via real
+  Chromium render at 390px/700px/1280px with the same mixed-length example:
+  every data column now measures identically at each width (89.83px/90px/
+  120px respectively), no horizontal-scroll fallback triggers, and the
+  ≤480px band's own already-working mechanism (unclassed data `<col>`s
+  equally dividing a `width: 100%` table) is unaffected — reset explicitly
+  back to `width: auto` inside that block, since the new unconditional 90px
+  base rule would otherwise apply there too and disrupt it. Header/row
+  label text now wraps (flag/badge stacked above the name, reusing S-040's
+  own mobile-only treatment, generalized to every breakpoint) rather than
+  stretching its column — a deliberate, undocumented-until-now choice
+  (flagged here per this doc's own "no ad-hoc value in code" rule): a plain
+  inline layout was tried first and rejected after real-browser
+  verification found the ~50-65px of text width left over next to the
+  glyph at the 481-959px band's new 90px column still wrapped a longer name
+  awkwardly, where stacking gives it the column's full width instead, the
+  same reasoning S-040 already established for ≤480px.
+
+  **Aspect-ratio bound closed for the 481-959px band as part of the same
+  story:** verifying the width fix above surfaced that the 1:1-1.3:1 bound
+  this section's own S-047 bullet requires "at every viewport from 481px up"
+  was never actually met in that specific band — S-049's own note explicitly
+  scoped its floor-to-target fix to `≥960px` only, leaving 481-959px without
+  a deliberate footprint of its own; content alone (badge/flag + text) had
+  already been forcing `.grid-table__cell`'s height past its 44px floor to
+  ~53-57px, which combined with the (now-fixed) 90px column width measured
+  at ~1.7:1 — an improvement over the pre-fix ~2.8:1 the same content-driven
+  column-width bug caused there, but still outside the documented bound.
+  Closed the same way S-049 already closed it at ≥960px (not a new
+  mechanism): a `481px`-`959px` media block raises `.grid-table__cell`'s
+  height to match the 90px column width (1:1), with padding stepped up one
+  notch (`--space-1` → `--space-2`, short of desktop's `--space-3`). The
+  ≤480px band remains explicitly exempt from this bound (unchanged, per
+  this section's own S-047 bullet wording) and was not touched. No change
+  to REQ-214's fixed-cell-footprint guarantee — this only sizes the
+  footprint itself, the same class of change S-049 already made at a
+  different breakpoint, not the "constant regardless of photo load
+  outcome" rule.
 - **Header nav breakpoint (added 2026-07-19, REQ-712):** the mobile
   hamburger toggle (SCREEN-07) activates below **480px**, reusing this
   section's existing narrow-phone value — the same one that already
