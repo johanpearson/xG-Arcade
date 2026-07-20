@@ -806,11 +806,14 @@ public class GridGameModuleTests
 
         Assert.That(result.IsCorrect, Is.False);
         Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1));
-        // ADR-0029: the guess-time fallback must persist as reviewable, not
-        // auto-verified like a generation-time sync — see
-        // REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified
-        // (WikidataLookupServiceTests.cs) for the actual Confidence assertion;
-        // this only confirms GridGameModule passes the right origin through.
+        // The GuessTimeFallback origin is still passed through distinctly
+        // from a generation-time Sync (for logging/future
+        // re-differentiation, ADR-0032) even though, as of ADR-0032, both
+        // now persist the same Confidence — see
+        // REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsVerified
+        // (WikidataLookupServiceTests.cs) for the actual Confidence
+        // assertion; this only confirms GridGameModule passes the right
+        // origin through.
         Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
     }
 
@@ -879,7 +882,7 @@ public class GridGameModuleTests
             "a live Wikidata Club x Club lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
         Assert.That(result.PlayerAnswerId, Is.EqualTo(neymar.Id));
         Assert.That(_wikidataLookupService.GetClubClubCallCount("Barcelona", "Paris Saint-Germain"), Is.EqualTo(1));
-        // ADR-0029: same origin check as the Country x Club fallback test above.
+        // Same origin check as the Country x Club fallback test above.
         Assert.That(
             _wikidataLookupService.GetClubClubLastOrigin("Barcelona", "Paris Saint-Germain"),
             Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));

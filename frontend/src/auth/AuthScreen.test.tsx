@@ -99,7 +99,23 @@ describe('AuthScreen', () => {
     await user.click(screen.getByLabelText(/at least 16/));
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
-    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc'));
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc', null));
+  });
+
+  it('REQ-715: logging in passes the returned refreshToken through to onAuthenticated, not just the accessToken', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => jsonResponse({ accessToken: 'token-abc', refreshToken: 'refresh-abc' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc', 'refresh-abc'));
   });
 
   it('REQ-701: shows the server error detail on a failed login rather than a generic message', async () => {

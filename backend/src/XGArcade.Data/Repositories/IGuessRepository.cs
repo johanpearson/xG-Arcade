@@ -34,6 +34,19 @@ public interface IGuessRepository
     // absent from the returned dictionary; callers treat a missing key as 0.
     Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
 
+    // REQ-401/404 (2026-07-20): "has this user ever submitted a single
+    // Guess row at all" — any round, locked or still active, correct or
+    // incorrect. Deliberately a separate existence check from
+    // GetTotalFinalPointsByUserIdsAsync above: that method only reflects
+    // *locked* FinalPoints, so a member who has only ever guessed in the
+    // currently active (unlocked) round would be wrongly indistinguishable
+    // from a member who has never played at all if this were derived from
+    // it instead. Used by LeaderboardService.GetGlobalLeaderboardAsync to
+    // exclude a true never-played member from the ranked list entirely,
+    // rather than defaulting their total to 0 (which ADR-0021's lowest-wins
+    // model would otherwise treat as the *best* possible score).
+    Task<IReadOnlySet<Guid>> GetUserIdsWithAnyGuessAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
+
     // REQ-408: the same "sum FinalPoints, treating null as 0" formula as
     // GetTotalFinalPointsByUserIdsAsync above, filtered to one round instead
     // of summed across every round a user has ever played — a closed round's

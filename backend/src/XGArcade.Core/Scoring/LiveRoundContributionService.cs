@@ -50,6 +50,15 @@ public class LiveRoundContributionService(
             .Distinct()
             .ToDictionary(userId => userId, _ => 0);
 
+        // Per-participant "which cells have they made at least one guess on
+        // at all" — needed below (2026-07-20) to find each participant's
+        // zero-guess cells, distinct from a cell with one of two attempts
+        // used and still unresolved (which stays in this set and therefore
+        // correctly contributes nothing here).
+        var attemptedCellIdsByUserId = participantGuesses
+            .GroupBy(g => g.UserId!.Value)
+            .ToDictionary(group => group.Key, group => group.Select(g => g.CellId).ToHashSet());
+
         foreach (var guess in participantGuesses)
         {
             int? cellContribution = null;
@@ -73,6 +82,26 @@ public class LiveRoundContributionService(
             if (cellContribution is not null)
             {
                 contributionsByUserId[guess.UserId!.Value] += cellContribution.Value;
+            }
+        }
+
+        // REQ-406/407 (2026-07-20): for a participant, every cell in this
+        // round's grid they have made ZERO guesses on at all (no Guess row
+        // for that cell, distinct from a cell with one of two attempts used
+        // and still unresolved, which stays out of this loop entirely)
+        // contributes MaxPointsPerCell — same as a locked-incorrect cell.
+        // Mirrors ScoreLockingService.MaterializeUnansweredCellsAsync's own
+        // per-participant "every cell not in their attempted set" pass,
+        // just computed on the fly here instead of materialized as rows.
+        foreach (var userId in contributionsByUserId.Keys.ToList())
+        {
+            var attemptedCellIds = attemptedCellIdsByUserId[userId];
+            foreach (var cellId in cellIds)
+            {
+                if (!attemptedCellIds.Contains(cellId))
+                {
+                    contributionsByUserId[userId] += ScoringRules.MaxPointsPerCell;
+                }
             }
         }
 

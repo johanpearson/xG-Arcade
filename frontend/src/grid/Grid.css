@@ -29,9 +29,37 @@
    remains the backstop either way. The ≤480px block below re-establishes
    `width: 100%` alongside `table-layout: fixed` — that breakpoint's own
    fix (S-040, header-text-wrapping) deliberately needs full-width fixed
-   layout instead of shrink-to-fit, and is unaffected by this change. */
+   layout instead of shrink-to-fit, and is unaffected by this change.
+
+   S-055 update (root cause verified via real user screenshots of a 3x3
+   grid, not guessed: columns visibly different widths depending on
+   whether a header read "Sevilla" or "Atletico Madrid"): the shrink-to-fit
+   width above was never the whole story — `table-layout: auto` (the
+   browser default this rule never overrode outside the ≤480px block below)
+   sizes *each column* from the widest cell/header content anywhere in that
+   column specifically, not just the table as a whole. `.grid-table__cell`'s
+   min-width (S-047/S-049) and `.grid-table__col-header`'s min-width (S-029)
+   below were only ever floors, never caps, on any single column, so a long
+   club/country name still forced its own column wider than a short name's
+   column, on every breakpoint except ≤480px (which already sidesteps this
+   via its own table-layout: fixed + explicit <colgroup> widths, S-040).
+   `table-layout: fixed` now applies unconditionally (previously only
+   inside the ≤480px block) so column width always comes from each
+   column's own `<col>` (Grid.tsx) — see `.grid-table__row-header-col`/
+   `.grid-table__data-col` below, which now give every breakpoint band an
+   explicit, equal width per data column. This does not reintroduce the
+   original S-047 bug (a Tier-0 grid stretched to fill the viewport): the
+   `width: auto` above is unchanged, and giving every column its own
+   explicit pixel `<col>` width (rather than relying on the ≤480px band's
+   "divide 100%-of-viewport evenly among unclassed columns" mechanism) is
+   what lets a `width: auto` table still compute a determinate, non-stretched
+   total width under CSS2.1's fixed-table-layout algorithm — the sum of the
+   (now explicit) column widths plus borders, the same shrink-to-fit
+   *outcome* S-047 verified, just no longer depending on coincidence for
+   columns to end up equal. */
 .grid-table {
   border-collapse: collapse;
+  table-layout: fixed;
   width: auto;
   margin: 0 auto;
 }
@@ -56,6 +84,15 @@
   min-width: 90px;
 }
 
+/* S-055: `white-space: nowrap` removed — it used to matter when this
+   column's width was still content-driven (table-layout: auto letting a
+   long name push the column wider); now every breakpoint gives this
+   column an explicit, capped width via `.grid-table__row-header-col`
+   below, and `.grid-table__row-header .category-label__name` (further
+   down this file) is the rule that actually governs wrapping for the text
+   this element contains. Leaving `nowrap` here would be stale/misleading,
+   not actively wrong (the child's own explicit `white-space: normal`
+   still wins for its own text either way). */
 .grid-table__row-header {
   position: sticky;
   left: 0;
@@ -64,7 +101,67 @@
   padding: var(--space-2) var(--space-3);
   border-right: 1px solid var(--color-border-hairline);
   text-align: left;
-  white-space: nowrap;
+}
+
+/* S-055: explicit, equal width for the row-header column and for every
+   data column, at every breakpoint from 481px up (the ≤480px block below
+   keeps its own already-working mechanism — see that block's own comment
+   for why it doesn't need this). This is the actual fix for the
+   uneven-column-width bug (real user screenshots: a 3x3 grid rendering
+   "Sevilla"'s column narrower than "Atletico Madrid"'s). Previously only
+   `.grid-table__row-header-col` (S-040) had an explicit <col> width, and
+   only inside the ≤480px block; outside it, table-layout: auto's
+   content-driven sizing (removed above) was the only thing governing every
+   column's width, unevenly. `.grid-table__data-col` is a class newly added
+   to each per-column <col> in Grid.tsx's <colgroup> (previously unclassed)
+   — giving every data column the identical width guarantees identical
+   columns regardless of what a given column's header/cell content happens
+   to be. Values reuse, rather than reinvent, sizes already established
+   elsewhere in this file as sensible for their band: 90px matches
+   `.grid-table__col-header`'s own existing min-width above for the
+   481-959px band; 110px scales the row-header column up in roughly the
+   same proportion S-040's own 88px-vs-60px mobile pair already used. The
+   ≥960px media block below overrides both to larger desktop values that
+   match `.grid-table__cell`'s already real-browser-verified (S-049) target
+   size — see that block's own comment for the exact numbers, deliberately
+   not repeated here so this file's own S-049 test (which counts that
+   value's occurrences to confirm it's scoped to that one block) stays
+   accurate. */
+.grid-table__row-header-col {
+  width: 110px;
+}
+
+.grid-table__data-col {
+  width: 90px;
+}
+
+/* S-055: moved here from inside the ≤480px block below, unchanged, and now
+   unconditional — every breakpoint's column width is fixed as of this
+   story (not just ≤480px's), so every breakpoint needs the same
+   wrap-instead-of-stretch treatment for header text that block already
+   established, not just the narrowest one. Stacking the flag/badge above
+   the name (rather than beside it) gives the name the header column's
+   *full* content width instead of sharing it with the glyph — this was
+   verified (S-040) to be the difference between a name wrapping on real
+   word boundaries and being squeezed narrow enough to break mid-word; the
+   same reasoning holds at the wider 90-140px column widths introduced by
+   this story, not only at ≤480px's narrower ones. A plain inline (glyph
+   beside name) layout was considered and rejected for the 481-959px band
+   specifically — real-browser verification (see this story's own check)
+   found the ~50-65px of text width remaining next to the glyph inline
+   still wrapped a longer name (e.g. "Atletico Madrid") awkwardly, where
+   stacked gives it the column's full ~65-90px instead. */
+.grid-table__col-header .category-label,
+.grid-table__row-header .category-label {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.grid-table__col-header .category-label__name,
+.grid-table__row-header .category-label__name {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* A Tier 0 grid (3x3) with real club/country names ("Paris Saint-Germain",
@@ -93,7 +190,17 @@
    width below is now the real source of truth for this column at this
    breakpoint (the `max-width` on `.grid-table__row-header` itself becomes
    redundant once fixed layout applies but is left in place as a
-   self-documenting floor, harmless either way). */
+   self-documenting floor, harmless either way).
+
+   S-055 update: `table-layout: fixed` and an explicit `.grid-table__row-
+   header-col` width are no longer unique to this ≤480px breakpoint — both
+   now apply unconditionally (above, and in the ≥960px block below), fixing
+   the same class of bug (a column's width driven by its widest cell's
+   content, not capped anywhere) at every breakpoint, not just this one.
+   This block's own `width: 88px` override and the `table-layout: fixed` /
+   `width: 100%` redeclaration directly below remain exactly as they were —
+   this breakpoint's own fix predates and still works the same way, just
+   alongside the wider rule now instead of being the only one. */
 @media (max-width: 480px) {
   .grid-table {
     table-layout: fixed;
@@ -110,6 +217,24 @@
     width: 88px;
   }
 
+  /* S-055: resets the base rule's unconditional 90px `.grid-table__data-col`
+     width (above) back to `auto` at this breakpoint specifically — this
+     block's own mechanism (unchanged from S-040/S-047) needs every data
+     `<col>` to stay unconstrained so table-layout: fixed's "divide
+     whatever width is left after the row-header column among the
+     `width: auto` columns" rule is what sizes them, since the table itself
+     is deliberately forced to `width: 100%` here (this block, above) — a
+     literal 90px per column wouldn't necessarily add up to that forced
+     total on every phone width, which could leave a gap or get silently
+     ignored depending on the browser. This breakpoint's data columns were
+     already equal-width before this story (the actual bug this story fixes
+     was never present ≤480px, see this story's own root-cause note further
+     up this file) — this override exists only to keep that already-working
+     mechanism from being disturbed by the new base rule. */
+  .grid-table__data-col {
+    width: auto;
+  }
+
   .grid-table__col-header {
     min-width: 60px;
     padding: var(--space-1) var(--space-2);
@@ -121,25 +246,15 @@
     white-space: normal;
   }
 
-  /* Stacking the flag/badge above the name (rather than beside it) gives
-     the name the header column's *full* content width instead of sharing
-     it with the glyph — at 88px/60px column widths that's the difference
-     between "United"/"Kingdom" wrapping on real word boundaries and being
-     squeezed narrow enough that even a single word doesn't fit, which is
-     what was still forcing a mid-word break (e.g. "Kingdo"/"m") even after
-     table-layout: fixed capped the column itself. */
-  .grid-table__col-header .category-label,
-  .grid-table__row-header .category-label {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  .grid-table__col-header .category-label__name,
-  .grid-table__row-header .category-label__name {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
+  /* S-055: the flag/badge-above-name stacking and name-wrap rules that used
+     to live here (this breakpoint's own S-040 fix) are now declared once,
+     unconditionally, above `.grid-table__row-header-col` — every breakpoint
+     needs the identical treatment as of this story, not just this one, so
+     duplicating the same two rules here would only risk them drifting out
+     of sync. Nothing about this breakpoint's own behavior changed: the
+     selectors, values, and reasoning (stacking gives the name the column's
+     full content width instead of sharing it with the glyph) are exactly
+     what this block used to declare directly. */
 }
 
 /* S-050 (root cause verified via getBoundingClientRect on a real Chromium
@@ -160,7 +275,9 @@
    rule's own, separate `padding` (one layer further out, never bypassed).
    The photo therefore always stopped short of the cell's actual bordered
    edge by exactly this rule's own `padding` value (4px below 960px, 12px
-   at/above it) on every side.
+   at/above it, at the time this note was written — see S-055's own note
+   below `.grid-table__cell`'s base rule above for the padding value this
+   rule now uses in the 481-959px band specifically) on every side.
 
    Fix: this element (the `<td>`), not the button, is now the positioned
    ancestor `.cell-state--photo` measures its `inset: 0` against — see
@@ -199,6 +316,32 @@
   min-width: var(--touch-target-min);
   height: var(--touch-target-min);
   position: relative;
+}
+
+/* S-055 (design-document.md §4's aspect-ratio bound: cells must render
+   between 1:1 and ~1.3:1 from 481px up through desktop): this band never
+   got its own deliberate footprint — S-049's own note explicitly scoped
+   raising the floor to ≥960px only, leaving 481-959px "unaffected." Content
+   alone (a header's badge/flag + wrapped name, or a cell's name/points
+   text) already forced this rule's `height` above past its 44px floor to
+   ~53-57px in real-browser measurement, but width in this band is
+   `.grid-table__data-col`'s 90px above — wider than that content-driven
+   height needs, which measured out to ~1.7:1 immediately after S-055's own
+   uniform-width fix (an improvement over the pre-fix ~2.8:1 the same
+   content-driven column-width bug caused, but still outside the documented
+   bound). Raising this rule's own height to match the 90px width above
+   closes that remaining gap the same way S-049 already closed it at
+   ≥960px — the same "give it a real footprint instead of a floor" move,
+   completing it for the one band S-049's own note left open, not a new
+   mechanism. Padding grows one step (`--space-1` → `--space-2`, not all
+   the way to desktop's `--space-3`) in the same proportion, so the larger
+   footprint isn't just a bigger empty box around the same tight spacing. */
+@media (min-width: 481px) and (max-width: 959px) {
+  .grid-table__cell {
+    padding: var(--space-2);
+    min-width: 90px;
+    height: 90px;
+  }
 }
 
 /* S-040 desktop polish: the 44px touch-target floor (design-document.md
@@ -241,6 +384,21 @@
   .grid-table__col-header,
   .grid-table__row-header {
     padding: var(--space-3) var(--space-4);
+  }
+
+  /* S-055: matches the data-column width to `.grid-table__cell`'s own
+     already real-browser-verified (S-049) 120px target immediately above —
+     a data column's declared width and the cell footprint it renders at
+     are now the literal same number at this breakpoint, not just a floor
+     that happens to line up. The row-header column scales up in step
+     (110px → 140px), same proportion as the 481-959px band's own
+     90px/110px pair just above. */
+  .grid-table__row-header-col {
+    width: 140px;
+  }
+
+  .grid-table__data-col {
+    width: 120px;
   }
 }
 

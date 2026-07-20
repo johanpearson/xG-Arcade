@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.42"
+version: "0.43"
 status: draft
-last_updated: 2026-07-19
+last_updated: 2026-07-20
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade (working title)
 
-Version 0.42 · 2026-07-19
+Version 0.43 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -473,10 +473,11 @@ Round Scheduler Job (COMP-03)
         skipped entirely if either value's QID is still null), API-Football
         only as fallback if Wikidata doesn't resolve it (ADR-0011);
         API-Football calls count against the shared daily counter (ExternalApiUsage)
-        → Data.PlayerStore: persist as verified (ADR-0029 — a routine
-          generation-time sync, WikidataLookupOrigin.Sync; distinct from
-          REQ-211's guess-time fallback in §6.2 below, which still persists
-          as unverified)
+        → Data.PlayerStore: persist as verified (ADR-0029, a routine
+          generation-time sync, WikidataLookupOrigin.Sync; as of
+          ADR-0032/2026-07-20, REQ-211's guess-time fallback in §6.2 below
+          also persists as verified — the two origins are no longer
+          distinguished by `Confidence`, see ADR-0032)
     → Games.XGGrid: assemble GridInstance once all cells valid, return its ID
   → Core.Rounds (COMP-03): create Round with GameKey="xg-grid",
     GameInstanceId=<the returned ID> — Core never sees the GridInstance shape
@@ -649,7 +650,9 @@ Player → Web Frontend → Backend API: POST guess (selected/typed name)
         fallback if Wikidata doesn't resolve it (ADR-0011) — checking the
         shared API-Football daily counter only on that fallback path
         → resolved (either source): result persisted immediately as
-          unverified PlayerData (REQ-211) — same request, not deferred
+          verified PlayerData (REQ-211; ADR-0032 as of 2026-07-20 — this
+          leg persisted as unverified until then, see ADR-0029/ADR-0032)
+          — same request, not deferred
         → unresolved (Wikidata failed AND API-Football budget exhausted or
           also unresolved): fail closed, evaluate as incorrect using only
           existing cached data
@@ -729,8 +732,10 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/closed-
 Custom leagues (REQ-402/403 — create/join via invite code) are not built;
 this flow only ever has the one global league to read. All three routes
 above share SCREEN-03 as a single leaderboard surface with a scope selector
-("All-time" / "This round (live)" / "Past rounds"), not three separate
-screens (REQ-407/408's own resolved UX placement decision).
+("All-time" / "Current Round" / "Previous Rounds" — renamed 2026-07-20,
+S-056, from "This round (live)"/"Past rounds"; purely cosmetic, no REQ
+specifies exact tab wording), not three separate screens (REQ-407/408's
+own resolved UX placement decision).
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
@@ -752,7 +757,8 @@ with the COMP-06 boundary rule. `GET /admin/player-data/unverified` lists
 candidates; `POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` covers
 "create PlayerOverride". "Mark PlayerData verified" and "remove the data
 point" are not built — there is no way to flip a `PlayerData` row's
-`Confidence` or delete it via any endpoint yet (see REQ-503's status note).
+`Confidence` or delete it via any endpoint yet (see REQ-503's status note
+at the time — since superseded, see the 2026-07-20/S-057 note below).
 No "Web Frontend (admin view)" exists — the Admin actor above reaches the
 Backend API directly (e.g. via a REST client), not through a UI.
 
@@ -770,9 +776,30 @@ directly, via a new `WikidataLookupOrigin` parameter on
 `IWikidataLookupService`. A one-time CLI verb
 (`verify-wikidata-player-data`) bulk-flipped the pre-existing backlog to
 match, since no persisted row records which of these two paths originally
-created it. "Mark PlayerData verified via an endpoint" and "remove the
-data point" remain unbuilt, per the note above — this change addresses
-the queue's *size*, not that missing action.
+created it. At this point, "Mark PlayerData verified via an endpoint" and
+"remove the data point" still remained unbuilt, per the note above — this
+change addressed the queue's *size*, not that missing action.
+
+**2026-07-20/ADR-0032/S-057 status:** ADR-0032 supersedes ADR-0029's
+fallback-specific carve-out — REQ-211's guess-time fallback (§6.2) now
+also persists `Confidence = "verified"` directly, so no code path writes
+`"unverified"` anymore (until a real player-suggestion/correction channel
+exists, per both ADRs' shared follow-up note). Separately, the same
+2026-07-20 batch of work finally builds "Mark PlayerData verified via an
+endpoint," closing half of the gap the two status notes above flagged:
+`POST /admin/player-data/approve` (`XGArcade.Api.Admin.AdminEndpoints`,
+Admin policy, REQ-503's 2026-07-20 extension) takes one or more
+`PlayerData` ids and flips each independently to `verified`, reached
+through the same `IPlayerStoreRepository` (COMP-06) interface as every
+other caller — `PlayerStoreRepository.ApprovePlayerDataAsync`, no new
+data-access path. Audit fields (`PlayerData.ApprovedByAdminId`/
+`ApprovedAt`) mirror `PlayerOverride`'s existing `LockedByAdminId`/
+`LockedAt` shape rather than a separate audit-log table. "Remove the data
+point" is still not built and remains out of scope. Because the review
+queue is now empty by construction going forward (ADR-0032), this new
+endpoint's practical caseload is limited to whatever
+`unverified`-at-write-time backlog exists from before that ADR shipped,
+plus any future player-suggestion channel once one exists.
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 
@@ -997,9 +1024,11 @@ new ADR that references the old one.
 | ADR-0026 | A dedicated `service_role` secret for Supabase Auth account deletion | Accepted |
 | ADR-0027 | Configuration-bound `RoundDuration` + daily safety-poll cron (replaces the Tue+Fri cadence's hand-matched coupling) | Accepted |
 | ADR-0028 | Single-valued Wikidata properties (e.g. a player's photo) live on `Player`, not `PlayerAttribute` | Accepted |
-| ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Accepted |
+| ADR-0029 | Wikidata sync data is auto-verified; only the guess-time fallback stays reviewable | Superseded by ADR-0032 |
 | ADR-0030 | Mobile hamburger nav toggle, and a consolidated Settings screen replacing standalone header links | Accepted |
 | ADR-0031 | Live leaderboard contributions (REQ-406/407) are recomputed on every read, never cached or snapshotted — reverses §6.2a's DB-side-aggregate/bounded-read-cost pattern for the live component | Accepted |
+| ADR-0032 | Wikidata guess-time fallback data is now auto-verified too, reversing ADR-0029's fallback-specific carve-out | Accepted |
+| ADR-0033 | Refresh token (REQ-715) stored in `localStorage`, same mechanism as the existing access token — no new cookie/CSRF infrastructure | Accepted |
 
 ## 11. Glossary
 

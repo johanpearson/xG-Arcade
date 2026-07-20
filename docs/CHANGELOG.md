@@ -13,6 +13,197 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — **Doc-sync pass** (this entry and the four below it) —
+  `docs/requirements-document.md` (0.74 → 0.75), `docs/architecture-
+  document.md` (0.42 → 0.43), `docs/implementation-document.md`
+  (0.59 → 0.60), `docs/design-document.md` (0.36 → 0.37), `docs/backlog.md`
+  (new S-055/S-056/S-057/S-058 entries) —
+  reconciles docs against a 10-commit batch (mobile grid fix, leaderboard
+  tab rename, Wikidata auto-verify-everywhere, admin bulk-approve,
+  leaderboard scoring fairness, display-name editing, refresh-token login)
+  that was already implemented, tested, and merged, but whose own commits
+  had left several `docs/requirements-document.md` REQ status headers
+  reading "Proposed, not yet implemented" despite being fully built, never
+  added the `docs/backlog.md` "Built as" entries this repo's convention
+  requires for every completed story, and left two other docs stale — see
+  the four feature-level entries directly below for what each piece of
+  work actually changed; this entry covers only the corrections found
+  independently of that batch's own (incomplete) doc updates. **REQ status
+  flips (each verified against the actual merged code before flipping, not
+  assumed — see the entries below for the specific classes/methods
+  checked):** REQ-401/404's zero-guess-ever exclusion, REQ-406/407's
+  zero-guess-cell `MaxPointsPerCell` credit, and REQ-503's bulk-approve
+  extension all flip from "Proposed, not yet implemented" to
+  "Implemented"; REQ-714 and REQ-715 (both newly drafted this session)
+  flip from "Proposed" to "Implemented, Tier 0, S-058." All five match
+  their drafted acceptance criteria exactly — no acceptance-criteria text
+  needed rewriting, only the status line and a short "built as"
+  confirmation each. **Stale literal quotes fixed:** REQ-407/408's status
+  notes and `architecture-document.md` §6.2a's leaderboard-flow summary
+  quoted the leaderboard's scope-tab labels as `"This round (live)"`/
+  `"Past rounds"`; the actual UI now reads "Current Round"/"Previous
+  Rounds" (renamed by the batch below) — updated to match, with the
+  rename's own history preserved in one explicit cross-reference rather
+  than silently rewritten. **`architecture-document.md` §6.3 fixed:** its
+  data-sync-flow status notes said "there is no way to flip a `PlayerData`
+  row's `Confidence`... via any endpoint yet" and that "'Mark PlayerData
+  verified via an endpoint'... remain[s] unbuilt" — both false as of this
+  batch's `POST /admin/player-data/approve`; added a dated status note
+  describing what's actually built, reached through `IPlayerStoreRepository`
+  (COMP-06) per the existing boundary rule, and reconciled §6.1/§6.2's own
+  diagram lines describing REQ-211's guess-time fallback as still
+  persisting `"unverified"` (superseded by ADR-0032). **`implementation-
+  document.md` fixed, found independently of the 5-item review list this
+  pass started from:** `PlayerData`'s entity sketch (§5) was missing the
+  `ApprovedByAdminId`/`ApprovedAt` columns the `AddPlayerDataApproval`
+  migration actually added — caught by reading `PlayerData.cs` directly
+  rather than trusting the doc; also corrected a pre-existing, unrelated
+  body/frontmatter version-number mismatch in both `implementation-
+  document.md` (body said 0.51/2026-07-17 while frontmatter already said
+  0.59/2026-07-19) and `design-document.md` (0.33/2026-07-19 vs.
+  0.36/2026-07-20) — neither caused by this batch, both now in sync.
+  **`docs/design-document.md` SCREEN-08 fixed:** REQ-714's own commit
+  updated `SettingsScreen.tsx` to add a display-name edit form but never
+  touched SCREEN-08's mock/description, which still showed only the
+  admin-only link and delete-account flow; added the missing section
+  (mock row, form behavior, confirms no new design tokens — verified
+  directly against `SettingsScreen.css`'s diff). **`docs/backlog.md`:**
+  added the four new entries below (S-055/056/057/
+  058), sourced from the merged code and the implementing commits' own
+  messages, following the existing S-052/053/054 convention;
+  `design-document.md` §4 already referenced "S-055" by name for the
+  grid-cell-sizing fix before this backlog entry existed, which is what
+  surfaced the gap. No code or test files touched by this pass —
+  documentation only. REQ-401, REQ-404, REQ-406, REQ-407, REQ-503,
+  REQ-714, REQ-715, ADR-0032, ADR-0033.
+- 2026-07-20 — `docs/requirements-document.md` (new REQ-714/715 entries;
+  status flipped to Implemented by the doc-sync pass above),
+  `docs/design-document.md` (SCREEN-08 gained the display-name form,
+  added by the doc-sync pass above — the implementing commit updated
+  `SettingsScreen.tsx` but not this doc),
+  `docs/legal/privacy-policy-draft.md` (0.6 → 0.7, "What we collect" now
+  notes a display name can be changed later, not only chosen at signup —
+  found by the doc-sync pass above),
+  `docs/decisions/0033-refresh-token-storage-localstorage.md` (new),
+  `docs/backlog.md` (new
+  S-058 entry) — **REQ-714 (edit display name from Settings) and REQ-715
+  (persistent login via refresh token), both new.** `PUT
+  /auth/display-name` (`AuthController.UpdateDisplayName`) reuses REQ-701's
+  exact 1-30 character bound and `IUserRepository.DisplayNameExistsAsync`,
+  now with an `excludeUserId` parameter so a no-op resubmission of the
+  caller's own current name (including a pure-casing change) is never
+  treated as a conflict against itself; `frontend/src/settings/
+  SettingsScreen.tsx` hosts the edit form. `POST /auth/refresh`
+  (`AuthController.Refresh`) exchanges a stored refresh token for a new
+  access token, mediated through Supabase Auth exactly like `/auth/login`/
+  `/auth/signup` (ADR-0013) — never a direct frontend-to-Supabase call —
+  sharing `SupabaseAuthClient`'s request plumbing rather than a parallel
+  implementation; `App.tsx` now stores the refresh token in `localStorage`
+  alongside the access token and attempts a silent refresh on a missing/
+  401'd access token before falling back to a full logout, with both
+  tokens cleared on logout and account deletion. **ADR-0033** (new):
+  `architecture-reviewer` was asked where the refresh token should live
+  before any code was written — `localStorage`, matching the existing
+  access-token pattern, was chosen over an httpOnly cookie specifically
+  because this codebase has no CORS-credentials/cookie/CSRF infrastructure
+  today and introducing it for one token would add more new surface than
+  a one-person team's current threat model justifies; the XSS-exposure
+  trade-off this accepts is recorded explicitly, with a revisit trigger
+  (any third-party script surface, or a real incident). One deliberate
+  omission flagged at implementation time, not a gap found later: no
+  explicit server-side refresh-token revocation on logout — REQ-715's own
+  acceptance criteria only require clearing the frontend's stored copy,
+  and account deletion (REQ-710) already invalidates any outstanding
+  refresh token as a side effect of deleting the underlying Supabase
+  identity. `docs/backlog.md` gained a new S-058 entry (this pass).
+  Backend and frontend suites extended (`UserRepositoryTests.cs`,
+  `AuthEndpointTests.cs` including an exact-30-character boundary case,
+  `SettingsScreen.test.tsx`, `App.test.tsx`). REQ-714, REQ-715, ADR-0033.
+- 2026-07-20 — `docs/requirements-document.md` (REQ-211 status note
+  revised, REQ-503 extended; status flipped to Implemented by the doc-sync
+  pass above), `docs/design-document.md`
+  (0.35 → 0.36), `docs/decisions/0032-wikidata-guess-time-fallback-also-
+  auto-verified.md` (new, supersedes 0029), `docs/backlog.md` (new S-057
+  entry) — **Wikidata guess-time
+  fallback data is now auto-verified too, and REQ-503 finally gets a
+  working "approve" action.** One day after ADR-0029 deliberately kept
+  REQ-211's guess-time fallback lookup persisting `Confidence =
+  "unverified"` so an admin could still spot-check that narrower,
+  less-vetted path, the product owner decided all Wikidata-sourced data
+  should be verified by default, including that path. **ADR-0032**
+  (supersedes ADR-0029, whose own status line is updated to "Superseded by
+  ADR-0032" rather than deleted): `WikidataLookupService.ConfidenceFor` now
+  maps both `WikidataLookupOrigin` values to `"verified"`; the enum and its
+  two call sites are kept, not collapsed away, since the distinction stays
+  meaningful for logging even though it no longer drives a different
+  `Confidence` value. A second run of the existing `verify-wikidata-
+  player-data` CLI verb (idempotent, from ADR-0029) is still needed against
+  the deployed database to flip the 2026-07-19→2026-07-20 window of
+  fallback rows still sitting as `unverified` — flagged as a manual
+  follow-up, not run as part of this change. Separately, REQ-503's "approve
+  → verified" action — missing since S-012, a gap S-052/ADR-0029 narrowed
+  the queue around but never actually built — now exists: `POST
+  /admin/player-data/approve` (`AdminEndpoints`, Admin policy) is
+  bulk-capable from the start (a single id is just the N=1 case), requires
+  no `reason` field (unlike `PlayerOverride`'s "correct" action), and
+  reports per-id success/failure rather than succeeding or failing an
+  entire batch as one unit; new `PlayerData.ApprovedByAdminId`/`ApprovedAt`
+  columns (`AddPlayerDataApproval` migration) mirror `PlayerOverride`'s
+  existing `LockedByAdminId`/`LockedAt` audit shape. `AdminScreen.tsx`
+  (SCREEN-04, `docs/design-document.md` updated in the same batch) adds a
+  checkbox per row, "select all," a selected-count readout, and an
+  "Approve selected" button, plus a persistent per-row results list.
+  `docs/backlog.md` gained a new S-057 entry (this pass). REQ-211, REQ-503,
+  ADR-0032.
+- 2026-07-20 — `docs/requirements-document.md` (REQ-401/404/406/407 status
+  notes revised; status flipped to Implemented by the doc-sync pass
+  above), `docs/backlog.md` (new
+  S-056 entry) — **Leaderboard scoring fairness (REQ-401/404/406/407) and
+  a cosmetic scope-tab rename.** Two independent fairness fixes to S-053's
+  leaderboard work, shipped together: (1) a league member who has never
+  submitted a single `Guess` previously defaulted to a total of `0`, which
+  under ADR-0021's lowest-wins golf model is the *best* possible score —
+  such a member ranked #1 ahead of everyone who had actually played; now
+  excluded from the ranked list entirely via a new `IGuessRepository
+  .GetUserIdsWithAnyGuessAsync`, kept separate from the existing
+  locked-only total query so a member active only in the current unlocked
+  round isn't mistaken for never-played (REQ-401/404). (2) the active-round
+  live estimate never credited an untouched cell, so a freshly-initiated
+  grid read as unfairly low the moment a player made their first guess
+  instead of starting near the theoretical max and counting down; now, for
+  a round participant (≥1 guess anywhere in that round, ADR-0021's existing
+  definition), every cell they've made zero guesses on at all contributes
+  `MaxPointsPerCell` via `LiveRoundContributionService`, same as a
+  locked-incorrect cell — a cell with one of two attempts used and still
+  unresolved is unaffected (REQ-406/407). Also renamed SCREEN-03's scope
+  tabs "This round (live)"/"Past rounds" → "Current Round"/"Previous
+  Rounds" (`LeaderboardScreen.tsx`) — purely cosmetic, no REQ specifies
+  exact tab wording. `docs/backlog.md` gained a new S-056 entry (this
+  pass). REQ-401, REQ-404, REQ-406, REQ-407.
+- 2026-07-20 — `docs/design-document.md` (0.34 → 0.35), `docs/backlog.md`
+  (new S-055 entry) — **Mobile/tablet grid cell sizing fix: uniform column
+  widths regardless of name length.** Reported via direct user screenshots
+  of a 3×3 grid: `table-layout: auto` (the browser default, left in place
+  above the 480px breakpoint since S-047/S-049) sizes each `<table>` column
+  independently from the widest cell/header content in that column
+  specifically, so a long team/player name ("Atletico Madrid") rendered
+  its column visibly wider than a short one ("Sevilla") — most visible at
+  mobile/tablet widths, still measurably present at desktop (measured
+  92.75px/147.97px/141.59px across three columns at a 700px viewport
+  before the fix). Fixed by making `table-layout: fixed` unconditional and
+  giving every data column an explicit, equal `<col>` width via a new
+  `grid-table__data-col` class (`Grid.tsx`'s `<colgroup>`), reusing
+  existing width values (90px at 481-959px, 120px at ≥960px) rather than
+  inventing new ones; also closed a `design-document.md` aspect-ratio
+  violation the fix surfaced at 481-959px (cells were ~2.8:1, outside the
+  documented 1:1–1.3:1 bound). Verified via real Chromium render at
+  390/700/1280px with mixed-length headers: uniform column widths, no
+  horizontal scroll, wrapped (not clipped) header text. No REQ change —
+  visual bug fix against `design-document.md` §4's existing uniform-
+  cell-size intent, not new product behavior. `docs/backlog.md` gained a
+  new S-055 entry (this pass) — `design-document.md` §4 had already
+  referenced "S-055" by name when it was updated as part of this same
+  batch, before the corresponding backlog entry existed.
 - 2026-07-19 — `docs/requirements-document.md` (0.71 → 0.72),
   `docs/architecture-document.md` (0.41 → 0.42),
   `docs/implementation-document.md` (0.58 → 0.59), `docs/backlog.md`

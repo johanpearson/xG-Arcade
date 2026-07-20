@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.6"
+version: "0.7"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-18
+last_updated: 2026-07-20
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -23,7 +23,8 @@ last_updated: 2026-07-18
 
 - **Account data:** your email address, password (your password is never
   stored or seen by us directly — it's handled by our authentication
-  provider, Supabase Auth), and a display name you choose at signup
+  provider, Supabase Auth), and a display name you choose at signup and
+  can change later from your account settings
 - **Gameplay data:** the guesses you submit, which rounds and leagues you
   participate in, your scores
 - **Nothing else by default:** we don't collect browsing behavior, device

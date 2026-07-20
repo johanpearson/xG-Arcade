@@ -19,16 +19,21 @@ import gridCss from './Grid.css?raw';
 // (3x3) grid's cells must not stretch into flat/short rectangles just
 // because the viewport is wide. Root cause was `.grid-table`'s
 // unconditional `width: 100%` combined with the browser's default
-// `table-layout: auto` above 480px — jsdom has no real table-layout engine
-// (no box model, so it can't report the actual rendered cell width/height
-// the way a real browser could), so this test checks the CSS *mechanism*
-// itself (the declared width/margin on `.grid-table`) rather than a
-// computed pixel box, the same "check the layout-affecting properties, not
-// a snapshot" approach CellState.test.tsx's REQ-214 footprint tests already
-// use. jsdom's default viewport (1024px wide) is itself above the 480px
-// breakpoint, so this exercises the un-media-queried base rule directly —
-// see this story's own real-browser verification for the pixel-level check
-// this doesn't replace.
+// `table-layout: auto` above 480px (S-055 note: `table-layout` is no
+// longer left at that default above 480px as of S-055's own fix for a
+// different bug — uneven column widths — see the "Grid uniform column
+// width (S-055)" describe block further down this file; this describe
+// block's own tests below only ever asserted `.grid-table`'s `width`/
+// `margin`, which S-055 left unchanged, so they still hold) — jsdom has no
+// real table-layout engine (no box model, so it can't report the actual
+// rendered cell width/height the way a real browser could), so this test
+// checks the CSS *mechanism* itself (the declared width/margin on
+// `.grid-table`) rather than a computed pixel box, the same "check the
+// layout-affecting properties, not a snapshot" approach CellState.test.tsx's
+// REQ-214 footprint tests already use. jsdom's default viewport (1024px
+// wide) is itself above the 480px breakpoint, so this exercises the
+// un-media-queried base rule directly — see this story's own real-browser
+// verification for the pixel-level check this doesn't replace.
 function threeByThreeCells(): CurrentRoundCell[] {
   const rows = ['France', 'Brazil', 'Spain'];
   const cols = ['Arsenal', 'Milan', 'Bayern'];
@@ -239,7 +244,7 @@ describe('Grid desktop cell target size (S-049)', () => {
     expect(cellRule).toContain('padding: var(--space-3)');
   });
 
-  it('leaves the 481-959px shrink-to-fit range and the ≤480px table-layout: fixed range untouched by the ≥960px target-size change', () => {
+  it('leaves the ≤480px table-layout: fixed range untouched by the ≥960px target-size change (S-055 note: the 481-959px band\'s own sizing mechanism changed since this test was written — see the "Grid uniform column width (S-055)" describe block below — but this test only ever asserted the ≥960px/≤480px values specifically, both of which are still unaffected)', () => {
     // "120px" appears only inside the ≥960px block asserted above — this
     // story is scoped to that breakpoint only (design-document.md §4's
     // S-049 note). Checked by subtracting the desktop block's own count from
@@ -278,5 +283,165 @@ describe('Grid desktop cell target size (S-049)', () => {
     ).toBeGreaterThanOrEqual(0);
     const rowHeaderColRule = extractBraceBlock(mobileBlock, rowHeaderColRuleIndex + '.grid-table__row-header-col '.length);
     expect(rowHeaderColRule).toContain('width: 88px');
+  });
+});
+
+// S-055 (root cause verified via real user screenshots of a 3x3 grid, not
+// guessed: columns visibly different widths depending on whether a header
+// read "Sevilla" or "Atletico Madrid" — jsdom can't reproduce that directly,
+// since it has no real table-layout box model (same limitation this file's
+// own S-047 describe block above already documents), so these tests check
+// the CSS/DOM mechanism the real-browser check (this story's own
+// verification) actually relies on: table-layout: fixed applying at every
+// breakpoint, and every data column sharing one explicit width via its own
+// <col>, rather than a computed pixel box jsdom can't produce anyway.
+function mixedNameLengthCells(): CurrentRoundCell[] {
+  const rows = ['France', 'Brazil', 'Spain'];
+  const cols = ['Sevilla', 'Atletico Madrid', 'Real Sociedad'];
+  const cells: CurrentRoundCell[] = [];
+  rows.forEach((rowValue, row) => {
+    cols.forEach((colValue, col) => {
+      cells.push({
+        cellId: `cell-${row}-${col}`,
+        row,
+        col,
+        rowCategoryType: 'country',
+        rowCategoryValue: rowValue,
+        colCategoryType: 'club',
+        colCategoryValue: colValue,
+        guess: null,
+      });
+    });
+  });
+  return cells;
+}
+
+describe('Grid uniform column width (S-055)', () => {
+  it('applies table-layout: fixed unconditionally now, not only inside the ≤480px block — the mechanism that makes every column\'s width come from its own <col> instead of its widest cell/header content', () => {
+    const mediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {');
+    const baseSource = gridCss.slice(0, mediaOpenIndex);
+    const tableRuleIndex = baseSource.indexOf('.grid-table {');
+    expect(tableRuleIndex, 'expected to find the base .grid-table rule before the first media block').toBeGreaterThanOrEqual(
+      0,
+    );
+    const tableRule = extractBraceBlock(baseSource, tableRuleIndex + '.grid-table '.length);
+    expect(tableRule).toContain('table-layout: fixed');
+    // Still shrink-to-fit, not forced full-width — S-047's own fix (an
+    // unstretched table) is unaffected by this story; every column now has
+    // its own explicit <col> width instead (asserted below), which is what
+    // lets `width: auto` still compute a determinate, non-stretched total.
+    expect(tableRule).toContain('width: auto');
+  });
+
+  it('gives every data column the same explicit width in the 481-959px band (previously unclassed, so table-layout: auto let a long name push its own column wider than a short name\'s — the literal reported bug)', () => {
+    const dataColRuleIndex = gridCss.indexOf('.grid-table__data-col {');
+    expect(dataColRuleIndex, 'expected to find the base .grid-table__data-col rule').toBeGreaterThanOrEqual(0);
+    const dataColRule = extractBraceBlock(gridCss, dataColRuleIndex + '.grid-table__data-col '.length);
+    expect(dataColRule).toContain('width: 90px');
+  });
+
+  it('scales the data-column width to match .grid-table__cell\'s already real-browser-verified (S-049) 120px desktop target, inside the same ≥960px block', () => {
+    const mediaOpenIndex = gridCss.indexOf('@media (min-width: 960px) {');
+    const desktopBlock = extractBraceBlock(gridCss, mediaOpenIndex + '@media (min-width: 960px) '.length);
+
+    const dataColRuleIndex = desktopBlock.indexOf('.grid-table__data-col {');
+    expect(dataColRuleIndex, 'expected .grid-table__data-col to be overridden inside the ≥960px block').toBeGreaterThanOrEqual(
+      0,
+    );
+    const dataColRule = extractBraceBlock(desktopBlock, dataColRuleIndex + '.grid-table__data-col '.length);
+    expect(dataColRule).toContain('width: 120px');
+
+    const rowHeaderColRuleIndex = desktopBlock.indexOf('.grid-table__row-header-col {');
+    expect(
+      rowHeaderColRuleIndex,
+      'expected .grid-table__row-header-col to be overridden inside the ≥960px block',
+    ).toBeGreaterThanOrEqual(0);
+    const rowHeaderColRule = extractBraceBlock(desktopBlock, rowHeaderColRuleIndex + '.grid-table__row-header-col '.length);
+    expect(rowHeaderColRule).toContain('width: 140px');
+  });
+
+  it('resets .grid-table__data-col back to width: auto inside the ≤480px block — regression guard for the equal-space-distribution mechanism that breakpoint already relied on before this story (a literal 90px per column would not reliably sum to that block\'s forced width: 100%)', () => {
+    const mobileMediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {');
+    const mobileBlock = extractBraceBlock(gridCss, mobileMediaOpenIndex + '@media (max-width: 480px) '.length);
+
+    const dataColRuleIndex = mobileBlock.indexOf('.grid-table__data-col {');
+    expect(
+      dataColRuleIndex,
+      'expected .grid-table__data-col to be reset back to auto inside the ≤480px block',
+    ).toBeGreaterThanOrEqual(0);
+    const dataColRule = extractBraceBlock(mobileBlock, dataColRuleIndex + '.grid-table__data-col '.length);
+    expect(dataColRule).toContain('width: auto');
+  });
+
+  it('renders every data column\'s <col> with the grid-table__data-col class regardless of that column\'s own header text length — the DOM half of the fix (Grid.tsx), independent of which CSS width currently applies at a given breakpoint', () => {
+    const { container } = render(
+      <Grid
+        cells={mixedNameLengthCells()}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const cols = container.querySelectorAll('colgroup col');
+    // 1 row-header col + 3 data cols (Sevilla / Atletico Madrid / Real Sociedad).
+    expect(cols.length).toBe(4);
+    const dataCols = container.querySelectorAll('colgroup col.grid-table__data-col');
+    expect(dataCols.length).toBe(3);
+    for (const col of dataCols) {
+      // Same class on every data <col> irrespective of the column's own
+      // header value's length — nothing here varies per-column, which is
+      // exactly what keeps their declared CSS width identical too.
+      expect(col.className).toBe('grid-table__data-col');
+    }
+  });
+});
+
+describe('Grid cell aspect ratio, 481-959px band (S-055)', () => {
+  it("gives .grid-table__cell a real footprint (90px, matching the 481-959px band's own data-column width above) in its own dedicated 481px-959px block, closing the gap S-049's note left open when it scoped its floor-to-target fix to ≥960px only", () => {
+    const mediaOpenIndex = gridCss.indexOf('@media (min-width: 481px) and (max-width: 959px) {');
+    expect(
+      mediaOpenIndex,
+      'expected to find a dedicated 481px-959px media block in Grid.css',
+    ).toBeGreaterThanOrEqual(0);
+    const tabletBlock = extractBraceBlock(
+      gridCss,
+      mediaOpenIndex + '@media (min-width: 481px) and (max-width: 959px) '.length,
+    );
+
+    const cellRuleIndex = tabletBlock.indexOf('.grid-table__cell {');
+    expect(cellRuleIndex, 'expected .grid-table__cell to be styled inside the 481px-959px block').toBeGreaterThanOrEqual(
+      0,
+    );
+    const cellRule = extractBraceBlock(tabletBlock, cellRuleIndex + '.grid-table__cell '.length);
+    // Width and height both 90px — a 1:1 aspect ratio, matching
+    // .grid-table__data-col's own 90px width for this band (asserted in
+    // the describe block above), the same "column width and cell footprint
+    // are the literal same number" property S-049 already established at
+    // ≥960px.
+    expect(cellRule).toContain('min-width: 90px');
+    expect(cellRule).toContain('height: 90px');
+    expect(cellRule).toContain('padding: var(--space-2)');
+  });
+
+  it('leaves the ≤480px band (explicitly exempt from the aspect-ratio bound per design-document.md §4) and the ≥960px band untouched by the new 481px-959px block', () => {
+    // The new block's own selector only matches viewports in [481, 959] —
+    // confirmed structurally rather than assumed: neither the ≤480px nor
+    // the ≥960px block's own .grid-table__cell rule changed as part of
+    // this story (both extracted and checked against their pre-S-055
+    // values, matching the equivalent S-049 regression test above for the
+    // ≥960px side).
+    const mobileMediaOpenIndex = gridCss.indexOf('@media (max-width: 480px) {');
+    expect(mobileMediaOpenIndex, 'expected to find the ≤480px mobile media block in Grid.css').toBeGreaterThanOrEqual(0);
+    const mobileBlock = extractBraceBlock(gridCss, mobileMediaOpenIndex + '@media (max-width: 480px) '.length);
+    expect(mobileBlock).not.toContain('.grid-table__cell {');
+
+    const desktopMediaOpenIndex = gridCss.indexOf('@media (min-width: 960px) {');
+    const desktopBlock = extractBraceBlock(gridCss, desktopMediaOpenIndex + '@media (min-width: 960px) '.length);
+    const desktopCellRuleIndex = desktopBlock.indexOf('.grid-table__cell {');
+    const desktopCellRule = extractBraceBlock(desktopBlock, desktopCellRuleIndex + '.grid-table__cell '.length);
+    expect(desktopCellRule).toContain('min-width: 120px');
+    expect(desktopCellRule).toContain('height: 120px');
+    expect(desktopCellRule).toContain('padding: var(--space-3)');
   });
 });

@@ -9,17 +9,23 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
     private const string WikidataSource = "wikidata";
+    // ADR-0032: no code path in this class persists "unverified" anymore —
+    // both WikidataLookupOrigin values map to VerifiedConfidence below.
     private const string VerifiedConfidence = "verified";
-    private const string UnverifiedConfidence = "unverified";
 
-    // ADR-0029: Sync (a routine cache-miss or cache-warming query) is
-    // trusted as ground truth; GuessTimeFallback (REQ-211/ADR-0018) stays
-    // reviewable. The one place this mapping is made, so the two callers
-    // below and any future one can't drift on it.
+    // ADR-0032 (supersedes ADR-0029): both origins are now trusted as
+    // ground truth and persist "verified" — the product owner decided all
+    // Wikidata-sourced data should be verified by default, including
+    // REQ-211's guess-time fallback, which ADR-0029 had deliberately kept
+    // reviewable. WikidataLookupOrigin itself and its two callers below are
+    // kept, not collapsed away — the distinction remains meaningful for
+    // logging/debugging/future re-differentiation, it just no longer drives
+    // a different Confidence value. Do not reintroduce a per-origin split
+    // here without a new ADR superseding ADR-0032.
     private static string ConfidenceFor(WikidataLookupOrigin origin) => origin switch
     {
         WikidataLookupOrigin.Sync => VerifiedConfidence,
-        WikidataLookupOrigin.GuessTimeFallback => UnverifiedConfidence,
+        WikidataLookupOrigin.GuessTimeFallback => VerifiedConfidence,
         _ => throw new ArgumentOutOfRangeException(nameof(origin), origin, null),
     };
 

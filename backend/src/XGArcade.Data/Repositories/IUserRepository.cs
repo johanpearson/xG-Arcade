@@ -9,13 +9,28 @@ public interface IUserRepository
 
     // REQ-701: AuthController.Signup's pre-check, before Supabase Auth is
     // ever called — case-insensitive, matching the DB's unique index on
-    // NormalizedDisplayName.
-    Task<bool> DisplayNameExistsAsync(string displayName, CancellationToken cancellationToken = default);
+    // NormalizedDisplayName. REQ-714: AuthController.UpdateDisplayName
+    // reuses this exact same check for an edit, passing excludeUserId so a
+    // no-op resubmission of the caller's own current name (including a
+    // pure-casing change) is never treated as a conflict against itself.
+    Task<bool> DisplayNameExistsAsync(string displayName, Guid? excludeUserId = null, CancellationToken cancellationToken = default);
 
     // Throws DisplayNameAlreadyInUseException if the DB's unique index
     // rejects the insert — the race window behind DisplayNameExistsAsync's
     // own pre-check.
     Task<User> AddAsync(User user, CancellationToken cancellationToken = default);
+
+    // REQ-714: loads the row by local User.Id (tracked, not AsNoTracking
+    // like the other getters here — this write needs a tracked entity),
+    // updates DisplayName (whose own setter keeps NormalizedDisplayName in
+    // lockstep — see User.cs), and saves. Returns null if no such user
+    // exists (caller should already have resolved the row, so this is only
+    // a defensive race window, not the expected path). Throws
+    // DisplayNameAlreadyInUseException on the DB's unique-index race
+    // fallback, the same pattern AddAsync already uses — the window between
+    // AuthController.UpdateDisplayName's own DisplayNameExistsAsync
+    // pre-check and this save.
+    Task<User?> UpdateDisplayNameAsync(Guid id, string newDisplayName, CancellationToken cancellationToken = default);
 
     // REQ-404's leaderboard: resolves every member's DisplayName in one
     // query rather than one round-trip per row.

@@ -49,6 +49,48 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             .Where(pd => pd.Confidence == "unverified")
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
+        IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default)
+    {
+        if (playerDataIds.Count == 0)
+            return [];
+
+        var idList = playerDataIds.ToList();
+        var rowsById = await dbContext.PlayerData
+            .Where(pd => idList.Contains(pd.Id))
+            .ToDictionaryAsync(pd => pd.Id, cancellationToken);
+
+        var approvedAt = DateTime.UtcNow;
+        var outcomes = new List<PlayerDataApprovalOutcome>(idList.Count);
+
+        foreach (var id in idList)
+        {
+            if (!rowsById.TryGetValue(id, out var row))
+            {
+                outcomes.Add(new PlayerDataApprovalOutcome(id, false, PlayerDataApprovalFailureReason.NotFound));
+                continue;
+            }
+
+            if (row.Confidence != "unverified")
+            {
+                outcomes.Add(new PlayerDataApprovalOutcome(id, false, PlayerDataApprovalFailureReason.NotUnverified));
+                continue;
+            }
+
+            row.Confidence = "verified";
+            row.ApprovedByAdminId = adminId;
+            row.ApprovedAt = approvedAt;
+            outcomes.Add(new PlayerDataApprovalOutcome(id, true, null));
+        }
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return outcomes;
+    }
+
     public async Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerAttributes

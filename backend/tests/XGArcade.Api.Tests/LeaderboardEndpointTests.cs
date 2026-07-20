@@ -183,6 +183,64 @@ public class LeaderboardEndpointTests
         return (round.Id, cellId);
     }
 
+    // REQ-406/407 (2026-07-20): same pattern as SeedActiveRoundWithOneCellAsync
+    // above, but with two cells — needed to exercise the "participant has
+    // guessed on one cell but made zero guesses on another" case, which a
+    // single-cell round can never produce.
+    private async Task<(Guid RoundId, Guid CellIdA, Guid CellIdB)> SeedActiveRoundWithTwoCellsAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        var cellIdA = Guid.NewGuid();
+        var cellIdB = Guid.NewGuid();
+        dbContext.GridInstances.Add(new GridInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Cells =
+            [
+                new GridCell
+                {
+                    Id = cellIdA,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 0,
+                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryValue = "France",
+                    ColCategoryType = CategoryPairingRules.Club,
+                    ColCategoryValue = "Arsenal",
+                },
+                new GridCell
+                {
+                    Id = cellIdB,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 1,
+                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryValue = "France",
+                    ColCategoryType = CategoryPairingRules.Club,
+                    ColCategoryValue = "Chelsea",
+                },
+            ],
+        });
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = instanceId,
+            StartTime = DateTime.UtcNow.AddHours(-1),
+            EndTime = DateTime.UtcNow.AddHours(1),
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return (round.Id, cellIdA, cellIdB);
+    }
+
     // REQ-408: a closed round with no cells needed — GetClosedRoundLeaderboardAsync
     // never touches IGameModule at all (it's locked-only, REQ-206's
     // SUM(final_points)), so a plain Round row (no backing GridInstance) is
@@ -406,7 +464,49 @@ public class LeaderboardEndpointTests
         Assert.That(body.NextCursor, Is.Null);
     }
 
+    // ---- REQ-401/404: never-played members excluded entirely (2026-07-20) ----
+
+    [Test]
+    public async Task REQ404_LeaderboardGet_MemberWithNoGuessesEver_ExcludedEntirelyFromResponse()
+    {
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        var requestingUserId = await SeedMemberAsync(requestingAuthProviderUserId, "You");
+        await SeedLockedGuessAsync(requestingUserId, 30);
+        await SeedMemberAsync(Guid.NewGuid(), "NeverPlayed"); // a global-league member with no guesses at all.
+        var client = CreateAuthenticatedClient(requestingAuthProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Has.Count.EqualTo(1));
+        Assert.That(body.Rows.Single().DisplayName, Is.EqualTo("You"));
+    }
+
     // ---- REQ-406: active-round live contribution folded into the shared total ----
+
+    [Test]
+    public async Task REQ406_LeaderboardGet_ParticipantZeroGuessCellInActiveRound_AddsMaxPointsPerCellToSharedTotal()
+    {
+        // 2026-07-20 status note: a participant's cell with zero guesses at
+        // all now contributes MaxPointsPerCell, same as a locked-incorrect
+        // cell — proven here through the real HTTP pipeline with a
+        // two-cell round (a single-cell round, as REQ-406's other tests
+        // below use, can never produce a genuine zero-guess cell).
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedMemberAsync(authProviderUserId, "You");
+        var (roundId, cellIdA, _) = await SeedActiveRoundWithTwoCellsAsync();
+        // Lone correct guesser on cellA -> LivePoints 0 (ADR-0020); cellB is
+        // never guessed on at all.
+        await SeedGuessAsync(roundId, userId, cellIdA, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
+    }
 
     [Test]
     public async Task REQ406_LeaderboardGet_ActiveRoundLockedIncorrectCell_AddsMaxPointsPerCellToSharedTotal()

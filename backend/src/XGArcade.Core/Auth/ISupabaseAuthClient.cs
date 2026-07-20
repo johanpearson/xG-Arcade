@@ -9,6 +9,17 @@ public interface ISupabaseAuthClient
 
     Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default);
 
+    // REQ-715: exchanges a stored refresh token for a new access token
+    // (and, if Supabase's own rotation returns one, a new refresh token) —
+    // mediated through the backend the same way SignUp/SignInWithPassword
+    // already are (ADR-0013), never a direct frontend-to-Supabase call.
+    // Same "never throws, Success=false + ErrorMessage on rejection" shape
+    // as SignInWithPasswordAsync — this is an interactive path (a person
+    // waiting on a page load), not a batch job, so a failed/expired/revoked
+    // refresh token is reported back for the caller to react to, not thrown
+    // (docs/coding-guidelines.md's external-client error-handling split).
+    Task<SupabaseAuthResult> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default);
+
     // REQ-710: permanently removes the identity/credential from Supabase
     // Auth, so the caller can no longer log in and the email becomes
     // available for a new signup. Unlike SignUp/SignIn above, this calls

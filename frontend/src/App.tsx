@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AdminScreen } from './admin/AdminScreen';
-import { ApiError, fetchMe } from './lib/api';
+import { ApiError, fetchMe, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
 import { GameSelectScreen } from './games/GameSelectScreen';
@@ -17,6 +17,10 @@ type HealthState =
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
+// REQ-715/ADR-0033: same localStorage mechanism as the access token above,
+// under its own key — see that ADR for why localStorage (not a cookie) was
+// chosen and the XSS trade-off that decision accepts.
+const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
 // before any game's grid — see docs/backlog.md S-021. 'settings' (REQ-713,
@@ -64,40 +68,104 @@ function App() {
     }
   }, [])
 
-  function handleAuthenticated(token: string) {
+  // REQ-715: refreshToken may be null (Supabase can decline to issue one) —
+  // that's a real, valid case, not an error; a null just means there's
+  // nothing to persist for silent recovery later.
+  function handleAuthenticated(token: string, refreshToken: string | null) {
     window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+    if (refreshToken) {
+      window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
+    } else {
+      window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+    }
     setAccessToken(token);
     setScreen('game-select');
   }
 
+  // REQ-715: logout (and, via the same handler, DeleteAccountScreen's
+  // onAccountDeleted below) clears the refresh token too, not only the
+  // access token — a stale refresh token must never outlive an explicit
+  // logout.
   const handleLogout = useCallback(() => {
     window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setAccessToken(null);
     setCurrentUser(null);
     setScreen('game-select');
   }, []);
 
-  // REQ-504: fetched both on a fresh login/signup (accessToken just set by
-  // handleAuthenticated) and when restoring a token already in localStorage
-  // on initial load — either way, this is the only place `isAdmin` is
-  // learned. A 401 here means the token itself is dead, same as any other
-  // authenticated call failing — log out rather than silently swallowing it.
+  // REQ-715/ADR-0033: the one place a stored refresh token is exchanged for
+  // a new access token — mediated through POST /auth/refresh exactly like
+  // login/signup (ADR-0013), never a direct frontend-to-Supabase call. On
+  // success, stores the new access token (and, if Supabase's rotation
+  // returned one, a new refresh token — otherwise the existing stored
+  // refresh token is left untouched rather than assumed dead) and returns
+  // it; on any failure (including "no stored refresh token to try")
+  // resolves to null so callers can fall through to a full logout without
+  // an infinite retry.
+  const attemptSilentRefresh = useCallback(async (): Promise<string | null> => {
+    const storedRefreshToken = window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+    if (!storedRefreshToken) return null;
+
+    try {
+      const refreshed = await refreshAccessToken(storedRefreshToken);
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, refreshed.accessToken);
+      if (refreshed.refreshToken) {
+        window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshed.refreshToken);
+      }
+      setAccessToken(refreshed.accessToken);
+      return refreshed.accessToken;
+    } catch {
+      // Invalid/expired/revoked — the caller falls through to handleLogout,
+      // which clears the now-dead refresh token too.
+      return null;
+    }
+  }, []);
+
+  // REQ-504/REQ-715: fetched on a fresh login/signup (accessToken just set
+  // by handleAuthenticated), on restoring a token already in localStorage on
+  // initial load, and — new for REQ-715 — this is also where a missing or
+  // 401'd access token triggers a silent refresh attempt before falling
+  // back to a full logout, rather than logging out unconditionally.
+  //
+  // Both branches below funnel through the same attemptSilentRefresh: on
+  // success it calls setAccessToken with the new token, which changes this
+  // effect's own dependency and re-runs it — that re-run *is* the retry
+  // (fetchMe naturally gets called again with the new token), so there's no
+  // separate manual retry path to maintain here.
   useEffect(() => {
+    let cancelled = false;
+
     if (!accessToken) {
       setCurrentUser(null);
-      return;
-    }
 
-    let cancelled = false;
+      if (!window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)) {
+        return;
+      }
+
+      attemptSilentRefresh().then((refreshed) => {
+        if (!cancelled && !refreshed) {
+          handleLogout();
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
 
     fetchMe(accessToken)
       .then((user) => {
         if (!cancelled) setCurrentUser(user);
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         if (cancelled) return;
         if (error instanceof ApiError && error.status === 401) {
-          handleLogout();
+          const refreshed = await attemptSilentRefresh();
+          if (cancelled) return;
+          if (!refreshed) {
+            handleLogout();
+          }
         }
         // Any other failure here just leaves currentUser null — the admin
         // nav link stays hidden, but the rest of the app is unaffected.
@@ -106,7 +174,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, handleLogout]);
+  }, [accessToken, handleLogout, attemptSilentRefresh]);
 
   return (
     <div className="app">
@@ -166,6 +234,10 @@ function App() {
             <SettingsScreen
               accessToken={accessToken}
               isAdmin={currentUser?.isAdmin ?? false}
+              displayName={currentUser?.displayName ?? ''}
+              onDisplayNameUpdated={(displayName) =>
+                setCurrentUser((current) => (current ? { ...current, displayName } : current))
+              }
               onAccountDeleted={handleLogout}
               onCancel={() => setScreen('game-select')}
               onAuthError={handleLogout}

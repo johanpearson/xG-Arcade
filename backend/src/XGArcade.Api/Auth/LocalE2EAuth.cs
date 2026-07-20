@@ -58,6 +58,30 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
         Task.FromResult(Authenticate(email));
 
+    // REQ-715: no real Supabase project exists in this mode (see class doc
+    // comment above), so there's no real refresh-token exchange to call —
+    // this mints a fresh access token for whichever authProviderUserId the
+    // "refresh token" (RefreshTokenPrefix + the id, set by Authenticate
+    // below) deterministically encodes, or reports failure for anything
+    // else, so a genuinely invalid/malformed token still exercises the
+    // failure path rather than silently succeeding.
+    public Task<SupabaseAuthResult> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        if (!refreshToken.StartsWith(RefreshTokenPrefix, StringComparison.Ordinal) ||
+            !Guid.TryParse(refreshToken[RefreshTokenPrefix.Length..], out var authProviderUserId))
+        {
+            return Task.FromResult(new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid refresh token." });
+        }
+
+        return Task.FromResult(new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = authProviderUserId,
+            AccessToken = LocalE2EAuth.MintToken(authProviderUserId),
+            RefreshToken = RefreshTokenPrefix + authProviderUserId,
+        });
+    }
+
     // REQ-710: no real Supabase project exists in this mode (see class doc
     // comment above) — nothing to call, so this always "succeeds," letting
     // ci.yml's local E2E stack exercise the rest of account deletion
@@ -65,6 +89,12 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     // service_role key.
     public Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default) =>
         Task.FromResult(true);
+
+    // REQ-715: not a real Supabase refresh token — a deterministic stand-in
+    // RefreshTokenAsync above can decode back into an authProviderUserId,
+    // matching the pattern DeterministicGuid already uses to keep sign-up
+    // and sign-in resolving to the same local User row in this test-only mode.
+    private const string RefreshTokenPrefix = "local-e2e-refresh:";
 
     private static SupabaseAuthResult Authenticate(string email)
     {
@@ -75,6 +105,7 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
             Success = true,
             AuthProviderUserId = authProviderUserId,
             AccessToken = LocalE2EAuth.MintToken(authProviderUserId),
+            RefreshToken = RefreshTokenPrefix + authProviderUserId,
         };
     }
 

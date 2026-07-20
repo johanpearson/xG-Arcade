@@ -1,6 +1,7 @@
 # ADR-0029: Wikidata sync data starts verified; only the guess-time fallback stays reviewable
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0032 (2026-07-20) — the guess-time-fallback carve-out
+  below is reversed; kept here for history, not deleted.
 - **Date:** 2026-07-19
 - **Related requirements:** REQ-502, REQ-503, REQ-211
 - **Related components:** COMP-06 (Data.PlayerStore), COMP-07 (DataSync.Clients), COMP-05 (Games.XGGrid)

@@ -408,4 +408,107 @@ public class PlayerStoreRepositoryTests
             [Guid.NewGuid()] = "https://example.com/unknown.jpg",
         }));
     }
+
+    // ---- REQ-503 (2026-07-20 extension): ApprovePlayerDataAsync -----------
+
+    private async Task<Guid> SeedUnverifiedPlayerDataAsync(Guid playerId, string field = "club", string value = "Arsenal")
+    {
+        var data = new PlayerData
+        {
+            Id = Guid.NewGuid(), PlayerId = playerId, Field = field, Value = value,
+            Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
+        };
+        await _repository.AddPlayerDataAsync(data);
+        return data.Id;
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerDataAsync_SingleRow_FlipsConfidenceToVerified_AndLogsAdminIdAndTimestamp()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var dataId = await SeedUnverifiedPlayerDataAsync(player.Id);
+        var adminId = Guid.NewGuid();
+
+        var outcomes = await _repository.ApprovePlayerDataAsync([dataId], adminId);
+
+        Assert.That(outcomes, Has.Count.EqualTo(1));
+        Assert.That(outcomes[0].PlayerDataId, Is.EqualTo(dataId));
+        Assert.That(outcomes[0].Approved, Is.True);
+        Assert.That(outcomes[0].FailureReason, Is.Null);
+
+        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == dataId);
+        Assert.That(stored.Confidence, Is.EqualTo("verified"));
+        Assert.That(stored.ApprovedByAdminId, Is.EqualTo(adminId));
+        Assert.That(stored.ApprovedAt, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerDataAsync_Bulk_ApprovesEveryRow_EachWithItsOwnAdminIdAndTimestamp()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var firstId = await SeedUnverifiedPlayerDataAsync(player.Id, "club", "Arsenal");
+        var secondId = await SeedUnverifiedPlayerDataAsync(player.Id, "nationality", "France");
+        var adminId = Guid.NewGuid();
+
+        var outcomes = await _repository.ApprovePlayerDataAsync([firstId, secondId], adminId);
+
+        Assert.That(outcomes, Has.Count.EqualTo(2));
+        Assert.That(outcomes, Has.All.Matches<PlayerDataApprovalOutcome>(o => o.Approved));
+
+        var rows = await _dbContext.PlayerData.Where(pd => pd.Id == firstId || pd.Id == secondId).ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(2));
+        Assert.That(rows, Has.All.Matches<PlayerData>(pd => pd.Confidence == "verified" && pd.ApprovedByAdminId == adminId && pd.ApprovedAt != null));
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerDataAsync_UnknownId_ReportsNotFound_WithoutAffectingOtherRows()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var realId = await SeedUnverifiedPlayerDataAsync(player.Id);
+        var missingId = Guid.NewGuid();
+
+        var outcomes = await _repository.ApprovePlayerDataAsync([realId, missingId], Guid.NewGuid());
+
+        var realOutcome = outcomes.Single(o => o.PlayerDataId == realId);
+        var missingOutcome = outcomes.Single(o => o.PlayerDataId == missingId);
+        Assert.That(realOutcome.Approved, Is.True, "a deleted/unknown row in the same batch must not block the rest from succeeding");
+        Assert.That(missingOutcome.Approved, Is.False);
+        Assert.That(missingOutcome.FailureReason, Is.EqualTo(PlayerDataApprovalFailureReason.NotFound));
+
+        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == realId);
+        Assert.That(stored.Confidence, Is.EqualTo("verified"));
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerDataAsync_RowAlreadyVerified_ReportsNotUnverified_AndLeavesItUnchanged()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        var data = new PlayerData
+        {
+            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
+            Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow,
+        };
+        await _repository.AddPlayerDataAsync(data);
+
+        var outcomes = await _repository.ApprovePlayerDataAsync([data.Id], Guid.NewGuid());
+
+        Assert.That(outcomes[0].Approved, Is.False, "a row already changed away from 'unverified' between selection and submission must fail, not silently re-approve");
+        Assert.That(outcomes[0].FailureReason, Is.EqualTo(PlayerDataApprovalFailureReason.NotUnverified));
+
+        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == data.Id);
+        Assert.That(stored.ApprovedByAdminId, Is.Null);
+        Assert.That(stored.ApprovedAt, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerDataAsync_EmptyIdCollection_ReturnsEmptyOutcomes()
+    {
+        var outcomes = await _repository.ApprovePlayerDataAsync([], Guid.NewGuid());
+
+        Assert.That(outcomes, Is.Empty);
+    }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   ApiError,
+  approvePlayerData,
   closeAdminRound,
   createPlayerOverride,
   deleteUserByEmail,
@@ -149,15 +150,34 @@ interface UnverifiedDataSectionProps {
   onRefresh: () => Promise<void>;
 }
 
-// REQ-501/502/503 (SCREEN-04): only "Correct" is a real backend action —
-// design-document.md's earlier mock also showed Approve/Remove, but neither
-// exists server-side (REQ-503's status note), so they're not built here.
+// REQ-501/502/503 (SCREEN-04): "Correct" (creates a PlayerOverride, requires
+// a reason) and "Approve"/"Approve selected" (flips confidence to
+// "verified" in bulk, including select-all, no reason field — REQ-503's
+// 2026-07-20 extension) are both real backend actions. design-document.md's
+// original mock also showed a "Remove" action — that still doesn't exist
+// server-side (REQ-503's status note), so it's still not built here.
 function UnverifiedDataSection({ accessToken, rows, onAuthError, onRefresh }: UnverifiedDataSectionProps) {
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const [value, setValue] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [approvalResults, setApprovalResults] = useState<RowApprovalResult[] | null>(null);
+
+  // Drops any selected id that's no longer in the current row list (e.g.
+  // after a refetch removes an approved row) — otherwise a stale id could
+  // sit selected-but-invisible and get resubmitted on the next approve.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const rowIds = new Set(rows.map((row) => row.id));
+      const filtered = new Set([...prev].filter((id) => rowIds.has(id)));
+      return filtered.size === prev.size ? prev : filtered;
+    });
+  }, [rows]);
 
   function openCorrection(row: UnverifiedPlayerData) {
     setOpenRowId(row.id);
@@ -194,65 +214,201 @@ function UnverifiedDataSection({ accessToken, rows, onAuthError, onRefresh }: Un
     }
   }
 
+  function toggleRowSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  const allSelected = rows.length > 0 && selectedIds.size === rows.length;
+
+  function toggleSelectAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
+  }
+
+  // REQ-503 (2026-07-20 extension): submits the whole selection as one bulk
+  // call — a single selected row is just the N=1 case of the same action,
+  // not a separate code path. Always shows a per-row outcome afterward
+  // (never reads as a full success or a full failure when it's actually a
+  // partial one), and always refetches the list the same way "Correct"'s
+  // successful submit already does above, regardless of whether every row
+  // in the selection succeeded.
+  async function handleApprove() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    setApproving(true);
+    setApproveError(null);
+    try {
+      const rowsById = new Map(rows.map((row) => [row.id, row]));
+      const response = await approvePlayerData(accessToken, ids);
+      const results = response.results.map((result) => {
+        const row = rowsById.get(result.playerDataId);
+        return {
+          id: result.playerDataId,
+          summary: row
+            ? `${row.playerFullName} · ${row.field} · ${row.value}`
+            : result.playerDataId,
+          approved: result.approved,
+          failureReason: result.failureReason,
+        };
+      });
+      setApprovalResults(results);
+      setSelectedIds(new Set());
+      await onRefresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setApproveError(describeError(err));
+    } finally {
+      setApproving(false);
+    }
+  }
+
   return (
     <section className="admin-screen__section">
       <h3 className="admin-screen__section-title">Unverified data ({rows.length})</h3>
       {rows.length === 0 ? (
         <p className="admin-screen__empty">No unverified data to review.</p>
       ) : (
-        <ul className="admin-screen__list">
-          {rows.map((row) => (
-            <li key={row.id} className="admin-screen__row">
-              <p className="admin-screen__row-summary">
-                {row.playerFullName} · {row.field} · {row.value} · {row.source}
-              </p>
-              {openRowId === row.id ? (
-                <form className="admin-screen__inline-form" onSubmit={(event) => handleSubmit(event, row)}>
-                  <label className="admin-screen__field">
-                    <span>Value</span>
-                    <input
-                      type="text"
-                      required
-                      value={value}
-                      onChange={(event) => setValue(event.target.value)}
-                      disabled={submitting}
-                    />
-                  </label>
-                  <label className="admin-screen__field">
-                    <span>Reason</span>
-                    <input
-                      type="text"
-                      required
-                      value={reason}
-                      onChange={(event) => setReason(event.target.value)}
-                      disabled={submitting}
-                    />
-                  </label>
-                  {error && (
-                    <p className="admin-screen__error" role="alert">
-                      {error}
-                    </p>
-                  )}
-                  <div className="admin-screen__inline-form-actions">
-                    <button type="button" onClick={closeCorrection} disabled={submitting}>
-                      Cancel
-                    </button>
-                    <button type="submit" disabled={submitting}>
-                      {submitting ? 'Saving…' : 'Save correction'}
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <button type="button" onClick={() => openCorrection(row)}>
-                  Correct
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="admin-screen__bulk-bar">
+            <label className="admin-screen__checkbox">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                disabled={approving}
+              />
+              <span>Select all</span>
+            </label>
+            <span className="admin-screen__selected-count">{selectedIds.size} selected</span>
+            <button type="button" onClick={handleApprove} disabled={selectedIds.size === 0 || approving}>
+              {approving ? 'Approving…' : 'Approve selected'}
+            </button>
+          </div>
+
+          {approveError && (
+            <p className="admin-screen__error" role="alert">
+              {approveError}
+            </p>
+          )}
+
+          {approvalResults && (
+            <div className="admin-screen__approval-results">
+              <ul className="admin-screen__list">
+                {approvalResults.map((result) => (
+                  <li
+                    key={result.id}
+                    className={
+                      result.approved
+                        ? 'admin-screen__approval-result'
+                        : 'admin-screen__approval-result admin-screen__approval-result--failed'
+                    }
+                  >
+                    {result.summary} — {result.approved ? 'Approved.' : describeApprovalFailure(result.failureReason)}
+                  </li>
+                ))}
+              </ul>
+              <button type="button" onClick={() => setApprovalResults(null)}>
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <ul className="admin-screen__list">
+            {rows.map((row) => (
+              <li key={row.id} className="admin-screen__row">
+                <label className="admin-screen__checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(row.id)}
+                    onChange={() => toggleRowSelected(row.id)}
+                    disabled={approving}
+                    aria-label={`Select ${row.playerFullName} · ${row.field} · ${row.value}`}
+                  />
+                  <span className="admin-screen__row-summary">
+                    {row.playerFullName} · {row.field} · {row.value} · {row.source}
+                  </span>
+                </label>
+                {openRowId === row.id ? (
+                  <form className="admin-screen__inline-form" onSubmit={(event) => handleSubmit(event, row)}>
+                    <label className="admin-screen__field">
+                      <span>Value</span>
+                      <input
+                        type="text"
+                        required
+                        value={value}
+                        onChange={(event) => setValue(event.target.value)}
+                        disabled={submitting}
+                      />
+                    </label>
+                    <label className="admin-screen__field">
+                      <span>Reason</span>
+                      <input
+                        type="text"
+                        required
+                        value={reason}
+                        onChange={(event) => setReason(event.target.value)}
+                        disabled={submitting}
+                      />
+                    </label>
+                    {error && (
+                      <p className="admin-screen__error" role="alert">
+                        {error}
+                      </p>
+                    )}
+                    <div className="admin-screen__inline-form-actions">
+                      <button type="button" onClick={closeCorrection} disabled={submitting}>
+                        Cancel
+                      </button>
+                      <button type="submit" disabled={submitting}>
+                        {submitting ? 'Saving…' : 'Save correction'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <button type="button" onClick={() => openCorrection(row)}>
+                    Correct
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
+}
+
+interface RowApprovalResult {
+  id: string;
+  summary: string;
+  approved: boolean;
+  failureReason: string | null;
+}
+
+// REQ-503 (2026-07-20 extension): turns the backend's two known
+// `failureReason` values into copy that states what happened, per
+// design-document.md §5 — never a generic "failed" with no explanation, and
+// never the raw enum string shown to an admin as-is.
+function describeApprovalFailure(failureReason: string | null): string {
+  switch (failureReason) {
+    case 'NotFound':
+      return 'Not approved — this row no longer exists.';
+    case 'NotUnverified':
+      return 'Not approved — already reviewed by someone else.';
+    default:
+      return 'Not approved.';
+  }
 }
 
 interface RoundControlSectionProps {

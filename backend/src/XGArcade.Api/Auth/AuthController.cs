@@ -65,7 +65,7 @@ public class AuthController(
         // since it's the only one that costs a DB round trip); the DB's own
         // unique index (UserRepository.AddAsync) is the race-safety net
         // behind this check, not the primary mechanism.
-        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken))
+        if (await userRepository.DisplayNameExistsAsync(displayName, cancellationToken: cancellationToken))
         {
             return DisplayNameConflictProblem();
         }
@@ -85,7 +85,7 @@ public class AuthController(
             user = await userRepository.AddAsync(new User
             {
                 Id = Guid.NewGuid(),
-                // Safe: SupabaseAuthClient.PostCredentialsAsync never returns
+                // Safe: SupabaseAuthClient.PostAuthRequestAsync never returns
                 // Success = true without AuthProviderUserId set.
                 AuthProviderUserId = signUpResult.AuthProviderUserId!.Value,
                 Email = request.Email,
@@ -121,7 +121,7 @@ public class AuthController(
         var signInResult = await authClient.SignInWithPasswordAsync(request.Email, request.Password, cancellationToken);
 
         // ISupabaseAuthClient.Success only guarantees AuthProviderUserId is
-        // set (see SupabaseAuthClient.PostCredentialsAsync) — unlike Signup,
+        // set (see SupabaseAuthClient.PostAuthRequestAsync) — unlike Signup,
         // Login's response is useless to the caller without a token, so
         // that's checked explicitly here rather than force-unwrapped.
         if (!signInResult.Success || signInResult.AccessToken is null)
@@ -133,6 +133,35 @@ public class AuthController(
         }
 
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
+    }
+
+    // REQ-715: exchanges a stored refresh token for a new access token
+    // (silently, without the person re-entering credentials) — mediated
+    // through Supabase Auth the same way Login/Signup already are
+    // (ADR-0013), never a direct frontend-to-Supabase call. Deliberately
+    // unauthenticated (no [Authorize]): the caller's whole reason for
+    // hitting this endpoint is that they may not have a currently-valid
+    // access token at all. Returns the same LoginResponse shape as Login —
+    // the frontend treats a successful refresh identically to a fresh login
+    // for storage purposes (ADR-0033).
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken cancellationToken)
+    {
+        var refreshResult = await authClient.RefreshTokenAsync(request.RefreshToken, cancellationToken);
+
+        // REQ-715: an invalid, expired, or revoked refresh token must fail
+        // clearly and distinctly (never a generic 500, never left to an
+        // unhandled exception) so the frontend's cue to sign the person out
+        // to the login screen is unambiguous — this is that cue.
+        if (!refreshResult.Success || refreshResult.AccessToken is null)
+        {
+            return Problem(
+                title: "Refresh failed",
+                detail: refreshResult.ErrorMessage ?? "Refresh token is invalid, expired, or revoked.",
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        return Ok(new LoginResponse(refreshResult.AccessToken, refreshResult.RefreshToken));
     }
 
     // The protected endpoint proving the JWT validation middleware works
@@ -159,6 +188,68 @@ public class AuthController(
         var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
 
         return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed, isAdmin));
+    }
+
+    // REQ-714: edit the caller's own DisplayName from Settings — reuses
+    // REQ-701's exact 1-30 character bound and case-insensitive uniqueness
+    // mechanism (IUserRepository.DisplayNameExistsAsync/UserRepository
+    // .AddAsync's race fallback), not a second one. Checks are ordered the
+    // same "free checks before a DB round trip" way Signup already does:
+    // length first, uniqueness (the one DB round trip) last.
+    [Authorize]
+    [HttpPut("display-name")]
+    public async Task<IActionResult> UpdateDisplayName([FromBody] UpdateDisplayNameRequest request, CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        // REQ-714/701: same length bound as Signup, checked before any
+        // database write.
+        var displayName = request.DisplayName.Trim();
+        if (string.IsNullOrEmpty(displayName) || displayName.Length > 30)
+        {
+            return Problem(
+                title: "Display name required",
+                detail: "Display name must be between 1 and 30 characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // REQ-714: excludes the caller's own row, so a no-op resubmission of
+        // their own current name — including a pure-casing change — is never
+        // treated as a conflict against itself.
+        if (await userRepository.DisplayNameExistsAsync(displayName, excludeUserId: user.Id, cancellationToken: cancellationToken))
+        {
+            return DisplayNameConflictProblem();
+        }
+
+        try
+        {
+            var updated = await userRepository.UpdateDisplayNameAsync(user.Id, displayName, cancellationToken);
+            if (updated is null)
+            {
+                return NotFound();
+            }
+
+            return Ok(new UpdateDisplayNameResponse(updated.Id, updated.DisplayName));
+        }
+        catch (DisplayNameAlreadyInUseException ex)
+        {
+            // The pre-check above raced with another caller's own edit/signup
+            // for the same display name and lost — same clear error either
+            // way, never a raw 500 from the DB's constraint violation. Same
+            // discipline as Signup's identical catch above.
+            logger.LogWarning(ex, "Display name update lost a race on uniqueness.");
+            return DisplayNameConflictProblem();
+        }
     }
 
     // REQ-710: self-service account deletion. Irreversible, so the request

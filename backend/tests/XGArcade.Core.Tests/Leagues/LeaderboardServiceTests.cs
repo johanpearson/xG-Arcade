@@ -135,23 +135,43 @@ public class LeaderboardServiceTests
     }
 
     [Test]
-    public async Task REQ401_GetGlobalLeaderboardAsync_NewMemberWithNoGuesses_AppearsWithZeroPoints()
+    public async Task REQ401_GetGlobalLeaderboardAsync_NewMemberWithNoGuessesEver_ExcludedEntirelyFromRankedList()
     {
-        // ADR-0021: 0 is the BEST possible score under the lowest-wins
-        // model — a brand-new member legitimately starts in first place,
-        // not last.
+        // 2026-07-20 (REQ-401/404 status note): a member for whom no Guess
+        // row has ever existed must be excluded from the ranked list
+        // entirely, not shown ranked with a default total of 0 (which
+        // ADR-0021's lowest-wins model would otherwise treat as the BEST
+        // possible score, letting a never-played member rank #1).
         var member = await SeedMemberAsync("Alex");
 
         var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 0, pageSize: 50, activeRound: null);
 
-        Assert.That(page.Rows, Has.Count.EqualTo(1));
-        Assert.That(page.Rows[0].Rank, Is.EqualTo(1));
-        Assert.That(page.Rows[0].UserId, Is.EqualTo(member.Id));
-        Assert.That(page.Rows[0].TotalPoints, Is.EqualTo(0));
-        Assert.That(page.Rows[0].IsRequestingUser, Is.True);
-        Assert.That(page.RequestingUserEntry?.UserId, Is.EqualTo(member.Id));
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
         Assert.That(page.HasMore, Is.False);
         Assert.That(page.NextCursor, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ404_GetGlobalLeaderboardAsync_MemberWithLockedGuessTotalingZero_StillRankedNormallyNotExcluded()
+    {
+        // Distinguishes "has played, total happens to be 0" (a real,
+        // ranked-normally case — e.g. the rarest possible correct guess
+        // scores 0, ADR-0021) from "never played at all" (excluded, REQ-401/
+        // 404's 2026-07-20 change) — both currently compute to the same
+        // TotalPoints of 0, so only presence/absence from Rows tells them
+        // apart.
+        var neverPlayed = await SeedMemberAsync("NeverPlayed");
+        var playedForZero = await SeedMemberAsync("PlayedForZero");
+        await SeedLockedGuessAsync(playedForZero.Id, finalPoints: 0);
+
+        var page = await _service.GetGlobalLeaderboardAsync(playedForZero.Id, cursor: 0, pageSize: 50, activeRound: null);
+
+        Assert.That(page.Rows, Has.Count.EqualTo(1));
+        Assert.That(page.Rows[0].UserId, Is.EqualTo(playedForZero.Id));
+        Assert.That(page.Rows[0].Rank, Is.EqualTo(1));
+        Assert.That(page.Rows[0].TotalPoints, Is.EqualTo(0));
+        Assert.That(page.Rows.Any(r => r.UserId == neverPlayed.Id), Is.False);
     }
 
     [Test]
@@ -239,7 +259,13 @@ public class LeaderboardServiceTests
     [Test]
     public async Task REQ607_GetGlobalLeaderboardAsync_CursorBeyondMembership_ReturnsEmptyPageNotError()
     {
+        // REQ-401/404 (2026-07-20): a locked guess is seeded so this member
+        // is a real, ranked ("ever played") entry — otherwise they'd be
+        // excluded from the ranked list entirely and RequestingUserEntry
+        // would be null for that reason instead of the cursor-paging reason
+        // this test actually targets.
         var member = await SeedMemberAsync("Alex");
+        await SeedLockedGuessAsync(member.Id, finalPoints: 10);
 
         var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 50, pageSize: 10, activeRound: null);
 
@@ -283,28 +309,55 @@ public class LeaderboardServiceTests
     }
 
     [Test]
-    public async Task REQ406_GetGlobalLeaderboardAsync_NeverAttemptedActiveRoundCell_ContributesNothingNotZeroNotMax()
+    public async Task REQ406_GetGlobalLeaderboardAsync_OneAttemptUsedUnresolvedActiveRoundCell_ContributesNothing()
     {
+        // A cell with one of two attempts used and still one remaining
+        // (REQ-210) is a genuinely unresolved state, distinct from a
+        // zero-guess cell (see the 2026-07-20 test immediately below) — it
+        // must keep contributing nothing.
         var you = await SeedMemberAsync("You");
-        var attemptedCellId = Guid.NewGuid();
-        var unattemptedCellId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
         var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
-        _fakeGameModule.GetCellIdsResult = _ => [attemptedCellId, unattemptedCellId];
-        // One attempt still in progress (not locked, not correct) on a
-        // different cell — used only so "You" is a real participant.
-        await SeedGuessAsync(round.Id, you.Id, attemptedCellId, isCorrect: false, attemptCount: 1);
+        _fakeGameModule.GetCellIdsResult = _ => [cellId];
+        await SeedGuessAsync(round.Id, you.Id, cellId, isCorrect: false, attemptCount: 1);
 
         var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50, activeRound: round);
 
-        // Neither cell is correct nor locked-incorrect (both attempts used)
-        // -> total stays 0, but for a different reason than ADR-0021's "0 is
-        // the best score" default: nothing was added at all for either cell.
+        // Not correct, not locked-incorrect (only one of two attempts used)
+        // -> total stays 0: nothing was added for this cell at all.
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ406_GetGlobalLeaderboardAsync_ParticipantZeroGuessCellInActiveRound_ContributesMaxPointsPerCell()
+    {
+        // 2026-07-20 status note: for a participant (>=1 guess anywhere in
+        // this round), a cell with ZERO guesses at all now contributes
+        // MaxPointsPerCell — same as a locked-incorrect cell — so a
+        // freshly-initiated grid's live total starts near the theoretical
+        // max rather than sitting near zero until every cell is attempted.
+        var you = await SeedMemberAsync("You");
+        var attemptedCellId = Guid.NewGuid();
+        var zeroGuessCellId = Guid.NewGuid();
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
+        _fakeGameModule.GetCellIdsResult = _ => [attemptedCellId, zeroGuessCellId];
+        // Lone correct guesser on the attempted cell -> LivePoints 0 (the
+        // best score) — isolates the zero-guess cell's own MaxPointsPerCell
+        // contribution as the only thing this total can come from.
+        await SeedGuessAsync(round.Id, you.Id, attemptedCellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50, activeRound: round);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
     }
 
     [Test]
     public async Task REQ406_GetGlobalLeaderboardAsync_MemberWithZeroGuessesInActiveRound_UnaffectedByActiveRound()
     {
+        // The 2026-07-20 zero-guess-CELL rule only applies once a player is
+        // a participant (>=1 guess anywhere in the round) — a player with
+        // ZERO guesses anywhere in the active round (a non-participant) is
+        // still entirely unaffected by this REQ, unchanged.
         var you = await SeedMemberAsync("You");
         var other = await SeedMemberAsync("Other");
         var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
@@ -396,14 +449,21 @@ public class LeaderboardServiceTests
         var cellB = Guid.NewGuid();
         var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         _fakeGameModule.GetCellIdsResult = _ => [cellA, cellB];
-        // Alex: locked-incorrect (worst). Sam: correct, lone guesser (best).
+        // Alex: locked-incorrect on both cells (worst). Sam: one attempt
+        // still unresolved on cellA, correct lone guesser on cellB (best).
+        // Both users have at least one guess on every cell in the round, so
+        // the 2026-07-20 zero-guess-cell rule (REQ-406/407) never applies
+        // here — this test isolates ordering alone, unaffected by that
+        // change.
         await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
+        await SeedGuessAsync(round.Id, alex.Id, cellB, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
+        await SeedGuessAsync(round.Id, sam.Id, cellA, isCorrect: false, attemptCount: 1);
         await SeedGuessAsync(round.Id, sam.Id, cellB, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
 
         var page = await _service.GetActiveRoundLeaderboardAsync(alex.Id, round, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "Alex" }));
-        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 0, ScoringRules.MaxPointsPerCell }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 0, 2 * ScoringRules.MaxPointsPerCell }));
     }
 
     [Test]
@@ -422,6 +482,26 @@ public class LeaderboardServiceTests
         var page = await _service.GetActiveRoundLeaderboardAsync(zoe.Id, round, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Amy", "Zoe" }), "REQ-404's display-name tie-break, reused here");
+    }
+
+    [Test]
+    public async Task REQ407_GetActiveRoundLeaderboardAsync_ParticipantZeroGuessCell_ContributesMaxPointsPerCell()
+    {
+        // 2026-07-20 status note: REQ-407 consumes the same
+        // ILiveRoundContributionService computation REQ-406 does, so every
+        // participant shown here (zero-guess players never appear at all —
+        // see the NonParticipantExcludedEntirely test above) picks up
+        // MaxPointsPerCell for any cell they've made zero guesses on.
+        var you = await SeedMemberAsync("You");
+        var attemptedCellId = Guid.NewGuid();
+        var zeroGuessCellId = Guid.NewGuid();
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
+        _fakeGameModule.GetCellIdsResult = _ => [attemptedCellId, zeroGuessCellId];
+        await SeedGuessAsync(round.Id, you.Id, attemptedCellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+
+        var page = await _service.GetActiveRoundLeaderboardAsync(you.Id, round, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(ScoringRules.MaxPointsPerCell));
     }
 
     [Test]

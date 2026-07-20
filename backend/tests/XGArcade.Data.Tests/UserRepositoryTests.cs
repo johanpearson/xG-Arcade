@@ -151,4 +151,84 @@ public class UserRepositoryTests
 
         Assert.That(found, Is.Null);
     }
+
+    // REQ-714: edit display name from Settings. DisplayNameExistsAsync's new
+    // excludeUserId parameter — the mechanism AuthController.UpdateDisplayName
+    // relies on so a no-op/casing-only resubmission of the caller's own
+    // current name is never treated as a conflict against itself.
+    [Test]
+    public async Task REQ714_DisplayNameExistsAsync_ReturnsFalse_WhenOnlyMatchIsTheExcludedUsersOwnRow()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "owner@example.com",
+            DisplayName = "Test Player",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        // Even a pure-casing resubmission of the caller's own name must not
+        // be reported as a conflict once that caller's own row is excluded.
+        var exists = await _repository.DisplayNameExistsAsync("TEST PLAYER", excludeUserId: user.Id);
+
+        Assert.That(exists, Is.False);
+    }
+
+    [Test]
+    public async Task REQ714_DisplayNameExistsAsync_ReturnsTrue_WhenMatchIsADifferentUsersRow_EvenWithExcludeUserIdSet()
+    {
+        var otherUser = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "other-owner@example.com",
+            DisplayName = "Taken Name",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(otherUser);
+        await _dbContext.SaveChangesAsync();
+
+        var callerId = Guid.NewGuid();
+        var exists = await _repository.DisplayNameExistsAsync("taken name", excludeUserId: callerId);
+
+        Assert.That(exists, Is.True);
+    }
+
+    [Test]
+    public async Task REQ714_UpdateDisplayNameAsync_UpdatesDisplayNameAndKeepsNormalizedDisplayNameInLockstep()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "owner@example.com",
+            DisplayName = "Old Name",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var updated = await _repository.UpdateDisplayNameAsync(user.Id, "New Name");
+
+        Assert.That(updated, Is.Not.Null);
+        Assert.That(updated!.DisplayName, Is.EqualTo("New Name"));
+        Assert.That(updated.NormalizedDisplayName, Is.EqualTo("new name"));
+
+        var reloaded = await _repository.GetByIdAsync(user.Id);
+        Assert.That(reloaded!.DisplayName, Is.EqualTo("New Name"));
+    }
+
+    [Test]
+    public async Task REQ714_UpdateDisplayNameAsync_ReturnsNull_ForUnknownUserId()
+    {
+        var updated = await _repository.UpdateDisplayNameAsync(Guid.NewGuid(), "Doesn't Matter");
+
+        Assert.That(updated, Is.Null);
+    }
 }

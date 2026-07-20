@@ -325,6 +325,48 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    // REQ-715: POST /auth/refresh exchanges a stored refresh token for a new
+    // access token, mediated through Supabase Auth (ADR-0013) — never a
+    // direct frontend-to-Supabase call. No [Authorize] on this endpoint (the
+    // caller may not have a currently-valid access token at all), so these
+    // tests don't set an Authorization header.
+    [Test]
+    public async Task REQ715_Refresh_Post_ReturnsNewAccessToken_ForValidRefreshToken()
+    {
+        _fakeAuthClient.RefreshResult = _ => new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = Guid.NewGuid(),
+            AccessToken = "a-refreshed-access-token",
+            RefreshToken = "a-rotated-refresh-token",
+        };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/refresh", new RefreshRequest("a-valid-stored-refresh-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.AccessToken, Is.EqualTo("a-refreshed-access-token"));
+        Assert.That(body.RefreshToken, Is.EqualTo("a-rotated-refresh-token"));
+        Assert.That(_fakeAuthClient.RefreshTokenCalledWith, Is.EqualTo("a-valid-stored-refresh-token"));
+    }
+
+    // The important assertion: an invalid/expired/revoked refresh token
+    // fails clearly and distinctly (401, ProblemDetails body) — never a
+    // generic 500, never left to fall through as an unhandled exception —
+    // so the frontend can react by signing the person out.
+    [Test]
+    public async Task REQ715_Refresh_Post_ReturnsUnauthorized_ForInvalidRefreshToken()
+    {
+        _fakeAuthClient.RefreshResult = _ => new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid Refresh Token: Already Used" };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/refresh", new RefreshRequest("an-invalid-or-revoked-refresh-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
     [Test]
     public async Task ProtectedEndpoint_Get_RejectsAnonymousCalls()
     {
@@ -442,6 +484,138 @@ public class AuthEndpointTests
         var body = await response.Content.ReadFromJsonAsync<MeResponse>();
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.IsAdmin, Is.False);
+    }
+
+    // REQ-714: edit display name from Settings. Reuses SeedDeletableUserAsync
+    // below (a generic "seed one User row, mint a JWT for it" helper — its
+    // name is about the other feature it was first written for, not
+    // specific to this REQ).
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_UpdatesDisplayName_ForValidNewName()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, displayName: "Old Name");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest("New Name"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<UpdateDisplayNameResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.DisplayName, Is.EqualTo("New Name"));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var updatedUser = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(updatedUser.DisplayName, Is.EqualTo("New Name"));
+    }
+
+    // The important assertion (REQ-714's explicit acceptance criterion): a
+    // no-op resubmission of the caller's own current name, including a
+    // pure-casing change, is never treated as a conflict against itself —
+    // the uniqueness check must exclude the account's own existing row.
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_AllowsResubmittingOwnCurrentName_EvenWithDifferentCasing()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, displayName: "Test Player");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest("TEST PLAYER"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<UpdateDisplayNameResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.DisplayName, Is.EqualTo("TEST PLAYER"));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var updatedUser = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(updatedUser.DisplayName, Is.EqualTo("TEST PLAYER"));
+    }
+
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_ReturnsConflict_WhenNameMatchesDifferentAccountCaseInsensitively()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = "other-account-owner@example.com",
+                DisplayName = "Taken Name",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "caller@example.com", displayName: "Caller Name");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest("TAKEN NAME"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var unchangedUser = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(unchangedUser.DisplayName, Is.EqualTo("Caller Name"));
+    }
+
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_ReturnsBadRequest_ForNameOutsideLengthBound()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId, displayName: "Original Name");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest(new string('x', 31)));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    // Exact upper boundary (the valid edge): AuthController.UpdateDisplayName
+    // rejects only length > 30, so 30 characters exactly must be accepted.
+    // Pairs with REQ714_UpdateDisplayName_Put_ReturnsBadRequest_ForNameOutsideLengthBound
+    // above, which covers the 31-character (invalid) side of the same boundary.
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_Succeeds_ForNameExactly30Characters()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId, displayName: "Original Name");
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var thirtyCharacterName = new string('x', 30);
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest(thirtyCharacterName));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<UpdateDisplayNameResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.DisplayName, Is.EqualTo(thirtyCharacterName));
+    }
+
+    [Test]
+    public async Task REQ714_UpdateDisplayName_Put_Unauthenticated_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PutAsJsonAsync("/auth/display-name", new UpdateDisplayNameRequest("Anything"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
     // REQ-710: self-service account deletion (S-025). Seeds a user directly
@@ -619,6 +793,19 @@ public class AuthEndpointTests
 
         public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
             Task.FromResult(SignInResult(email, password));
+
+        // REQ-715: controllable per-test, same idiom as SignInResult above —
+        // default succeeds so most tests don't need to set it up.
+        public Func<string, SupabaseAuthResult> RefreshResult { get; set; } =
+            token => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid(), AccessToken = "a-refreshed-access-token", RefreshToken = "a-refreshed-refresh-token" };
+
+        public string? RefreshTokenCalledWith { get; private set; }
+
+        public Task<SupabaseAuthResult> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
+        {
+            RefreshTokenCalledWith = refreshToken;
+            return Task.FromResult(RefreshResult(refreshToken));
+        }
 
         public Guid? DeleteUserCalledWith { get; private set; }
 

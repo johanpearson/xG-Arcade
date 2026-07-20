@@ -104,9 +104,9 @@ public class WikidataLookupServiceTests
         // Has.Count first: Has.All.Matches alone would pass vacuously if only
         // one of the two attribute writes (nationality, club) actually landed.
         Assert.That(rawData, Has.Count.EqualTo(2));
-        // ADR-0029: WikidataLookupOrigin.Sync (a routine cache-miss/warming
-        // query) persists as "verified" — a guess-time fallback would not,
-        // see REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified below.
+        // ADR-0032: both origins persist as "verified" now — see
+        // REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsVerified
+        // below for the (now identical) GuessTimeFallback case.
         Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
 
         var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
@@ -114,12 +114,13 @@ public class WikidataLookupServiceTests
         Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
     }
 
-    // ADR-0029/REQ-211: the guess-time fallback (ADR-0018) re-checks a single
-    // already-generated cell against a specific player's guess, not the
-    // original vetted per-category intersection — kept reviewable rather
-    // than auto-verified like a Sync-origin call above.
+    // ADR-0032 (supersedes ADR-0029): the guess-time fallback (ADR-0018)
+    // re-checks a single already-generated cell against a specific player's
+    // guess, not the original vetted per-category intersection — ADR-0029
+    // had kept this reviewable ("unverified"); ADR-0032 reverses that and
+    // auto-verifies it the same as a Sync-origin call above.
     [Test]
-    public async Task REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified()
+    public async Task REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsVerified()
     {
         var service = BuildService(SingleHenryMatchJson);
 
@@ -128,7 +129,7 @@ public class WikidataLookupServiceTests
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
         Assert.That(rawData, Has.Count.EqualTo(2));
-        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
     }
 
     [Test]
@@ -341,7 +342,7 @@ public class WikidataLookupServiceTests
 
         var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
         Assert.That(rawData, Has.Count.EqualTo(2));
-        // ADR-0029: see the mirrored note on REQ103_LookupAndPersistAsync_HitPersistsPlayersAndAliases above.
+        // ADR-0032: see the mirrored note on REQ103_LookupAndPersistAsync_HitPersistsPlayersAndAliases above.
         Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
 
         var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
@@ -349,9 +350,9 @@ public class WikidataLookupServiceTests
         Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
     }
 
-    // Mirrors REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsUnverified above.
+    // Mirrors REQ211_LookupAndPersistAsync_GuessTimeFallback_PersistsAsVerified above.
     [Test]
-    public async Task REQ211_LookupAndPersistClubClubAsync_GuessTimeFallback_PersistsAsUnverified()
+    public async Task REQ211_LookupAndPersistClubClubAsync_GuessTimeFallback_PersistsAsVerified()
     {
         var service = BuildService(SingleHenryMatchJson);
 
@@ -360,7 +361,7 @@ public class WikidataLookupServiceTests
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
         Assert.That(rawData, Has.Count.EqualTo(2));
-        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "unverified"));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
     }
 
     [Test]

@@ -2745,6 +2745,203 @@ numbering) drilling into that round's locked, non-provisional leaderboard.
 Full backend suite 465/465, full frontend suite 170/170, `tsc -b`/lint
 clean.
 
+**S-055 · Fix mobile/tablet grid cell sizing: uniform column widths regardless of name length**
+Reported via direct user screenshots of a 3×3 grid: `table-layout: auto`
+(the browser default, left in place above the 480px breakpoint since
+S-047/S-049) sizes each `<table>` column independently from the widest
+cell/header content in that column specifically, so a long team/player
+name ("Atletico Madrid") rendered its column visibly wider than a short
+one ("Sevilla") — most visible at mobile/tablet widths, still measurably
+present at desktop (measured 92.75px/147.97px/141.59px across three
+columns at a 700px viewport before the fix, 120px/155.97px/149.59px at
+1280px). S-040's own `table-layout: fixed` fix at ≤480px already sidesteps
+this there; this story generalizes it. No REQ change — this is a visual
+bug fix against `design-document.md` §4's existing uniform-cell-size
+intent, not new product behavior.
+*Accept:* every data column renders at an identical, explicit width at a
+given breakpoint regardless of header/cell content length, confirmed via
+real-browser measurement (not visual inspection alone) at 390px/700px/
+1280px; no horizontal-scroll fallback triggers; header/row-label text
+wraps instead of stretching its column; touch targets stay ≥44px;
+REQ-214's fixed-cell-footprint photo invariant is unaffected. *Deps:*
+S-040 (≤480px `table-layout: fixed` precedent), S-047/S-049 (existing
+`≥960px` cell-size targets this story reuses rather than reinvents).
+**Built as:** `table-layout: fixed` now applies unconditionally (previously
+only inside the ≤480px block), with every data column given an explicit,
+equal `<col>` width via a new `grid-table__data-col` class on `Grid.tsx`'s
+`<colgroup>` (previously unclassed for data columns) — fixed layout takes
+each column's width from its own `<col>` rather than its widest cell, so
+an explicit, identical width per data column is what actually guarantees
+identical columns. Chosen widths reuse existing values rather than
+inventing new ones: 90px for the 481-959px band (already
+`.grid-table__col-header`'s own min-width), 120px at ≥960px (already
+`.grid-table__cell`'s S-049-verified target); the row-header column scales
+in step (110px / 140px). Also closes a `design-document.md` aspect-ratio
+violation the fix surfaced at 481-959px (cells were ~2.8:1 before this
+change, outside the documented 1:1–1.3:1 bound) by giving
+`.grid-table__cell` a matching height in that band, the same way S-049
+already did for ≥960px; a matching `≥960px` typography/padding bump keeps
+the photo-overlay's revealed name/points legible at the larger cell size.
+Verified via real Chromium render at 390/700/1280px with mixed-length
+headers: uniform column widths, no horizontal scroll, wrapped (not
+clipped) header text. 177/177 frontend tests pass, `tsc -b`/lint clean.
+`docs/design-document.md` updated in the same story (§4's cell-sizing
+notes).
+
+**S-056 · Leaderboard scoring fairness: exclude never-played members, credit unguessed cells in an initiated round; rename scope tabs (REQ-401/404/406/407)**
+Product-owner-confirmed fairness fix to S-053's leaderboard work
+(2026-07-19/20), routed through `requirements-writer` first since both
+changes are real scoring-behavior decisions, not rendering fixes — see
+REQ-401/404/406/407's own dated status notes for full acceptance criteria.
+Two independent problems, fixed together because both touch
+`LeaderboardService`/`ILiveRoundContributionService` in the same session:
+(1) a league member who has never submitted a single `Guess` (in any
+round, locked or active) defaulted to a total of `0`, which under
+ADR-0021's lowest-wins golf model is the *best* possible score — such a
+member ranked #1 ahead of everyone who had actually played; now excluded
+from the ranked list entirely (REQ-401/404). (2) the active-round live
+estimate (REQ-406/407) never credited an untouched cell, so a
+freshly-initiated grid read as unfairly low the moment a player made their
+first guess, instead of starting near the theoretical max and counting
+down; now, for a round *participant* (≥1 guess anywhere in that round,
+ADR-0021's existing definition), every cell they've made zero guesses on
+at all contributes `MaxPointsPerCell`, same as a locked-incorrect cell — a
+cell with one of two attempts used and still unresolved is unaffected and
+continues to contribute nothing. Also folded in: SCREEN-03's scope-tab
+labels renamed "This round (live)"/"Past rounds" → "Current Round"/
+"Previous Rounds" — purely cosmetic, no REQ specifies exact tab wording,
+so no `requirements-document.md` acceptance-criteria change for the rename
+itself (only its own literal quoted strings elsewhere in that doc needed
+updating to match).
+*Accept:* REQ401/REQ404-named tests: a member with zero guesses ever is
+absent from the ranked list, not ranked first with total `0`; a member
+with ≥1 guess (locked or live) still ranks normally even at a computed
+total of `0`. REQ406/REQ407-named tests: a round participant's zero-guess
+cell contributes `MaxPointsPerCell`; a cell with one of two attempts used
+and unresolved still contributes nothing; a non-participant is unaffected
+and excluded from the active-round scope entirely, unchanged. *Deps:*
+S-011 (REQ-401/404 baseline), S-053 (REQ-406/407,
+`ILiveRoundContributionService`), S-028/ADR-0021 (participant definition
+this story reuses, not redefines).
+**Built as:** `LeaderboardService.GetGlobalLeaderboardAsync` now queries a
+new `IGuessRepository.GetUserIdsWithAnyGuessAsync` (`GuessRepository`)
+alongside the existing locked-only `GetTotalFinalPointsByUserIdsAsync`,
+filtering the ranked list to that set before the existing `0`-default
+logic ever applies — kept as a separate query specifically so a member
+active only in the currently active (unlocked) round is not mistaken for
+never-played. `LiveRoundContributionService` now tracks each
+participant's per-cell attempted-cell set and adds `MaxPointsPerCell` for
+every round cell outside it. No change needed to
+`ScoreLockingService`/`RoundCloseService` — `MaterializeUnansweredCellsAsync`
+(ADR-0021, S-028) already implements the identical behavior for
+locked/final scoring at round close. Tab rename is a one-line label change
+in `LeaderboardScreen.tsx`. `docs/requirements-document.md` updated in the
+same session (REQ-401/404/406/407's dated status notes and the literal
+tab-label quotes at REQ-407/408).
+
+**S-057 · Wikidata guess-time fallback also auto-verified (ADR-0032, supersedes ADR-0029); admin bulk-approve action (REQ-503 extension)**
+Two product decisions from the same 2026-07-20 round of feedback, shipped
+together: (1) one day after ADR-0029 deliberately kept REQ-211's
+guess-time fallback lookup persisting `Confidence = "unverified"` so an
+admin could still spot-check that narrower, less-vetted path, the product
+owner decided all Wikidata-sourced data should be verified by default,
+including that path — see ADR-0032 for the full reasoning and trade-offs
+accepted (no human review left on the narrowest lookup path anymore).
+(2) Independently, REQ-503's admin review UI (SCREEN-04, built S-026) has
+never had a working "approve → verified" action — S-052/ADR-0029 narrowed
+the review *queue's* size but never built the missing action itself. This
+story finally builds it, in bulk-first form (a single-row approve is just
+the N=1 case), including "select all" and per-row partial-failure
+reporting.
+*Accept:* REQ211-named tests: guess-time-fallback lookups persist
+`Confidence = "verified"`, matching the `Sync` origin's existing behavior
+(supersedes S-052's own `..._PersistsAsUnverified` test for this origin).
+REQ503-named tests: single approve flips one row to `verified` and logs
+`admin_id`/timestamp; bulk approve (including select-all) flips every
+selected row, each logged individually; a partially-failing bulk approve
+(a row already reviewed or deleted between selection and submission)
+reports per-row success/failure rather than succeeding or failing the
+whole batch; no `reason` field required or accepted for either form,
+unlike `PlayerOverride`'s existing "correct" action. *Deps:* S-052/ADR-0029
+(the `WikidataLookupOrigin` split this story's first half reverses, not
+rebuilds), S-012/S-026 (REQ-503's existing review list/UI this story's
+second half extends).
+**Built as:** `WikidataLookupService.ConfidenceFor` now maps both
+`WikidataLookupOrigin` values to `"verified"` — the enum and its two call
+sites (`GetMatchCountAsync` → `Sync`, `RefreshCellFromLiveLookupAsync` →
+`GuessTimeFallback`) are kept, not collapsed away, per ADR-0032. A second
+run of the existing `verify-wikidata-player-data` CLI verb (idempotent,
+from ADR-0029) is needed against the deployed database to flip the
+2026-07-19→2026-07-20 window of `GuessTimeFallback` rows still sitting as
+`unverified` — not run as part of this story (no DB access in the
+implementing sandbox), flagged as a manual follow-up. New `POST
+/admin/player-data/approve` (`XGArcade.Api.Admin.AdminEndpoints`, Admin
+policy) takes a list of `PlayerData` ids; `IPlayerStoreRepository
+.ApprovePlayerDataAsync`/`PlayerStoreRepository` evaluates each
+independently in one `SaveChangesAsync` call, backed by new
+`PlayerData.ApprovedByAdminId`/`ApprovedAt` columns (`AddPlayerDataApproval`
+migration) mirroring `PlayerOverride.LockedByAdminId`/`LockedAt`'s existing
+audit shape rather than a separate audit-log table. `AdminScreen.tsx` adds
+a checkbox per row, "select all," a selected-count readout, and an
+"Approve selected" button, plus a persistent per-row results list after
+submit. `docs/decisions/0032-wikidata-guess-time-fallback-also-auto-verified.md`
+(supersedes ADR-0029, whose own status line is updated to
+`Superseded by ADR-0032`) and `docs/requirements-document.md` (REQ-211/503
+dated status notes) updated in the same session.
+
+**S-058 · Edit display name from Settings; persistent login via refresh token (REQ-714/715, new; ADR-0033)**
+Two independent, newly-drafted requirements from the same round of
+feedback, shipped together as one Settings-screen-adjacent batch: REQ-714
+(no way to change `User.DisplayName` after signup existed until now) and
+REQ-715 (the frontend discarded the refresh token `POST /auth/login`
+already returned, so an expired access token always forced a full
+re-login even mid-session). Both are genuinely new REQs, not extensions of
+existing ones — drafted and reviewed by `requirements-writer` on
+2026-07-20 before implementation. See REQ-714/715's own full acceptance
+criteria and ADR-0033 (refresh-token storage location) for the complete
+picture.
+*Accept:* REQ714-named tests: a submitted name between 1-30 characters
+(inclusive of both bounds) updates `DisplayName` and is reflected
+everywhere it's shown, with no backfill needed since nothing denormalizes
+it; a name already in use by a different account (any casing) is rejected
+with a specific conflict error; resubmitting the caller's own current name
+(including a pure-casing change) is never treated as a conflict against
+itself. REQ715-named tests: a successful login stores the refresh token,
+not only the access token; a missing/expired access token silently
+exchanges the stored refresh token for a new one without an interruption;
+an invalid/expired/revoked refresh token fails clearly and signs the
+person out; logout and account deletion both clear the stored refresh
+token. *Deps:* REQ-701 (the length-bound/uniqueness mechanism REQ-714
+reuses), ADR-0013 (backend-mediated Supabase Auth, REQ-715's refresh
+endpoint extends the same pattern), REQ-713/S-039 (`SettingsScreen.tsx`,
+REQ-714's host screen).
+**Built as:** `PUT /auth/display-name` (`AuthController.UpdateDisplayName`)
+reuses REQ-701's exact length bound and `IUserRepository
+.DisplayNameExistsAsync`, now with an `excludeUserId` parameter for the
+self-resubmission case; `POST /auth/refresh` (`AuthController.Refresh`)
+mediates through Supabase Auth exactly like `/auth/login`/`/auth/signup`
+(ADR-0013), sharing `SupabaseAuthClient`'s request plumbing
+(`PostCredentialsAsync` renamed `PostAuthRequestAsync`) rather than a
+parallel implementation, with `LocalE2EAuth` implementing the same
+contract for the local E2E stack. Frontend: `SettingsScreen.tsx` gained
+the display-name edit form; `App.tsx` stores the refresh token in
+`localStorage` alongside the access token (ADR-0033), attempts a silent
+refresh on a missing/401'd access token before falling back to logout, and
+clears both tokens on logout/account deletion. **Flagged, not built:**
+explicit server-side refresh-token revocation on logout — REQ-715's own
+acceptance criteria only require clearing the frontend's stored copy;
+account deletion already invalidates any outstanding refresh token as a
+side effect of deleting the underlying Supabase identity. Backend and
+frontend test suites extended (`UserRepositoryTests.cs`,
+`AuthEndpointTests.cs` including an exact-30-character boundary case,
+`SettingsScreen.test.tsx`, `App.test.tsx`).
+`docs/decisions/0033-refresh-token-storage-localstorage.md` and
+`docs/requirements-document.md` (new REQ-714/715 entries) added in the
+same session; `docs/design-document.md` SCREEN-08 (missing the
+display-name form mock/description) and `docs/legal/privacy-policy-draft.md`
+(display name is editable, not only chosen at signup) both caught and
+fixed by a later doc-sync pass.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·

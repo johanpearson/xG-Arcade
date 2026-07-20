@@ -48,6 +48,17 @@ const unverifiedRow = {
   syncedAt: '2026-07-01T00:00:00Z',
 };
 
+const unverifiedRow2 = {
+  id: 'row-2',
+  playerId: 'player-2',
+  playerFullName: 'Mbappe',
+  field: 'club',
+  value: 'PSG',
+  source: 'wikidata',
+  confidence: 'unverified',
+  syncedAt: '2026-07-02T00:00:00Z',
+};
+
 const activeRound = {
   hasActiveRound: true,
   round: {
@@ -145,6 +156,142 @@ describe('AdminScreen', () => {
       await screen.findByText('An override already exists for this field — use PUT to edit it.'),
     ).toBeInTheDocument();
     expect(screen.getByText('Henry · nationality · France · live_lookup')).toBeInTheDocument();
+  });
+
+  it('REQ-503: "Approve selected" is disabled when no rows are selected', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([unverifiedRow]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+
+    expect(screen.getByRole('button', { name: 'Approve selected' })).toBeDisabled();
+  });
+
+  it('REQ-503: no "reason" field is rendered anywhere in the bulk-approve UI (unlike "Correct")', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([unverifiedRow]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+
+    // Selecting a row for bulk approve, without ever opening "Correct",
+    // must not surface a reason field anywhere on the page — "Correct"'s
+    // own inline form is the only place a reason field exists, and it's
+    // not open here.
+    await user.click(screen.getByRole('checkbox', { name: /Select Henry/ }));
+    expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve selected' })).toBeEnabled();
+  });
+
+  it('REQ-503: "Select all" then "Approve selected" calls the approve endpoint with every visible id and no reason field', async () => {
+    let unverifiedCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) {
+        unverifiedCallCount += 1;
+        return jsonResponse(unverifiedCallCount === 1 ? [unverifiedRow, unverifiedRow2] : []);
+      }
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/player-data/approve')) {
+        return jsonResponse({
+          results: [
+            { playerDataId: unverifiedRow.id, approved: true, failureReason: null },
+            { playerDataId: unverifiedRow2.id, approved: true, failureReason: null },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve selected' }));
+
+    await waitFor(() => {
+      const approveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/player-data/approve'));
+      expect(approveCall).toBeDefined();
+      const body = JSON.parse((approveCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ playerDataIds: [unverifiedRow.id, unverifiedRow2.id] });
+    });
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+  });
+
+  it('REQ-503: approving a single row via its own checkbox calls the endpoint with just that id', async () => {
+    let unverifiedCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) {
+        unverifiedCallCount += 1;
+        return jsonResponse(unverifiedCallCount === 1 ? [unverifiedRow, unverifiedRow2] : [unverifiedRow2]);
+      }
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/player-data/approve')) {
+        return jsonResponse({
+          results: [{ playerDataId: unverifiedRow.id, approved: true, failureReason: null }],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: /Select Henry/ }));
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Approve selected' }));
+
+    await waitFor(() => {
+      const approveCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/player-data/approve'));
+      expect(approveCall).toBeDefined();
+      const body = JSON.parse((approveCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ playerDataIds: [unverifiedRow.id] });
+    });
+
+    expect(await screen.findByText('Mbappe · club · PSG · wikidata')).toBeInTheDocument();
+    expect(screen.queryByText('Henry · nationality · France · live_lookup')).not.toBeInTheDocument();
+  });
+
+  it('REQ-503: a partial-failure bulk approve shows which rows succeeded and which failed, distinctly (not as a full success or full failure)', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([unverifiedRow, unverifiedRow2]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/player-data/approve': () =>
+        jsonResponse({
+          results: [
+            { playerDataId: unverifiedRow.id, approved: true, failureReason: null },
+            { playerDataId: unverifiedRow2.id, approved: false, failureReason: 'NotUnverified' },
+          ],
+        }),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+    await user.click(screen.getByRole('button', { name: 'Approve selected' }));
+
+    expect(await screen.findByText('Henry · nationality · France — Approved.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Mbappe · club · PSG — Not approved — already reviewed by someone else.'),
+    ).toBeInTheDocument();
   });
 
   it('REQ-505/506: the round-control and user-deletion sections are entirely absent when the active-round probe 404s', async () => {

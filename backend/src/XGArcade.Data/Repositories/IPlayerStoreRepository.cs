@@ -34,6 +34,22 @@ public interface IPlayerStoreRepository
     // decision.
     Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default);
 
+    // REQ-503 (2026-07-20 extension): the "approve" action — flips one or
+    // more PlayerData rows' Confidence to "verified" in a single call,
+    // logging each row individually via ApprovedByAdminId/ApprovedAt (same
+    // "who and when, on the row itself" shape as
+    // PlayerOverride.LockedByAdminId/LockedAt). Bulk includes single-row as
+    // the N=1 case. Each id is evaluated independently and never fails the
+    // rest of the batch — a row that no longer exists, or whose Confidence
+    // is no longer "unverified" (deleted or changed by another admin
+    // between selection and submission), is reported as a failed outcome
+    // for that id only, per this REQ's partial-failure reporting
+    // requirement. One SaveChangesAsync call for the whole batch
+    // (load-then-SaveChangesAsync, coding-guidelines.md), not one
+    // round-trip per row.
+    Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
+        IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
@@ -94,4 +110,21 @@ public interface IPlayerStoreRepository
     // already-cached data, not a correctness-critical write.
     Task UpdatePlayerPhotosAsync(
         IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default);
+}
+
+// REQ-503 (2026-07-20 extension): per-row outcome of
+// IPlayerStoreRepository.ApprovePlayerDataAsync — the shape that lets a
+// bulk approve report which rows succeeded and which failed rather than
+// treating the whole batch as one all-or-nothing unit.
+public record PlayerDataApprovalOutcome(Guid PlayerDataId, bool Approved, PlayerDataApprovalFailureReason? FailureReason);
+
+public enum PlayerDataApprovalFailureReason
+{
+    // The id didn't match any PlayerData row — already deleted between
+    // selection and submission (or never existed).
+    NotFound,
+    // The row exists but its Confidence was no longer "unverified" at
+    // write time — already approved, or otherwise changed, by another
+    // admin between selection and submission.
+    NotUnverified,
 }

@@ -126,8 +126,8 @@ export interface LeaderboardResponse {
 
 // REQ-408 (S-054): a single closed round, as returned by
 // GET /leagues/global/leaderboard/closed-rounds — one entry in SCREEN-03's
-// "past rounds" scope's round-selection list. Only ever a *closed* round
-// (never active/upcoming, which is REQ-407/S-053's "This round (live)"
+// "Previous Rounds" scope's round-selection list. Only ever a *closed* round
+// (never active/upcoming, which is REQ-407/S-053's "Current Round"
 // scope's territory instead) — `closedAt` is the field the list is ordered
 // by (most recently closed first), `startTime`/`endTime` are the round's own
 // window. There is no round-number field anywhere in this data, so the UI
@@ -173,6 +173,23 @@ export interface UnverifiedPlayerData {
   syncedAt: string;
 }
 
+// REQ-503 (2026-07-20 extension): a single row's outcome from
+// POST /admin/player-data/approve — `failureReason` is `"NotFound"` or
+// `"NotUnverified"` (as plain strings, not a shared enum type) when
+// `approved` is false, `null` when true.
+export interface PlayerDataApprovalResult {
+  playerDataId: string;
+  approved: boolean;
+  failureReason: string | null;
+}
+
+// REQ-503 (2026-07-20 extension): POST /admin/player-data/approve's
+// response — always 200 with one result per requested id (bulk, with a
+// single id as the N=1 case), never an all-or-nothing batch result.
+export interface ApprovePlayerDataResponse {
+  results: PlayerDataApprovalResult[];
+}
+
 // REQ-501: the PlayerOverride record created by POST /admin/player-overrides.
 export interface PlayerOverride {
   id: string;
@@ -200,4 +217,11 @@ export interface AdminRound {
 export interface AdminActiveRound {
   hasActiveRound: boolean;
   round: AdminRound | null;
+}
+
+// REQ-714: PUT /auth/display-name's response shape
+// (AuthController.UpdateDisplayName / UpdateDisplayNameResponse).
+export interface UpdateDisplayNameResponse {
+  id: string;
+  displayName: string;
 }

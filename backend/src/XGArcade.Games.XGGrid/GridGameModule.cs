@@ -404,12 +404,16 @@ public class GridGameModule(
 
     // REQ-103/REQ-109 waterfall (Tier 0: Wikidata-only half, S-006): a local
     // cache miss triggers a live lookup, persisted immediately (never
-    // deferred/batched) as WikidataLookupOrigin.Sync — ADR-0029: this is a
-    // routine query against Wikidata's own vetted per-category intersection,
-    // trusted as ground truth, not REQ-211's narrower guess-time fallback
-    // below. A category value with no resolved WikidataQid is not an error —
-    // the live lookup just returns no matches (REQ-109), which this treats
-    // as an ordinary 0-count, handled by the caller's normal retry logic.
+    // deferred/batched) as WikidataLookupOrigin.Sync — a routine query
+    // against Wikidata's own vetted per-category intersection. As of
+    // ADR-0032 this origin and REQ-211's narrower guess-time fallback below
+    // both persist as "verified" (ADR-0029 had trusted only this one as
+    // ground truth; ADR-0032 reversed that split), but the two origins are
+    // still passed through distinctly for logging/future re-differentiation
+    // — see ADR-0032. A category value with no resolved WikidataQid is not
+    // an error — the live lookup just returns no matches (REQ-109), which
+    // this treats as an ordinary 0-count, handled by the caller's normal
+    // retry logic.
     private async Task<int> GetMatchCountAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,
@@ -437,8 +441,10 @@ public class GridGameModule(
     // construct throwaway instances here rather than threading the real
     // reference-table rows through the whole candidate-picking pipeline
     // just for an Id nothing downstream uses. `origin` is passed through
-    // as-is from whichever caller invoked this — see ADR-0029 for what it
-    // controls (the persisted PlayerData's starting Confidence).
+    // as-is from whichever caller invoked this — see ADR-0032 for what it
+    // (no longer) controls: both origins persist the same starting
+    // Confidence now, but the value is still threaded through for
+    // logging/future re-differentiation.
     private async Task<IReadOnlyList<Player>?> LookupLiveMatchesAsync(
         string rowCategoryType, CategoryCandidate row,
         string colCategoryType, CategoryCandidate col,

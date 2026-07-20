@@ -74,11 +74,13 @@ public class AdminEndpointTests
         return player.Id;
     }
 
-    private async Task SeedUnverifiedPlayerDataAsync(Guid playerId)
+    // Returns the seeded row's own Id — REQ-503's approve tests (2026-07-20
+    // extension) target a specific PlayerData row, not just a player.
+    private async Task<Guid> SeedUnverifiedPlayerDataAsync(Guid playerId)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
-        dbContext.PlayerData.Add(new PlayerData
+        var data = new PlayerData
         {
             Id = Guid.NewGuid(),
             PlayerId = playerId,
@@ -87,8 +89,10 @@ public class AdminEndpointTests
             Source = "wikidata",
             Confidence = "unverified",
             SyncedAt = DateTime.UtcNow,
-        });
+        };
+        dbContext.PlayerData.Add(data);
         await dbContext.SaveChangesAsync();
+        return data.Id;
     }
 
     private async Task<Guid> SeedOverrideAsync(Guid playerId, string field = "club", string value = "Arsenal")
@@ -264,6 +268,116 @@ public class AdminEndpointTests
         var body = await response.Content.ReadFromJsonAsync<List<UnverifiedPlayerDataResponse>>();
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Select(r => r.PlayerFullName), Is.EquivalentTo(new[] { "Thierry Henry", "Robert Pires" }));
+    }
+
+    // ---- REQ-503 (2026-07-20 extension): approve action -------------------
+
+    [Test]
+    public async Task REQ503_ApprovePlayerData_SingleRow_FlipsConfidenceToVerified_NoReasonRequired()
+    {
+        var playerId = await SeedPlayerAsync();
+        var dataId = await SeedUnverifiedPlayerDataAsync(playerId);
+        var client = CreateAdminClient();
+
+        // No `reason` field in the request body at all — unlike
+        // CreatePlayerOverrideRequest, which requires one.
+        var response = await client.PostAsJsonAsync("/admin/player-data/approve", new ApprovePlayerDataRequest([dataId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ApprovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Results, Has.Count.EqualTo(1));
+        Assert.That(body.Results[0].PlayerDataId, Is.EqualTo(dataId));
+        Assert.That(body.Results[0].Approved, Is.True);
+        Assert.That(body.Results[0].FailureReason, Is.Null);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await dbContext.PlayerData.SingleAsync(pd => pd.Id == dataId);
+        Assert.That(stored.Confidence, Is.EqualTo("verified"));
+        Assert.That(stored.ApprovedByAdminId, Is.EqualTo(AdminAuthProviderUserId));
+        Assert.That(stored.ApprovedAt, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerData_Bulk_SelectAll_ApprovesEveryRow_EachLoggedIndividually()
+    {
+        var playerId = await SeedPlayerAsync();
+        var firstId = await SeedUnverifiedPlayerDataAsync(playerId);
+        Guid secondId;
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var second = new PlayerData
+            {
+                Id = Guid.NewGuid(), PlayerId = playerId, Field = "nationality", Value = "France",
+                Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
+            };
+            seedDbContext.PlayerData.Add(second);
+            await seedDbContext.SaveChangesAsync();
+            secondId = second.Id;
+        }
+        var client = CreateAdminClient();
+
+        // Simulates a "select all" bulk submission over every row currently
+        // loaded in the review view.
+        var response = await client.PostAsJsonAsync("/admin/player-data/approve", new ApprovePlayerDataRequest([firstId, secondId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<ApprovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Results, Has.Count.EqualTo(2));
+        Assert.That(body.Results, Has.All.Matches<PlayerDataApprovalResult>(r => r.Approved));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var rows = await dbContext.PlayerData.Where(pd => pd.Id == firstId || pd.Id == secondId).ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(2));
+        Assert.That(rows, Has.All.Matches<PlayerData>(pd => pd.Confidence == "verified" && pd.ApprovedByAdminId == AdminAuthProviderUserId));
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerData_Bulk_PartialFailure_ReportsWhichRowsSucceededAndWhichFailed()
+    {
+        var playerId = await SeedPlayerAsync();
+        var validId = await SeedUnverifiedPlayerDataAsync(playerId);
+        // Simulates a row deleted (or already changed) by another admin
+        // between selection and submission.
+        var missingId = Guid.NewGuid();
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/approve", new ApprovePlayerDataRequest([validId, missingId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "a partial failure must not fail the whole batch as one all-or-nothing unit");
+        var body = await response.Content.ReadFromJsonAsync<ApprovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        var validResult = body!.Results.Single(r => r.PlayerDataId == validId);
+        var missingResult = body.Results.Single(r => r.PlayerDataId == missingId);
+        Assert.That(validResult.Approved, Is.True);
+        Assert.That(missingResult.Approved, Is.False);
+        Assert.That(missingResult.FailureReason, Is.Not.Null.And.Not.Empty);
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerData_ReturnsBadRequest_ForEmptyIdList()
+    {
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/approve", new ApprovePlayerDataRequest([]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task REQ503_ApprovePlayerData_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var playerId = await SeedPlayerAsync();
+        var dataId = await SeedUnverifiedPlayerDataAsync(playerId);
+        var client = CreateAuthenticatedClient(Guid.NewGuid());
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/approve", new ApprovePlayerDataRequest([dataId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
 
     // ---- REQ-501: PlayerOverride CRUD --------------------------------------

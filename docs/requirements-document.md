@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.72"
+version: "0.75"
 status: draft
-last_updated: 2026-07-19
+last_updated: 2026-07-20
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -18,7 +18,7 @@ update_when:
 
 # Requirements Document – xG Arcade (working title)
 
-Version 0.72 · 2026-07-19
+Version 0.75 · 2026-07-20
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name
 > (users, leagues, rounds, scoring — everything shared across games).
@@ -187,6 +187,15 @@ abort), API (endpoint never returns a grid with an invalid cell)
   already treats as ground truth, so REQ-503's admin review queue no longer
   needs to include it. `confidence="unverified"` is still exactly right for
   REQ-211's guess-time fallback (a different call path, unchanged by this).
+- **Status note (2026-07-20 — supersedes the last sentence of the bullet
+  above; kept for history, not deleted):** "`confidence="unverified"` is
+  still exactly right for REQ-211's guess-time fallback" is no longer
+  current — see REQ-211's own 2026-07-20 status note (this reverses
+  ADR-0029's fallback-specific carve-out; a new ADR superseding ADR-0029 is
+  pending). As of that decision, **every** Wikidata-sourced write,
+  including REQ-211's guess-time fallback, persists `confidence="verified"`
+  immediately. This REQ (REQ-103, routine sync) is unaffected in
+  substance — it already wrote `"verified"` under ADR-0029 and continues to.
 - Given a combination has no match in the local cache
 - When the system performs a live lookup against external sources
 - Then Wikidata is tried first, with a timeout — it isn't meaningfully
@@ -959,6 +968,26 @@ a photo shows neither at rest as of S-048, see that status note)
   matching 2026-07-19 status note. This REQ-206 itself is unchanged and
   not superseded — it still defines the one true locked per-round total;
   REQ-406/407/408 all consume or parallel it, they don't replace it.
+- **Status note (2026-07-20 — reviewed, no change made):** a 2026-07-20
+  request asked whether a grid a player initiated but didn't finish should
+  have its still-unguessed cells lock in at `MaxPointsPerCell` at round
+  close, same as an exhausted-wrong cell, and whether that needs a new
+  mechanism decision (e.g. materializing synthetic `Guess` rows vs.
+  computing the credit separately by diffing grid cells against existing
+  `Guess` rows). On review, this REQ's own bullet immediately below
+  ("unanswered cells, for a player who participated in the round at all,
+  count as `MaxPointsPerCell` points … same as an incorrect guess, per
+  ADR-0021") and `ScoreLockingService.MaterializeUnansweredCellsAsync`
+  (ADR-0021, S-028) **already implement exactly this** — a participant
+  (≥1 guess anywhere in the round) has a real, synthetic `Guess` row
+  inserted for every cell they never attempted, which then locks at
+  `MaxPointsPerCell` through the same code path as any other incorrect
+  guess. A non-participant (zero guesses in the round) is correctly
+  excluded, unaffected. No acceptance criterion below needed to change, no
+  code changes are implied, and the mechanism question (synthetic rows vs.
+  a separate diff-based computation) does not need a new ADR — ADR-0021
+  already made and recorded that exact choice; see its own
+  alternatives-considered table.
 - Given all cells in a round have been locked (REQ-205)
 - When the total score is calculated
 - Then the sum of `final_points` across all N×N cells for the player is shown
@@ -1135,6 +1164,20 @@ an extra attempt), API
   `PlayerNameIndex` gate, the Wikidata/API-Football waterfall, budget
   fail-closed behavior) are recorded below as the full/long-term
   definition, not a claim of current behavior.
+- **Status note (2026-07-20, supersedes ADR-0029's fallback-specific
+  carve-out — a new ADR superseding ADR-0029 is pending, number TBD):**
+  ADR-0029 (2026-07-19) deliberately kept this requirement's guess-time
+  fallback lookup persisting `confidence="unverified"`, specifically so an
+  admin could still spot-check this narrower, less-vetted path while a
+  routine sync (REQ-103/REQ-110) persisted `"verified"` directly. The
+  product owner has now decided all Wikidata-sourced data should be
+  verified by default, including this path — the call this status note's
+  "Partially implemented" bullet above describes
+  (`GridGameModule`'s live-lookup fallback, `WikidataLookupOrigin
+  .GuessTimeFallback`) now also persists `confidence="verified"`,
+  immediately, in the same request, exactly the same as the `Sync` origin
+  REQ-103/110 already use. See the superseded acceptance-criterion bullet
+  below for the specific line this reverses.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -1142,8 +1185,13 @@ an extra attempt), API
 - Then the system performs a live lookup for that specific player's
   attributes, using the same Wikidata-first, API-Football-fallback
   waterfall as REQ-103 (ADR-0011)
-- And the result is persisted immediately as unverified data, in the same
-  request — never deferred to a later batch sync (ADR-0010)
+- **Superseded 2026-07-20 (kept for history, no longer current behavior):**
+  "the result is persisted immediately as unverified data, in the same
+  request — never deferred to a later batch sync (ADR-0010)."
+- And (2026-07-20) the result is persisted immediately as **verified**
+  data, in the same request — never deferred to a later batch sync
+  (ADR-0010); "immediately, in the same request" is unchanged from the
+  superseded bullet above, only the persisted `confidence` value is
 - And this live lookup only triggers when the name matched a real
   `PlayerNameIndex` candidate — a guess matching nothing there is
   incorrect without any live call
@@ -1676,6 +1724,12 @@ case covers the game-selection step added in S-021)
   code. Two backfillers (`UserDisplayNameBackfiller`,
   `LeagueMembershipBackfiller`, both run from `dotnet run --
   migrate-and-seed`) cover rows that predate this feature.
+- **Status note (2026-07-20):** automatic membership (below) is unchanged
+  and is not the same guarantee as automatic *ranked visibility* — as of
+  this date, REQ-404's ranked leaderboard excludes a member who has never
+  submitted a single guess (see REQ-404's own new acceptance criterion).
+  This REQ still governs membership only; it does not claim every member
+  is shown in the ranked list.
 - Given a new user registers
 - Then the user is automatically added to `League(type="global")`
 - And this requires no action from the user
@@ -1736,14 +1790,38 @@ case covers the game-selection step added in S-021)
   acceptance criteria — this note only cross-references it so the
   contradiction between "only sums `Guess.FinalPoints`" above and the new
   behavior isn't silently left standing.
+- **Status note (2026-07-20 — new acceptance criterion, Status: Implemented,
+  Tier 0, S-056):** `LeaderboardService.GetGlobalLeaderboardAsync`
+  previously included every league member regardless of guess history,
+  defaulting an absent total to `0` — under ADR-0021's lowest-wins model,
+  `0` is the *best* possible score, so a member who had never submitted a
+  single guess ranked #1 ahead of everyone who had actually played. The
+  product owner confirmed this was wrong: such a member should not be
+  ranked at all, not ranked first. Built exactly as specified below — a new
+  `IGuessRepository.GetUserIdsWithAnyGuessAsync` (`GuessRepository`) is
+  queried alongside the existing locked-only
+  `GetTotalFinalPointsByUserIdsAsync`, kept as a separate call specifically
+  so a member active only in the currently active (unlocked) round is not
+  mistaken for never-played. See the bullet below.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
   score calculation per league), filtered by league membership
+- And a member for whom no `Guess` row has ever existed — in any round,
+  locked or still active, correct or incorrect — is excluded entirely from
+  the ranked list, not shown ranked with a default total of `0`; this
+  applies to the all-time ranking specifically (REQ-401/404's own scope) —
+  REQ-406/407's active-round contribution and REQ-408's per-round totals
+  already have their own, narrower "zero guesses in this round"/"zero
+  guesses in this specific round" exclusions that are unaffected by this
+  bullet
 - And the list is correctly sorted ascending by total score — lowest wins
   (ADR-0021)
 
-**Test level:** Unit, API, UI
+**Test level:** Unit, API, UI (a league member with zero guesses ever does
+not appear in the ranked list at all; a member with at least one guess,
+locked or still-live, appears ranked normally even if their computed total
+happens to be 0)
 
 **REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
 implemented — drafted 2026-07-12, see `docs/backlog.md` S-027. Open design
@@ -1842,6 +1920,43 @@ REQ-206's status note flagged since S-029.)*
 - And a league member with zero guesses in the currently active round is
   unaffected by this REQ — their total is exactly what REQ-401/404 already
   compute today (locked rounds only)
+- **Status note (2026-07-20 — narrows, does not supersede, the bullet
+  above it and the "unattempted cell contributes nothing" clause earlier
+  in this REQ; Status: Implemented, Tier 0, S-056):** the product owner
+  has confirmed a live estimate that never credits an untouched cell reads
+  as unfairly low the moment a player has genuinely started a grid — a
+  freshly-initiated grid's live total should start near the theoretical
+  max and count down as guesses resolve, not sit near zero until every
+  cell is attempted. This changes the "not yet attempted" case
+  specifically for a player who has made **at least one** guess anywhere
+  in that round's grid (a "participant," the same definition
+  `ScoreLockingService.MaterializeUnansweredCellsAsync`/ADR-0021 already
+  uses) — it does **not** change the bullet immediately above this note: a
+  member with **zero** guesses anywhere in the active round is still
+  entirely unaffected by this REQ, exactly as that bullet already states
+  verbatim; that bullet is correct and stays as-is. Built exactly as
+  described: `ILiveRoundContributionService`/`LiveRoundContributionService`
+  (`XGArcade.Core.Scoring`) now tracks each participant's per-cell
+  attempted set and adds `MaxPointsPerCell` for every round cell outside
+  it, leaving a cell with one of two attempts used untouched.
+- Given a player is a member of a league and a game the league tracks has
+  a currently active round, and that player has made at least one guess —
+  any attempt count, correct or incorrect — somewhere in that round's grid
+  (i.e. they are a participant in the round, per the definition above)
+- When that league's leaderboard is requested
+- Then, in addition to the correctly-guessed and locked-incorrect
+  contributions already defined above, every cell in that round's grid the
+  player has made **zero** guesses on at all contributes
+  `ScoringRules.MaxPointsPerCell` to their live total — the reversal is
+  specifically for a cell with no guess row at all; a cell where the
+  player has used one of their two attempts and still has one remaining
+  (REQ-210) is a separate, genuinely unresolved state and is unaffected by
+  this clause — it continues to contribute nothing, exactly as the
+  original "not yet attempted" bullet already specifies
+- And this only applies once the player is a participant in that specific
+  round — a player with zero guesses anywhere in the active round
+  contributes nothing at all from it, unchanged (see the preserved bullet
+  above)
 - And this REQ does not change REQ-405's round/week/month/year
   time-window leaderboard, which remains explicitly locked-only by its own
   resolved design question ("a round whose `EndTime` is null … never
@@ -1849,12 +1964,15 @@ REQ-206's status note flagged since S-029.)*
 
 **Test level:** Unit (combined total sums a closed round's locked points
 plus the active round's live contribution correctly; a never-attempted
-cell in the active round contributes nothing, not `0` and not
-`MaxPointsPerCell`; recomputing after a cell's `LivePoints` changes — e.g.
-another player submits a matching guess — produces a different total on
-the next read without any explicit invalidation step), API (global/
-per-league leaderboard endpoint reflects the live contribution and updates
-across two successive requests as underlying guesses change)
+cell in the active round contributes nothing for a non-participant, not
+`0` and not `MaxPointsPerCell`; for a participant, a cell with zero
+guesses contributes `MaxPointsPerCell` (2026-07-20) while a cell with one
+of two attempts used and still unresolved continues to contribute nothing;
+recomputing after a cell's `LivePoints` changes — e.g. another player
+submits a matching guess — produces a different total on the next read
+without any explicit invalidation step), API (global/per-league
+leaderboard endpoint reflects the live contribution and updates across two
+successive requests as underlying guesses change)
 
 **REQ-407 – Leaderboard scoped to the currently active round (live)**
 *(Status: Implemented (Tier 0, S-053), 2026-07-19.)*
@@ -1871,7 +1989,9 @@ across two successive requests as underlying guesses change)
   round") exactly mirroring `RoundEndpoints`' REQ-303 "no active round"
   response when none is active, per this REQ's own acceptance criterion.
   Frontend: `LeaderboardScreen.tsx` (SCREEN-03) gained a three-way scope
-  selector — "All-time" / "This round (live)" / "Past rounds" (REQ-408) —
+  selector — "All-time" / "Current Round" / "Previous Rounds" (REQ-408;
+  renamed from "This round (live)"/"Past rounds" on 2026-07-20, S-056 —
+  purely cosmetic, no REQ specifies exact tab wording) —
   as an additional selector alongside (not replacing) the not-yet-built
   custom-league tabs, exactly the placement this REQ specifies. The live
   scope renders every row with the same "~N pts estimated" wording
@@ -1883,7 +2003,7 @@ across two successive requests as underlying guesses change)
   the frontend does not poll this route on an interval the way the
   all-time scope's 15s poll does — `ADR-0031` explicitly flags this read as
   materially more expensive than the all-time one, so the frontend instead
-  fetches once per genuine *entry* into the "This round (live)" tab
+  fetches once per genuine *entry* into the "Current Round" tab
   (switching to it fresh, including re-entering after visiting a different
   scope) rather than continuously in the background. Each such fetch still
   recomputes fully fresh server-side, satisfying this REQ's actual
@@ -1905,10 +2025,20 @@ across two successive requests as underlying guesses change)
   the same contribution exposed as its own standalone, round-scoped view —
   the two share one underlying computation, not two independently-written
   formulas.
+- **Status note (2026-07-20 — carries REQ-406's matching change over,
+  since both consume the same `ILiveRoundContributionService` computation;
+  Status: Implemented, Tier 0, S-056):** REQ-406 was revised the same
+  day to credit `ScoringRules.MaxPointsPerCell` for a cell with **zero**
+  guesses, specifically for a player who has made at least one guess
+  somewhere in that round's grid. Every player who appears on *this*
+  leaderboard is, by this REQ's own definition, already such a participant
+  (zero-guess players never appear here at all — see the bullet below) —
+  so this change applies to every row shown here, not a narrow subset of
+  them. See the superseded parenthetical in the formula below.
 - **UX placement (resolved, not left open):** this leaderboard is reached
   from the same leaderboard screen (SCREEN-03) REQ-401/404/405 already
   use, as an additional selectable scope alongside REQ-405's existing
-  round/week/month/year resolution options — e.g. "This round (live)" —
+  round/week/month/year resolution options — e.g. "Current Round" —
   not a separate top-level screen. This keeps a single leaderboard
   surface with one consistent list/pagination/"you"-row pattern
   (REQ-607) rather than duplicating that UI for a second, parallel screen.
@@ -1921,10 +2051,19 @@ across two successive requests as underlying guesses change)
   contributes its current `LivePoints` (REQ-204, itself recomputed live
   and free to change as more players answer, per ADR-0020); a
   locked-incorrect cell (both attempts used, REQ-210) contributes
-  `ScoringRules.MaxPointsPerCell`; a cell that participant has not yet
-  attempted contributes nothing to their total (explicitly not `0` — see
-  REQ-406's identical resolution of this — and not `MaxPointsPerCell`,
-  since that penalty only ever applies at round close)
+  `ScoringRules.MaxPointsPerCell`;
+  **superseded 2026-07-20 (kept for history, no longer current behavior):**
+  "a cell that participant has not yet attempted contributes nothing to
+  their total (explicitly not `0` — see REQ-406's identical resolution of
+  this — and not `MaxPointsPerCell`, since that penalty only ever applies
+  at round close)." As of 2026-07-20, a cell the participant has made
+  **zero** guesses on contributes `ScoringRules.MaxPointsPerCell`, same as
+  a locked-incorrect cell — see REQ-406's matching 2026-07-20 status note
+  for the full rationale (a freshly-initiated grid's live estimate should
+  start near the theoretical max, not near zero). A cell where the
+  participant has used one of their two attempts and still has one
+  remaining (REQ-210) is unaffected by this change — it remains genuinely
+  unresolved and contributes nothing, exactly as originally specified
 - And a player who is not a participant in this round (zero guesses) does
   not appear on this leaderboard at all
 - And ranking sorts ascending — lowest provisional total first (ADR-0021)
@@ -1950,7 +2089,10 @@ across two successive requests as underlying guesses change)
   REQ — its final leaderboard is reached only via REQ-408 from that point on
 
 **Test level:** Unit (provisional-total computation per the three cell
-cases above; ranking and tie-break match REQ-404's rules; recompute-on-read
+cases above, updated 2026-07-20 so a zero-guess cell contributes
+`MaxPointsPerCell` rather than nothing, while a one-of-two-attempts-used
+unresolved cell still contributes nothing; ranking and tie-break match
+REQ-404's rules; recompute-on-read
 produces a different rank after an underlying guess changes, with no
 caching layer to invalidate), API (endpoint returns a clear "no active
 round" response when none exists; two successive requests reflect an
@@ -1985,7 +2127,7 @@ reachable from SCREEN-03 as an additional scope option)
   locked, never-recomputed leaderboard — `IGuessRepository
   .GetTotalFinalPointsByRoundIdAsync`, REQ-206's own formula filtered to
   one round). Not-found (404) and not-closed-yet (409) are distinct
-  responses, exactly as specified. Frontend: SCREEN-03's "Past rounds"
+  responses, exactly as specified. Frontend: SCREEN-03's "Previous Rounds"
   scope shows the round list (labelled by close time, no fabricated round
   numbering since none exists in the data), drilling into one round's
   leaderboard rendered with plain, non-provisional point text (contrast
@@ -2037,6 +2179,69 @@ pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
 responses), UI (round-selection list, then that round's leaderboard, on
 SCREEN-03)
 
+**REQ-409 – Participation-adjusted score for the all-time leaderboard**
+*(Status: Proposed — drafted 2026-07-20. Exploratory product-owner
+request, not a specified decision. See open questions below and §7.)*
+> As a player, I want the all-time leaderboard to reflect how consistently
+> I've played, not only my raw point total, so a player who has entered
+> many rounds isn't ranked behind someone who has only played a small,
+> lucky handful.
+
+- **Context:** REQ-401/404's all-time leaderboard ranks by
+  `SUM(FinalPoints ?? 0)` ascending — lowest total wins (ADR-0021, golf-
+  style scoring). Under a pure sum, a player who has participated in only
+  a few rounds needs only a few low (good) totals to sit near the top,
+  while a player who has played many rounds accumulates a larger total
+  simply by having played more often, even if their per-round performance
+  is just as good or better on average — so the raw sum can rank a small,
+  lucky sample ahead of a larger, consistent one. Note the framing: under
+  ADR-0021's lowest-wins model this is *not* "reward high scores for
+  volume" (that would be backwards here, since more play only ever adds
+  more to the total, which is worse) — it's about the current total
+  unfairly disadvantaging a player with a long, consistent participation
+  history relative to one with a short one.
+- **Product owner's own framing (2026-07-20, exploratory, not a spec):**
+  "maybe it should or could show a score based on x points/x amount of
+  grids participation or something." No formula has been decided — what
+  follows is a **candidate starting point for discussion, not a
+  decision.**
+- **Candidate formula (proposal only, to be confirmed):** average points
+  per round participated in — `SUM(FinalPoints) / COUNT(rounds the player
+  participated in)` — still sorted **ascending** (lowest average wins), to
+  stay consistent with ADR-0021's existing direction rather than
+  introducing a second, reversed convention on the same leaderboard.
+- This REQ does **not** specify final acceptance criteria. The formula
+  above, and every question below, needs product-owner confirmation before
+  this can move to an implementation-ready status.
+
+**Open questions a real decision needs to resolve (not answered by this
+REQ — see also §7):**
+- Does a participation-adjusted score **replace** the existing raw-total
+  ranking (REQ-401/404), or sit alongside it as a second, selectable
+  ranking/tab (similar in spirit to how REQ-405 adds selectable scopes to
+  the same leaderboard screen)?
+- What counts as "participated in a round" for the denominator — reuse the
+  existing participant definition (at least one `Guess` row in a round,
+  the same definition ADR-0021's `MaterializeUnansweredCellsAsync` and
+  REQ-406/407 already use) for consistency, or something narrower/
+  broader? Reusing the existing definition is the obvious default, but
+  this REQ does not decide it.
+- How does this interact with REQ-401/404's 2026-07-20 zero-guess
+  exclusion rule, which already excludes a member with zero guesses ever
+  from the ranked list entirely? Does a participation-adjusted score need
+  that same exclusion (a zero-participation player has an undefined
+  average — divide by zero), or does the averaging formula make a
+  separate exclusion rule moot?
+- Is a minimum-rounds threshold needed before a player is eligible to
+  appear in this ranking at all, to stop a single lucky round from
+  dominating an average-based score? If so, what threshold — and is a
+  player below it excluded from this view entirely, or only shown in the
+  raw-total view?
+
+**Test level:** Not applicable — no acceptance criteria has been
+finalized; testable criteria can only be written once the open questions
+above are resolved.
+
 ---
 
 ### 4.5 Data management and overrides
@@ -2084,6 +2289,16 @@ SCREEN-03)
   only REQ-211's guess-time fallback still writes `"unverified"`. This
   narrows what's browsable further, it doesn't add the missing
   verified-data view.
+- **Status note (2026-07-20, supersedes "only REQ-211's guess-time fallback
+  still writes `"unverified"`" above; kept for history, not deleted):** that
+  line is no longer current — see REQ-211's own 2026-07-20 status note
+  (reverses ADR-0029's fallback-specific carve-out; a new ADR superseding
+  ADR-0029 is pending). As of that decision, no code path persists
+  `Confidence = "unverified"` anymore, so the "unverified" subset this
+  status note describes as "browsable" is now empty by construction going
+  forward, not merely smaller — see REQ-503's matching 2026-07-20 status
+  note for what that means for the review queue itself. The still-missing
+  verified-data-view gap this note already flags is unchanged.
 - Given any player data point
 - Then `source` (e.g. `wikidata`, `api_football`, `live_lookup`, `manual_override`)
   and `confidence` (`verified` / `unverified`) are always visible in the admin view
@@ -2127,13 +2342,84 @@ SCREEN-03)
   (`verify-wikidata-player-data`), since no row records which of the two
   paths originally created it. The still-missing "approve"/"remove"
   actions above are unaffected by this change.
+- **Status note (2026-07-20, supersedes the S-052/ADR-0029 note above
+  where it describes REQ-211's guess-time fallback as still landing in
+  this queue; kept for history, not deleted):** per REQ-211's own
+  2026-07-20 status note (reverses ADR-0029's fallback-specific carve-out
+  — a new ADR superseding ADR-0029 is pending), the guess-time fallback
+  path now also persists `Confidence = "verified"` immediately. **This
+  REQ's review queue (`GET /admin/player-data/unverified`) is therefore
+  empty by construction going forward** — no code path writes
+  `"unverified"` anymore. The queue and its endpoint are not being
+  removed: ADR-0029's own follow-up note already earmarked this exact
+  channel for a future player-suggestion/correction feature (still
+  unbuilt, out of scope here) — when that exists, it becomes the queue's
+  sole source, exactly as ADR-0029 originally anticipated. The
+  still-missing "approve"/"remove" actions this REQ's status note flags
+  are partially addressed below — see the 2026-07-20 extension for
+  "approve," including bulk/select-all; "remove" remains unbuilt and out
+  of scope for that extension.
 - Given data with `confidence = "unverified"`
 - When an admin opens the review view
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),
   or remove the data point
 - And the action is logged with `admin_id` and a timestamp
 
-**Test level:** API, UI
+**Extended (2026-07-20, Status: Implemented, Tier 0, S-057) — the
+"approve" action, including bulk/select-all, and confirming no reason is
+required:**
+- Given one or more `PlayerData` rows with `confidence = "unverified"` are
+  visible in the review view
+- When an admin selects exactly one row and approves it
+- Then that row's `confidence` is set to `verified`, and the action is
+  logged with `admin_id` and a timestamp — the same "action is logged"
+  rule this REQ already states above, now made explicit for this specific
+  action rather than only the pre-existing override-creation path
+- And no `reason` field is required or accepted for this action — unlike
+  `PlayerOverride`'s "correct" action (`POST /admin/player-overrides`,
+  REQ-501), which continues to require a reason; approve is a separate,
+  simpler action, and this extension does not change the override
+  endpoints' existing reason requirement
+- Given multiple `PlayerData` rows with `confidence = "unverified"` are
+  visible in the review view
+- When an admin multi-selects more than one row — including via a
+  "select all" control that selects every row currently loaded in the
+  view — and approves the whole selection in one action
+- Then every selected row's `confidence` is set to `verified` as part of
+  that one action, each logged individually with the same `admin_id` and
+  timestamp (one admin action producing one audit entry per row, not a
+  single ambiguous batch entry that can't be traced back to individual
+  rows)
+- And a bulk approve that partially fails (e.g. a row was deleted, or its
+  confidence already changed, by another admin between selection and
+  submission) reports which rows succeeded and which failed, rather than
+  silently succeeding or failing the entire batch as one all-or-nothing unit
+- And no `reason` field is required or accepted for the bulk form of this
+  action either — same rule as the single-row case above
+- **Out of scope for this extension:** bulk/multi-select "remove the data
+  point." REQ-503's existing "remove" action (still unbuilt) remains
+  single-row, scoped however a future story defines it — this extension
+  covers "approve" only.
+- **Built as (S-057):** built exactly as specified. `POST
+  /admin/player-data/approve` (`XGArcade.Api.Admin.AdminEndpoints`, Admin
+  policy) takes a list of `PlayerData` ids (a single id is just the N=1
+  case, no separate single-row endpoint); `IPlayerStoreRepository
+  .ApprovePlayerDataAsync`/`PlayerStoreRepository` evaluates each id
+  independently in one `SaveChangesAsync` call and returns a per-id
+  outcome (`NotFound`/`NotUnverified`/success), never an all-or-nothing
+  batch result. Audit fields (`PlayerData.ApprovedByAdminId`/`ApprovedAt`,
+  new columns via the `AddPlayerDataApproval` migration) mirror
+  `PlayerOverride.LockedByAdminId`/`LockedAt`'s existing shape rather than
+  a separate audit-log table — satisfying "the action is logged with
+  `admin_id` and a timestamp" the same way the override path already does.
+  `AdminScreen.tsx` (SCREEN-04) adds the checkbox/"select all"/"Approve
+  selected" UI, no `reason` field, and a per-row results list after
+  submit.
+
+**Test level:** API, UI (single approve; bulk approve including
+select-all; no `reason` field required or accepted, for either form;
+partial-failure reporting on a bulk approve; unaffected: `PlayerOverride`'s
+existing reason requirement, and "remove" staying single-row/out of scope)
 
 **REQ-504 – Admin UI page** *(Status: Implemented, Tier 0, S-026)*
 > As an admin, I want an actual page (not just API calls) to perform admin
@@ -2838,6 +3124,195 @@ flow within Settings still passes REQ-710's existing tests unmodified)
 
 ---
 
+**REQ-714 – Edit display name from Settings** *(Status: Implemented, Tier 0,
+S-058, 2026-07-20)*
+> As a player, I want to change my display name from the Settings screen,
+> so I can update how I appear on the leaderboard without creating a new
+> account.
+
+- **Status note (S-058):** built exactly as drafted below. `PUT
+  /auth/display-name` (`AuthController.UpdateDisplayName`) reuses REQ-701's
+  exact 1-30 character bound and `IUserRepository.DisplayNameExistsAsync`
+  uniqueness check, now with an `excludeUserId` parameter so a no-op
+  resubmission of the caller's own current name — including a pure-casing
+  change — is never treated as a conflict against itself; a losing race
+  against another caller's concurrent signup/edit falls back to the same
+  `DisplayNameAlreadyInUseException` → 409 path `Signup` already uses.
+  `frontend/src/settings/SettingsScreen.tsx` hosts the edit form, and
+  `App.tsx` updates the in-memory `currentUser.displayName` on success so
+  every other screen reflects it immediately without a re-fetch. Covered by
+  `UserRepositoryTests.cs`, `AuthEndpointTests.cs` (including an explicit
+  exact-30-character boundary test), and `SettingsScreen.test.tsx`.
+- **Context:** `frontend/src/settings/SettingsScreen.tsx` today only hosts
+  the delete-account flow (REQ-710) plus, admin-only, a link to
+  `AdminScreen` (REQ-504/713) — there is no way to change `User.DisplayName`
+  after signup. `User.DisplayName`'s setter already keeps
+  `NormalizedDisplayName` in lockstep (`User.NormalizeCase`), and
+  `UserRepository.DisplayNameExistsAsync` plus the DB-level unique index on
+  `NormalizedDisplayName` (`IX_Users_NormalizedDisplayName`,
+  `UserRepository.AddAsync`'s race-fallback) are the exact mechanism
+  REQ-701 already uses to enforce case-insensitive uniqueness at signup —
+  this REQ reuses that same mechanism for an edit, not a new one.
+  Confirmed by reading `Guess.cs` and `LeaderboardService.cs`: neither
+  `Guess` rows nor any leaderboard computation (REQ-401/404/406/407/408)
+  denormalizes `DisplayName` onto another table — every read resolves it
+  live via `User.Id` (`IUserRepository.GetByIdsAsync`/`GetByIdAsync`) — so
+  a name change needs no backfill of historical `Guess`/leaderboard data
+  to take effect everywhere that name is shown.
+- Given a logged-in user opens the Settings screen (REQ-713)
+- When they submit a new display name between 1 and 30 characters (the
+  same length bound REQ-701 already enforces at signup)
+- Then the account's `DisplayName` is updated, and the new name is what
+  every subsequent read of that account's identity shows — on leaderboards
+  (REQ-401/404/406/407/408), and anywhere else the account's canonical name
+  is resolved via `User.Id` (e.g. REQ-212's guess-reveal name) — with no
+  backfill of past `Guess` or leaderboard rows required or performed, since
+  none of them store a copy of the name
+- And the new name is checked for uniqueness case-insensitively across all
+  accounts, using the same mechanism REQ-701 already establishes at
+  signup — a name already in use by a different account (in any casing) is
+  rejected with a clear, specific conflict error, not a generic failure,
+  and the account's existing display name is left unchanged
+- And submitting the account's own current display name unchanged
+  (including a resubmission that differs only in casing from what's
+  already stored) is never treated as a conflict against itself — the
+  uniqueness check must exclude the account's own existing row
+- And a display name outside the 1–30 character bound is rejected with a
+  clear error, before any database write, the same way REQ-701 already
+  validates it at signup
+
+**Test level:** Unit (uniqueness check excludes the account's own row;
+length validation), API, UI (Settings screen edit form; conflict error
+shown inline, not a generic failure)
+
+**REQ-715 – Persistent login (remember-me) via refresh token** *(Status:
+Implemented, Tier 0, S-058, 2026-07-20)*
+> As a player, I want to stay logged in across sessions without re-entering
+> my password every time, so I don't have to sign back in every time I
+> return to the app while my session is still valid.
+
+- **Status note (S-058):** built exactly as drafted below, plus one
+  deliberate omission called out at implementation time: no explicit
+  server-side refresh-token revocation call on logout — REQ-715's own
+  acceptance criteria below only require clearing the frontend's stored
+  copy, which `App.tsx`'s `handleLogout` does (alongside the access
+  token); account deletion (REQ-710) already invalidates any outstanding
+  refresh token as a side effect of deleting the underlying Supabase
+  identity, so no separate revoke call was added there either. `POST
+  /auth/refresh` (`AuthController.Refresh`, `ISupabaseAuthClient
+  .RefreshTokenAsync`) is unauthenticated by design (the caller's access
+  token may itself be missing/expired) and mediates through Supabase Auth
+  the same way `/auth/login`/`/auth/signup` already do (ADR-0013), sharing
+  `SupabaseAuthClient`'s request plumbing rather than a parallel
+  implementation; `LocalE2EAuth` implements the same contract
+  deterministically for the local E2E stack. Storage location
+  (`localStorage`, alongside the access token) is ADR-0033's own decision,
+  not repeated here. Covered by `AuthEndpointTests.cs` and
+  `frontend/src/App.test.tsx`.
+- **Context:** `frontend/src/App.tsx` now stores both the Supabase access
+  token and the refresh token in `localStorage`; the backend's `POST
+  /auth/login` response (`AuthController.Login`, `LoginResponse
+  .RefreshToken`) already carried a refresh token — Supabase Auth returns
+  one on every successful token exchange — but `AuthScreen.tsx` previously
+  destructured only `accessToken`, discarding it, and no refresh flow
+  existed anywhere in the frontend or backend. Per ADR-0013, the frontend
+  never calls Supabase Auth directly — any refresh mechanism must be
+  mediated through the backend, the same way `POST /auth/login`/`POST
+  /auth/signup` already are, not a direct frontend-to-Supabase call.
+- Given a person logs in successfully (`POST /auth/login`)
+- Then the frontend stores the returned `RefreshToken` (already present in
+  `LoginResponse`, previously discarded before this REQ was built), not
+  only the access token, so it survives a page reload or a new browser
+  session
+- Given the frontend's stored access token is missing or expired, or a
+  request to the backend receives a 401 that is not itself a
+  wrong-password/wrong-credential response (e.g. not REQ-710's "Incorrect
+  password" case)
+- When the frontend has a stored refresh token
+- Then it calls a new backend-mediated refresh endpoint — mediated through
+  Supabase Auth exactly as `POST /auth/login`/`POST /auth/signup` already
+  are (ADR-0013); the frontend never calls Supabase directly for this —
+  which exchanges the stored refresh token for a new access token (and, if
+  Supabase's own token rotation returns one, a new refresh token) without
+  requiring the person to re-enter credentials
+- And this renewal happens silently — the person is not shown a login
+  prompt or otherwise interrupted, as long as the stored refresh token is
+  still valid
+- And a refresh attempt with an invalid, expired, or revoked refresh token
+  fails clearly and signs the person out to the existing login screen — it
+  never silently retries indefinitely and never leaves the app in a stuck,
+  ambiguous authenticated-but-broken state
+- And logging out, or account deletion (REQ-710), clears the stored
+  refresh token, not only the access token — a stale refresh token must
+  never outlive an explicit logout
+
+**Test level:** Unit (refresh-endpoint request/response shape; expired/
+invalid/revoked refresh token handling), API (refresh endpoint mediates
+through Supabase Auth per ADR-0013 — the frontend layer of this is
+verified never to call Supabase directly), UI/E2E (reloading the app with
+a valid stored refresh token but a missing/expired access token stays
+logged in without showing a login prompt; an invalid stored refresh token
+returns to the login screen; logging out clears the stored refresh token)
+
+**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed —
+drafted 2026-07-20, placeholder only. Needs its own design session before
+REQ/ADR-level specification — see `docs/backlog.md`'s note on this exact
+item. Not implementation-ready.)*
+> As a player, I want to choose a different color theme (e.g. dark mode)
+> for the app, so I can use it comfortably in different lighting
+> conditions or to match my own preference.
+
+- **Context:** raised as part of a broader Settings-page expansion
+  request. The request itself is vague as given — it is not yet clear
+  whether "change color themes" means a single light/dark toggle, multiple
+  named themes, or something else; this REQ records that the request
+  exists rather than assuming a specific scope on the product owner's
+  behalf.
+- `docs/design-document.md` §2 defines the current token system as
+  explicitly **light theme only for v1** — every color token (`bg-base`,
+  `surface-card`, `text-primary`, `accent-gold-text`, and the rest of that
+  table) has exactly one value, with several individually verified against
+  WCAG contrast floors for that one light background, documented with
+  dated entries in `docs/CHANGELOG.md`.
+- `docs/backlog.md` already flags this explicitly: "selectable color
+  themes/dark mode ... a reversal of the light-only v1 direction deserves
+  its own design session, not a quick story." This REQ does not override
+  that — it exists only to give the request a stable REQ ID to reference,
+  not to specify it.
+
+**What a real design pass would need to cover (not resolved here):**
+- Scope of "theme" — a single light/dark toggle vs. multiple named themes
+  vs. something else; the request as given does not distinguish between
+  these.
+- Every existing token in `docs/design-document.md` §2 would need a value
+  per theme. That table today defines one flat value per token with no
+  existing raw/semantic split to build on — adding a second theme means
+  deciding how each token's per-theme value is authored and stored, not
+  just adding a parallel set of hex values ad hoc.
+- Every WCAG contrast ratio verified for the current light theme
+  (`docs/CHANGELOG.md` has several dated entries computing exact ratios
+  for specific tokens, e.g. `accent-gold-text`, `overlay-scrim`) would
+  need to be **re-verified independently for a dark theme**, not assumed
+  to carry over — a value that clears a contrast floor against
+  `#FBFBFA`/`#FFFFFF` has no guaranteed relationship to its contrast
+  against a dark background.
+- A persistence mechanism for the chosen theme — `localStorage`
+  (device-local) vs. a `User`-level stored preference (follows the account
+  across devices) — is an open decision, not something this REQ defaults
+  on.
+- Whether theme selection should also consider the system-level
+  `prefers-color-scheme` preference as a default, separate from an
+  explicit in-app choice.
+
+- **Status: Proposed, explicitly not implementation-ready.** No
+  acceptance criteria are written below because none of the above has
+  been decided — writing Given/When/Then criteria now would mean
+  inventing a scope the product owner hasn't confirmed.
+
+**Test level:** Not applicable until scoped by a dedicated design session.
+
+---
+
 ### 4.11 Operational resilience
 
 **REQ-901 – Database backups**
@@ -2898,6 +3373,17 @@ shows the default is wrong.
   15 minutes per account, 10 signup attempts per hour per IP, 1 confirmation
   resend per 60 seconds (REQ-704) — standard, conservative starting points;
   tune based on real abuse patterns once live.
+- **Display name change frequency (REQ-714):** no cooldown or rate limit —
+  an edit is treated like any other account-profile write, gated only by
+  the same uniqueness check REQ-701 already enforces at signup. Revisit
+  only if real abuse (e.g. rapid churn to impersonate another player on the
+  leaderboard) is actually observed.
+- **Refresh token lifetime/expiry (REQ-715):** governed entirely by
+  Supabase Auth's own project-level session settings, not overridden by
+  application code — consistent with ADR-0004/0013's boundary that the
+  auth provider owns credential/session lifecycle, not `XGArcade.Core`.
+  "Expired, invalid, or revoked" in REQ-715's acceptance criteria means
+  whatever Supabase Auth itself reports at refresh time.
 
 ## 6. Product decisions (resolved 2026-07-05)
 
@@ -2926,9 +3412,28 @@ shows the default is wrong.
 
 ## 7. Open questions (remaining)
 
-None — REQ-405's leaderboard time-window questions (the last entry in this
+REQ-405's leaderboard time-window questions (the previous entry in this
 section) were resolved 2026-07-12: calendar-aligned windows, UTC, locked
 rounds only. See REQ-405's own status note and `docs/backlog.md` S-027.
+
+Two genuine open questions were added 2026-07-20, both currently recorded
+as `Status: Proposed` REQs rather than decided here:
+
+- **REQ-409 (participation-adjusted all-time score):** whether the
+  all-time leaderboard should show, instead of or alongside the existing
+  raw `SUM(FinalPoints ?? 0)` total, a participation-adjusted score (a
+  candidate formula — average points per round participated in — is
+  proposed for discussion, not decided). Open: replace vs. second view,
+  the participation definition to use, interaction with REQ-401/404's
+  zero-guess exclusion, and whether a minimum-rounds threshold is needed.
+  No formula, display mode, or threshold has been chosen.
+- **REQ-716 (selectable color themes / dark mode):** whether/how to offer
+  a non-light color theme. `docs/backlog.md` already flags this as
+  deserving its own design session rather than a quick story; this REQ
+  exists only as a placeholder recording the request, not a scoped spec.
+  Open: single toggle vs. multiple themes, per-theme token values and
+  re-verified contrast ratios, persistence mechanism, and whether to
+  honor `prefers-color-scheme`.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:

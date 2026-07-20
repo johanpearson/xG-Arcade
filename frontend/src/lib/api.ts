@@ -1,6 +1,7 @@
 import type {
   AdminActiveRound,
   AdminRound,
+  ApprovePlayerDataResponse,
   ClosedRoundListResponse,
   CurrentRoundResponse,
   CurrentUser,
@@ -11,6 +12,7 @@ import type {
   SignupResponse,
   SubmitGuessResponse,
   UnverifiedPlayerData,
+  UpdateDisplayNameResponse,
 } from './types';
 
 // Reuses the exact pattern established in App.tsx by S-002.
@@ -78,6 +80,24 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return (await response.json()) as LoginResponse;
 }
 
+// REQ-715/ADR-0033: exchanges a stored refresh token for a new access token
+// (and, if Supabase's own token rotation returns one, a new refresh token),
+// mediated through the backend exactly like login/signup (ADR-0013) — never
+// a direct frontend-to-Supabase call. Deliberately unauthenticated (no
+// Authorization header): the whole reason to call this is that the caller
+// may not have a currently-valid access token at all. An invalid, expired,
+// or revoked refresh token throws (401, title "Refresh failed") — App.tsx's
+// caller falls through to a full logout on that, never an infinite retry.
+export async function refreshAccessToken(refreshToken: string): Promise<LoginResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LoginResponse;
+}
+
 // Returns null for the "no active round" empty state (404) rather than
 // throwing — that's a real, expected state (design-document.md §5: "empty
 // states are invitations"), not an error.
@@ -137,7 +157,7 @@ export async function fetchLeaderboard(
 }
 
 // REQ-407/ADR-0031 (S-053): the active round's own leaderboard (SCREEN-03's
-// "This round (live)" scope) — participant-only, recomputed live on every
+// "Current Round" scope) — participant-only, recomputed live on every
 // call, never cached (ADR-0031). Same cursor/pageSize shape as
 // fetchLeaderboard above. Deliberately does NOT swallow the "no active
 // round" 404 the way fetchCurrentRound does for its own 404 — the caller
@@ -254,6 +274,28 @@ export async function fetchMe(accessToken: string): Promise<CurrentUser> {
   return (await response.json()) as CurrentUser;
 }
 
+// REQ-714: edits the caller's own DisplayName from Settings — same 1-30
+// character bound and case-insensitive uniqueness mechanism as signup
+// (REQ-701). A 409 here uses the identical ProblemDetails shape as signup's
+// conflict (AuthController.DisplayNameConflictProblem()), so the caller's
+// existing ApiError/describeError handling already surfaces it correctly
+// with no special-casing needed.
+export async function updateDisplayName(
+  accessToken: string,
+  displayName: string,
+): Promise<UpdateDisplayNameResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/display-name`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ displayName }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as UpdateDisplayNameResponse;
+}
+
 // REQ-503 (SCREEN-04): always registered, regardless of environment — no
 // 404-as-hidden handling needed here the way the round-control probe below
 // has, since this section is never Production-gated.
@@ -265,6 +307,29 @@ export async function fetchUnverifiedPlayerData(
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as UnverifiedPlayerData[];
+}
+
+// REQ-503 (2026-07-20 extension): the bulk "approve" action — a single id
+// is just the N=1 case, same endpoint. Always resolves (never throws) with
+// a 200 and one result per requested id; a row that no longer exists or is
+// no longer unverified fails independently of the rest of the batch
+// (surfaced per-row via each result's `failureReason`), never as an
+// all-or-nothing batch success/failure. No `reason` field — unlike
+// createPlayerOverride below, approve doesn't require one.
+export async function approvePlayerData(
+  accessToken: string,
+  playerDataIds: string[],
+): Promise<ApprovePlayerDataResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-data/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerDataIds }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as ApprovePlayerDataResponse;
 }
 
 // REQ-501: 409 (an override already exists for this playerId/field) is left
