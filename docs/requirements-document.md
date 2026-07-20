@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.75"
+version: "0.76"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -1823,9 +1823,40 @@ not appear in the ranked list at all; a member with at least one guess,
 locked or still-live, appears ranked normally even if their computed total
 happens to be 0)
 
-**REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
-implemented — drafted 2026-07-12, see `docs/backlog.md` S-027. Open design
-questions resolved 2026-07-12 — see below; implementation-ready.)*
+**REQ-405 – Leaderboard time-window resolutions** *(Status: Implemented
+(Tier 0, S-027), 2026-07-20.)*
+- **Status note (S-027):** built as drafted below, plus the resolved design
+  questions. New `GET /leagues/global/leaderboard/window/{resolution}`
+  route (`XGArcade.Api.Leagues.LeaderboardEndpoints`), `{resolution}` parsed
+  case-insensitively into a new `LeaderboardWindowResolution` enum
+  (`Round`/`Week`/`Month`/`Year`) — anything else is a 400 ("Invalid
+  resolution"). Backed by a new
+  `LeaderboardService.GetWindowedLeaderboardAsync`: `Round` reuses the exact
+  REQ-408 single-round path (`IRoundRepository.GetClosedByGameKeyAsync(gameKey,
+  0, 1)` + the existing `IGuessRepository.GetTotalFinalPointsByRoundIdAsync`),
+  always resolved to the single most-recently-closed round, never a
+  caller-chosen one. `Week`/`Month`/`Year` compute a calendar-aligned,
+  half-open `[start, end)` UTC window (ISO week Monday-to-Monday, calendar
+  month from the 1st, calendar year from Jan 1st), fetch that window's closed
+  round ids via a new `IRoundRepository.GetClosedIdsWithinWindowAsync`, and
+  sum `FinalPoints` via a new `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`
+  (the existing single-round method now delegates to this plural one with a
+  one-element collection, rather than keeping two independent query
+  implementations). Every scope is locked-only by construction — an active
+  round (`ClosedAt == null`) is never even a candidate row, so its guesses
+  can never contribute to any window, matching REQ-401/404's existing rule.
+  A member with zero guesses in the selected window is simply absent from
+  the ranked list (same "must have at least one row here to be ranked at
+  all" pattern as every other scope in this file), not shown with a
+  default-0 total. **Indexing plan (per this REQ's own acceptance
+  criterion):** no new migration was added. The existing
+  `Round(GameKey, EndTime)` composite index (added for REQ-408) already
+  covers the `(gameKey, EndTime range)` filter `GetClosedIdsWithinWindowAsync`
+  needs, and `Guess`'s existing unique index on `(RoundId, UserId, CellId)`
+  already has `RoundId` as its leading column, so a `RoundId IN (...)` filter
+  is already index-covered too — both are documented inline as code comments
+  on the new repository methods rather than re-derived. Frontend (SCREEN-03)
+  is a separate, not-yet-built follow-up task.
 > As a player, I want to see the leaderboard filtered to the current round,
 > week, month, or year — not only the all-time total — so I can compare
 > recent performance, not just who has played longest.

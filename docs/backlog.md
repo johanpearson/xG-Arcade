@@ -805,6 +805,27 @@ multiple weeks/months/years; a round still in progress never appears in
 any window's totals; the "round" resolution always resolves to the most
 recently closed round, never an arbitrary one. *Deps:* S-011 (locked
 `FinalPoints`/leaderboard exist).
+**Built as:** matches the plan, backend-only (frontend is a separate,
+not-yet-built follow-up task). New `GET
+/leagues/global/leaderboard/window/{resolution}` route
+(`XGArcade.Api.Leagues.LeaderboardEndpoints`), `{resolution}` parsed
+case-insensitively into a new `LeaderboardWindowResolution` enum — anything
+else is a 400. `LeaderboardService.GetWindowedLeaderboardAsync`: `Round`
+reuses REQ-408's exact single-round path
+(`GetClosedByGameKeyAsync(gameKey, 0, 1)` +
+`GetTotalFinalPointsByRoundIdAsync`); `Week`/`Month`/`Year` compute a
+calendar-aligned, half-open UTC window and go through two new repository
+methods, `IRoundRepository.GetClosedIdsWithinWindowAsync` (locked-only,
+`EndTime` range) and `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`
+(the existing single-round method now delegates to this plural one rather
+than duplicating the query). **Indexing plan honored without a new
+migration:** the existing `Round(GameKey, EndTime)` index (REQ-408) and
+`Guess`'s existing unique index on `(RoundId, UserId, CellId)` (`RoundId`
+leading) already cover both new query shapes — documented inline on the
+new repository methods rather than re-derived at review time. 18 new
+REQ405-named tests (8 `LeaderboardServiceTests`, 10
+`LeaderboardEndpointTests`, including a month-boundary case and the
+invalid-resolution 400); full backend suite (510 tests) passes.
 
 **S-030 · Enable Club × Club grid pairing (REQ-107)**
 `CategoryPairingRules.IsAllowedPairing` already permits Club × Club (only

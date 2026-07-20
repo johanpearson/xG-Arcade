@@ -679,4 +679,131 @@ public class LeaderboardEndpointTests
         Assert.That(body!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }));
         Assert.That(body.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 20, ScoringRules.MaxPointsPerCell }));
     }
+
+    // ---- REQ-405: round/week/month/year time-window resolutions -------------
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_InvalidResolution_ReturnsBadRequestWithInvalidResolutionTitle()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/window/decade");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid resolution"));
+    }
+
+    [TestCase("ROUND", TestName = "REQ405_WindowedLeaderboardGet_ResolutionCaseInsensitive_Round_ReturnsOk")]
+    [TestCase("Week", TestName = "REQ405_WindowedLeaderboardGet_ResolutionCaseInsensitive_Week_ReturnsOk")]
+    [TestCase("month", TestName = "REQ405_WindowedLeaderboardGet_ResolutionCaseInsensitive_Month_ReturnsOk")]
+    [TestCase("YEAR", TestName = "REQ405_WindowedLeaderboardGet_ResolutionCaseInsensitive_Year_ReturnsOk")]
+    public async Task REQ405_WindowedLeaderboardGet_ResolutionCaseInsensitive_ReturnsOk(string resolution)
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync($"/leagues/global/leaderboard/window/{resolution}");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+    }
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_RoundResolution_ReturnsMostRecentlyClosedRoundTotalsOnly()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var youId = await SeedMemberAsync(authProviderUserId, "You");
+        var now = DateTime.UtcNow;
+        var olderClosedRoundId = await SeedClosedRoundAsync(now.AddDays(-3));
+        var mostRecentlyClosedRoundId = await SeedClosedRoundAsync(now.AddDays(-1));
+        await SeedGuessAsync(olderClosedRoundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+        await SeedGuessAsync(mostRecentlyClosedRoundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 15);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/window/round");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(15));
+    }
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_RoundResolution_NoClosedRoundExists_ReturnsOkWithEmptyRows()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        await SeedRoundNotYetClosedAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/window/round");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_MonthResolution_ExcludesClosedRoundOutsideCurrentMonth()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var youId = await SeedMemberAsync(authProviderUserId, "You");
+        var now = DateTime.UtcNow;
+        // Definitely inside the current calendar month (today, minus a few
+        // minutes so it's already closeable/closed).
+        var withinMonthRoundId = await SeedClosedRoundAsync(now.AddMinutes(-5));
+        // Definitely a full calendar year before now -> outside this month
+        // regardless of what "now" happens to be when this test runs.
+        var outsideMonthRoundId = await SeedClosedRoundAsync(now.AddYears(-1));
+        await SeedGuessAsync(withinMonthRoundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 25);
+        await SeedGuessAsync(outsideMonthRoundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/window/month");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().TotalPoints, Is.EqualTo(25));
+    }
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_WeekOrYearResolution_ActiveRoundGuessesNeverContribute()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var youId = await SeedMemberAsync(authProviderUserId, "You");
+        var (activeRoundId, activeCellId) = await SeedActiveRoundWithOneCellAsync();
+        // An active round's Guess can carry a FinalPoints value already
+        // (e.g. set defensively) but must still never count — only
+        // Round.ClosedAt != null rounds are ever locked-eligible.
+        await SeedGuessAsync(activeRoundId, youId, activeCellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 5);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var weekResponse = await client.GetAsync("/leagues/global/leaderboard/window/week");
+        var yearResponse = await client.GetAsync("/leagues/global/leaderboard/window/year");
+
+        Assert.That(weekResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(yearResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var weekBody = await weekResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        var yearBody = await yearResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(weekBody!.Rows, Is.Empty);
+        Assert.That(yearBody!.Rows, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ405_WindowedLeaderboardGet_NoParticipantsInWindow_ReturnsOkWithEmptyRowsNotError()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        // A closed round exists, well outside this year's window.
+        await SeedClosedRoundAsync(DateTime.UtcNow.AddYears(-5));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard/window/year");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows, Is.Empty);
+    }
 }

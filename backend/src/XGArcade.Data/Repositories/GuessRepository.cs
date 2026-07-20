@@ -62,14 +62,31 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
     }
 
     // REQ-408: same DB-side GroupBy/Sum shape as GetTotalFinalPointsByUserIdsAsync
-    // above, scoped to one round instead of a user's whole history.
-    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
-        await dbContext.Guesses
+    // above, scoped to one round instead of a user's whole history. Delegates
+    // to GetTotalFinalPointsByRoundIdsAsync (REQ-405) with a one-element
+    // collection rather than keeping two independent query implementations —
+    // signature/callers unchanged.
+    public Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
+        GetTotalFinalPointsByRoundIdsAsync([roundId], cancellationToken);
+
+    // REQ-405: same "sum FinalPoints, treating null as 0" formula, filtered
+    // to a *set* of rounds (a calendar window's closed round ids) rather
+    // than a single one. `RoundId` is the unique (RoundId, UserId, CellId)
+    // index's leading column (see XGArcadeDbContext.OnModelCreating), so a
+    // `RoundId IN (...)` filter here is already index-covered — no new index
+    // needed for this REQ-405 query shape either.
+    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdsAsync(IReadOnlyCollection<Guid> roundIds, CancellationToken cancellationToken = default)
+    {
+        if (roundIds.Count == 0)
+            return new Dictionary<Guid, int>();
+
+        return await dbContext.Guesses
             .AsNoTracking()
-            .Where(g => g.RoundId == roundId && g.UserId != null)
+            .Where(g => roundIds.Contains(g.RoundId) && g.UserId != null)
             .GroupBy(g => g.UserId!.Value)
             .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
             .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
+    }
 
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {

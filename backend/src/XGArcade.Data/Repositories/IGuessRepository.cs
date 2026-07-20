@@ -57,6 +57,13 @@ public interface IGuessRepository
     // check Round.ClosedAt first (LeaderboardService does).
     Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default);
 
+    // REQ-405: the same "sum FinalPoints, treating null as 0" formula,
+    // filtered to a set of rounds (a calendar window's closed rounds)
+    // instead of exactly one — GetTotalFinalPointsByRoundIdAsync above is
+    // implemented in terms of this method with a one-element collection,
+    // rather than keeping two independent query implementations in sync.
+    Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdsAsync(IReadOnlyCollection<Guid> roundIds, CancellationToken cancellationToken = default);
+
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 
     // REQ-206/ADR-0021: round-close materializes one synthetic Guess row per

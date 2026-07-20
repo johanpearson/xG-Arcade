@@ -630,4 +630,164 @@ public class LeaderboardServiceTests
         var allUserIds = firstPage.Page.Rows.Concat(secondPage.Page.Rows).Select(r => r.UserId).ToList();
         Assert.That(allUserIds, Is.EquivalentTo(participants.Select(p => p.Id)));
     }
+
+    // ---- REQ-405: round/week/month/year time-window resolutions ----
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_RoundResolution_UsesSingleMostRecentlyClosedRoundOnly()
+    {
+        var you = await SeedMemberAsync("You");
+        var alex = await SeedMemberAsync("Alex");
+        var now = DateTime.UtcNow;
+        var olderClosedRound = await SeedRoundAsync(now.AddDays(-4), now.AddDays(-3), closedAt: now.AddDays(-3));
+        var mostRecentlyClosedRound = await SeedRoundAsync(now.AddDays(-2), now.AddDays(-1), closedAt: now.AddDays(-1));
+        await SeedGuessAsync(olderClosedRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+        await SeedGuessAsync(mostRecentlyClosedRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
+        await SeedGuessAsync(mostRecentlyClosedRound.Id, alex.Id, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Round, now, cursor: 0, pageSize: 50);
+
+        // Only the most-recently-closed round's points count (10), never the
+        // older closed round's 999.
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You", "Alex" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 10, ScoringRules.MaxPointsPerCell }));
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_RoundResolution_NoClosedRoundExists_ReturnsEmptyPage()
+    {
+        await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1)); // still active, ClosedAt null.
+
+        var page = await _service.GetWindowedLeaderboardAsync(Guid.NewGuid(), GameKey, LeaderboardWindowResolution.Round, DateTime.UtcNow, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+        Assert.That(page.HasMore, Is.False);
+        Assert.That(page.NextCursor, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_RoundResolution_ActiveRoundGuessesNeverContribute()
+    {
+        var you = await SeedMemberAsync("You");
+        var now = DateTime.UtcNow;
+        var closedRound = await SeedRoundAsync(now.AddDays(-2), now.AddDays(-1), closedAt: now.AddDays(-1));
+        var activeRound = await SeedRoundAsync(now.AddHours(-1), now.AddHours(1)); // ClosedAt null.
+        await SeedGuessAsync(closedRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 15);
+        // An active/unlocked round's guess must never contribute, even
+        // though it would otherwise carry a FinalPoints value.
+        await SeedGuessAsync(activeRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 5);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Round, now, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(15));
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_WeekResolution_BucketsRoundsInsideCurrentIsoWeekOnly()
+    {
+        var you = await SeedMemberAsync("You");
+        // Wednesday 2026-07-15 12:00 UTC -> ISO week is Mon 2026-07-13 through
+        // (exclusive) Mon 2026-07-20.
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        var insideWeekRound = await SeedRoundAsync(
+            new DateTime(2026, 7, 14, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 14, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 7, 14, 1, 0, 0, DateTimeKind.Utc));
+        var beforeWeekRound = await SeedRoundAsync(
+            new DateTime(2026, 7, 12, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 12, 23, 59, 0, DateTimeKind.Utc), // Sunday, before Monday 2026-07-13 -> outside.
+            closedAt: new DateTime(2026, 7, 12, 23, 59, 0, DateTimeKind.Utc));
+        await SeedGuessAsync(insideWeekRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
+        await SeedGuessAsync(beforeWeekRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Week, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_MonthResolution_RoundEndingExactlyAtMonthBoundary_ExcludedFromEarlierMonth()
+    {
+        var you = await SeedMemberAsync("You");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        // Ends exactly at 2026-08-01T00:00:00Z, the start of the *next*
+        // month — the half-open [start, end) range for July must exclude
+        // this boundary instant.
+        var atBoundaryRound = await SeedRoundAsync(
+            new DateTime(2026, 7, 31, 22, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc));
+        var withinJulyRound = await SeedRoundAsync(
+            new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc));
+        await SeedGuessAsync(atBoundaryRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+        await SeedGuessAsync(withinJulyRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 20);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Month, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(20));
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_YearResolution_BucketsRoundsInsideCurrentCalendarYearOnly()
+    {
+        var you = await SeedMemberAsync("You");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        var withinYearRound = await SeedRoundAsync(
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 1, 1, 1, 0, 0, DateTimeKind.Utc));
+        var lastYearRound = await SeedRoundAsync(
+            new DateTime(2025, 12, 31, 22, 0, 0, DateTimeKind.Utc),
+            new DateTime(2025, 12, 31, 23, 59, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2025, 12, 31, 23, 59, 0, DateTimeKind.Utc));
+        await SeedGuessAsync(withinYearRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 30);
+        await SeedGuessAsync(lastYearRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Year, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_NoParticipantsInWindow_ReturnsEmptyRankedListNotError()
+    {
+        var you = await SeedMemberAsync("You");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        // A closed round exists, but entirely outside this month's window —
+        // so the month window has zero participating rounds/guesses.
+        var lastMonthRound = await SeedRoundAsync(
+            new DateTime(2026, 6, 10, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 6, 10, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 6, 10, 1, 0, 0, DateTimeKind.Utc));
+        await SeedGuessAsync(lastMonthRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 5);
+
+        var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Month, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+        Assert.That(page.HasMore, Is.False);
+        Assert.That(page.NextCursor, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ405_GetWindowedLeaderboardAsync_MultipleMembersInWindow_SortedAscendingByTotalPoints()
+    {
+        var alex = await SeedMemberAsync("Alex");
+        var sam = await SeedMemberAsync("Sam");
+        var nowUtc = new DateTime(2026, 7, 15, 12, 0, 0, DateTimeKind.Utc);
+        var round = await SeedRoundAsync(
+            new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc),
+            closedAt: new DateTime(2026, 7, 10, 1, 0, 0, DateTimeKind.Utc));
+        await SeedGuessAsync(round.Id, alex.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 90);
+        await SeedGuessAsync(round.Id, sam.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 40);
+
+        var page = await _service.GetWindowedLeaderboardAsync(alex.Id, GameKey, LeaderboardWindowResolution.Month, nowUtc, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "Alex" }));
+        Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 40, 90 }));
+    }
 }

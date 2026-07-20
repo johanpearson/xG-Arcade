@@ -37,6 +37,20 @@ public class RoundRepository(XGArcadeDbContext dbContext) : IRoundRepository
             .Take(take)
             .ToListAsync(cancellationToken);
 
+    // REQ-405: locked-only (ClosedAt != null), half-open [windowStartUtc,
+    // windowEndUtc) range on EndTime — the same (GameKey, EndTime) composite
+    // index added for REQ-408's GetClosedByGameKeyAsync above already covers
+    // this filter shape (a range on EndTime scoped to GameKey), so this
+    // method deliberately does not add a new index/migration; see
+    // XGArcadeDbContext.OnModelCreating's Round.HasIndex comment.
+    public async Task<IReadOnlyList<Guid>> GetClosedIdsWithinWindowAsync(
+        string gameKey, DateTime windowStartUtc, DateTime windowEndUtc, CancellationToken cancellationToken = default) =>
+        await dbContext.Rounds
+            .AsNoTracking()
+            .Where(r => r.GameKey == gameKey && r.ClosedAt != null && r.EndTime >= windowStartUtc && r.EndTime < windowEndUtc)
+            .Select(r => r.Id)
+            .ToListAsync(cancellationToken);
+
     public async Task<Round?> GetPreviousByGameKeyAsync(string gameKey, DateTime beforeStartTime, CancellationToken cancellationToken = default) =>
         await dbContext.Rounds
             .AsNoTracking()

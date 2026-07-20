@@ -146,6 +146,104 @@ public class LeaderboardService(
         return new ClosedRoundLeaderboardResult(ClosedRoundLeaderboardStatus.Found, Paginate(ranked, cursor, pageSize));
     }
 
+    // REQ-405: round/week/month/year resolutions. Round reuses the existing
+    // single-round path (GetClosedByGameKeyAsync + GetTotalFinalPointsByRoundIdAsync)
+    // exactly as REQ-408's browsing feature already does, just always
+    // resolved to the single most-recently-closed round rather than a
+    // caller-chosen one. Week/Month/Year share one path: resolve the
+    // calendar-aligned UTC window, find every closed round whose EndTime
+    // falls in it, and sum FinalPoints across all of them.
+    public async Task<LeaderboardPage> GetWindowedLeaderboardAsync(
+        Guid requestingUserId,
+        string gameKey,
+        LeaderboardWindowResolution resolution,
+        DateTime nowUtc,
+        int cursor,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyDictionary<Guid, int> totalsByUserId;
+
+        if (resolution == LeaderboardWindowResolution.Round)
+        {
+            // "round" means the single most recently *closed* round for the
+            // game (REQ-405) — never an arbitrary one, unlike REQ-408's
+            // caller-chosen roundId.
+            var mostRecentlyClosedRounds = await roundRepository.GetClosedByGameKeyAsync(gameKey, 0, 1, cancellationToken);
+            var mostRecentlyClosedRound = mostRecentlyClosedRounds.FirstOrDefault();
+            if (mostRecentlyClosedRound is null)
+                return new LeaderboardPage([], null, null, false);
+
+            totalsByUserId = await guessRepository.GetTotalFinalPointsByRoundIdAsync(mostRecentlyClosedRound.Id, cancellationToken);
+        }
+        else
+        {
+            var (windowStartUtc, windowEndUtc) = GetCalendarWindow(resolution, nowUtc);
+            var roundIds = await roundRepository.GetClosedIdsWithinWindowAsync(gameKey, windowStartUtc, windowEndUtc, cancellationToken);
+            totalsByUserId = await guessRepository.GetTotalFinalPointsByRoundIdsAsync(roundIds, cancellationToken);
+        }
+
+        if (totalsByUserId.Count == 0)
+            return new LeaderboardPage([], null, null, false);
+
+        var participants = await userRepository.GetByIdsAsync(totalsByUserId.Keys.ToList(), cancellationToken);
+
+        // Same "absent from the totals dictionary means not ranked at all"
+        // pattern as every other scope in this file (REQ-401/404/406/407/408)
+        // — a member with zero guesses in this window simply never appears
+        // here, rather than being defaulted to a TotalPoints of 0 (which
+        // ADR-0021's lowest-wins model would otherwise treat as the best
+        // possible score).
+        var ranked = participants
+            .Select(participant => (participant.Id, participant.DisplayName, TotalPoints: totalsByUserId.GetValueOrDefault(participant.Id, 0)))
+            .OrderBy(p => p.TotalPoints)
+            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select((p, index) => new LeaderboardEntry(
+                index + 1,
+                p.Id,
+                p.DisplayName,
+                p.TotalPoints,
+                p.Id == requestingUserId))
+            .ToList();
+
+        return Paginate(ranked, cursor, pageSize);
+    }
+
+    // REQ-405: calendar-aligned, half-open [start, end) UTC window for
+    // Week/Month/Year — never a rolling last-N-days window. Round has no
+    // window (handled entirely by the caller above), so it's not a valid
+    // input here.
+    private static (DateTime WindowStartUtc, DateTime WindowEndUtc) GetCalendarWindow(LeaderboardWindowResolution resolution, DateTime nowUtc)
+    {
+        switch (resolution)
+        {
+            case LeaderboardWindowResolution.Week:
+            {
+                // ISO week: Monday 00:00:00 through the following Monday
+                // (exclusive). DayOfWeek is Sunday=0..Saturday=6, so Sunday
+                // needs its own case (6 days back to the preceding Monday)
+                // rather than falling out of the general "current - (day-1)"
+                // formula the other days share.
+                var today = nowUtc.Date;
+                var daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+                var mondayThisWeek = today.AddDays(-daysSinceMonday);
+                return (mondayThisWeek, mondayThisWeek.AddDays(7));
+            }
+            case LeaderboardWindowResolution.Month:
+            {
+                var firstOfMonth = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                return (firstOfMonth, firstOfMonth.AddMonths(1));
+            }
+            case LeaderboardWindowResolution.Year:
+            {
+                var firstOfYear = new DateTime(nowUtc.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                return (firstOfYear, firstOfYear.AddYears(1));
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "GetCalendarWindow only handles Week/Month/Year.");
+        }
+    }
+
     // REQ-607/S-034: `cursor` is the last-seen rank (0 = nothing seen yet,
     // i.e. start from the top) — at MVP scale this is equivalent to a plain
     // offset since ranks are 1-based and contiguous, per

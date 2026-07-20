@@ -70,6 +70,36 @@ public interface ILeaderboardService
         int cursor,
         int pageSize,
         CancellationToken cancellationToken = default);
+
+    // REQ-405: round/week/month/year resolutions alongside the all-time
+    // total above — locked-only (same rule as every other scope here), with
+    // week/month/year calendar-aligned in UTC (never rolling windows).
+    // gameKey is an opaque string the API layer supplies, same as
+    // GetClosedRoundsAsync (ADR-0003). nowUtc is the caller's already-
+    // resolved current instant (TimeProvider, never DateTime.UtcNow inside
+    // this Core service) used to compute which calendar window is "current".
+    Task<LeaderboardPage> GetWindowedLeaderboardAsync(
+        Guid requestingUserId,
+        string gameKey,
+        LeaderboardWindowResolution resolution,
+        DateTime nowUtc,
+        int cursor,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+}
+
+// REQ-405: the four leaderboard time-window resolutions — Round is "the
+// single most recently closed round for the game" (not an arbitrary one,
+// and Tier 0 still has no past-round-browsing UI — REQ-408 is the separate,
+// existing "browse any closed round" feature); Week/Month/Year are
+// calendar-aligned in UTC (ISO week Mon-Sun, calendar month from the 1st,
+// calendar year from Jan 1st), never rolling windows.
+public enum LeaderboardWindowResolution
+{
+    Round,
+    Week,
+    Month,
+    Year,
 }
 
 // Rank is 1-based and global (not page-local) — the frontend previously

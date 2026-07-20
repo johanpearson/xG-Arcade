@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.75 → 0.76), `docs/
+  backlog.md` (S-027 "Built as") — REQ-405 implemented (Tier 0, S-027):
+  round/week/month/year leaderboard resolutions, `GET
+  /leagues/global/leaderboard/window/{resolution}`, summing locked
+  `Guess.FinalPoints` for closed rounds whose `EndTime` falls in a
+  calendar-aligned UTC window (round = single most-recently-closed round).
+  New `IRoundRepository.GetClosedIdsWithinWindowAsync` and
+  `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`; no new migration —
+  REQ-408's existing `Round(GameKey, EndTime)` index and `Guess`'s existing
+  `(RoundId, UserId, CellId)` index already cover both new query shapes.
+  18 new REQ405-named tests; full backend suite (510 tests) passes.
+  Frontend not touched — separate follow-up task.
+
 - 2026-07-20 — **Doc-sync pass** (this entry and the four below it) —
   `docs/requirements-document.md` (0.74 → 0.75), `docs/architecture-
   document.md` (0.42 → 0.43), `docs/implementation-document.md`
