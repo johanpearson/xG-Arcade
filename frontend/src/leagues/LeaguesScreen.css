@@ -1,0 +1,136 @@
+/* REQ-402/403: tokens only, no new values — same shell treatment as
+   SettingsScreen.css (narrow single-column card, bordered sections). */
+
+.leagues-screen {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.leagues-screen__title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.leagues-screen__status {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+.leagues-screen__status--error {
+  color: var(--color-accent-red);
+}
+
+.leagues-screen__section {
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  padding: var(--space-3);
+  background: var(--color-surface-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.leagues-screen__section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.leagues-screen__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.leagues-screen__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.leagues-screen__field input {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.leagues-screen__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.leagues-screen__section button[type='submit'] {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.leagues-screen__section button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.leagues-screen__empty {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.leagues-screen__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.leagues-screen__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.leagues-screen__row:last-child {
+  border-bottom: none;
+}
+
+.leagues-screen__row-name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.leagues-screen__row-code {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}

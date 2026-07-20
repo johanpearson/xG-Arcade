@@ -8,6 +8,7 @@ import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
+import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 
 type HealthState =
@@ -29,8 +30,11 @@ const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 // navigates to — it hosts the unchanged delete-account flow plus, for
 // admins only, a link onward to 'admin'. 'admin' (REQ-504, S-026) is in
 // turn reachable only from that Settings-screen link, never a default
-// destination.
-type Screen = 'game-select' | 'grid' | 'leaderboard' | 'settings' | 'admin';
+// destination. 'leagues' (REQ-402/403) is reachable from the header's
+// "Leagues" nav entry — create/join a custom league and see which ones the
+// player belongs to; no per-league leaderboard yet (REQ-404's separate,
+// tracked follow-up work).
+type Screen = 'game-select' | 'grid' | 'leaderboard' | 'leagues' | 'settings' | 'admin';
 
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
@@ -203,8 +207,10 @@ function App() {
         {accessToken && (
           <HeaderNav
             isLeaderboardCurrent={screen === 'leaderboard'}
+            isLeaguesCurrent={screen === 'leagues'}
             isSettingsCurrent={screen === 'settings'}
             onSelectLeaderboard={() => setScreen('leaderboard')}
+            onSelectLeagues={() => setScreen('leagues')}
             onSelectSettings={() => setScreen('settings')}
             onLogout={handleLogout}
           />
@@ -224,6 +230,8 @@ function App() {
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (
             <AdminScreen accessToken={accessToken} onAuthError={handleLogout} />
+          ) : screen === 'leagues' ? (
+            <LeaguesScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : (
             // REQ-713: the "Settings" nav entry's destination — hosts
             // REQ-710's unchanged delete-account flow plus, admin-only, the

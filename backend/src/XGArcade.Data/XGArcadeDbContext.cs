@@ -181,6 +181,19 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .IsUnique()
             .HasFilter($"\"Type\" = '{LeagueTypes.Global}'");
 
+        // REQ-402: invite codes are globally unique across every custom
+        // league — guards LeagueRepository.AddCustomLeagueAsync's
+        // check-then-insert (behind LeagueService.CreateCustomLeagueAsync's
+        // own InviteCodeExistsAsync pre-check) against a concurrent
+        // double-create picking the same generated code, same
+        // filtered-unique-index-adjacent pattern as League.Type above. No
+        // HasFilter needed here (unlike Type's index): every Type="global"
+        // League row has a null InviteCode, and Postgres treats multiple
+        // NULLs in a unique index as non-colliding.
+        modelBuilder.Entity<League>()
+            .HasIndex(l => l.InviteCode)
+            .IsUnique();
+
         // implementation-document.md §5's required-indexes table: leaderboard
         // queries filter by league, and this also enforces no duplicate
         // membership (REQ-401's "requires no action from the user" implies

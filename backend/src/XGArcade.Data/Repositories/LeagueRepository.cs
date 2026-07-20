@@ -1,10 +1,16 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using XGArcade.Data.Entities;
 
 namespace XGArcade.Data.Repositories;
 
 public class LeagueRepository(XGArcadeDbContext dbContext) : ILeagueRepository
 {
+    // Matches XGArcadeDbContext's EF-generated index name for the unique
+    // index on League.InviteCode ("IX_<Table>_<Column>") — same naming
+    // convention UserRepository's DisplayNameUniqueIndexName relies on.
+    private const string InviteCodeUniqueIndexName = "IX_Leagues_InviteCode";
+
     public async Task<League> GetOrCreateGlobalLeagueAsync(CancellationToken cancellationToken = default)
     {
         var existing = await dbContext.Leagues
@@ -56,4 +62,36 @@ public class LeagueRepository(XGArcadeDbContext dbContext) : ILeagueRepository
         dbContext.LeagueMemberships.RemoveRange(memberships);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<League> AddCustomLeagueAsync(League league, CancellationToken cancellationToken = default)
+    {
+        dbContext.Leagues.Add(league);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: InviteCodeUniqueIndexName })
+        {
+            throw new InviteCodeAlreadyInUseException(league.InviteCode!);
+        }
+
+        return league;
+    }
+
+    public async Task<bool> InviteCodeExistsAsync(string inviteCode, CancellationToken cancellationToken = default) =>
+        await dbContext.Leagues.AsNoTracking().AnyAsync(l => l.InviteCode == inviteCode, cancellationToken);
+
+    public async Task<League?> GetByInviteCodeAsync(string inviteCode, CancellationToken cancellationToken = default) =>
+        await dbContext.Leagues.AsNoTracking().FirstOrDefaultAsync(l => l.InviteCode == inviteCode, cancellationToken);
+
+    public async Task<bool> IsMemberAsync(Guid leagueId, Guid userId, CancellationToken cancellationToken = default) =>
+        await dbContext.LeagueMemberships.AsNoTracking().AnyAsync(m => m.LeagueId == leagueId && m.UserId == userId, cancellationToken);
+
+    public async Task<IReadOnlyList<League>> GetCustomLeaguesByMemberUserIdAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        await (
+            from membership in dbContext.LeagueMemberships.AsNoTracking()
+            join league in dbContext.Leagues.AsNoTracking() on membership.LeagueId equals league.Id
+            where membership.UserId == userId && league.Type == LeagueTypes.Custom
+            select league
+        ).ToListAsync(cancellationToken);
 }
