@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.86"
+version: "0.87"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -3015,6 +3015,15 @@ its own explicit opt-in separate from this one, not be folded into it.
   rejected immediately, not delayed), 429 with a `{title, detail}` body the
   existing frontend error path already renders without special-casing.
   Every other REQ-606 bullet was already satisfied before this change.
+- **Status note (2026-07-21): both permit counts are configurable**
+  (`RateLimiting:AuthSignupPermitLimit`/`AuthLoginPermitLimit`, default 10,
+  unchanged), added after the real 10/min production value started
+  rejecting `ci.yml`'s own E2E job — one Playwright suite's full
+  signup+auto-login traffic across every spec file lands on one backend
+  process from the single CI-runner IP within the same window, a
+  fundamentally different shape than the abuse case this REQ targets.
+  `ci.yml`'s E2E step overrides both to 1000 for that job only; every other
+  environment, including local dev, keeps the real 10 default.
 - All traffic between frontend, backend, and database must use HTTPS/TLS;
   no plaintext transport anywhere
 - Password credentials are never stored or logged by the platform's own

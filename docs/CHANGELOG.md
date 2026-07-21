@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.86 → 0.87) — two real CI
+  failures on PR #93 fixed after this session's own feature work collided
+  with itself. (1) `/internal/test-data/seed-guessable-round` created
+  identically-named "Thierry Henry"/"Robert Pires" players on every call
+  with no reuse; concurrent E2E calls against one CI Postgres accumulated
+  duplicate matches for the same cell, which REQ-209's now-correct
+  multi-match handling surfaced as an unexpected disambiguation prompt
+  instead of the old auto-accept masking it — fixed with a short unique
+  name suffix per call (mirrors the existing `WikidataQid` pattern).
+  (2) This session's own test-coverage-extension work (custom leagues +
+  dark mode E2E tests) pushed the whole Playwright suite's total
+  signup+login count for one CI run just over REQ-606's 10/minute-per-IP
+  limit, since every spec file's traffic lands on one backend process from
+  the single CI-runner IP within the same window. Made both permit counts
+  configurable (`RateLimiting:AuthSignupPermitLimit`/`AuthLoginPermitLimit`,
+  default 10, unchanged) and raised them for `ci.yml`'s E2E job only — see
+  REQ-606's new status note. (3) `play-grid.spec.ts`'s REQ-401 leaderboard
+  assertion predated REQ-409's 5-qualifying-round minimum on the "All-time"
+  scope it reads; updated to loop its seed/guess/close flow 5 times per
+  player (cheap — these guesses hit pre-seeded `PlayerAttribute` rows, no
+  live Wikidata lookup) instead of once. All 9 E2E tests + 643 backend
+  tests re-verified green locally against a real Postgres+backend stack
+  before pushing.
 - 2026-07-21 — `docs/backlog.md` (S-027 addendum) — quality-architect pass
   over this session's diff: fixed a "rolling window" vs. "calendar-aligned
   window" terminology drift in `frontend/src/lib/api.ts`'s REQ-405 doc

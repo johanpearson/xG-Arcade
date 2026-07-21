@@ -421,11 +421,25 @@ builder.Services.AddCors(options =>
 // "auth-login")] attributes below) — not every endpoint, per REQ-606's own
 // scoping. Two separate named policies so exhausting one endpoint's limit
 // never blocks the other. Partitioned per client IP (GetClientIpPartitionKey
-// below): a fixed 1-minute window, 10 permits, no queueing — a request over
+// below): a fixed 1-minute window, 10 permits by default (see
+// authSignupPermitLimit/authLoginPermitLimit below — configurable per
+// environment, ci.yml's E2E job raises both), no queueing — a request over
 // the limit is rejected immediately with 429 (OnRejected/RejectionStatusCode
 // below), never silently queued or left to fall through as a generic 500.
 // Uses ASP.NET Core's built-in Microsoft.AspNetCore.RateLimiting middleware
 // (available since .NET 7, part of the shared framework) — no new package.
+// Configurable rather than a bare literal: REQ-606 fixes the production
+// value at 10/min, but ci.yml's E2E job runs the whole Playwright suite
+// (signup + auto-login per test, across every spec file) against one
+// shared backend process from a single CI-runner IP within the same
+// fixed window — a fundamentally different traffic shape than the
+// abuse scenario REQ-606 targets. ci.yml overrides both values via
+// RateLimiting__AuthSignupPermitLimit/AuthLoginPermitLimit env vars for
+// that job only; every other environment (including local dev) falls
+// back to REQ-606's specified 10, unchanged.
+var authSignupPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthSignupPermitLimit") ?? 10;
+var authLoginPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthLoginPermitLimit") ?? 10;
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -452,7 +466,7 @@ builder.Services.AddRateLimiter(options =>
         GetClientIpPartitionKey(httpContext),
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = authSignupPermitLimit,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
         }));
@@ -461,7 +475,7 @@ builder.Services.AddRateLimiter(options =>
         GetClientIpPartitionKey(httpContext),
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 10,
+            PermitLimit = authLoginPermitLimit,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
         }));
