@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.87 → 0.88),
+  `docs/design-document.md` (0.41 → 0.42), `docs/implementation-document.md`
+  (0.63 → 0.64), `docs/backlog.md` — round end-time indicator shipped in
+  the grid header: `requirements-writer` added dated acceptance criteria
+  to REQ-303 (relative duration buckets, "Ending soon" fallback, accessible
+  absolute-time name, no live ticking — deliberate Tier 0 simplification),
+  `ui-implementer` built it (`frontend/src/lib/roundTime.ts`,
+  `GridScreen.tsx`/`.css`), `test-writer` added unit + integration coverage,
+  and `quality-architect` found and fixed a real bug (a malformed
+  `endTime` rendered `"Ends in NaNm"`) with a regression test.
+  `architecture-reviewer` passed the diff clean (no boundary issue, no ADR
+  needed). Doc-sync pass: corrected `design-document.md`'s SCREEN-01 mock,
+  which had shown a bare `⏱ 1d 4h` clock icon and a `Round #14` label with
+  no backing field — now reads `Ends in 1d 4h` (matching what was actually
+  built) with the round number dropped rather than invented; and added
+  `roundTime.ts` to `implementation-document.md`'s `/lib` project-structure
+  listing, which had drifted out of date. Also folds in this session's
+  separate `docs/backlog.md` addition of **S-068**, queuing (not yet
+  built) an extension of REQ-213's scoring explainer with REQ-409's
+  median/participation-gate content and SCREEN-03 reachability — kept as
+  its own backlog story per the one-story-per-session rule, not bundled
+  into this change. REQ-303.
 - 2026-07-21 — `docs/requirements-document.md` (0.86 → 0.87) — two real CI
   failures on PR #93 fixed after this session's own feature work collided
   with itself. (1) `/internal/test-data/seed-guessable-round` created

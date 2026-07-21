@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.41"
+version: "0.42"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -274,7 +274,7 @@ on a page load that shows a cell already incorrect. Respects
 ```
 Mobile (single column)                Desktop (grid + side panel)
 ┌─────────────────────────┐           ┌───────────────────────────────────┐
-│ Round #14  ⏱ 1d 4h  (ⓘ) │           │ Round #14  ⏱ 1d 4h  (ⓘ) [Leagues▾]│
+│ Ends in 1d 4h  (ⓘ)      │           │ Ends in 1d 4h  (ⓘ)   [Leagues▾]   │
 ├─────────────────────────┤           ├───────────────────┬───────────────┤
 │      [AFC] [MIL] [BAY]  │           │                    │  Your progress │
 │ 🇫🇷 │ Henry│  +  │  +  │           │   3x3 / NxN grid   │  2/9 answered  │
@@ -301,6 +301,19 @@ section for content and interaction. It replaces the per-cell disclosure
 SCREEN-01a used to carry (see that section's own S-041 note) as the one
 place a player learns what a live vs. locked point value means, instead of
 that explanation being repeated, cell by cell, across the grid.
+
+**2026-07-21 correction (REQ-303's dated addition):** the mock above was
+corrected to match what was actually built, per that addition's acceptance
+criteria. The end-time indicator's visible text is the relative-duration
+string itself with an explicit `"Ends in "` prefix (e.g. `"Ends in 1d
+4h"`, or the fixed `"Ending soon"` fallback within 60 seconds of — or
+past — `endTime`) — not a bare clock-icon-plus-duration (`⏱ 1d 4h`) as the
+mock previously showed; there is no clock icon. The mock's earlier `Round
+#14` label has also been dropped: no field in `GET /rounds/current`'s
+response carries a human-friendly round number, only an opaque `roundId`,
+so showing one would imply a capability that doesn't exist. Reintroducing
+a round number is a separate, not-yet-scoped gap, not something to infer
+from this correction.
 
 - Row headers: flag + country name when the row category is a nationality;
   a club badge + club name when the row category is a club (REQ-107 means

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.63"
+version: "0.64"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -252,7 +252,11 @@ misconfigured per-endpoint. See ADR-0006.
     /lib                          -> api.ts (typed fetch client), types.ts,
                                      categoryDisplay.ts, guessRules.ts,
                                      scoringRules.ts (MAX_POINTS_PER_CELL,
-                                     added 2026-07-14 bugfix)
+                                     added 2026-07-14 bugfix), roundTime.ts
+                                     (REQ-303's 2026-07-21 addition: pure
+                                     formatter for GridScreen's round
+                                     end-time indicator, computed once per
+                                     fetch, no live ticking)
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests
