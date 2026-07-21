@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.62"
+version: "0.63"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -598,13 +598,15 @@ public class League
 {
     public Guid Id { get; set; }
     public string Name { get; set; }
-    public string Type { get; set; }          // "global" | "custom" — Tier 0
-                                                // (S-011) only ever writes
-                                                // "global"; a filtered
-                                                // unique index enforces at
-                                                // most one such row exists
-    public string? InviteCode { get; set; }   // Tier 1 (REQ-402), always null for "global"
-    public Guid? CreatedByUserId { get; set; } // Tier 1 (REQ-402), always null for "global"
+    public string Type { get; set; }          // "global" | "custom" — a filtered
+                                                // unique index enforces at most one
+                                                // "global" row; "custom" rows are
+                                                // REQ-402/403 (S-063, built)
+    public string? InviteCode { get; set; }   // REQ-402 (S-063): 6-character,
+                                                // uniqueness via an in-app
+                                                // pre-check plus a DB unique index;
+                                                // always null for "global"
+    public Guid? CreatedByUserId { get; set; } // REQ-402 (S-063): always null for "global"
 }
 
 public class LeagueMembership
@@ -1161,15 +1163,37 @@ explicit, global 1-based `Rank` (not a page-local array index — a later
 page no longer starts at rank 1), and `RequestingUserRow` is always
 populated with the caller's own row even when it falls outside the current
 page, so SCREEN-03's sticky "your position" footer never needs a second
-round-trip. Still the global league only (no `{leagueId}` route parameter
-— custom leagues don't exist yet, deferred per `MVP-SCOPE.md`/T-109).
+round-trip. Still the global league only (no `{leagueId}` route parameter)
+— custom leagues (REQ-402/403, S-063) exist and can be created/joined via
+`LeagueEndpoints`/`LeagueService`, but this endpoint and every other
+leaderboard route below it still only ever read the one global league; a
+custom league's own leaderboard remains tracked follow-up work, not this
+section's scope.
 
-Two deliberate MVP-scale choices, not gaps: (1) member `DisplayName`s and
-each member's `SUM(Guess.FinalPoints ?? 0)` are still fetched via
-`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s database-side
-`GROUP BY` for the *full* membership, but ranking and the `cursor`/
-`pageSize` slice itself happen in memory afterward — bounding the
-*response*, not doing a DB-level `ORDER BY`/`LIMIT`; acceptable at Tier 0
+**2026-07-20/S-060, REQ-409 — supersedes this section's original ranking
+formula:** `GET /leagues/global/leaderboard` no longer ranks by
+`SUM(Guess.FinalPoints ?? 0)`. It now ranks by each member's **median**
+per-round total (`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`,
+one `SUM(FinalPoints)` per closed round the member has >=1 `Guess` in),
+and a member needs >= 5 such qualifying rounds to be ranked at all — fewer
+and they're simply absent from the list, same exclusion shape as the old
+zero-guess case. The per-round query is still database-side (`GROUP BY`
+round then by user); the median itself, the 5-round filter, ranking, and
+the `cursor`/`pageSize` slice all happen in memory afterward, same
+MVP-scale tradeoff this section's pagination note already accepted for the
+plain-sum version. The two repository methods this replaced —
+`GetTotalFinalPointsByUserIdsAsync` (the old all-time SUM) and
+`GetUserIdsWithAnyGuessAsync` (the old zero-guess exclusion) — were removed
+outright; no other caller referenced them. `GET
+/leagues/global/leaderboard/active-round` (REQ-407) and
+`/closed-rounds[/{roundId}]` (REQ-408) are untouched by this change — see
+architecture-document.md §6.2a for the corrected full flow, including the
+new `/window/{resolution}` route (REQ-405, S-027), which keeps its own
+plain within-window sum and is likewise unaffected by the median change.
+
+Two deliberate MVP-scale choices, not gaps, both still true post-REQ-409:
+(1) ranking/median computation and the `cursor`/`pageSize` slice happen in
+memory rather than via a DB-level `ORDER BY`/`LIMIT` — acceptable at Tier 0
 membership sizes, revisit if the global league's membership grows large
 enough for this to matter. (2) pagination is a plain in-memory offset
 under a cursor-shaped contract (per this section's original note above),

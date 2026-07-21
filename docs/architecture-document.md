@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.44"
+version: "0.45"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -133,7 +133,7 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
 | COMP-05 | Games.XGGrid | Grid generation, category logic (Country/Club/Trophy, REQ-107/REQ-108), `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair; not yet extended to Trophy pairs (a known, harmless gap — S-031's Trophy pairings are structurally unselectable in production anyway, see REQ-108's status note), run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
 | COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
-| COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback | `XGArcade.DataSync` |
+| COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback. As of REQ-114/ADR-0035 (S-066), `IWikidataClient`/`WikidataLookupService` dispatch a Country×Club query through one of two query-property paths — `P27` (citizenship, every ordinary country) or `P1532` ("country for sport", the four home nations) — chosen from a flag on the `CountryDefinition` row passed in, never a second category type; see COMP-05/COMP-06's own status note below and ADR-0035 for the full design | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
 | COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5. **Built S-032:** `PlayerNameIndex` entity + `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` live in `XGArcade.Data`; the bulk Wikidata importer (`PlayerNameIndexImporter`) lives in `XGArcade.DataSync` instead, alongside `WikidataLookupService` — `XGArcade.Data` has no project reference to `XGArcade.DataSync`, so a class needing both `IWikidataClient` and `IPlayerNameIndexRepository` can't live in `XGArcade.Data` | `XGArcade.Data` |
@@ -245,6 +245,66 @@ the same underlying computation as standalone scopes:
 gated on the new `Round.ClosedAt` column — see COMP-03's status note
 below).
 
+**COMP-02 status correction (2026-07-20/S-060, REQ-409) — supersedes part of
+the S-053/S-054 note above:** the S-053/S-054 note above describes
+`GetGlobalLeaderboardAsync` as taking a nullable `Round? activeRound` and
+folding `ILiveRoundContributionService`'s live per-cell contribution onto
+the locked `SUM(FinalPoints ?? 0)`. That is no longer how this method
+works. REQ-409 replaced the all-time ranking formula outright: it now
+ranks by each qualifying member's **median** per-round `SUM(FinalPoints)`
+(a new `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`, closed
+rounds only), and a member needs at least 5 qualifying rounds (a closed
+round with >=1 `Guess` in it) to be ranked at all — a member with fewer is
+absent from the list entirely, the same "absent, not defaulted" shape the
+old zero-guess exclusion already used. `GetGlobalLeaderboardAsync` no
+longer takes an `activeRound` parameter and no longer calls
+`ILiveRoundContributionService` at all — folding a still-changing round
+into a median has no resolved meaning (median-of-what, for a round that
+hasn't finished contributing yet), so REQ-409 dropped that fold rather than
+adapting it. This *only* affects the original `GET
+/leagues/global/leaderboard` (all-time) route — `GetActiveRoundLeaderboardAsync`
+(REQ-407, `GET /leagues/global/leaderboard/active-round`) is untouched and
+still recomputes fully live via `ILiveRoundContributionService`, same as
+`GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync` (REQ-408) are
+untouched. The two now-dead repository methods this replaced
+(`GetTotalFinalPointsByUserIdsAsync`, the old all-time SUM query, and
+`GetUserIdsWithAnyGuessAsync`, the old "ever played at all" exclusion) were
+removed outright, not left dormant — see REQ-409's own text.
+
+**COMP-02 status (2026-07-20/S-063, REQ-402/403):** `ILeagueService`/
+`LeagueService` (`XGArcade.Core.Leagues`) is COMP-02's first *write* path
+for leagues, alongside `ILeaderboardService`'s pre-existing read-only
+aggregation — kept as a separate interface/service rather than folded into
+`ILeaderboardService`, since create/join mutates `League`/`LeagueMembership`,
+a genuinely different responsibility. `POST /leagues` (create, REQ-402) and
+`POST /leagues/join` (join by invite code, REQ-403) are reached via a new
+`XGArcade.Api.Leagues.LeagueEndpoints`, the same thin-endpoint/
+owning-Core-service shape `LeaderboardEndpoints` already establishes.
+`League` gained `Type="custom"`/`InviteCode`/`CreatedByUserId` columns
+(`Type="global"` already existed, REQ-401); a 6-character invite code is
+generated by a new `IInviteCodeGenerator`, checked for collision via an
+in-app pre-check plus a DB-level unique index as the race-safety net — the
+same "pre-check plus DB-level backstop" shape `DisplayNameExistsAsync`
+(COMP-01, S-017) already established. `GET /leagues/mine` lists a caller's
+own custom-league memberships. REQ-404's full per-custom-league leaderboard
+(tab switching, per-league reads) is deliberately **not** part of this —
+every leaderboard route in §6.2a below (all-time, active-round, closed-
+rounds, windowed) still only ever reads the one global league; a custom
+league's own leaderboard remains tracked follow-up work, not built yet.
+
+**COMP-02 status (2026-07-20/S-027, REQ-405):** `GetWindowedLeaderboardAsync`
+adds a fourth ranking scope alongside all-time/active-round/closed-rounds —
+`GET /leagues/global/leaderboard/window/{resolution}`, `resolution` one of
+`round`/`week`/`month`/`year`. Like REQ-408's closed-round scope, this is
+locked-rounds-only (no live component, REQ-406's fold never applied here
+either) — it sums `FinalPoints` over whichever closed rounds fall inside
+the calendar-aligned window ending "now" for the requested resolution, not
+a rolling N-day lookback. Explicitly unaffected by REQ-409's median change
+above: REQ-405 keeps its own plain-sum-within-the-window ranking, since
+"total scored within this window" and "typical per-round performance
+across all history" are different questions with different natural
+formulas.
+
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index
 (`XGArcadeDbContext`) backing `IUserRepository.DisplayNameExistsAsync`'s
@@ -302,6 +362,26 @@ through `IPlayerStoreRepository.GetPlayersByNormalizedFullNameAsync`/
 `IPlayerStoreRepository` only indirectly, through COMP-07's
 `IWikidataLookupService.LookupAndPersistAsync` (the same call
 `GenerateInstanceAsync` already makes), never bypassing it.
+
+**COMP-05/COMP-06/COMP-07 status (2026-07-21/S-066, REQ-114/ADR-0035):**
+national teams (England, Scotland, Wales, Northern Ireland) are seeded as
+four additional `CountryDefinition` rows, never a new category type or
+reference table — `CountryDefinition` gained one field,
+`UsesCountryForSportProperty` (`bool`, default `false`), read only at the
+point COMP-07's `WikidataLookupService.LookupAndPersistAsync` decides
+between its `P27` (citizenship) and `P1532` ("country for sport") query
+paths. No boundary rule above is affected: `GridGameModule` (COMP-05) still
+never queries player data directly (boundary rule 1), `CategoryPairingRules`/
+`SelectPairing` need no change (a home nation is picked, paired, and
+validated exactly like any other `CountryDefinition` row), and matched
+players still persist under the same `PlayerAttribute.AttributeType =
+"nationality"` vocabulary via COMP-06. The one piece of plumbing this added
+is `GridGameModule`'s internal `CategoryCandidate` struct carrying the flag
+from generation through to COMP-07's dispatch call, so the decision is made
+in exactly one place rather than re-derived per candidate — see ADR-0035
+for the full rationale, alternatives considered, and the one known follow-up
+gap (Country×Trophy doesn't yet honor the flag, currently unreachable in
+production).
 
 **Boundary rule 2 (Round genericity):** `Core.Rounds` (COMP-03) must never
 hold a foreign key to a game-specific entity such as `GridInstance`. A
@@ -684,8 +764,10 @@ Round Scheduler Job (Core.Rounds, via RoundGenerationService) → Core.Rounds
   → Database: persist FinalUniquenessScore / FinalPoints
 ```
 
-**6.2a Global leaderboard flow** (realizes REQ-401, REQ-404 — Tier 0 slice
-only, added S-011)
+**6.2a Global leaderboard flow** (realizes REQ-401, REQ-402, REQ-403,
+REQ-404, REQ-405, REQ-407, REQ-408, REQ-409 — REQ-406 was retired by
+REQ-409, see below; Tier 0 slice only, added S-011, extended through
+2026-07-21)
 
 ```
 Person → Web Frontend → Backend API: POST /auth/signup (new account)
@@ -697,36 +779,42 @@ Person → Web Frontend → Backend API: POST /auth/signup (new account)
     separate step
 
 Player → Web Frontend → Backend API: GET /leagues/global/leaderboard
-  → Backend API (LeaderboardEndpoints): resolve the currently active round,
-    if any (IRoundRepository.GetActiveByGameKeyAsync, same REQ-303 pattern
-    RoundEndpoints uses — the Api layer is the one place allowed to
-    hardcode GridGameModule.XGGridGameKey, ADR-0003; Core.Leagues below
-    never does)
-  → Core.Leagues (COMP-02): GetGlobalLeaderboardAsync(activeRound)
+  → Core.Leagues (COMP-02): GetGlobalLeaderboardAsync — **REQ-409
+    (2026-07-20/S-060), superseding this route's original REQ-401/404
+    SUM-based ranking and REQ-406's live fold onto it (both retired, not
+    left dormant):**
     → Core.Leagues' own persistence: member user ids for the global league
-    → Core.Users (COMP-01): resolve each member's DisplayName
-    → Core.Scoring (COMP-04): each member's all-time SUM(FinalPoints ?? 0)
-      — computed database-side (GroupBy), not by re-summing REQ-206's
-      per-round ScoreCalculator in memory (see ScoreCalculator's own doc
-      comment on why these two call sites intentionally reimplement the
-      same formula at different scopes)
-    → Core.Scoring (COMP-04, ILiveRoundContributionService, S-053/REQ-406/
-      ADR-0031, if activeRound is not null): the active round's per-cell
-      live contribution, folded on top of the locked SUM above — recomputed
-      fully in memory on every single request, no caching/snapshot anywhere
-      in this path (ADR-0031)
-  → sorted ascending by combined total (ADR-0021: lowest wins), then ranked
-    and sliced into a `cursor`/`pageSize`-bounded page in memory (REQ-607,
-    S-034) — the locked SUM is still database-side, but the live
-    contribution, ranking, and pagination are not; see
-    implementation-document.md §6 and ADR-0031 for why this is an accepted
-    tradeoff, not a boundary change
+    → Core.Scoring (COMP-04, via
+      IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync): each member's
+      per-round SUM(FinalPoints), one figure per *closed* round they have
+      >=1 Guess in — computed database-side, grouped by round
+    → Core.Leagues: members with fewer than 5 qualifying rounds are
+      dropped entirely (absent, not ranked with a default); the rest are
+      ranked ascending (ADR-0021: lowest wins) by the **median** of their
+      per-round totals — ties broken by display name
+  → sliced into a `cursor`/`pageSize`-bounded page in memory (REQ-607,
+    S-034) — the per-round totals are database-side, but the median
+    computation, ranking, and pagination are not; see
+    implementation-document.md §6 for why this is an accepted tradeoff at
+    Tier 0 scale, not a boundary change. No IRoundRepository/active-round
+    resolution happens on this route any more — a still-changing round has
+    no resolved meaning as one data point in a median (REQ-409's own
+    reasoning), so this route no longer touches Core.Rounds or
+    ILiveRoundContributionService at all
 
 Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/active-round
-  (S-053, REQ-407) → Core.Leagues (COMP-02): GetActiveRoundLeaderboardAsync
-  → same ILiveRoundContributionService call as above, exposed as its own
-    standalone, participant-only, always-live scope instead of folded onto
-    the locked total — 404 ("No active round") when none exists
+  (S-053, REQ-407) → Backend API (LeaderboardEndpoints): resolve the
+  currently active round, if any (IRoundRepository.GetActiveByGameKeyAsync,
+  same REQ-303 pattern RoundEndpoints uses — the Api layer is the one place
+  allowed to hardcode GridGameModule.XGGridGameKey, ADR-0003; Core.Leagues
+  below never does) → 404 ("No active round") when none exists
+  → Core.Leagues (COMP-02): GetActiveRoundLeaderboardAsync
+    → Core.Scoring (COMP-04, ILiveRoundContributionService, ADR-0031): the
+      active round's per-cell live contribution, participant-only,
+      recomputed fully in memory on every single request, no
+      caching/snapshot anywhere in this path — this is the *only* leg of
+      this whole flow that still calls ILiveRoundContributionService, now
+      that REQ-409 removed the fold onto the all-time route above
 
 Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/closed-rounds[/{roundId}]
   (S-054, REQ-408) → Core.Leagues (COMP-02): GetClosedRoundsAsync /
@@ -736,15 +824,47 @@ Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/closed-
   (COMP-04) for that one round's locked, never-recomputed
   SUM(final_points) — REQ-206's own formula, filtered to a single round;
   404/409 distinguish "round not found" from "round not closed yet"
+
+Player → Web Frontend → Backend API: GET /leagues/global/leaderboard/window/{resolution}
+  (S-027, REQ-405) → Core.Leagues (COMP-02): GetWindowedLeaderboardAsync —
+  a fourth, independent scope (round/week/month/year), locked-rounds-only,
+  ranked by a plain SUM(FinalPoints) within the calendar-aligned window
+  ending "now" for the requested resolution — REQ-409's median change above
+  applies only to the all-time route, not this one
+
+Person → Web Frontend → Backend API: POST /leagues (REQ-402, S-063)
+  → Core.Leagues (COMP-02): LeagueService.CreateCustomLeagueAsync — creates
+    a League(Type="custom") with a freshly generated, collision-checked
+    InviteCode (in-app pre-check plus a DB-level unique index as the
+    race-safety net) and adds the creator as its first member, in the same
+    call — never a separate step a caller could skip
+
+Person → Web Frontend → Backend API: POST /leagues/join (REQ-403, S-063)
+  → Core.Leagues (COMP-02): LeagueService.JoinByInviteCodeAsync — resolves
+    the invite code to its League and adds the caller as a member;
+    re-joining a league already belonged to is an idempotent success, an
+    unrecognized code is a clear 404, no membership ever created on that
+    path
+
+Player → Web Frontend → Backend API: GET /leagues/mine (REQ-402/403, S-063)
+  → Core.Leagues (COMP-02): LeagueService.GetMemberLeaguesAsync — lists the
+    caller's own custom-league memberships (name + invite code only, no
+    per-league leaderboard data — see below)
 ```
 
-Custom leagues (REQ-402/403 — create/join via invite code) are not built;
-this flow only ever has the one global league to read. All three routes
-above share SCREEN-03 as a single leaderboard surface with a scope selector
-("All-time" / "Current Round" / "Previous Rounds" — renamed 2026-07-20,
-S-056, from "This round (live)"/"Past rounds"; purely cosmetic, no REQ
-specifies exact tab wording), not three separate screens (REQ-407/408's
-own resolved UX placement decision).
+Custom leagues (REQ-402/403) are now built — create, join, and "list my
+own" — but a custom league's own leaderboard (REQ-404's full per-league
+picker/read) is deliberately not: every leaderboard route above (all-time,
+active-round, closed-rounds, windowed) still only ever reads the one global
+league, regardless of which custom leagues a player belongs to. This
+remains tracked follow-up work, not a boundary gap. All-time/active-round/
+closed-rounds/windowed together share SCREEN-03 as a single leaderboard
+surface with a scope selector ("All-time" / "Current Round" / "Previous
+Rounds" / "Time Windows" — renamed 2026-07-20, S-056, from "This round
+(live)"/"Past rounds"; purely cosmetic, no REQ specifies exact tab
+wording), not separate screens (REQ-407/408's own resolved UX placement
+decision); custom leagues (REQ-402/403) have their own separate
+`LeaguesScreen.tsx` (create/join/list), not a SCREEN-03 tab.
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
@@ -803,12 +923,25 @@ through the same `IPlayerStoreRepository` (COMP-06) interface as every
 other caller — `PlayerStoreRepository.ApprovePlayerDataAsync`, no new
 data-access path. Audit fields (`PlayerData.ApprovedByAdminId`/
 `ApprovedAt`) mirror `PlayerOverride`'s existing `LockedByAdminId`/
-`LockedAt` shape rather than a separate audit-log table. "Remove the data
-point" is still not built and remains out of scope. Because the review
+`LockedAt` shape rather than a separate audit-log table. Because the review
 queue is now empty by construction going forward (ADR-0032), this new
 endpoint's practical caseload is limited to whatever
 `unverified`-at-write-time backlog exists from before that ADR shipped,
 plus any future player-suggestion channel once one exists.
+
+**2026-07-20/S-061 status:** "Remove the data point" — the other half of
+the gap the two status notes above flagged — is now built too:
+`POST /admin/player-data/remove` (`XGArcade.Api.Admin.AdminEndpoints`,
+Admin policy, REQ-503's second 2026-07-20 extension) takes one or more
+`PlayerData` ids and hard-deletes each independently, again through
+`IPlayerStoreRepository` (COMP-06) only — `PlayerStoreRepository
+.RemovePlayerDataAsync`, no new data-access path. Unlike approve, a row
+does not need to still be `"unverified"` to be removed. Because the row is
+gone rather than mutated, there is no `ApprovedByAdminId`-shaped pair of
+audit columns to set; "the action is logged with admin_id and a timestamp"
+(REQ-503) is satisfied by a structured `ILogger` line per successfully
+removed row instead, not a new audit-log table. Approve, correct
+(`PlayerOverride`), and remove are now all built — REQ-503's full scope.
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 
@@ -1038,6 +1171,8 @@ new ADR that references the old one.
 | ADR-0031 | Live leaderboard contributions (REQ-406/407) are recomputed on every read, never cached or snapshotted — reverses §6.2a's DB-side-aggregate/bounded-read-cost pattern for the live component | Accepted |
 | ADR-0032 | Wikidata guess-time fallback data is now auto-verified too, reversing ADR-0029's fallback-specific carve-out | Accepted |
 | ADR-0033 | Refresh token (REQ-715) stored in `localStorage`, same mechanism as the existing access token — no new cookie/CSRF infrastructure | Accepted |
+| ADR-0034 | Dark mode is an explicit System/Light/Dark toggle, stored in `localStorage` (not `prefers-color-scheme`-only, not a `User`-level column) | Accepted |
+| ADR-0035 | National teams (P1532) are a per-row flag on `CountryDefinition`, not a separate category type | Accepted |
 
 ## 11. Glossary
 
