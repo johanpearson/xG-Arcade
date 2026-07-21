@@ -26,6 +26,7 @@
 .grid-screen__title-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -41,6 +42,26 @@
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+}
+
+/* REQ-303 (2026-07-21 addition): the round end-time indicator next to the
+   (ⓘ) button — same quiet secondary-text treatment as
+   .grid-screen__progress/.grid-screen__total below, not a new color. A
+   plain inline span, not a button (it isn't actionable), but still
+   focusable (tabIndex on the element, set in GridScreen.tsx) so its
+   aria-label carrying the absolute end date/time is reachable by keyboard,
+   not just mouse hover — the shared :focus-visible ring (index.css) applies
+   to it like any other focusable element. Padding keeps the focus ring from
+   hugging the text, and satisfies the min-height touch-target floor without
+   also forcing min-width on what's naturally a short text label. */
+.grid-screen__end-time {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .grid-screen__header-stats {

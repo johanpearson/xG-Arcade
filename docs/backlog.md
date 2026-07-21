@@ -3419,3 +3419,41 @@ seeded data was not reachable in this sandbox, so the network round-trip
 itself is verified only via mocked-fetch Vitest coverage, not a live
 integration. 8 new frontend tests; full frontend suite (256 tests),
 `tsc -b`, and lint all clean.
+
+**S-068 · Leaderboard scoring/median/fairness explainer (REQ-213 extension) — queued, not yet implemented**
+Raised directly by a player/product request (2026-07-21, via `/orchestrate`):
+the leaderboard should explain how its own ranking actually works — the
+same need REQ-213/SCREEN-06 already solved for per-cell scoring, but that
+explainer is (a) only reachable from the grid screen's `(ⓘ)` entry point,
+never from the leaderboard screen (SCREEN-03) itself, and (b) its content
+predates REQ-409 (median, ≥5-round participation gate, decided/built
+2026-07-20 — after REQ-213's own last content update on 2026-07-14) and
+S-056's fairness fix (never-played members excluded from ranking;
+unguessed cells counted at max in the live scope) — neither is mentioned
+anywhere a player reads the leaderboard. Routed through `requirements-writer`
+first, same as S-056, since "what the explainer must say" is a content
+decision, not a rendering fix — do not draft the copy inline in a frontend
+PR. Deliberately **not** bundled into this same `/orchestrate` session's
+round-end-display work (S-068 itself is that story) — kept to one story
+per session/PR per this file's own rule at the top.
+*Scope, to resolve with requirements-writer before building:* (1) does
+SCREEN-03 get its own `(ⓘ)` entry point opening the *same* `ScoringExplainer`
+component (extended with new content), or a separate leaderboard-specific
+explainer — recommend reusing the same component/REQ-213 to avoid two
+divergent copies of the golf-scoring framing; (2) new content needed:
+the all-time scope ranks by **median** per-round score (not a raw sum),
+gated behind having played **≥5 qualifying (closed, ≥1-guess) rounds**
+below which a player simply doesn't appear on the list — stated plainly so
+"why am I not on the leaderboard yet" doesn't read as a bug; (3) the
+never-played-member exclusion and live-scope unguessed-cell-counts-at-max
+rule (S-056) belongs either in this explainer or a leaderboard-scoped
+companion note — requirements-writer to decide which REQ each new
+acceptance criterion attaches to (REQ-213 itself, or a new status note on
+REQ-409/401/404).
+*Accept:* REQ213-named test(s) confirming the explainer is reachable from
+SCREEN-03 and its content covers the median/participation-gate/fairness
+points above, in addition to the six content points REQ-213 already
+requires; existing REQ213 grid-screen-reachability tests unaffected.
+*Deps:* REQ-213/S-041 (existing explainer/component), REQ-409/S-060
+(median ranking), S-056 (fairness fix) — all already built, this story
+only makes them player-visible.

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.87"
+version: "0.88"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1814,9 +1814,63 @@ real-browser rendering)
   game-selection landing screen (S-021), leaving only "Leaderboard" and
   "Log out" in the header at every viewport width; this endpoint's own
   contract is unchanged
+- **(2026-07-21 addition — acceptance criteria only, not yet built.)**
+  `docs/design-document.md`'s SCREEN-01 mock has always shown a round
+  end-time indicator in the header (`Round #14 ⏱ 1d 4h`, next to the `(ⓘ)`
+  scoring explainer entry point REQ-213 opens), and `endTime` has been in
+  this endpoint's response since S-010 — but no acceptance criteria ever
+  covered whether or how the frontend displays it, and `GridScreen.tsx`
+  currently renders no end-time text at all. The bullets below close that
+  gap; this endpoint's own response contract (`endTime` already present)
+  is unchanged. **Note for whoever implements this:** the mock's `Round
+  #14` numbering is a separate, pre-existing gap — no field in
+  `CurrentRoundResponse` carries a human-friendly round number today, only
+  `roundId` (opaque) — out of scope here and not addressed by the criteria
+  below.
+  - Given the grid screen (SCREEN-01) is showing an active round with a
+    known `endTime`
+  - When the round data has loaded
+  - Then the header shows an end-time indicator next to the `(ⓘ)` scoring
+    explainer entry point (REQ-213), whose visible text is a relative
+    duration computed from `endTime` minus the client's local clock at the
+    moment the round was fetched, floored (never rounded up) to whole
+    units, formatted as:
+    - `"Ends in {D}d {H}h"` when 24 hours or more remain (the hour part
+      omitted if it floors to 0, e.g. `"Ends in 2d"`)
+    - `"Ends in {H}h {M}m"` when between 1 and 24 hours remain (the minute
+      part omitted if it floors to 0, e.g. `"Ends in 3h"`)
+    - `"Ends in {M}m"` when between 1 minute and 1 hour remain
+  - Given `endTime` is less than 60 seconds away or already in the past
+    (clock skew, or the round-close job hasn't run yet)
+  - When the header renders
+  - Then it shows the fixed label `"Ending soon"` instead of a computed
+    duration — never a negative, zero, or otherwise nonsensical value
+  - Given the end-time indicator is rendered
+  - When a screen-reader user, or a mouse/keyboard user hovering or
+    focusing it, reaches the indicator
+  - Then the exact end date/time in the player's local timezone is also
+    exposed via its accessible name (not conveyed by a visual-hover-only
+    tooltip alone) — so the absolute time isn't lost to a player who can't
+    see, or can't act on, a relative countdown that will read differently
+    a few minutes later
+  - Given the relative duration text is computed once, at the moment the
+    round is fetched
+  - When time passes in the same browser session without a page reload or
+    a fresh call to this endpoint
+  - Then the displayed text is not required to update live — no
+    periodic-tick/interval requirement — and next reflects reality only on
+    the following fetch of `GET /rounds/current` (e.g. a reload); this is
+    a deliberate Tier 0 simplification, not a bug to "fix" later with a
+    ticking clock
+  - And this indicator conveys its meaning through text alone, never color
+    alone — consistent with every other state signal this document already
+    requires to be text-paired (REQ-204/REQ-210, and the color-only-never-
+    conveys-meaning rule in §6/REQ-716's dark-theme criteria)
 
 **Test level:** API, E2E (`tests/e2e/play-grid.spec.ts`'s REQ-303-tagged
-case covers the game-selection step added in S-021)
+case covers the game-selection step added in S-021); UI (unit tests
+covering each duration-format bucket above, the "Ending soon" fallback for
+a past/near-past `endTime`, and the accessible-name assertion)
 
 ---
 
