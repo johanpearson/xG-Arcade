@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.90 → 0.91),
+  `docs/decisions/0036-guest-play-anonymous-auth.md` (new),
+  `docs/architecture-document.md` (ADR table only, new row), `MVP-SCOPE.md`
+  — guest play designed and discussed with the product owner (not built):
+  added **REQ-717** (auto-provisioned guest `User`, no email/password
+  required; guesses count fully toward REQ-204's uniqueness and REQ-206's
+  totals; guests appear on REQ-406/407/408's round-scoped/live
+  leaderboards via ordinary `LeagueMembership`, no new query logic;
+  excluded from REQ-409's all-time median ranking via a new `User.IsGuest`
+  flag, both because guests rarely reach the 5-round floor and because a
+  guest identity isn't durably "the same person" across sessions the way
+  REQ-409's median assumes; a dedicated rate limit tighter than REQ-606's
+  existing auth-endpoint limits; a claim/upgrade path converting a guest
+  to a real account in place, preserving guess history, with pre-claim
+  rounds explicitly not retroactively qualifying for REQ-409) and
+  **ADR-0036** (the identity mechanism: backend-mediated Supabase
+  Anonymous Sign-ins, following ADR-0013's exact mediation precedent,
+  rejecting a fully client-local/no-server-identity scheme as unable to
+  satisfy REQ-210's attempt limits or REQ-406/407/408's leaderboard
+  participation at all). Added a new Tier 1 entry to `MVP-SCOPE.md`
+  recording this as a deliberate pull-forward decision (same pattern as
+  REQ-108/214/402-403), not a fired trigger — implementation is a
+  separate, not-yet-scoped future story. REQ-717/ADR-0036.
 - 2026-07-21 — `docs/requirements-document.md` (0.89 → 0.90),
   `docs/design-document.md` (0.42 → 0.43), `docs/backlog.md` — S-068
   (leaderboard scoring/median/fairness explainer, REQ-213 extension) shipped
