@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.89"
+version: "0.90"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1414,10 +1414,10 @@ reveals a name)
 > work, so I understand what a point value on a cell means without that
 > explanation being repeated on every cell.
 
-- **Status: Partially implemented (Tier 0, S-041, 2026-07-14 — grid-screen
+- **Status: Implemented (Tier 0, S-041, 2026-07-14 — grid-screen
   reachability and the original six content points below; leaderboard-screen
-  reachability and three additional ranking/fairness content points
-  specified 2026-07-21, `docs/backlog.md` S-068, not yet built).** Replaces the
+  reachability and three additional ranking/fairness content points added
+  2026-07-21, `docs/backlog.md` S-068).** Replaces the
   per-cell %-breakdown/round-end disclosure text REQ-204 carried before this
   date (see REQ-204's 2026-07-14 status note) — that explanatory content now
   lives in one general place instead of being repeated, cell by cell,
@@ -1449,7 +1449,7 @@ reveals a name)
   since a player asked "is wrong = max points, same as not guessing at
   all?" in the same message that reported the per-cell display bug.
 - **Reachability + content extended for the leaderboard (2026-07-21,
-  `docs/backlog.md` S-068 — decided, not yet built).** Raised because this
+  `docs/backlog.md` S-068 — built).** Raised because this
   explainer's content predates two later changes that are now genuinely
   player-visible on the leaderboard screen (SCREEN-03) but explained
   nowhere a player actually reads it: REQ-409's median/participation-gate
@@ -1488,6 +1488,24 @@ reveals a name)
     formulas, which remain the sole source of truth for the actual ranking
     logic — this REQ only requires that the explainer's *text* mentions
     them, not that it restates their formulas.
+- **Built as (`docs/backlog.md` S-068, 2026-07-21):** both decisions above
+  landed exactly as specified, confirmed against the merged diff, not just
+  the plan. `LeaderboardScreen.tsx` gained a second `(ⓘ)` entry point
+  (`leaderboard-screen__info-toggle`, next to the "Global leaderboard"
+  heading) that opens the same `ScoringExplainer` component
+  `GridScreen.tsx` already used, importing it directly from
+  `frontend/src/grid/ScoringExplainer.tsx` — no new component, no new
+  props. Its open state (`explainerOpen`) is tracked independently of
+  `scope`/each scope's own load state, so opening or closing it never
+  discards a selected scope tab or a loaded "Load more" page, mirroring
+  `GridScreen.tsx`'s existing `explainerOpen`/`activeCell` independence.
+  `ScoringExplainer.tsx` itself gained the three content paragraphs listed
+  above (median ranking + "lower is better" still applies; the ≥5-round
+  gate; never-played exclusion plus the live-scope untouched-cell rule),
+  rendered identically regardless of which screen's entry point opened it.
+  8 new tests across `LeaderboardScreen.test.tsx` and `GridScreen.test.tsx`
+  (288 total frontend tests); `quality-architect` passed the diff with one
+  trivial comment fix, no design/architecture changes required.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
