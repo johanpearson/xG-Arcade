@@ -82,6 +82,14 @@ internal sealed class FakeWikidataClient : IWikidataClient
         string countryWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
+    // REQ-114/ADR-0035: never touched by PlayerNameIndexImporterTests/
+    // PlayerPhotoBackfillServiceTests, same "never touched by either
+    // caller" reasoning as the other intersection methods below — stays
+    // stubbed to an empty result.
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
+        string nationalTeamWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid, string clubBWikidataQid, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);

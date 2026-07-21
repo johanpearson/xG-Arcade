@@ -83,9 +83,16 @@ public class GridGameModuleTests
         return template;
     }
 
-    private CountryDefinition SeedCountry(string name, string? wikidataQid = "unset")
+    private CountryDefinition SeedCountry(string name, string? wikidataQid = "unset", bool usesCountryForSportProperty = false)
     {
-        var country = new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qcountry-{name}" : wikidataQid };
+        var country = new CountryDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            WikidataQid = wikidataQid == "unset" ? $"Qcountry-{name}" : wikidataQid,
+            // REQ-114/ADR-0035.
+            UsesCountryForSportProperty = usesCountryForSportProperty,
+        };
         _dbContext.CountryDefinitions.Add(country);
         _dbContext.SaveChanges();
         return country;
@@ -1629,5 +1636,110 @@ public class GridGameModuleTests
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
 
         Assert.That(result.IsCorrect, Is.False);
+    }
+
+    // ---- REQ-114/ADR-0035: national teams as distinct footballing entities
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_NationalTeamCountry_PairsWithClubsExactlyLikeAnyOtherCountry()
+    {
+        // No special-casing needed anywhere in grid generation's pairing
+        // logic (SelectPairing/CategoryPairingRules) — a flagged country is
+        // just another CountryDefinition row.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        SeedCachedMatches("England", "Tottenham Hotspur", 3);
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        Assert.That(instance.Cells[0].RowCategoryType, Is.EqualTo(CategoryPairingRules.Country));
+        Assert.That(instance.Cells[0].RowCategoryValue, Is.EqualTo("England"));
+        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Tottenham Hotspur"));
+    }
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_OrdinaryCountry_StillDispatchesWithFlagFalse()
+    {
+        // The existing P27 path (represented here by
+        // UsesCountryForSportProperty = false reaching the lookup service)
+        // must stay completely unaffected — this is generation's cache-miss
+        // path (GetMatchCountAsync), not the guess-time fallback.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France"); // usesCountryForSportProperty defaults to false
+        SeedClub("Arsenal");
+        // No SeedCachedMatches call — forces the live-lookup path so
+        // LookupAndPersistAsync is actually invoked and its flag captured.
+        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakeLivePlayers("France-Arsenal", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_NationalTeamCountry_LiveLookupDispatchedWithFlagTrue()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        // No SeedCachedMatches call — forces the live-lookup path
+        // (GetMatchCountAsync's cache miss) so LookupAndPersistAsync is
+        // actually invoked and its flag captured.
+        _wikidataLookupService.SetMatches("England", "Tottenham Hotspur", BuildFakeLivePlayers("England-Spurs", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("England", "Tottenham Hotspur"), Is.True,
+            "CategoryCandidate must carry CountryDefinition.UsesCountryForSportProperty through to the live-lookup dispatch site");
+    }
+
+    [Test]
+    public async Task REQ114_ScoreSubmissionAsync_NationalTeamCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        // REQ-211's guess-time fallback dispatching through the right query
+        // path for a national-team cell — mirrors
+        // REQ211_ScoreSubmissionAsync_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess
+        // above, but the row category is a flagged national team.
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("England", "Tottenham Hotspur");
+        // Some other player already satisfies this cell in the cache (what
+        // let grid generation accept the pairing in the first place) — but
+        // the guessed player himself was never synced.
+        await SeedPlayerAsync("Some Other Spur", "England", "Tottenham Hotspur");
+        var kane = new Player { Id = Guid.NewGuid(), FullName = "Harry Kane", WikidataQid = "Qkane" };
+        _wikidataLookupService.SetMatches("England", "Tottenham Hotspur", [kane]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Harry Kane"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live lookup for a national-team cell must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(kane.Id));
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("England", "Tottenham Hotspur"), Is.True,
+            "the guess-time fallback (RefreshCellFromLiveLookupAsync -> ResolveCandidateAsync) must re-resolve the full " +
+            "CountryDefinition row, including its UsesCountryForSportProperty flag, not just Name/WikidataQid");
+    }
+
+    [Test]
+    public async Task REQ114_ScoreSubmissionAsync_OrdinaryCountryCell_LiveLookupFallback_StillDispatchesWithFlagFalse()
+    {
+        // The guess-time fallback's existing P27 path must stay completely
+        // unaffected for every ordinary country.
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
     }
 }

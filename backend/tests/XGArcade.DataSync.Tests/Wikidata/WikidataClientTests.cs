@@ -260,6 +260,109 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryCountryClubIntersectionAsync(CountryQid, "Arsenal"));
     }
 
+    // ---- QueryNationalTeamClubIntersectionAsync (REQ-114/ADR-0035) --------
+    // England/Scotland/Wales/Northern Ireland's P1532 counterpart of
+    // QueryCountryClubIntersectionAsync above — reuses the same
+    // RunIntersectionQueryAsync/ParseBindings plumbing, so this only tests
+    // what's actually different: the SPARQL predicate.
+
+    private const string NationalTeamQid = "Q21"; // England (unverified this session — see ReferenceDataSeeder)
+
+    [Test]
+    public async Task REQ114_QueryNationalTeamClubIntersectionAsync_SentQuery_UsesTruthyP1532AndNeverP27()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P1532 wd:{NationalTeamQid}."));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "the national-team path must query P1532 ('country for sport') exclusively — P27 ('country of citizenship') " +
+            "can't distinguish England/Scotland/Wales/Northern Ireland since their players' P27 is uniformly United Kingdom");
+    }
+
+    [Test]
+    public async Task REQ114_QueryNationalTeamClubIntersectionAsync_SentQuery_MatchesClubViaFullStatementPathExcludingOnlyDeprecatedRank()
+    {
+        // Same non-negotiable "ever played for" reasoning as
+        // REQ113_QueryCountryClubIntersectionAsync_SentQuery_
+        // MatchesClubViaFullStatementPathExcludingOnlyDeprecatedRank — the
+        // national-team query path only swaps the country predicate, never
+        // the club half.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubStatement ps:P54 wd:{ClubQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"));
+    }
+
+    [Test]
+    public async Task REQ114_QueryNationalTeamClubIntersectionAsync_SentQuery_NeverContainsLimit()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+    }
+
+    [Test]
+    public async Task REQ114_QueryNationalTeamClubIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ114_QueryNationalTeamClubIntersectionAsync_MatchingRows_ParsesSameShapeAsCountryClub()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Harry Kane" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].WikidataQid, Is.EqualTo("Q1519"));
+        Assert.That(result[0].FullName, Is.EqualTo("Harry Kane"));
+    }
+
+    [Test]
+    public void REQ114_QueryNationalTeamClubIntersectionAsync_RejectsNonQidNationalTeamValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryNationalTeamClubIntersectionAsync("England", ClubQid));
+    }
+
+    [Test]
+    public void REQ114_QueryNationalTeamClubIntersectionAsync_RejectsNonQidClubValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryNationalTeamClubIntersectionAsync(NationalTeamQid, "Arsenal"));
+    }
+
     // ---- QueryClubClubIntersectionAsync (S-030) ----------------------------
     // Mirrors every QueryCountryClubIntersectionAsync_* test above — same
     // parsing/error-handling code path (RunIntersectionQueryAsync), just a

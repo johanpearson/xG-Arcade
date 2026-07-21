@@ -46,6 +46,12 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     // the origin they're supposed to, without any real persistence to
     // inspect (this fake doesn't write PlayerData/Confidence itself).
     private readonly Dictionary<(string Country, string Club), WikidataLookupOrigin> _lastOrigin = new();
+    // REQ-114/ADR-0035: the most recent CountryDefinition.UsesCountryForSportProperty
+    // each Country x Club pair's LookupAndPersistAsync call was made with —
+    // lets a test assert GridGameModule threads the flag through
+    // CategoryCandidate/LookupLiveMatchesAsync correctly, without any real
+    // WikidataClient dispatch to inspect (this fake doesn't call one).
+    private readonly Dictionary<(string Country, string Club), bool> _lastUsesCountryForSportProperty = new();
     // S-030: a second, independent pair of dictionaries for Club x Club —
     // kept separate from the Country x Club ones above (rather than sharing
     // one dictionary keyed loosely by two strings) so a test can't
@@ -89,6 +95,9 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public WikidataLookupOrigin? GetLastOrigin(string countryName, string clubName) =>
         _lastOrigin.TryGetValue((countryName, clubName), out var origin) ? origin : null;
 
+    public bool? GetLastUsesCountryForSportProperty(string countryName, string clubName) =>
+        _lastUsesCountryForSportProperty.TryGetValue((countryName, clubName), out var flag) ? flag : null;
+
     public WikidataLookupOrigin? GetClubClubLastOrigin(string clubAName, string clubBName) =>
         _clubClubLastOrigin.TryGetValue((clubAName, clubBName), out var origin) ? origin : null;
 
@@ -110,6 +119,7 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
         _lastOrigin[(country.Name, club.Name)] = origin;
+        _lastUsesCountryForSportProperty[(country.Name, club.Name)] = country.UsesCountryForSportProperty;
 
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];

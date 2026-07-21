@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.84"
+version: "0.85"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -516,6 +516,78 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
 **Test level:** Unit (`WikidataClientTests.cs` query-shape tests — both
 builders' sent SPARQL uses the full `p:P54`/`ps:P54` statement path with
 only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
+
+**REQ-114 – National teams as distinct footballing entities**
+> As a player, I want England, Scotland, Wales, and Northern Ireland to be
+> selectable Country categories in their own right, so a grid can test
+> "played for England" specifically rather than only the generic "United
+> Kingdom" citizenship umbrella that flattens all four together.
+
+- **Status: Implemented (Tier 0, 2026-07-21, REQ-114/ADR-0035), pulled
+  forward from Tier 1 per explicit product decision** (`MVP-SCOPE.md`'s own
+  "National teams as distinct footballing entities" trigger). None of the
+  four home nations are sovereign states, so they can't be queried via
+  Wikidata's `P27` ("country of citizenship") the way every other seeded
+  country can — English/Scottish/Welsh/Northern Irish players' `P27` is
+  uniformly United Kingdom (`Q145`, already seeded). `P1532` ("country for
+  sport") is the property that actually means "country represented in
+  international competition." `CountryDefinition` gained a
+  `UsesCountryForSportProperty` flag (default `false`); `ReferenceDataSeeder`
+  seeds England (`Q21`), Scotland (`Q22`), Wales (`Q25`), Northern Ireland
+  (`Q26`) as four *additional* `CountryDefinition` rows (never replacing
+  United Kingdom) with this flag set `true`. `WikidataClient` gained a
+  parallel `QueryNationalTeamClubIntersectionAsync`/
+  `BuildNationalTeamClubIntersectionQuery` (`P1532`, truthy — see that
+  method's own comment for why the truthy shortcut is safe here, unlike
+  `P54`), and `WikidataLookupService.LookupAndPersistAsync` branches on the
+  flag to call it instead of the existing `P27`-based
+  `QueryCountryClubIntersectionAsync` — the only place this decision is
+  made; every caller (`GridGameModule`) is unaware of the distinction.
+  Persists under the same `PlayerAttribute.AttributeType = "nationality"`
+  vocabulary as every other country — "England" is just another value in
+  that vocabulary, same as "United Kingdom" already is, not a new attribute
+  type. See ADR-0035 for the rejected alternative (a separate
+  `NationalTeamDefinition` table/category type) and why a per-row flag on
+  the existing `CountryDefinition` was chosen instead.
+  **QID caveat:** all four QIDs (`Q21`/`Q22`/`Q25`/`Q26`) are
+  training-knowledge values, **not independently verified against live
+  Wikidata pages this session** (same sandbox network-policy block already
+  documented for S-036/S-037/S-031's QIDs) — a human must verify them
+  before this is relied on in a real deployment; `ReferenceDataSeeder`'s
+  idempotent-by-Name upsert will apply any correction on the next seed run.
+- Given `CountryDefinition` rows for England, Scotland, Wales, and Northern
+  Ireland, each with `UsesCountryForSportProperty = true`, seeded alongside
+  (not instead of) the existing United Kingdom row
+- When grid generation picks a Country category candidate, or REQ-211's
+  guess-time fallback re-resolves one, and that candidate is one of the
+  four home nations
+- Then the live Wikidata lookup queries `P1532` ("country for sport")
+  instead of `P27` ("country of citizenship") for that candidate only —
+  every other seeded country's `P27` query path is completely unaffected
+- And a home nation pairs with Club/Trophy category candidates exactly like
+  any other Country row — no special-casing anywhere in `SelectPairing`,
+  `CategoryPairingRules`, or grid-generation's pairing/validation logic
+- And "satisfies this category" for a home-nation value works identically
+  to any other country value: a `PlayerAttribute`/override record of type
+  `nationality` with that specific value (e.g. "England"), read through the
+  exact same `HasEffectiveAttributeAsync` path as "United Kingdom" or any
+  other seeded country
+- And citizenship (`P27`) and country represented in competition (`P1532`)
+  remain two genuinely separate concepts, never merged into one query or
+  one code path — a dual national or naturalized player can differ between
+  the two, and this system must not conflate them
+
+**Test level:** Unit (`WikidataClientTests.cs` — the national-team query
+path sends `P1532`, never `P27`, and shares `P54`'s full-statement-path
+club-membership semantics; `WikidataLookupServiceTests.cs` — `LookupAndPersistAsync`
+dispatches to the right underlying query based on
+`UsesCountryForSportProperty`, and an ordinary country's dispatch is
+unaffected; `GridGameModuleTests.cs` — a flagged country pairs with clubs
+exactly like any other country, and both grid-generation's cache-miss path
+and REQ-211's guess-time fallback thread the flag through to the correct
+dispatch; `ReferenceDataSeederTests.cs` — all four home nations seed with
+the flag `true`, every other country seeds with it `false`, and United
+Kingdom and England coexist as distinct rows)
 
 ---
 

@@ -68,7 +68,18 @@ public class GridGameModule(
     // table (CountryDefinition/ClubDefinition/TrophyDefinition) it came from
     // — REQ-107's generalized pairing selection (S-030, extended S-031)
     // needs to treat all three uniformly.
-    private readonly record struct CategoryCandidate(string Name, string? WikidataQid);
+    //
+    // REQ-114/ADR-0035: `UsesCountryForSportProperty` carries
+    // CountryDefinition's per-row query-property flag through generation
+    // and the guess-time fallback to the point LookupLiveMatchesAsync
+    // actually dispatches a live Wikidata call — the smaller, cleaner diff
+    // versus re-resolving the full CountryDefinition row by name at
+    // dispatch time (which PickHeadersAsync's hot loop would otherwise do
+    // once per GetMatchCountAsync call, a real extra query cost that
+    // ResolveCandidateAsync's single per-guess lookup doesn't have to
+    // justify). Meaningless for Club/Trophy candidates — always false
+    // there, never read for those types.
+    private readonly record struct CategoryCandidate(string Name, string? WikidataQid, bool UsesCountryForSportProperty = false);
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
@@ -78,7 +89,7 @@ public class GridGameModule(
         // REQ-109: candidate values only ever come from the reference
         // tables, never derived ad hoc from PlayerAttribute.
         var countries = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
-            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid, c.UsesCountryForSportProperty)).ToList();
         var clubs = (await categoryValueRepository.GetClubsAsync(cancellationToken))
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
         var trophies = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
@@ -433,7 +444,7 @@ public class GridGameModule(
         {
             var country = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
                 .FirstOrDefault(c => c.Name == categoryValue);
-            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid);
+            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid, country.UsesCountryForSportProperty);
         }
 
         if (categoryType == CategoryPairingRules.Club)
@@ -619,8 +630,13 @@ public class GridGameModule(
     {
         if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Club)
         {
+            // REQ-114/ADR-0035: row.UsesCountryForSportProperty threads
+            // CategoryCandidate's copy of CountryDefinition's per-row query-
+            // property flag through — LookupAndPersistAsync itself decides
+            // P27 vs. P1532 from it, so this call site needs no pairing-
+            // specific branching of its own.
             return await wikidataLookupService.LookupAndPersistAsync(
-                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid, UsesCountryForSportProperty = row.UsesCountryForSportProperty },
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
                 origin,
                 cancellationToken);
@@ -638,6 +654,19 @@ public class GridGameModule(
         // S-031/REQ-108: SelectPairing always keeps Trophy as the *second*
         // type in a mixed pairing (Country/Club always first) — only these
         // three orderings are ever produced, never Trophy first.
+        //
+        // REQ-114/ADR-0035 scope note: unlike the Country x Club branch
+        // above, row.UsesCountryForSportProperty is deliberately NOT
+        // threaded through here — LookupAndPersistTrophyCountryAsync has no
+        // P1532-aware counterpart to BuildTrophyCountryIntersectionQuery
+        // yet, so a national-team country in a Country x Trophy pairing
+        // would silently fall back to (wrong) P27 semantics if it reached
+        // this branch. In practice it can't: SelectPairing's own comment
+        // notes trophyCount(1) never clears any realistic grid `size`, so
+        // this branch is unreachable in production today, same as Trophy x
+        // Trophy below. Extending P1532 support to this pairing is
+        // follow-up work for whenever the trophy pool actually grows enough
+        // to make it reachable.
         if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Trophy)
         {
             return await wikidataLookupService.LookupAndPersistTrophyCountryAsync(

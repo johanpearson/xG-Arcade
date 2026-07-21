@@ -17,6 +17,14 @@ public interface IWikidataLookupService
     // country/club combination — empty if either value has no resolved
     // WikidataQid yet (REQ-109), or if the query timed out/errored/found
     // no match (REQ-103). Never throws for those cases.
+    //
+    // REQ-114/ADR-0035: internally branches on
+    // `country.UsesCountryForSportProperty` to query Wikidata's P1532
+    // ("country for sport") instead of the default P27 ("country of
+    // citizenship") — England/Scotland/Wales/Northern Ireland aren't
+    // sovereign states, so P27 can't distinguish them. Callers (GridGameModule)
+    // don't need to know which path was taken; both persist under the same
+    // "nationality"/country.Name attribute.
     Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country,
         ClubDefinition club,

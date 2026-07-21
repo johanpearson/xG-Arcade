@@ -335,21 +335,22 @@ is written as something you can actually observe, not a vague feeling:
   grid size, so Trophy is mechanically wired up but won't actually be
   selected until more trophies are added as reference data — exactly the
   "a data change, not a code change" growth path REQ-108 was designed for.
-- **National teams as distinct footballing entities** (England, Scotland,
+- ~~**National teams as distinct footballing entities** (England, Scotland,
   Wales, Northern Ireland) — trigger: "United Kingdom" as a category
   starts feeling wrong/generic for football trivia, or you specifically
-  want the England card back. Mechanically: none of the four home nations
-  are sovereign states, so they can't be queried via `P27` citizenship the
-  way United Kingdom (or any other Tier 0 country) can — English players'
-  citizenship is uniformly UK. The property that actually means "which
-  country represented in competition" is **`P1532`** ("country for
-  sport") — Wikidata's own definition matches exactly what a football
-  trivia game means by "England." This would likely be modeled as a
-  second query path in `DataSync.Clients` (P1532-based), not a
-  replacement for the P27 path the other countries use — the two concepts
-  (citizenship vs. national team represented) genuinely differ for dual
-  nationals and naturalized players, so keeping them separate is correct,
-  not incidental complexity.
+  want the England card back~~ — **Pulled forward by explicit product
+  decision and built, 2026-07-21 (REQ-114/ADR-0035)**, ahead of the
+  trigger firing, same pattern as REQ-108/REQ-214/REQ-402-403's own
+  precedent. `CountryDefinition` gained a `UsesCountryForSportProperty`
+  flag (default `false`); England/Scotland/Wales/Northern Ireland are
+  seeded as four additional `CountryDefinition` rows (never replacing
+  United Kingdom) with the flag `true`, queried via Wikidata's `P1532`
+  ("country for sport") through a second `WikidataClient` query path,
+  never a replacement for the `P27` path every other country uses — see
+  ADR-0035 for why a per-row flag was chosen over a separate category
+  type, and REQ-114's status note for the unverified-QID caveat (`Q21`/
+  `Q22`/`Q25`/`Q26`, not checked against a live Wikidata page this
+  session).
 - **Creating a real "prod" environment** (ADR-0006, ADR-0009, REQ-801-804's
   full test-data API) — trigger: you have at least one real user who isn't
   you, or you find yourself nervous about testing a change directly

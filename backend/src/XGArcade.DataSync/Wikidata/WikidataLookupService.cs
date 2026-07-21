@@ -45,8 +45,21 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
 
-        var matches = await wikidataClient.QueryCountryClubIntersectionAsync(
-            country.WikidataQid, club.WikidataQid, cancellationToken);
+        // REQ-114/ADR-0035: the only place this decision is made — a second
+        // query path (P1532, "country for sport"), not a replacement for
+        // the P27 ("country of citizenship") path every other seeded
+        // country uses. Both branches persist under the exact same
+        // AttributeType/AttributeValue below ("nationality"/country.Name):
+        // a national-team value like "England" is just another value in
+        // that vocabulary, same as "United Kingdom" already is — nothing
+        // downstream of this branch (PersistMatchesAsync, grid generation,
+        // guess-checking) needs to know or care which query path produced
+        // the match.
+        var matches = country.UsesCountryForSportProperty
+            ? await wikidataClient.QueryNationalTeamClubIntersectionAsync(
+                country.WikidataQid, club.WikidataQid, cancellationToken)
+            : await wikidataClient.QueryCountryClubIntersectionAsync(
+                country.WikidataQid, club.WikidataQid, cancellationToken);
 
         return await PersistMatchesAsync(
             matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);

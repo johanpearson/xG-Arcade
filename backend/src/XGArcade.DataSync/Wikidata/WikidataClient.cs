@@ -65,6 +65,22 @@ public class WikidataClient(
         return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
     }
 
+    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
+    // counterpart of QueryCountryClubIntersectionAsync above.
+    public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
+        string nationalTeamWikidataQid,
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(nationalTeamWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{nationalTeamWikidataQid}'", nameof(nationalTeamWikidataQid));
+        if (!WikidataQid.IsValid(clubWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
+
+        var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
+        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
@@ -204,6 +220,33 @@ public class WikidataClient(
     private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) =>
         BuildIntersectionQuery($$"""
               ?player wdt:P27 wd:{{countryQid}}.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:{{clubQid}}.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+            """);
+
+    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland aren't
+    // sovereign states, so P27 ("country of citizenship") can't distinguish
+    // them — every English/Scottish/Welsh/Northern Irish player's P27 is
+    // uniformly United Kingdom (Q145). P1532 ("country for sport") is
+    // Wikidata's own property for "country represented in competition,"
+    // which is exactly what a football trivia game means by "England."
+    // Deliberately uses the truthy wdt:P1532 shortcut, unlike P54's full
+    // statement path above — P1532 doesn't have P54's "current club" rank-
+    // hiding problem: there's no Wikidata editorial convention of marking
+    // one P1532 statement "preferred rank" to mean "the country they
+    // currently represent" the way editors routinely do for a player's
+    // *current* club on P54 (see BuildCountryClubIntersectionQuery's own
+    // comment for that incident). A player either represented a given
+    // national team or they didn't — best-rank semantics and "represented
+    // this country at all" coincide here, the same reasoning
+    // BuildTrophyCountryIntersectionQuery's comment gives for P166's truthy
+    // shortcut. Same P54 full-statement-path club-membership half as every
+    // other club-involving query in this file — do not "simplify" that half
+    // to wdt:P54.
+    private static string BuildNationalTeamClubIntersectionQuery(string nationalTeamQid, string clubQid) =>
+        BuildIntersectionQuery($$"""
+              ?player wdt:P1532 wd:{{nationalTeamQid}}.
               ?player p:P54 ?clubStatement.
               ?clubStatement ps:P54 wd:{{clubQid}}.
               MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }

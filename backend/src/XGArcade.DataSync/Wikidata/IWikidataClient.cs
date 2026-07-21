@@ -18,6 +18,22 @@ public interface IWikidataClient
         string clubWikidataQid,
         CancellationToken cancellationToken = default);
 
+    // REQ-114/ADR-0035: the P1532 ("country for sport") counterpart of
+    // QueryCountryClubIntersectionAsync's P27 ("country of citizenship")
+    // query — for England/Scotland/Wales/Northern Ireland, none of which
+    // are sovereign states and so can't be queried via P27 the way every
+    // other seeded country can (their players' P27 is uniformly United
+    // Kingdom). A second query path, not a replacement: callers pick
+    // between this and QueryCountryClubIntersectionAsync per
+    // `CountryDefinition.UsesCountryForSportProperty`
+    // (WikidataLookupService), never both for the same row. Same P54
+    // full-statement-path club-membership half and no-LIMIT/never-throws
+    // contract as every other intersection query in this interface.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
+        string nationalTeamWikidataQid,
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default);
+
     // S-030: "ever played for both clubs" — same P54-based "any point in
     // their career" semantics as QueryCountryClubIntersectionAsync's P54
     // half, just checked twice against two different clubs instead of once

@@ -45,6 +45,23 @@ namespace XGArcade.Data.Seeding;
 // turns out wrong, correct it here the same way S-037 corrected the club
 // QIDs — this class's idempotent-by-Name upsert will apply the fix on the
 // next seed run without any separate migration.
+//
+// 2026-07-21 (REQ-114/ADR-0035, Tier 1 pulled forward per explicit product
+// decision): added the NationalTeams array below — England (Q21), Scotland
+// (Q22), Wales (Q25), Northern Ireland (Q26), each seeded into the SAME
+// CountryDefinition table as Countries above but with
+// UsesCountryForSportProperty = true, so WikidataLookupService queries
+// them via P1532 ("country for sport") instead of P27 ("country of
+// citizenship") — see CountryDefinition's own doc comment and ADR-0035.
+// These four QIDs were **not verified against a live Wikidata endpoint
+// from this sandbox** (same network policy block as every other QID in
+// this file) — they are well-known, extremely stable training-knowledge
+// values (these four items are among the most-referenced geography QIDs
+// on Wikidata), but given S-036/S-037's own history of guessed QIDs
+// turning out wrong, **a human must verify all four against their live
+// Wikidata pages before this is relied on in a real deployment.** If any
+// turns out wrong, correct it here the same way S-037 corrected the club
+// QIDs — idempotent-by-Name upsert applies the fix on the next seed run.
 public static class ReferenceDataSeeder
 {
     private static readonly (string Name, string WikidataQid)[] Countries =
@@ -97,6 +114,20 @@ public static class ReferenceDataSeeder
         ("Hungary", "Q28"),
         ("Chile", "Q298"),
         ("South Africa", "Q258"),
+    ];
+
+    // REQ-114/ADR-0035: a parallel array, not additional Countries entries —
+    // these four rows go into the same CountryDefinition table but need the
+    // extra UsesCountryForSportProperty=true flag Countries' rows don't, so
+    // SeedAsync below seeds them in a separate loop rather than widening
+    // Countries' tuple shape for every existing entry. Unverified QIDs — see
+    // this class's own doc comment above.
+    private static readonly (string Name, string WikidataQid)[] NationalTeams =
+    [
+        ("England", "Q21"),
+        ("Scotland", "Q22"),
+        ("Wales", "Q25"),
+        ("Northern Ireland", "Q26"),
     ];
 
     private static readonly (string Name, string WikidataQid)[] Clubs =
@@ -160,9 +191,38 @@ public static class ReferenceDataSeeder
         foreach (var (name, wikidataQid) in Countries)
         {
             if (existingCountries.TryGetValue(name, out var existing))
+            {
                 existing.WikidataQid = wikidataQid;
+                // Self-correcting, same as the QID assignment above — an
+                // ordinary country must never be left/reset to the P1532
+                // query path by a stale row.
+                existing.UsesCountryForSportProperty = false;
+            }
             else
-                dbContext.CountryDefinitions.Add(new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid });
+            {
+                dbContext.CountryDefinitions.Add(new CountryDefinition
+                {
+                    Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, UsesCountryForSportProperty = false,
+                });
+            }
+        }
+
+        // REQ-114/ADR-0035: same CountryDefinition table as Countries above,
+        // idempotent-by-Name upsert included — only the seeded flag differs.
+        foreach (var (name, wikidataQid) in NationalTeams)
+        {
+            if (existingCountries.TryGetValue(name, out var existing))
+            {
+                existing.WikidataQid = wikidataQid;
+                existing.UsesCountryForSportProperty = true;
+            }
+            else
+            {
+                dbContext.CountryDefinitions.Add(new CountryDefinition
+                {
+                    Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, UsesCountryForSportProperty = true,
+                });
+            }
         }
 
         var existingClubs = await dbContext.ClubDefinitions.ToDictionaryAsync(c => c.Name, cancellationToken);

@@ -25,6 +25,12 @@ public class WikidataLookupServiceTests
     // S-031/REQ-108: Ballon d'Or — same QID as ReferenceDataSeeder, NOT
     // independently verified against a live Wikidata page this session.
     private static readonly TrophyDefinition BallonDor = new() { Id = Guid.NewGuid(), Name = "Ballon d'Or", WikidataQid = "Q166177" };
+    // REQ-114/ADR-0035: same QID as ReferenceDataSeeder, NOT independently
+    // verified against a live Wikidata page this session.
+    private static readonly CountryDefinition England = new()
+    {
+        Id = Guid.NewGuid(), Name = "England", WikidataQid = "Q21", UsesCountryForSportProperty = true,
+    };
 
     private const string SingleHenryMatchJson = """
         {
@@ -85,6 +91,18 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout);
         return new WikidataLookupService(wikidataClient, _playerStore);
+    }
+
+    // REQ-114/ADR-0035: same as BuildService, but also hands back the
+    // FakeHttpMessageHandler so a test can inspect the actual SPARQL query
+    // sent (handler.LastRequest) — needed to assert which of the two query
+    // paths (P27 vs. P1532) WikidataLookupService dispatched to.
+    private (IWikidataLookupService Service, FakeHttpMessageHandler Handler) BuildServiceWithHandler(string responseJson)
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(responseJson);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
+        var wikidataClient = new WikidataClient(httpClient);
+        return (new WikidataLookupService(wikidataClient, _playerStore), handler);
     }
 
     [Test]
@@ -317,6 +335,75 @@ public class WikidataLookupServiceTests
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         var result = await service.LookupAndPersistAsync(France, unresolvedClub, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ---- LookupAndPersistAsync: national-team query path (REQ-114/ADR-0035) -
+    // England/Scotland/Wales/Northern Ireland — a second query path
+    // (Wikidata P1532, "country for sport"), dispatched from the SAME
+    // LookupAndPersistAsync entry point every other country uses, based
+    // purely on `CountryDefinition.UsesCountryForSportProperty`.
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_SentQuery_UsesP1532NotP27()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistAsync(England, Arsenal, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P1532 wd:Q21"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "a flagged country must query P1532 exclusively — P27 can't distinguish England from the rest of the United Kingdom");
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_OrdinaryCountry_SentQuery_UsesP27NotP1532()
+    {
+        // The existing P27 path must stay completely unaffected by this
+        // feature for every country that doesn't opt in — France has
+        // UsesCountryForSportProperty = false (the default).
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Not.Contain("P1532"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_HitPersistsUnderNationalityAttributeType()
+    {
+        // A national-team value like "England" is just another value in the
+        // same "nationality" AttributeType vocabulary as "United Kingdom" —
+        // not a conceptually different attribute type, and no different
+        // from the P27 path's persistence shape.
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistAsync(England, Arsenal, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "England"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_UnresolvedQid_SkipsWikidataAndReturnsEmpty()
+    {
+        // Same REQ-109 "unresolved QID isn't an error" contract applies
+        // regardless of which query path a resolved QID would have used.
+        var unresolvedNationalTeam = new CountryDefinition
+        {
+            Id = Guid.NewGuid(), Name = "Ruritania National Team", WikidataQid = null, UsesCountryForSportProperty = true,
+        };
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistAsync(unresolvedNationalTeam, Arsenal, WikidataLookupOrigin.Sync);
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));

@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.61"
+version: "0.62"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1391,24 +1391,37 @@ Semantics note: the Country category means **citizenship (P27)**, not
 citizenship even without caps). If a player disputes a cell, this is the
 rule to point at.
 
-**Tier 0 uses United Kingdom, not England, specifically to avoid the
-exception below** (see `MVP-SCOPE.md` for the reasoning) — this makes
-`P27` uniform across every country in the current list, no special case
-needed in `DataSync.Clients` yet.
+**Tier 0 used United Kingdom, not England,** specifically to avoid the
+exception below (see `MVP-SCOPE.md` for the original reasoning) — this
+kept `P27` uniform across every country in the original list, no special
+case needed in `DataSync.Clients` at the time.
 
-**Known limitation for Tier 1's future "national teams" feature:** none
-of England, Scotland, Wales, or Northern Ireland are sovereign states, so
-`P27` citizenship for their players is uniformly `Q145` (United Kingdom),
-never the home nation specifically — querying `P27 = Q21` (England)
-directly returns nothing. The property that actually means "which country
-represented in competition" is **`P1532`** ("country for sport") —
-Wikidata's own definition matches exactly what football fandom means by
-"England." When national teams are added (a distinct Tier 1 feature, not
-just swapping United Kingdom back to England), this needs a second query
-path in `DataSync.Clients` alongside the existing `P27` one — citizenship
-and "country represented in competition" are genuinely different concepts
-for dual nationals and naturalized players, so this is correct modeling,
-not incidental complexity to simplify away.
+**REQ-114/ADR-0035 (2026-07-21, pulled forward from Tier 1 by explicit
+product decision):** none of England, Scotland, Wales, or Northern Ireland
+are sovereign states, so `P27` citizenship for their players is uniformly
+`Q145` (United Kingdom), never the home nation specifically — querying
+`P27 = Q21` (England) directly returns nothing. The property that actually
+means "which country represented in competition" is **`P1532`** ("country
+for sport") — Wikidata's own definition matches exactly what football
+fandom means by "England." `CountryDefinition` gained a
+`UsesCountryForSportProperty` flag (default `false`, `true` only for these
+four rows, seeded as *additional* rows alongside United Kingdom, never
+replacing it); `WikidataClient` gained a second query path
+(`QueryNationalTeamClubIntersectionAsync`/`BuildNationalTeamClubIntersectionQuery`,
+truthy `wdt:P1532` — safe unlike `wdt:P54`, since there's no Wikidata
+editorial convention of marking one `P1532` statement preferred rank the
+way editors routinely do for a player's *current* club); and
+`WikidataLookupService.LookupAndPersistAsync` is the single place that
+branches on the flag to choose between the two paths — `GridGameModule`'s
+dispatch call site needed no change. Citizenship (`P27`) and "country
+represented in competition" (`P1532`) remain genuinely different concepts
+for dual nationals and naturalized players, queried and persisted through
+two separate code paths, never merged into one — this was correct modeling
+to keep, not incidental complexity. See ADR-0035 for the rejected
+alternative (a separate `NationalTeamDefinition` category type) and REQ-114
+for the full acceptance criteria. All four seeded QIDs (`Q21`/`Q22`/`Q25`/
+`Q26`) are training-knowledge values, not independently verified against
+live Wikidata pages — see `ReferenceDataSeeder`'s own doc comment.
 
 Semantics note: the Club category means **senior/first-team career
 only** — a deliberate decision, not the "any club *entity* a P54
