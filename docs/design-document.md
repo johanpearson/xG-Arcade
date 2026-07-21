@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.40"
+version: "0.41"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -995,7 +995,8 @@ reused, not a second one invented. Four scopes:
   (labeled by their `closedAt` timestamp — there is no round-number field
   to fall back on), drilling into one round's own locked, final
   leaderboard (plain "N pts", never "estimated").
-- **Time Windows** (REQ-405, S-027): a rolling leaderboard summed only
+- **Time Windows** (REQ-405, S-027): a calendar-aligned (never rolling)
+  leaderboard summed only
   over locked `FinalPoints` within a fixed window, never live/provisional
   points — so, like Previous Rounds, its rows always render plain "N pts",
   never "estimated". Selecting this scope reveals a second, visually
