@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.42"
+version: "0.43"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -975,9 +975,11 @@ selector exists alongside them, not instead of them):
 
 ```
 ┌───────────────────────────────────────────┐
+│ Global leaderboard                    (ⓘ) │
+│ Lowest total wins                          │
+├───────────────────────────────────────────┤
 │ [All-time] [Current Round] [Previous       │
 │  Rounds] [Time Windows]                    │
-│ Lowest total wins                          │
 ├───────────────────────────────────────────┤
 │  (Time Windows only)                       │
 │  [Round] [Week] [Month] [Year]             │
@@ -992,9 +994,37 @@ selector exists alongside them, not instead of them):
 
 Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
 (`accent-green` underline on the active tab) — one visual tab pattern
-reused, not a second one invented. Four scopes:
-- **All-time** (REQ-401/404): the existing locked, all-time global
-  leaderboard, unchanged, and the default scope shown on first load.
+reused, not a second one invented.
+
+**Scoring explainer entry point (REQ-213, S-068, added 2026-07-21):** the
+`(ⓘ)` shown in the header above, next to the "Global leaderboard" title —
+quiet, no-accent treatment (`text-muted`), same visual weight as
+SCREEN-01's own `(ⓘ)` next to the round timer, not a second bolder style
+for the same kind of control. Opens the exact same SCREEN-06 explainer
+component SCREEN-01 already opens, reused rather than a second,
+leaderboard-specific explainer (see SCREEN-06's own 2026-07-21 note for why
+one component, not two). Reachable regardless of which scope tab below is
+selected or whether that scope's data is loading, empty, or errored — it
+reads no scope/round state — and opening or closing it never discards a
+selected scope tab or a loaded "Load more" page.
+
+Four scopes:
+- **All-time** (REQ-401/404/409): ranks players by the **median** of their
+  per-round scores, not a running sum, and only once a player has played at
+  least 5 qualifying (closed, ≥1-guess) rounds — a player below that
+  threshold simply doesn't appear on the list yet, rather than appearing
+  with a misleadingly small sample. A league member who has never submitted
+  a single guess is excluded entirely, never ranked first with a default
+  total of `0` (REQ-404). The lowest-wins golf framing above applies to the
+  median exactly the same way it applied to the previous running-sum
+  ranking — unchanged by this switch (REQ-409, S-060). This is the default
+  scope shown on first load. **Status note (2026-07-21):** this bullet
+  previously described a plain running-sum total unchanged since v0.1 — the
+  median/participation-gate ranking was actually decided and built
+  2026-07-20 (REQ-409, S-060) and the never-played exclusion 2026-07-20
+  (REQ-404, S-056), but this section was not updated at the time; corrected
+  here as part of S-068, the same story that gave a player somewhere to
+  actually read this explanation (SCREEN-06's entry point above).
 - **Current Round** (REQ-407/ADR-0031): the active round's own
   leaderboard, recomputed live on every read. Rows and the running total
   render with the same "~N pts estimated" wording SCREEN-01's live cell
@@ -1003,7 +1033,13 @@ reused, not a second one invented. Four scopes:
   note under the tabs. "No round is currently active — check back once
   one starts" is a plain informational empty state (not an error) when
   nothing is active; "No one has played this round yet" is the separate,
-  distinct empty state for an active-but-unplayed round.
+  distinct empty state for an active-but-unplayed round. **Status note
+  (2026-07-21):** once a participant (≥1 guess anywhere in this round) has
+  made their first guess, every other cell they haven't touched at all
+  counts at the maximum score in this running total, the same value a cell
+  locks at once the round closes without a correct guess — decided/built
+  2026-07-20 (REQ-406/407, S-056) but not previously reflected here; a
+  non-participant is excluded from this scope entirely, unaffected.
 - **Previous Rounds** (REQ-408): a browsable list of closed rounds
   (labeled by their `closedAt` timestamp — there is no round-number field
   to fall back on), drilling into one round's own locked, final
@@ -1266,11 +1302,29 @@ confirmation screen, nothing to confirm to once signed out.
 │ Answers are footballers who    │
 │ are male and born in 1939 or   │
 │ later.                         │
+│                                 │
+│ The all-time leaderboard ranks │
+│ players by median score, not a │
+│ total — lower is still better. │
+│                                 │
+│ You need 5 qualifying rounds   │
+│ before you appear on the       │
+│ all-time list.                 │
+│                                 │
+│ A player who's never guessed   │
+│ isn't ranked. In Current       │
+│ Round, an untouched cell       │
+│ counts at the max once you've  │
+│ made your first guess.         │
 └───────────────────────────────┘
 ```
 
-**S-041, REQ-213.** Opened from the `(ⓘ)` entry point in SCREEN-01's
-header, next to the round timer — a modal (`role="dialog"`,
+**S-041, REQ-213.** Opened from either of two equivalent `(ⓘ)` entry
+points — SCREEN-01's header, next to the round timer, and (added 2026-07-21,
+S-068) SCREEN-03's header, next to the "Global leaderboard" title — both
+opening this exact same component with identical content, never a second,
+divergent explainer keyed to whichever screen opened it (see the
+2026-07-21 status note below). A modal (`role="dialog"`,
 `aria-modal="true"`), structurally the same backdrop-plus-card pattern
 SCREEN-02's `GuessInput` already established (backdrop click closes it).
 This modal goes further on two points `GuessInput` doesn't (yet — a known,
@@ -1309,6 +1363,38 @@ This is where SCREEN-01a's now-removed per-cell disclosure content (the
 %-breakdown line, "updates until round closes on [date/time]") effectively
 moved — see that section's S-041 note — except reworded to be general
 rather than tied to one cell's specific numbers.
+
+**Second entry point + content expanded again (2026-07-21, `docs/backlog.md`
+S-068, REQ-213).** Raised because this explainer's content predated two
+later ranking changes that became genuinely player-visible on SCREEN-03 but
+were explained nowhere a player actually reads: REQ-409's median/≥5-round
+participation gate (decided/built 2026-07-20) and S-056's fairness fix
+(never-played members excluded from ranking, REQ-404; an untouched cell in
+the Current Round scope counting at max, REQ-406/407). Two changes, both
+shown in the mock above:
+- **Reachability:** SCREEN-03 gained its own `(ⓘ)` entry point in its
+  header, next to the "Global leaderboard" title — quiet/no-accent styling
+  matching SCREEN-01's own `(ⓘ)`, not a bolder or differently-styled
+  control for the same purpose. It opens this exact same component, not a
+  second, leaderboard-specific explainer: a second component would
+  inevitably drift from this one over time, exactly the kind of
+  divergent-copy problem the 2026-07-14 content expansion above already
+  existed to avoid repeating per-cell. The component takes no new prop and
+  reads no round/grid/scope state, so it renders identically regardless of
+  which screen's entry point opened it — a player who opens it from the
+  grid screen sees the same ranking content described below, and vice
+  versa. Opening or closing it from SCREEN-03 never discards a selected
+  scope tab or a loaded "Load more" page (same `explainerOpen`-independent-
+  of-other-state pattern the grid screen's own entry point already uses).
+- **Content:** three more paragraphs, alongside the six above — the
+  all-time scope's median ranking and its unchanged "lower is better"
+  framing (REQ-409); the ≥5-qualifying-round gate below which a player
+  simply doesn't appear yet (REQ-409); and the never-played exclusion plus
+  the Current Round untouched-cell-counts-at-max rule together (REQ-404/
+  406/407, S-056). These are the same nine content points required by
+  `requirements-document.md`'s matching REQ-213 acceptance criteria — this
+  section states the copy/placement, that doc remains the source of truth
+  for which concepts are required.
 
 ### SCREEN-07: Header navigation (mobile menu)
 

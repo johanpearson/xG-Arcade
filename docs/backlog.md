@@ -3420,7 +3420,7 @@ itself is verified only via mocked-fetch Vitest coverage, not a live
 integration. 8 new frontend tests; full frontend suite (256 tests),
 `tsc -b`, and lint all clean.
 
-**S-068 · Leaderboard scoring/median/fairness explainer (REQ-213 extension) — queued, not yet implemented**
+**S-068 · Leaderboard scoring/median/fairness explainer (REQ-213 extension)**
 Raised directly by a player/product request (2026-07-21, via `/orchestrate`):
 the leaderboard should explain how its own ranking actually works — the
 same need REQ-213/SCREEN-06 already solved for per-cell scoring, but that
@@ -3457,3 +3457,34 @@ requires; existing REQ213 grid-screen-reachability tests unaffected.
 *Deps:* REQ-213/S-041 (existing explainer/component), REQ-409/S-060
 (median ranking), S-056 (fairness fix) — all already built, this story
 only makes them player-visible.
+**Built as:** `requirements-writer` resolved both open scope questions as
+recommended — same component, reused, plus three cross-referencing content
+paragraphs rather than restated formulas — extending REQ-213's own dated
+status notes (`docs/requirements-document.md`) rather than opening a new
+REQ. `ui-implementer` then added `LeaderboardScreen.tsx`'s second `(ⓘ)`
+entry point (`leaderboard-screen__info-toggle`, next to the "Global
+leaderboard" title, same quiet/no-accent treatment as `GridScreen.tsx`'s
+own), importing `ScoringExplainer` directly from `frontend/src/grid/
+ScoringExplainer.tsx` — no new component, no new props, confirmed against
+the actual component before assuming reuse would work. Its open state
+(`explainerOpen`) is tracked independently of `scope`/each scope's own load
+state, mirroring `GridScreen.tsx`'s existing `explainerOpen`/`activeCell`
+independence, so opening it never discards a selected scope tab or a
+loaded "Load more" page. `ScoringExplainer.tsx` gained the three new
+content paragraphs (median ranking and its unchanged "lower is better"
+framing; the ≥5-qualifying-round gate; never-played exclusion plus the
+Current Round untouched-cell-at-max rule), rendering identically
+regardless of which screen's entry point opened it. `test-writer` added 8
+new tests across `LeaderboardScreen.test.tsx`/`GridScreen.test.tsx` (288
+total frontend tests). `quality-architect` passed the diff with one
+trivial comment fix and flagged `docs/requirements-document.md`'s own
+"decided, not yet built" status wording as stale once this story actually
+shipped — corrected in the same doc-sync pass that recorded this section.
+`architecture-reviewer` passed clean, no ADR needed; noted (not actionable
+now) that `ScoringExplainer.tsx` living under `grid/` while imported by
+`leaderboard/` is fine today with no documented frontend module-boundary
+rule violated, worth revisiting only if such boundaries are ever
+formalized. `docs/design-document.md` SCREEN-03/SCREEN-06 updated in the
+same session to match (median/participation-gate ranking description was
+already stale independent of this story — corrected here, not just the new
+entry point added on top of it).

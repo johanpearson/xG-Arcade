@@ -60,6 +60,32 @@ describe('ScoringExplainer', () => {
     expect(dialog.textContent).toMatch(/born in 1939 or later/i);
   });
 
+  // 2026-07-21 addition (REQ-213, S-068): three more required content
+  // points, alongside the six above — the all-time median ranking, its
+  // 5-qualifying-round minimum, and the never-played/live-scope-untouched
+  // fairness rules. Exhaustive cross-screen/scope coverage lives in
+  // LeaderboardScreen.test.tsx and GridScreen.test.tsx (added the same
+  // iteration) — this test only covers the component in isolation.
+  it('REQ-213: contains text covering the three ranking/fairness content points added for the leaderboard entry point — median ranking (golf framing unchanged), the 5-qualifying-round minimum, and never-played/live-scope-untouched-cell fairness', () => {
+    render(<ScoringExplainer onClose={vi.fn()} />);
+
+    const dialog = screen.getByRole('dialog');
+
+    // Median ranking, with the existing "lower is better" framing
+    // explicitly restated as unchanged.
+    expect(dialog.textContent).toMatch(/median/i);
+    expect(dialog.textContent).toMatch(/not a total/i);
+
+    // 5-qualifying-round minimum.
+    expect(dialog.textContent).toMatch(/at least 5 qualifying rounds/i);
+
+    // Never-played members never appear on the ranked list, and the
+    // Current Round untouched-cell-at-max-score fairness rule.
+    expect(dialog.textContent).toMatch(/never submitted a single guess/i);
+    expect(dialog.textContent).toMatch(/current round/i);
+    expect(dialog.textContent).toMatch(/every other cell/i);
+  });
+
   it('REQ-213: clicking the backdrop calls onClose', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

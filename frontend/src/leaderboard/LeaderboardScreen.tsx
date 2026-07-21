@@ -10,6 +10,11 @@ import {
 } from '../lib/api';
 import type { WindowResolution } from '../lib/api';
 import type { ClosedRoundSummary, LeaderboardRow } from '../lib/types';
+// REQ-213 (S-068): the leaderboard's own `(ⓘ)` entry point opens this exact
+// same explainer GridScreen.tsx already uses — no new component, no new
+// props, no leaderboard-specific content (see ScoringExplainer.tsx's own
+// 2026-07-21 doc comment and REQ-213's matching acceptance criteria).
+import { ScoringExplainer } from '../grid/ScoringExplainer';
 import './LeaderboardScreen.css';
 
 export interface LeaderboardScreenProps {
@@ -222,6 +227,12 @@ function LeaderboardRowsList({
 // 407/408 (S-053/S-054) add the scope selector above instead.
 export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScreenProps) {
   const [scope, setScope] = useState<Scope>('all-time');
+  // REQ-213 (S-068): independent of `scope`/every scope's own load state on
+  // purpose — same reasoning as GridScreen.tsx's `explainerOpen` being
+  // independent of `activeCell` (SCREEN-06's "doesn't discard in-progress
+  // state" requirement). Opening/closing this never touches which scope tab
+  // is selected, a loaded "Load more" page, or any scope's fetch state.
+  const [explainerOpen, setExplainerOpen] = useState(false);
 
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [liveState, setLiveState] = useState<LiveState>({ phase: 'idle' });
@@ -891,7 +902,22 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
   return (
     <div className="leaderboard-screen">
       <div className="leaderboard-screen__header">
-        <h2>Global leaderboard</h2>
+        <div className="leaderboard-screen__title-row">
+          <h2>Global leaderboard</h2>
+          {/* REQ-213 (S-068): opens SCREEN-06's general scoring/live-updates
+              explainer — same component/content as GridScreen.tsx's entry
+              point, reachable regardless of which scope tab is active or
+              whether that scope's data is loading, empty, or errored (it
+              reads no scope/round state at all). */}
+          <button
+            type="button"
+            className="leaderboard-screen__info-toggle"
+            onClick={() => setExplainerOpen(true)}
+            aria-label="How scoring works"
+          >
+            ⓘ
+          </button>
+        </div>
         {/* ADR-0021/design-document.md SCREEN-03: scored like golf — this
             corrects the natural "higher number = better" assumption before
             a player reads any rank. Must never be omitted or left implicit
@@ -943,6 +969,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
       {scope === 'live' && renderLive()}
       {scope === 'past' && renderPast()}
       {scope === 'window' && renderWindow()}
+      {explainerOpen && <ScoringExplainer onClose={() => setExplainerOpen(false)} />}
     </div>
   );
 }

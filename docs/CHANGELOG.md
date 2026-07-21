@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.89 → 0.90),
+  `docs/design-document.md` (0.42 → 0.43), `docs/backlog.md` — S-068
+  (leaderboard scoring/median/fairness explainer, REQ-213 extension) shipped
+  and marked built. `requirements-writer` had already extended REQ-213
+  earlier this session; `ui-implementer` built it (`LeaderboardScreen.tsx`/
+  `.css` gained a second `(ⓘ)` entry point reusing `frontend/src/grid/
+  ScoringExplainer.tsx` with no new props; that component gained three new
+  content paragraphs covering REQ-409's median/participation-gate ranking
+  and REQ-404/406/407's never-played/live-scope fairness rules), and
+  `test-writer` added 8 new tests (288 total). `quality-architect` passed
+  with one trivial comment fix and flagged REQ-213's own status text as
+  stale ("decided, not yet built" in two spots, ~line 1417 and ~1452) now
+  that the story is done; `architecture-reviewer` passed clean, no ADR
+  needed. Doc-sync pass: corrected REQ-213's stale status wording to
+  "Implemented"/"built"; updated `design-document.md` SCREEN-03 (added the
+  `(ⓘ)` entry point to its mock, and — a pre-existing staleness this story
+  was the right moment to fix, not just build on top of — corrected the
+  all-time scope's description, which had never mentioned the median/≥5-
+  round gate decided 2026-07-20, and the Current Round scope's description,
+  which had never mentioned S-056's untouched-cell-at-max fairness rule) and
+  SCREEN-06 (documented the second entry point and three new content
+  paragraphs); marked S-068 built in `docs/backlog.md` with a "Built as"
+  section. REQ-213, REQ-409, REQ-404, REQ-406, REQ-407.
 - 2026-07-21 — `docs/requirements-document.md` (0.87 → 0.88),
   `docs/design-document.md` (0.41 → 0.42), `docs/implementation-document.md`
   (0.63 → 0.64), `docs/backlog.md` — round end-time indicator shipped in
