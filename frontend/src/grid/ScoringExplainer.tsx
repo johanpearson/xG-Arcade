@@ -23,6 +23,17 @@ export interface ScoringExplainerProps {
 // isolation, nothing connecting them for a player reading this), and the
 // player-pool restriction (REQ-112/ADR-0025), none of which were
 // previously stated anywhere player-facing at all.
+//
+// Content expanded again 2026-07-21 (S-068): the all-time leaderboard's
+// median ranking (REQ-409) plus its 5-qualifying-round minimum, and the
+// never-played/live-scope-untouched-cell fairness rules (REQ-404/406/407,
+// S-056) — these were genuinely player-visible on the leaderboard screen
+// (SCREEN-03) already but explained nowhere a player actually reads them.
+// This same component is now also opened from LeaderboardScreen.tsx's own
+// `(ⓘ)` entry point, deliberately reusing this one component rather than
+// building a second, divergent explainer (see REQ-213's 2026-07-21 note) —
+// its content is identical regardless of which screen opened it, so these
+// three paragraphs render every time, including from the grid screen.
 export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -86,6 +97,23 @@ export function ScoringExplainer({ onClose }: ScoringExplainerProps) {
         </p>
         <p className="scoring-explainer__text">
           Answers are footballers who are male and born in 1939 or later.
+        </p>
+        <p className="scoring-explainer__text">
+          The all-time leaderboard ranks players by the median of their per-round scores, not a
+          total — the same golf-style framing above (lower is better) applies to that median
+          exactly the same way it applies to any single round's score. That hasn't changed.
+        </p>
+        <p className="scoring-explainer__text">
+          A player needs at least 5 qualifying rounds — closed, with at least one guess in that
+          round — before they appear on the all-time ranked list at all. Fewer than that, and not
+          appearing yet is expected, not a bug.
+        </p>
+        <p className="scoring-explainer__text">
+          A league member who has never submitted a single guess doesn't appear on the ranked list
+          at all — never ranked first with a default of zero. In the Current Round leaderboard,
+          once a player has made at least one guess anywhere in that round's grid, every other
+          cell they haven't touched counts at the maximum score — the same value a cell locks at
+          once the round closes without a correct guess.
         </p>
       </div>
     </div>

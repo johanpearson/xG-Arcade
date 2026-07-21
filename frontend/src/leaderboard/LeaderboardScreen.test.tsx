@@ -1145,4 +1145,54 @@ describe('LeaderboardScreen', () => {
       expect(document.querySelector('.leaderboard-screen__status--error')).not.toBeNull();
     });
   });
+
+  // REQ-213 (S-068): the leaderboard screen's own `(ⓘ)` entry point for the
+  // exact same ScoringExplainer GridScreen.tsx already uses. Exhaustive
+  // content/scope-independence coverage is test-writer's job next — these
+  // are basic sanity checks that the entry point exists, opens the real
+  // dialog, and needs no active scope/data to do so.
+  describe('scoring explainer entry point', () => {
+    it('REQ-213: the (ⓘ) button is present and opens the shared ScoringExplainer before any leaderboard data has loaded', () => {
+      // Deliberately never resolving — the entry point must not depend on
+      // any scope's fetch having completed (or even been started).
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      expect(screen.getByText('Loading the leaderboard…')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+      const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+    });
+
+    it('REQ-213: opens identically regardless of which scope tab is active', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
+      await waitFor(() => expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+
+      // Also covers the same content the grid-screen entry point requires —
+      // the median/participation-gate and never-played/live-scope fairness
+      // points added for this story.
+      const dialog = screen.getByRole('dialog');
+      expect(dialog.textContent).toMatch(/median/i);
+      expect(dialog.textContent).toMatch(/at least 5 qualifying rounds/i);
+      expect(dialog.textContent).toMatch(/never submitted a single guess/i);
+    });
+  });
 });
