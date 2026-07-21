@@ -18,14 +18,16 @@ export interface LeaderboardScreenProps {
 }
 
 // REQ-406/407/408/405 (S-053/S-054/S-027): a new, separate scope selector on
-// the same SCREEN-03 screen — distinct from the not-yet-built "[Global] [My
-// League ▾] [+ New]" custom-league tabs design-document.md's current
-// SCREEN-03 mock describes (those stay deferred, MVP-SCOPE.md; this selector
-// exists alongside them, not instead of them). 'all-time' is REQ-401/404's
-// existing locked, all-time global leaderboard (unchanged). 'live' is
-// REQ-407's standalone active-round scope. 'past' is REQ-408's browsable
-// closed-round list + drill-in. 'window' is REQ-405's rolling
-// round/week/month/year leaderboard.
+// the same SCREEN-03 screen — distinct from custom leagues' own "[Global]
+// [My League ▾] [+ New]" tabs design-document.md's current SCREEN-03 mock
+// describes (custom leagues exist as of REQ-402/403/S-063, but this screen
+// still only reads the global league; this selector exists alongside a
+// future league picker, not instead of it). 'all-time' is REQ-401/404's
+// global leaderboard, ranked by REQ-409's median-per-qualifying-round score
+// (>= 5 qualifying rounds) as of S-060 — no longer a raw locked-points sum.
+// 'live' is REQ-407's standalone active-round scope. 'past' is REQ-408's
+// browsable closed-round list + drill-in. 'window' is REQ-405's
+// calendar-aligned (never rolling) round/week/month/year leaderboard.
 type Scope = 'all-time' | 'live' | 'past' | 'window';
 
 // ---- Shared row shape used by all three scopes' "ready" states ----------
@@ -48,10 +50,11 @@ type ReadyState = { phase: 'ready' } & RowsReadyState;
 
 type LoadState = { phase: 'loading' } | { phase: 'error'; message: string } | ReadyState;
 
-// Rows shown here are already REQ-401/404's locked totals
-// (SUM(FinalPoints), never in-progress/live points — see REQ-205/S-018's
-// "provisional, never a promise" rule) — polling keeps that locked total
-// current as rounds close elsewhere, it does not add live points into it.
+// Rows shown here are already REQ-401/404's ranked totals — REQ-409's
+// median of each player's locked per-round points (S-060), never
+// in-progress/live points (see REQ-205/S-018's "provisional, never a
+// promise" rule) — polling keeps that ranking current as rounds close
+// elsewhere, it does not fold live points into it.
 const REFRESH_INTERVAL_MS = 15_000;
 
 // REQ-407/ADR-0031 (S-053): the active round's own leaderboard —
@@ -211,11 +214,12 @@ function LeaderboardRowsList({
   );
 }
 
-// SCREEN-03 (REQ-401/404's Tier 0 slice): the global league is the only one
-// that exists yet — custom leagues' "[My League ▾] [+ New]" tabs (REQ-402-
-// 404) are deferred per MVP-SCOPE.md, so this shows only the Global list,
-// no league tab switcher. REQ-406/407/408 (S-053/S-054) add the scope
-// selector above instead.
+// SCREEN-03: this screen still only reads the global league — custom
+// leagues (REQ-402/403/S-063) can now be created/joined via LeaguesScreen,
+// but REQ-404's own "[My League ▾] [+ New]" tab switcher and per-league
+// leaderboard reads here remain unbuilt (LeaguesScreen only lists a
+// player's own leagues by name/code, no leaderboard rendering). REQ-406/
+// 407/408 (S-053/S-054) add the scope selector above instead.
 export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScreenProps) {
   const [scope, setScope] = useState<Scope>('all-time');
 
