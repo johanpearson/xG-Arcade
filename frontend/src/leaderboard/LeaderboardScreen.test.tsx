@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LeaderboardScreen } from './LeaderboardScreen';
+// REQ-213 (S-068): only needed for the "both entry points render identical
+// content" test below, which renders GridScreen alongside LeaderboardScreen
+// to compare their explainer's actual DOM output.
+import { GridScreen } from '../grid/GridScreen';
 
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve({
@@ -1148,13 +1152,16 @@ describe('LeaderboardScreen', () => {
 
   // REQ-213 (S-068): the leaderboard screen's own `(ⓘ)` entry point for the
   // exact same ScoringExplainer GridScreen.tsx already uses. Exhaustive
-  // content/scope-independence coverage is test-writer's job next — these
-  // are basic sanity checks that the entry point exists, opens the real
-  // dialog, and needs no active scope/data to do so.
+  // content/scope-independence coverage per REQ-213's "Test level" note
+  // (docs/requirements-document.md ~line 1561-1568).
   describe('scoring explainer entry point', () => {
-    it('REQ-213: the (ⓘ) button is present and opens the shared ScoringExplainer before any leaderboard data has loaded', () => {
+    it('REQ-213: the (ⓘ) button is present and opens the shared ScoringExplainer before any leaderboard data has loaded (the all-time scope is still "loading" at click time)', () => {
       // Deliberately never resolving — the entry point must not depend on
-      // any scope's fetch having completed (or even been started).
+      // any scope's fetch having completed (or even been started). This
+      // also exercises the "opens while loading" branch of REQ-213's Test
+      // level note, since the all-time scope's own status text
+      // ("Loading the leaderboard…") is what's on screen at the moment the
+      // button is clicked below.
       vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
 
       render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
@@ -1167,7 +1174,173 @@ describe('LeaderboardScreen', () => {
       expect(dialog).toHaveAttribute('aria-modal', 'true');
     });
 
-    it('REQ-213: opens identically regardless of which scope tab is active', async () => {
+    it('REQ-213: opens while the all-time scope (the scope fetched on mount) is in an error state', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) } as Response),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() =>
+        expect(document.querySelector('.leaderboard-screen__status--error')).not.toBeNull(),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+    });
+
+    it('REQ-213: opens regardless of which scope tab is active — "Current Round" (a non-default scope, empty/loaded state)', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
+      await waitFor(() => expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+    });
+
+    it('REQ-213: opens regardless of which scope tab is active — "Previous Rounds"', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/closed-rounds',
+          () => jsonResponse({ rounds: [], nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Previous Rounds' }));
+      await waitFor(() => expect(screen.getByText('No rounds have closed yet.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+    });
+
+    it('REQ-213: opens regardless of which scope tab is active — "Time Windows"', async () => {
+      const fetchMock = routedFetch([
+        [
+          '/leagues/global/leaderboard/window/round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Time Windows' }));
+      await waitFor(() => expect(screen.getByText('No one scored in this window yet.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+    });
+
+    it('REQ-213: opened from the leaderboard screen, the explainer contains all nine required content points — the original six (REQ-204/205/210/ADR-0021/ADR-0025) plus the three added for the leaderboard (REQ-409/404/406/407)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      const dialog = screen.getByRole('dialog');
+
+      // Original six (mirrors ScoringExplainer.test.tsx's own presence
+      // checks — kept in sync here since this is the leaderboard's own
+      // entry point, not just the component in isolation).
+      expect(dialog.textContent).toMatch(/live estimate/i);
+      expect(dialog.textContent).toMatch(/round closes/i);
+      expect(dialog.textContent).toMatch(/locked/i);
+      expect(dialog.textContent).toMatch(/won't change again|does not change/i);
+      expect(dialog.textContent).toMatch(/golf/i);
+      expect(dialog.textContent).toMatch(/lower is better/i);
+      expect(dialog.textContent).toMatch(/2 attempts per cell/i);
+      expect(dialog.textContent).toMatch(/wrong guess/i);
+      expect(dialog.textContent).toMatch(/maximum score/i);
+      expect(dialog.textContent).toMatch(/not guessing at all/i);
+      expect(dialog.textContent).toMatch(/male/i);
+      expect(dialog.textContent).toMatch(/born in 1939 or later/i);
+
+      // The three 2026-07-21 additions.
+      expect(dialog.textContent).toMatch(/median/i);
+      expect(dialog.textContent).toMatch(/not a total/i);
+      expect(dialog.textContent).toMatch(/at least 5 qualifying rounds/i);
+      expect(dialog.textContent).toMatch(/never submitted a single guess/i);
+      expect(dialog.textContent).toMatch(/current round/i);
+      expect(dialog.textContent).toMatch(/every other cell/i);
+    });
+
+    it('REQ-213: the grid-screen and leaderboard-screen entry points open the exact same component with identical content — neither is a subset of the other', async () => {
+      // Leaderboard screen's dialog text.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+      const { unmount: unmountLeaderboard } = render(
+        <LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />,
+      );
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      const leaderboardDialogText = screen.getByRole('dialog').textContent;
+      unmountLeaderboard();
+      vi.unstubAllGlobals();
+
+      // Grid screen's dialog text.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({
+            roundId: 'round-1',
+            startTime: '2026-07-10T00:00:00Z',
+            endTime: '2026-07-11T00:00:00Z',
+            allowGuessChange: false,
+            cells: [
+              {
+                cellId: 'cell-1',
+                row: 0,
+                col: 0,
+                rowCategoryType: 'country',
+                rowCategoryValue: 'France',
+                colCategoryType: 'club',
+                colCategoryValue: 'Arsenal',
+                guess: null,
+              },
+            ],
+          }),
+        ),
+      );
+      const { unmount: unmountGrid } = render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      const gridDialogText = screen.getByRole('dialog').textContent;
+      unmountGrid();
+
+      expect(gridDialogText).toBe(leaderboardDialogText);
+    });
+
+    it('REQ-213: closing the explainer from the leaderboard screen does not discard the currently selected scope tab', async () => {
       const fetchMock = routedFetch([
         [
           '/leagues/global/leaderboard/active-round',
@@ -1186,13 +1359,56 @@ describe('LeaderboardScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
       expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
 
-      // Also covers the same content the grid-screen entry point requires —
-      // the median/participation-gate and never-played/live-scope fairness
-      // points added for this story.
-      const dialog = screen.getByRole('dialog');
-      expect(dialog.textContent).toMatch(/median/i);
-      expect(dialog.textContent).toMatch(/at least 5 qualifying rounds/i);
-      expect(dialog.textContent).toMatch(/never submitted a single guess/i);
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      // The "Current Round" tab is still selected, and its already-loaded
+      // (empty) state is still what's rendered — opening/closing the
+      // explainer touched neither.
+      expect(screen.getByRole('tab', { name: 'Current Round' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument();
+    });
+
+    it('REQ-213: closing the explainer from the leaderboard screen does not discard an already-loaded "Load more" page', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(() =>
+          jsonResponse({
+            rows: [row(1, 'user-1', 'Alex', 10)],
+            requestingUserRow: null,
+            nextCursor: 50,
+            hasMore: true,
+          }),
+        )
+        .mockImplementationOnce(() =>
+          jsonResponse({
+            rows: [row(2, 'user-2', 'Blair', 20)],
+            requestingUserRow: null,
+            nextCursor: null,
+            hasMore: false,
+          }),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('Alex')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      // Both the original page and the "Load more" page's row are still
+      // present, in order — opening/closing the explainer discarded
+      // neither.
+      const rows = screen.getAllByRole('listitem');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent('Alex');
+      expect(rows[1]).toHaveTextContent('Blair');
     });
   });
 });

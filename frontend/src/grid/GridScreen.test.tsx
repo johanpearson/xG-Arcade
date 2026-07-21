@@ -559,6 +559,67 @@ describe('GridScreen', () => {
     expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
   });
 
+  // REQ-213 (S-068 regression): the 2026-07-21 leaderboard-ranking/fairness
+  // content additions must render from the grid-screen entry point too, not
+  // only when opened from the leaderboard screen — same component, same
+  // content, regardless of which screen's button opened it.
+  it('REQ-213: the explainer opened from the grid screen contains all nine required content points, including the three added for the leaderboard', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() =>
+        jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+
+    await user.click(screen.getByRole('button', { name: 'How scoring works' }));
+    const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+
+    // Original six.
+    expect(dialog.textContent).toMatch(/live estimate/i);
+    expect(dialog.textContent).toMatch(/round closes/i);
+    expect(dialog.textContent).toMatch(/locked/i);
+    expect(dialog.textContent).toMatch(/won't change again|does not change/i);
+    expect(dialog.textContent).toMatch(/golf/i);
+    expect(dialog.textContent).toMatch(/lower is better/i);
+    expect(dialog.textContent).toMatch(/2 attempts per cell/i);
+    expect(dialog.textContent).toMatch(/wrong guess/i);
+    expect(dialog.textContent).toMatch(/maximum score/i);
+    expect(dialog.textContent).toMatch(/not guessing at all/i);
+    expect(dialog.textContent).toMatch(/male/i);
+    expect(dialog.textContent).toMatch(/born in 1939 or later/i);
+
+    // The three 2026-07-21 leaderboard-ranking/fairness additions —
+    // player-visible on SCREEN-03, but must appear here too since this is
+    // the same component/content, not a screen-conditioned subset.
+    expect(dialog.textContent).toMatch(/median/i);
+    expect(dialog.textContent).toMatch(/not a total/i);
+    expect(dialog.textContent).toMatch(/at least 5 qualifying rounds/i);
+    expect(dialog.textContent).toMatch(/never submitted a single guess/i);
+    expect(dialog.textContent).toMatch(/current round/i);
+    expect(dialog.textContent).toMatch(/every other cell/i);
+  });
+
   // REQ-303 (2026-07-21 addition): the header's round end-time indicator,
   // next to the (ⓘ) scoring explainer entry point. Wording/bucket logic
   // itself is covered exhaustively by lib/roundTime.test.ts — these tests
