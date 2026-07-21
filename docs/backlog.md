@@ -3296,3 +3296,57 @@ them. 27 new tests (`GridGameModuleTests.cs`, `PlayerStoreRepositoryTests.cs`,
 new `NameEditDistanceTests.cs`), including two ordering tests proving
 alias/fuzzy repository calls never happen once an earlier stage already
 resolved a match. Full backend suite (607 tests) green.
+
+**S-066 · National teams as distinct footballing entities (REQ-114, ADR-0035)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 placement, by
+explicit product decision (not a triggered event from that file's own
+trigger list — struck through there per its own "update when pulled
+forward" instruction). England, Scotland, Wales, and Northern Ireland
+seeded as four additional `CountryDefinition` rows (alongside, never
+replacing, United Kingdom), each with a new `UsesCountryForSportProperty`
+flag set `true` — queried via Wikidata's `P1532` ("country for sport")
+instead of `P27` ("citizenship"), since none of the four are sovereign
+states and every home-nation player's `P27` is uniformly United Kingdom.
+See ADR-0035 for the full alternatives-considered record, including why
+this is a per-row flag on the existing "Country" category type rather than
+a new category type or a separate reference table.
+*Accept:* REQ114-named tests: the new `P1532` query path is used only for
+flagged countries; the existing `P27` path is completely unaffected for
+every other seeded country; a national-team country pairs with clubs
+exactly like any other country, no special-casing in grid generation
+itself; the guess-time live-lookup fallback (REQ-211) also dispatches
+through the right query path for a national-team cell.
+*Deps:* S-006 (Wikidata client), S-030 (generalized pairing selection).
+**Built as:** matches the plan exactly. `GridGameModule`'s internal
+`CategoryCandidate` record struct gains a third field carrying the flag
+from `CategoryValueRepository` through generation/guess-time-fallback to
+the point a live Wikidata call is actually dispatched — chosen over
+re-resolving the full `CountryDefinition` row at each dispatch site, since
+that dispatch point (`LookupLiveMatchesAsync`) is called from
+`GetMatchCountAsync` inside `PickHeadersAsync`'s hot loop, and an extra
+repository round-trip per candidate tried during generation would be a
+real, avoidable cost (see ADR-0035's alternatives table). The
+`P27`-vs-`P1532` choice is made in exactly one place,
+`WikidataLookupService.LookupAndPersistAsync` — `GridGameModule`'s
+dispatch call site needed no change at all. New
+`IWikidataClient.QueryNationalTeamClubIntersectionAsync`/
+`BuildNationalTeamClubIntersectionQuery`, using the truthy `wdt:P1532`
+shortcut (safe here — unlike `P54`, there's no Wikidata editorial
+convention of marking one `P1532` statement "preferred rank," so best-rank
+semantics and "represented this country at all" coincide, same reasoning
+already used for `P166`'s truthy shortcut in S-031). Matched players
+persist under the same `PlayerAttribute.AttributeType = "nationality"`
+vocabulary as every other country — "England" is just another value,
+same as "United Kingdom" already is. QIDs (England `Q21`, Scotland `Q22`,
+Wales `Q25`, Northern Ireland `Q26`) are training-knowledge values, **not
+verified against live Wikidata from this sandbox** — flagged in the
+seeder, REQ-114, and ADR-0035; a human must verify before relying on them
+in a real deployment, same process S-037 already established. **Known
+follow-up, not fixed here:** Country × Trophy's dispatch branch doesn't
+yet honor the flag — currently unreachable in production (the seeded
+trophy pool is too small for any Trophy pairing to ever be selected, same
+as Trophy × Trophy), tracked in ADR-0035. 20 new tests across
+`WikidataClientTests.cs`, `WikidataLookupServiceTests.cs`,
+`ReferenceDataSeederTests.cs`, `GridGameModuleTests.cs`; new EF Core
+migration for the `CountryDefinition` column generated and included. Full
+backend suite (627 tests) green.

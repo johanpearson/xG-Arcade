@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.84 → 0.85), `docs/
+  decisions/0035-national-team-query-property-flag-on-country-definition.md`
+  (new), `docs/implementation-document.md`, `MVP-SCOPE.md`, `docs/
+  backlog.md` (new S-066 entry) — national teams (England/Scotland/Wales/
+  Northern Ireland) pulled forward and implemented (REQ-114): a per-row
+  `UsesCountryForSportProperty` flag on `CountryDefinition`, queried via
+  Wikidata's `P1532` instead of `P27`, rather than a new category type —
+  see ADR-0035 for the full alternatives-considered record. The
+  `P27`-vs-`P1532` choice is made in exactly one place
+  (`WikidataLookupService.LookupAndPersistAsync`); `GridGameModule`'s
+  pairing/dispatch logic needed no changes. QIDs unverified against live
+  Wikidata, flagged accordingly. Known follow-up: Country × Trophy doesn't
+  yet honor the flag (unreachable in production today). 20 new tests; full
+  backend suite (627 tests) green. REQ-114, ADR-0035.
 - 2026-07-20 — `docs/requirements-document.md` (0.83 → 0.84), `docs/
   backlog.md` (S-064 "Built as") — REQ-716 (dark mode) fully implemented:
   System/Light/Dark toggle on Settings, `localStorage`-persisted, applied
