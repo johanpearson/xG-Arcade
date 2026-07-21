@@ -212,8 +212,13 @@ public class GridGameModule(
         // then alias, then bounded fuzzy).
         var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
 
-        var result = await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
-        if (result.IsCorrect)
+        var result = await FindMatchAsync(cell, normalized, guessSubmission.ChosenPlayerId, instanceId, cancellationToken);
+
+        // REQ-209: a genuinely correct guess never needs a live-lookup
+        // retry; neither does an ambiguous one — the cell already resolved
+        // from cache (just to more than one fitting candidate), which is a
+        // different case from "didn't already resolve from cache" below.
+        if (result.IsCorrect || (result.DisambiguationCandidates?.Count ?? 0) > 0)
             return result;
 
         // REQ-211 (Tier 0 simplified — no PlayerNameIndex prerequisite,
@@ -237,7 +242,7 @@ public class GridGameModule(
         if (!await RefreshCellFromLiveLookupAsync(cell, cancellationToken))
             return result;
 
-        return await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
+        return await FindMatchAsync(cell, normalized, guessSubmission.ChosenPlayerId, instanceId, cancellationToken);
     }
 
     // ADR-0021: round-close's unanswered-cell penalty needs every cell id
@@ -253,12 +258,20 @@ public class GridGameModule(
     // REQ-208's three-stage matching order — exact primary name, then
     // alias, then bounded fuzzy — each stage only runs if the previous one
     // resolved to zero candidates satisfying both of the cell's categories.
-    // Each stage reuses FilterByCategoriesAsync/AcceptMatch so REQ-209's
-    // Tier 0 disambiguation rule (any fitting candidate accepted,
-    // deterministically the lowest Id, logged if more than one fits) applies
-    // identically regardless of which stage produced the candidates.
+    // Each stage reuses FilterByCategoriesAsync/AcceptMatchAsync so REQ-209's
+    // disambiguation rule (a single fitting candidate auto-accepted, more
+    // than one triggers a disambiguation prompt) applies identically
+    // regardless of which stage produced the candidates.
+    //
+    // chosenPlayerId (REQ-209/REQ-210): when set, this call is a
+    // resubmission answering a disambiguation prompt raised by an earlier
+    // call for the same attempt — the pipeline below still re-runs from
+    // scratch (never trusting a cached "which stage matched" from that
+    // earlier call, since data can change between the prompt and the
+    // resubmission) and AcceptMatchAsync validates chosenPlayerId against
+    // whichever stage's `matching` list this run actually produces.
     private async Task<ScoreResult> FindMatchAsync(
-        GridCell cell, string normalizedName, Guid instanceId, CancellationToken cancellationToken)
+        GridCell cell, string normalizedName, Guid? chosenPlayerId, Guid instanceId, CancellationToken cancellationToken)
     {
         var exactCandidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
         var matching = await FilterByCategoriesAsync(cell, exactCandidates, cancellationToken);
@@ -283,7 +296,7 @@ public class GridGameModule(
             matching = await FilterByCategoriesAsync(cell, fuzzyCandidates, cancellationToken);
         }
 
-        return AcceptMatch(cell, instanceId, matching);
+        return await AcceptMatchAsync(cell, instanceId, matching, chosenPlayerId, cancellationToken);
     }
 
     // The category-fit half of FindMatchAsync's pipeline, shared by every
@@ -310,28 +323,78 @@ public class GridGameModule(
         return matching;
     }
 
-    // REQ-209 (Tier 0 simplified, MVP-SCOPE.md): any fitting candidate is
-    // accepted, no disambiguation picker — REQ-204's deterministic pick
-    // (lowest Id) is used whenever more than one candidate fits, logged so a
-    // real occurrence trips the Tier 1 "disambiguation UI" trigger. Shared
-    // by every stage of FindMatchAsync above so this rule can't drift
-    // between the exact/alias/fuzzy paths.
-    private ScoreResult AcceptMatch(GridCell cell, Guid instanceId, IReadOnlyList<Player> matching)
+    // REQ-209: exactly one fitting candidate is accepted automatically; more
+    // than one raises a disambiguation prompt instead of guessing on the
+    // player's behalf. Shared by every stage of FindMatchAsync above so this
+    // rule can't drift between the exact/alias/fuzzy paths.
+    //
+    // chosenPlayerId fast path (REQ-209/REQ-210): when set, this is a
+    // resubmission answering a prompt raised earlier in the same attempt —
+    // skip straight to verifying that specific player is (a) among this
+    // run's `matching` candidates for whichever stage produced them and
+    // (b) therefore still satisfies both categories right now (membership in
+    // a freshly-computed `matching` list proves both at once — never trust
+    // the client-supplied id blindly). A chosenPlayerId that doesn't
+    // validate — not in the matching set any more, or matching is empty —
+    // is treated as an ordinary incorrect guess, never thrown, same
+    // fail-closed discipline as every other guess-scoring edge case here.
+    private async Task<ScoreResult> AcceptMatchAsync(
+        GridCell cell, Guid instanceId, IReadOnlyList<Player> matching, Guid? chosenPlayerId, CancellationToken cancellationToken)
     {
+        if (chosenPlayerId is not null)
+        {
+            var chosen = matching.FirstOrDefault(p => p.Id == chosenPlayerId.Value);
+            return chosen is null
+                ? new ScoreResult { IsCorrect = false }
+                : new ScoreResult { IsCorrect = true, PlayerAnswerId = chosen.Id };
+        }
+
         if (matching.Count == 0)
             return new ScoreResult { IsCorrect = false };
 
-        var accepted = matching.OrderBy(p => p.Id).First();
+        if (matching.Count == 1)
+            return new ScoreResult { IsCorrect = true, PlayerAnswerId = matching[0].Id };
 
-        if (matching.Count > 1)
+        logger.LogInformation(
+            "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
+            "showing a disambiguation prompt per REQ-209.",
+            cell.Id, instanceId, matching.Count);
+
+        var candidates = await BuildDisambiguationCandidatesAsync(cell, matching, cancellationToken);
+        return new ScoreResult { IsCorrect = false, DisambiguationCandidates = candidates };
+    }
+
+    // REQ-209: builds one DisambiguationCandidate per fitting player, each
+    // carrying their OTHER known PlayerAttribute values — excluding
+    // whichever of the cell's own two categories every candidate already
+    // satisfies (redundant to show again, since that's exactly what put
+    // them all in `matching`). Ordered by Id for a deterministic response
+    // shape, same tie-break precedent as REQ-204's grouping.
+    private async Task<IReadOnlyList<DisambiguationCandidate>> BuildDisambiguationCandidatesAsync(
+        GridCell cell, IReadOnlyList<Player> matching, CancellationToken cancellationToken)
+    {
+        var rowAttributeType = MapAttributeType(cell.RowCategoryType);
+        var colAttributeType = MapAttributeType(cell.ColCategoryType);
+
+        var attributesByPlayerId = await playerStoreRepository.GetPlayerAttributesByPlayerIdsAsync(
+            matching.Select(p => p.Id).ToList(), cancellationToken);
+
+        var candidates = new List<DisambiguationCandidate>(matching.Count);
+        foreach (var player in matching.OrderBy(p => p.Id))
         {
-            logger.LogWarning(
-                "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
-                "accepted the lowest Id ({PlayerId}) per REQ-204's deterministic-pick rule.",
-                cell.Id, instanceId, matching.Count, accepted.Id);
+            IReadOnlyList<string> distinguishing = attributesByPlayerId.TryGetValue(player.Id, out var attributes)
+                ? attributes
+                    .Where(a => !(a.AttributeType == rowAttributeType && a.AttributeValue == cell.RowCategoryValue) &&
+                                !(a.AttributeType == colAttributeType && a.AttributeValue == cell.ColCategoryValue))
+                    .Select(a => a.AttributeValue)
+                    .Distinct()
+                    .ToList()
+                : [];
+
+            candidates.Add(new DisambiguationCandidate(player.Id, player.FullName, distinguishing));
         }
 
-        return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
+        return candidates;
     }
 
     // REQ-208's fuzzy/edit-distance pass. Bounded candidate pool: only

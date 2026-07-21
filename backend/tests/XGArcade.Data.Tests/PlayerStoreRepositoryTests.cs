@@ -213,6 +213,47 @@ public class PlayerStoreRepositoryTests
         Assert.That(aliasesByPlayerId, Is.Empty);
     }
 
+    // ---- REQ-209: disambiguation-prompt candidate building -----------------
+
+    [Test]
+    public async Task GetPlayerAttributesByPlayerIdsAsync_ReturnsOnlyRequestedPlayersAttributes_GroupedByPlayerId()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q1" };
+        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q2" };
+        var uninvolvedPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q3" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddPlayerAsync(otherPlayer);
+        await _repository.AddPlayerAsync(uninvolvedPlayer);
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Monaco" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = otherPlayer.Id, AttributeType = "club", AttributeValue = "Lyon" });
+        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = uninvolvedPlayer.Id, AttributeType = "club", AttributeValue = "Nope" });
+
+        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id, otherPlayer.Id]);
+
+        Assert.That(attributesByPlayerId.Keys, Is.EquivalentTo(new[] { player.Id, otherPlayer.Id }));
+        Assert.That(attributesByPlayerId[player.Id].Single().AttributeValue, Is.EqualTo("Monaco"));
+        Assert.That(attributesByPlayerId[otherPlayer.Id].Single().AttributeValue, Is.EqualTo("Lyon"));
+    }
+
+    [Test]
+    public async Task GetPlayerAttributesByPlayerIdsAsync_PlayerWithNoAttributes_IsAbsentFromResult()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(player);
+
+        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id]);
+
+        Assert.That(attributesByPlayerId.Keys, Is.Empty);
+    }
+
+    [Test]
+    public async Task GetPlayerAttributesByPlayerIdsAsync_EmptyIdList_ReturnsEmptyDictionary()
+    {
+        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([]);
+
+        Assert.That(attributesByPlayerId, Is.Empty);
+    }
+
     // ---- REQ-203: an override always takes precedence over synced/unverified
     // data ---------------------------------------------------------------
 

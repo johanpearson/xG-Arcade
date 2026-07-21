@@ -196,6 +196,23 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
+    {
+        if (playerIds.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<PlayerAttribute>>();
+
+        var idList = playerIds.ToList();
+        var attributes = await dbContext.PlayerAttributes
+            .AsNoTracking()
+            .Where(pa => idList.Contains(pa.PlayerId))
+            .ToListAsync(cancellationToken);
+
+        return attributes
+            .GroupBy(a => a.PlayerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerAttribute>)g.ToList());
+    }
+
     public async Task<int> CountPlayersWithBothAttributesAsync(
         string firstAttributeType, string firstAttributeValue,
         string secondAttributeType, string secondAttributeValue,

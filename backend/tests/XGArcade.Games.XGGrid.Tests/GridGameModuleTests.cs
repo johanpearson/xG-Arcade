@@ -1341,6 +1341,10 @@ public class GridGameModuleTests
         public Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default) =>
             inner.AddPlayerAttributeAsync(attribute, cancellationToken);
 
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
+            IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAttributesByPlayerIdsAsync(playerIds, cancellationToken);
+
         public Task<int> CountPlayersWithBothAttributesAsync(
             string firstAttributeType, string firstAttributeValue,
             string secondAttributeType, string secondAttributeValue,
@@ -1590,8 +1594,6 @@ public class GridGameModuleTests
     }
 
     // ---- REQ-209: disambiguating multiple players with a matching name -----
-    // (Tier 0 simplified per MVP-SCOPE.md: no disambiguation prompt — any
-    // fitting candidate is accepted, deterministically the lowest Id.)
 
     [Test]
     public async Task REQ209_ScoreSubmissionAsync_ExactlyOneCandidateSatisfiesBothCategories_AcceptedAutomatically()
@@ -1607,22 +1609,7 @@ public class GridGameModuleTests
 
         Assert.That(result.IsCorrect, Is.True);
         Assert.That(result.PlayerAnswerId, Is.EqualTo(fittingPlayer.Id));
-    }
-
-    [Test]
-    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesSatisfyBothCategories_AcceptsDeterministicallyLowestId()
-    {
-        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
-        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
-        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
-        var expected = new[] { first, second }.OrderBy(p => p.Id).First();
-        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
-
-        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
-
-        Assert.That(result.IsCorrect, Is.True);
-        Assert.That(result.PlayerAnswerId, Is.EqualTo(expected.Id),
-            "REQ-204's deterministic-pick rule: the lowest Id among fitting candidates is always chosen");
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a single fitting candidate never needs a disambiguation prompt");
     }
 
     [Test]
@@ -1636,6 +1623,103 @@ public class GridGameModuleTests
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
 
         Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.DisambiguationCandidates, Is.Null,
+            "no candidate satisfying both categories at all is a plain incorrect guess, not a disambiguation case");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesSatisfyBothCategories_ReturnsDisambiguationCandidates_NotAutoAccepted()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        // Each candidate also has an "other" club, distinct from the cell's
+        // own two categories (France/Arsenal) — these are what should
+        // surface as DistinguishingAttributes, never France/Arsenal again.
+        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = first.Id, AttributeType = "club", AttributeValue = "Monaco" });
+        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = second.Id, AttributeType = "club", AttributeValue = "Lyon" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.IsCorrect, Is.False, "an ambiguous guess is never auto-accepted on the player's behalf");
+        Assert.That(result.PlayerAnswerId, Is.Null);
+        Assert.That(result.DisambiguationCandidates, Is.Not.Null.And.Count.EqualTo(2));
+        Assert.That(result.DisambiguationCandidates!.Select(c => c.PlayerId), Is.EquivalentTo(new[] { first.Id, second.Id }));
+        var firstCandidate = result.DisambiguationCandidates!.Single(c => c.PlayerId == first.Id);
+        var secondCandidate = result.DisambiguationCandidates!.Single(c => c.PlayerId == second.Id);
+        Assert.That(firstCandidate.Name, Is.EqualTo("John Smith"));
+        Assert.That(firstCandidate.DistinguishingAttributes, Is.EquivalentTo(new[] { "Monaco" }),
+            "must show the candidate's OTHER attributes, never the cell's own France/Arsenal categories again");
+        Assert.That(secondCandidate.DistinguishingAttributes, Is.EquivalentTo(new[] { "Lyon" }));
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesWithNoOtherKnownAttributes_ReturnsEmptyDistinguishingAttributes_NotBlocked()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.DisambiguationCandidates, Is.Not.Null.And.Count.EqualTo(2));
+        Assert.That(result.DisambiguationCandidates!.Select(c => c.PlayerId), Is.EquivalentTo(new[] { first.Id, second.Id }));
+        Assert.That(result.DisambiguationCandidates!, Has.All.Matches<DisambiguationCandidate>(c => c.DistinguishingAttributes.Count == 0),
+            "a candidate with no other known attributes must still appear, just with an empty list — never blocking the feature");
+    }
+
+    // ---- REQ-209/REQ-210: the ChosenPlayerId resubmission fast path -------
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdMatchesAFittingCandidate_AcceptsIt()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith", ChosenPlayerId: second.Id));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(second.Id));
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a resolved ChosenPlayerId submission is a real scored guess, not another prompt");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdRealPlayerButNoLongerSatisfiesBothCategories_TreatedAsOrdinaryIncorrectGuess_DoesNotThrow()
+    {
+        // staleChoice is a real player matching the submitted name, but only
+        // satisfies ONE of the cell's two categories (e.g. an admin
+        // correction landed between the disambiguation prompt and this
+        // resubmission) — never trust the client-supplied id blindly, always
+        // re-verify server-side.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var staleChoice = await SeedPlayerAsync("John Smith", "France", "Chelsea");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () => result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith", ChosenPlayerId: staleChoice.Id)));
+
+        Assert.That(result!.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a failed ChosenPlayerId resubmission is a plain incorrect guess, not another prompt");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdSuppliedButNothingMatchesAtAll_TreatedAsOrdinaryIncorrectGuess()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nobody At All", ChosenPlayerId: Guid.NewGuid()));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.DisambiguationCandidates, Is.Null);
     }
 
     // ---- REQ-114/ADR-0035: national teams as distinct footballing entities

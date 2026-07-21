@@ -111,6 +111,16 @@ public interface IPlayerStoreRepository
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
 
+    // REQ-209: disambiguation-prompt candidate building
+    // (GridGameModule.BuildDisambiguationCandidatesAsync) — every cached
+    // PlayerAttribute row for a batch of candidate players in one query,
+    // rather than one GetPlayerAttributesAsync-shaped call per candidate.
+    // Same bulk-by-player-ids shape as GetPlayerAliasesByPlayerIdsAsync; a
+    // playerId with no attribute rows at all is simply absent from the
+    // result (not present with an empty list).
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
+
     // Grid generation's candidate-matching query (REQ-101): how many
     // players satisfy both category values at once. A single indexed join
     // rather than fetching both attribute lists and intersecting in memory.
