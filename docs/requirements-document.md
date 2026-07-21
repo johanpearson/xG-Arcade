@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.90"
+version: "0.91"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -2563,6 +2563,14 @@ superseded interim behavior.)*
   part of this REQ), not a reuse of that existing boolean method. An
   active (unlocked) round is never a qualifying round, matching
   REQ-401/404/405's existing locked-only rule for all-time computations.
+- **Cross-reference (2026-07-21, REQ-717, not yet built):** two narrowings
+  to this REQ's qualifying-rounds query are specified by REQ-717, not
+  here, since both are guest-play-specific — this REQ's own text is
+  otherwise unchanged. (1) A guest identity's rounds never count as
+  qualifying rounds at all, regardless of count. (2) A claimed
+  (guest-then-upgraded) account's rounds closed before the moment of
+  claiming never count as qualifying rounds either — only rounds closed
+  after claiming do. See REQ-717 for the full rationale for both.
 - **Median definition:** the standard median of the qualifying rounds'
   per-round totals — the middle value once those totals are sorted
   ascending, or the arithmetic mean of the two middle values when the
@@ -3799,6 +3807,151 @@ check against the ratios already computed in `docs/design-document.md`
 §2, not an automated test. E2E: not required to gate merge (Playwright
 only runs in CI per this repo's convention), but should get a smoke check
 that switching the toggle actually changes rendered colors, once built.
+
+---
+
+**REQ-717 – Guest play (auto-provisioned identity, no email/password
+required)**
+
+*(Status: Proposed — not yet built.)* **Tier framing:** Tier 1/2 by
+`MVP-SCOPE.md`'s own classification (a new auth flow that touches the
+account boundary Tier 0 already locked in) — pulled forward by explicit
+product decision, same pattern as REQ-108/214/402-403's own precedent
+(each pulled forward ahead of its trigger firing, by deliberate choice, not
+because a trigger fired). **Unlike those three, this is not an existing
+Tier 1 bullet being pulled forward — `MVP-SCOPE.md`'s Tier 1 list
+currently has no "guest play" trigger at all.** Adding one (and recording
+this pull-forward there the way REQ-108/214/402-403's own entries do) is
+outside this requirement's remit — flagged back for `doc-sync` or the main
+session to action, not done here.
+
+> As a person who wants to try the game before committing to an account, I
+> want to play immediately without providing an email or password, so I
+> can experience a round with zero signup friction.
+
+- **Scope note:** the auth mechanism itself (e.g. Supabase Anonymous
+  Sign-ins, token issuance, session handling) is ADR-0036's concern, being
+  drafted in parallel — this requirement describes observable behavior
+  only, never how the identity is technically minted.
+
+**Guest identity:**
+- Given a person chooses to play as a guest
+- When the guest identity is provisioned
+- Then a real `User` row is created with no email and no password set, and
+  a durable flag distinguishing it as a guest (the exact field/column is
+  an implementation detail, not part of this requirement — `User.IsGuest`
+  is assumed only as the minimum signal REQ-409's exclusion below needs to
+  exist)
+- And REQ-702's "unconfirmed accounts cannot play" rule does not apply to
+  this row — a guest is a self-contained identity kind with no
+  confirmation step, not an unconfirmed ordinary signup
+- And this `User` row participates in REQ-201–210 (submitting, locking,
+  and scoring guesses), REQ-204 (live uniqueness), and REQ-406/407/408
+  (round-scoped leaderboards) completely unmodified, through the same
+  `LeagueMembership` mechanism REQ-401 already grants every new account in
+  the Global league — none of those requirements gain a new code path,
+  query, or guest-specific branch as a result of this requirement
+
+**Display name:**
+- Given a new guest identity with no display name supplied
+- When it is provisioned
+- Then a default display name is auto-generated (e.g. `Guest8317`-style),
+  satisfying REQ-701's existing 1-30 character bound and case-insensitive
+  uniqueness check — a generation collision is retried with a new random
+  suffix, the same way any other conflicting write is retried elsewhere in
+  this system
+- And REQ-714's existing display-name-edit mechanism applies completely
+  unmodified — a guest can set a real display name from Settings exactly
+  as any other account can, with no second, guest-specific edit path
+
+**Scoring and uniqueness — no special-casing:**
+- Given a guest has submitted a guess
+- Then that guess counts fully and normally toward REQ-204's live
+  uniqueness calculation and REQ-206's per-round total, exactly as any
+  other player's guess — never excluded, weighted differently, or flagged
+  in either calculation (more real guesses, including guests', is the
+  entire point of this requirement — a better uniqueness signal, not a
+  stripped-down guest experience)
+
+**Leaderboard participation (the core split):**
+- Given a guest `User` is a member of the Global league (REQ-401)
+- When REQ-407's currently-active-round leaderboard, or REQ-408's
+  past-round-browsing leaderboard, is requested
+- Then the guest appears ranked exactly like any other participant, via
+  the same ordinary `LeagueMembership` row any account has — no new query
+  logic for either of these two requirements
+- Given the same guest `User`
+- When REQ-409's all-time, median-ranked leaderboard's qualifying-rounds
+  query runs
+- Then the guest is excluded from that ranking entirely, regardless of how
+  many qualifying rounds they've accumulated — via a check on the guest
+  flag added to REQ-409's existing qualifying-rounds query
+- And the reason is two-fold, both stated because the second is the real
+  reason even though the first is also true in practice: (a) a guest
+  rarely accumulates REQ-409's 5-round qualification floor before
+  abandoning the session, so the exclusion is often moot in practice; (b)
+  REQ-409's median is meant to measure one consistent identity's
+  performance over time, and a guest identity has no guaranteed persistent
+  login across sessions — folding guest-era history into that measure
+  would be measuring something incoherent (an identity not reliably "the
+  same person" returning), not merely a rarely-populated case
+
+**Rate limiting for guest creation:**
+- Given the guest-creation endpoint
+- Then it is protected by its own rate-limiting rule, distinct from and
+  tighter than REQ-606's existing `auth-signup`/`auth-login` policies — a
+  guest flow has even less friction than email signup (no email address at
+  all), making it a more attractive target for spinning up many identities
+  to probe a cell's answer or to inflate/manipulate a cell's uniqueness
+  denominator (REQ-204) than either existing endpoint
+- And exceeding the limit is rejected the same way REQ-606's existing
+  limits reject (a clear 429, no queueing) — never silently degraded or
+  allowed through
+- And the exact numeric threshold is left unresolved here, the same way
+  REQ-606's own thresholds are resolved elsewhere (§5) rather than fixed
+  by the requirement itself — an implementation/tuning detail, not a
+  product decision this requirement needs to make
+
+**Claim/upgrade path:**
+- Given a guest wants to add an email and password
+- When they complete the claim/upgrade flow (the UI/flow itself is left to
+  a future story; the auth-provider mechanics are ADR-0036's concern)
+- Then the same `User.Id` row gains an email and password — a conversion
+  of the existing identity, never the creation of a second, disconnected
+  `User` row
+- And every `Guess` row already attributed to that `User.Id`, and every
+  `LeagueMembership` row already held by it, remains attributed to it
+  unchanged — no re-linking, no anonymize-and-recreate step. Contrast
+  REQ-710's anonymize-not-delete precedent, the closest existing analogue
+  for "an identity transition must preserve the historical link" — that
+  requirement severs a `Guess` row's link to a `User` on account deletion;
+  this is the opposite direction (gaining a durable identity, not losing
+  one), so guess history stays fully attached throughout, never severed
+- And the guest flag clears at the moment of claiming — from that point
+  on the account is indistinguishable from one that signed up with
+  email/password from the start, for every purpose except the
+  qualifying-rounds rule below
+- And a claimed account's rounds closed **before** the claim moment do
+  **not** retroactively count toward REQ-409's 5-round qualification floor
+  or its median — only rounds closed after claiming are qualifying rounds
+  for REQ-409's purposes. This is a deliberate recommendation, not a
+  default left to chance: without this rule, a player could guest-play
+  extensively, then claim an account moments before a competitive event
+  and instantly qualify for (and potentially top) the all-time median
+  leaderboard off guest-era rounds where their identity was never durable
+  in the first place — the same identity-coherence argument above applies
+  just as much to a newly-claimed account's guest-era history as it does
+  to an unclaimed guest's
+
+**Test level:** Unit (guest provisioning produces the correct guest flag
+with no email/password; default display-name generation collision-retries
+and satisfies REQ-701's bounds; REQ-409's qualifying-rounds query excludes
+guest rows and excludes a claimed account's pre-claim rounds), API (guest
+creation endpoint is rate-limited distinctly from `auth-signup`/
+`auth-login`; REQ-407/408 leaderboard responses include a guest row;
+REQ-409's response excludes one), Manual (spot-check that a claimed
+account's guess history and league memberships survive the conversion
+unchanged)
 
 ---
 
