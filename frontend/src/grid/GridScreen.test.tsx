@@ -558,4 +558,87 @@ describe('GridScreen', () => {
     expect(screen.queryByRole('dialog', { name: 'How scoring works' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
   });
+
+  // REQ-303 (2026-07-21 addition): the header's round end-time indicator,
+  // next to the (ⓘ) scoring explainer entry point. Wording/bucket logic
+  // itself is covered exhaustively by lib/roundTime.test.ts — these tests
+  // only check that GridScreen actually renders and wires up the indicator.
+  describe('REQ-303: round end-time indicator', () => {
+    function stubCurrentRound(endTime: string) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({
+            roundId: 'round-1',
+            startTime: '2026-07-10T00:00:00Z',
+            endTime,
+            allowGuessChange: false,
+            cells: [
+              {
+                cellId: 'cell-1',
+                row: 0,
+                col: 0,
+                rowCategoryType: 'country',
+                rowCategoryValue: 'France',
+                colCategoryType: 'club',
+                colCategoryValue: 'Arsenal',
+                guess: null,
+              },
+            ],
+          }),
+        ),
+      );
+    }
+
+    it('REQ-303: renders a relative-duration end-time indicator in the header once the round has loaded', async () => {
+      // Comfortably in the "1-24h" bucket regardless of the moment the test
+      // actually runs — the exact wording is lib/roundTime.test.ts's job,
+      // not this test's.
+      const endTime = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
+      stubCurrentRound(endTime);
+
+      render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText('France')).toBeInTheDocument());
+
+      const indicator = document.querySelector('.grid-screen__end-time');
+      expect(indicator).toBeInTheDocument();
+      expect(indicator).toHaveTextContent(/^Ends in \d/);
+    });
+
+    it('REQ-303: exposes the absolute end date/time via the accessible name, not just the relative text', async () => {
+      const endTime = '2026-08-01T09:30:00.000Z';
+      stubCurrentRound(endTime);
+
+      render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText('France')).toBeInTheDocument());
+
+      const expectedAbsoluteLabel = new Date(endTime).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      // Queried by accessible role/name (not a DOM string grep) — proves the
+      // absolute time is exposed as the element's actual accessible name,
+      // reachable by a screen reader, not only visible on hover.
+      const indicator = screen.getByRole('generic', {
+        name: new RegExp(`Round ends ${expectedAbsoluteLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.$`),
+      });
+      expect(indicator).toBeInTheDocument();
+      expect(indicator).toHaveClass('grid-screen__end-time');
+    });
+
+    it('REQ-303: the end-time indicator is keyboard-focusable (included in tab order)', async () => {
+      const endTime = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
+      stubCurrentRound(endTime);
+
+      render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await waitFor(() => expect(screen.getByText('France')).toBeInTheDocument());
+
+      const indicator = document.querySelector('.grid-screen__end-time');
+      expect(indicator).toHaveAttribute('tabIndex', '0');
+    });
+  });
 });
