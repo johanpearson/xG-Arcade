@@ -63,7 +63,9 @@ describe('ScoringExplainer', () => {
   // 2026-07-21 addition (REQ-213, S-068): three more required content
   // points, alongside the six above — the all-time median ranking, its
   // 5-qualifying-round minimum, and the never-played/live-scope-untouched
-  // fairness rules. Exhaustive coverage is test-writer's job next.
+  // fairness rules. Exhaustive cross-screen/scope coverage lives in
+  // LeaderboardScreen.test.tsx and GridScreen.test.tsx (added the same
+  // iteration) — this test only covers the component in isolation.
   it('REQ-213: contains text covering the three ranking/fairness content points added for the leaderboard entry point — median ranking (golf framing unchanged), the 5-qualifying-round minimum, and never-played/live-scope-untouched-cell fairness', () => {
     render(<ScoringExplainer onClose={vi.fn()} />);
 
