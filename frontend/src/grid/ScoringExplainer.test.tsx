@@ -86,6 +86,25 @@ describe('ScoringExplainer', () => {
     expect(dialog.textContent).toMatch(/every other cell/i);
   });
 
+  // Regression test for the "fills entire screen and it's not possible to
+  // scroll" bug: S-068 grew this component's content from 6 to 9
+  // paragraphs with nothing bounding the card's height or letting it
+  // scroll, so on a short/mobile viewport the excess content overflowed
+  // off-screen with no way to reach it (or the close button). Asserts the
+  // card itself — not just some inner element — has both a max-height and
+  // overflow-y: auto, since a scrollable inner region alone wouldn't help
+  // if the outer card can still grow past the viewport.
+  it("REQ-213: the dialog card has a bounded max-height and overflow-y: auto, so content that exceeds the viewport scrolls within the card instead of overflowing off-screen", () => {
+    const { container } = render(<ScoringExplainer onClose={vi.fn()} />);
+
+    const card = container.querySelector('.scoring-explainer') as HTMLElement;
+    const style = getComputedStyle(card);
+
+    expect(style.overflowY).toBe('auto');
+    expect(style.maxHeight).not.toBe('');
+    expect(style.maxHeight).not.toBe('none');
+  });
+
   it('REQ-213: clicking the backdrop calls onClose', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
