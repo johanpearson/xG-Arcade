@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
@@ -54,6 +55,74 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
         // delete after a prior partial failure) — treated as success since
         // the end state the caller wants (no such identity) already holds.
         return response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound;
+    }
+
+    // REQ-717/ADR-0036: Supabase's Anonymous Sign-ins feature — the same
+    // POST auth/v1/signup endpoint SignUpAsync above calls, but with no
+    // email/password in the body at all, which is what Supabase's API
+    // documents as triggering anonymous-identity creation rather than a
+    // validation error. NOT independently verified against a live Supabase
+    // project from this environment (no network access here, and this
+    // project has been burned before by unverified assumptions about
+    // external APIs — see docs/decisions/0008-*.md's precedent) — flagged
+    // for manual verification against a real Supabase project before this
+    // ships. Reuses PostAuthRequestAsync since the response shape (a normal
+    // session: access_token/refresh_token/user) is documented to be the
+    // same as a real signup's.
+    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default) =>
+        PostAuthRequestAsync("auth/v1/signup", new { }, cancellationToken);
+
+    // REQ-717/ADR-0036: the claim/upgrade path. PUT auth/v1/user is
+    // Supabase's user-update endpoint — passing email/password there is
+    // documented as adding real credentials to whichever identity the
+    // request authenticates as, converting it in place rather than
+    // creating a second identity. NOT independently verified against a
+    // live Supabase project from this environment — same caveat as
+    // SignInAnonymouslyAsync above; flagged for manual verification.
+    //
+    // Unlike every anon-keyed call above, this one must authenticate as the
+    // guest identity being converted — Supabase's user-update endpoint
+    // identifies *which* user to modify from the bearer token itself, not
+    // from a body field. Setting Authorization directly on this request
+    // overrides the anon-keyed default the HttpClient sets (a request's own
+    // header value always wins — the same mechanism DeleteUserAsync's
+    // service-role override above relies on), while "apikey" stays the
+    // HttpClient's anon-key default, which Supabase's REST API expects
+    // alongside the caller's own bearer token on this endpoint (unlike
+    // DeleteUserAsync's Admin API call, this is not a service_role-only
+    // operation).
+    public async Task<SupabaseAuthResult> LinkEmailPasswordAsync(
+        string accessToken, string email, string password, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, "auth/v1/user")
+        {
+            Content = JsonContent.Create(new { email, password }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<SupabaseErrorResponse>(cancellationToken: cancellationToken);
+            return new SupabaseAuthResult
+            {
+                Success = false,
+                ErrorMessage = error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.",
+            };
+        }
+
+        // Supabase's user-update endpoint returns the updated user object
+        // at the top level (id/email/...), the same shape
+        // PostAuthRequestAsync's non-session fallback (body?.Id) already
+        // handles for other endpoints.
+        var body = await response.Content.ReadFromJsonAsync<SupabaseUser>(cancellationToken: cancellationToken);
+        if (body is null)
+        {
+            return new SupabaseAuthResult { Success = false, ErrorMessage = "Supabase Auth returned no user id." };
+        }
+
+        return new SupabaseAuthResult { Success = true, AuthProviderUserId = body.Id };
     }
 
     // Shared by SignUpAsync/SignInWithPasswordAsync/RefreshTokenAsync above —

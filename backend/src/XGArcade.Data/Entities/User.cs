@@ -11,7 +11,12 @@ public class User
     // request resolves this row via that claim.
     public Guid AuthProviderUserId { get; set; }
 
-    public required string Email { get; set; }
+    // REQ-717/ADR-0036: nullable because a guest (IsGuest = true) has no
+    // email at all — every existing caller that assumed this was always
+    // set (Signup, Login, DeleteAccount's re-confirmation, GetByEmailAsync)
+    // has been audited and updated for that possibility; see those call
+    // sites' own comments for how each one now handles a null Email.
+    public string? Email { get; set; }
 
     private string _displayName = string.Empty;
 
@@ -44,6 +49,25 @@ public class User
     // Mirrors Supabase Auth's confirmed state; see REQ-702 (deferred — Tier
     // 0 has confirm-email off, so this is always true at creation for now).
     public bool EmailConfirmed { get; set; }
+
+    // REQ-717/ADR-0036: true only for a row created via POST /auth/guest —
+    // the *only* place this flag is ever consulted is REQ-409's qualifying-
+    // rounds query (LeaderboardService/GuessRepository.
+    // GetPerRoundFinalPointsByUserIdsAsync), which excludes guest rows from
+    // the all-time median ranking entirely. Every other REQ (201-210, 204,
+    // 406/407/408) reads Guess/LeagueMembership exactly as it already does —
+    // a guest is indistinguishable from a real account to all of that code,
+    // by design (ADR-0036's "For AI agents" section). Never branch on this
+    // anywhere else.
+    public bool IsGuest { get; set; }
+
+    // REQ-717: set once, the moment a guest claims a real account (adds
+    // email+password) — never before, never twice. Used by REQ-409's
+    // qualifying-rounds query to exclude any round closed before this
+    // moment, so a claimed account can't retroactively count guest-era
+    // rounds toward the all-time median (see that query's own comment for
+    // the full anti-loophole rationale).
+    public DateTime? ClaimedAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }

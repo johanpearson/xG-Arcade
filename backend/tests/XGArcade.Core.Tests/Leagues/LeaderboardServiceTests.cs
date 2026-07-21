@@ -135,6 +135,85 @@ public class LeaderboardServiceTests
             await SeedLockedGuessAsync(userId, finalPoints);
     }
 
+    // REQ-717/ADR-0036: same shape as SeedLockedGuessAsync above, but with a
+    // caller-chosen ClosedAt instead of a fixed "yesterday" — needed to test
+    // the claim cutoff (a round closed before vs. after User.ClaimedAt)
+    // precisely, which SeedLockedGuessAsync's fixed offset can't express.
+    private async Task SeedLockedGuessAtAsync(Guid userId, int finalPoints, DateTime closedAt)
+    {
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GameKey,
+            GameInstanceId = Guid.NewGuid(),
+            StartTime = closedAt.AddDays(-1),
+            EndTime = closedAt,
+            AllowGuessChange = true,
+            ClosedAt = closedAt,
+        };
+        _dbContext.Rounds.Add(round);
+        _dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = round.Id,
+            UserId = userId,
+            CellId = Guid.NewGuid(),
+            SubmittedName = "Someone",
+            IsCorrect = true,
+            AttemptCount = 1,
+            FinalUniquenessScore = finalPoints / 100.0,
+            FinalPoints = finalPoints,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+    }
+
+    // REQ-717/ADR-0036: a guest Global-league member — no email, IsGuest =
+    // true, same auto-enrollment every other member here gets.
+    private async Task<User> SeedGuestMemberAsync(string displayName)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = displayName,
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var globalLeague = await _leagueRepository.GetOrCreateGlobalLeagueAsync();
+        await _leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id);
+        return user;
+    }
+
+    // REQ-717/ADR-0036: a formerly-guest member who has already claimed a
+    // real email/password — IsGuest false, ClaimedAt set to the caller's
+    // chosen instant, same as UserRepository.ClaimGuestAsync would produce.
+    private async Task<User> SeedClaimedMemberAsync(string displayName, DateTime claimedAt)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = $"{Guid.NewGuid()}@example.com",
+            DisplayName = displayName,
+            EmailConfirmed = true,
+            IsGuest = false,
+            ClaimedAt = claimedAt,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var globalLeague = await _leagueRepository.GetOrCreateGlobalLeagueAsync();
+        await _leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id);
+        return user;
+    }
+
     private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime, DateTime? closedAt = null)
     {
         var round = new Round
@@ -336,6 +415,76 @@ public class LeaderboardServiceTests
         var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
+    }
+
+    // ---- REQ-717/ADR-0036: guest exclusion + claimed-account cutoff ----
+
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_GuestMember_ExcludedFromRankedList_RegardlessOfQualifyingRoundCount()
+    {
+        var guest = await SeedGuestMemberAsync("GuestPlayer");
+        // Would easily clear REQ-409's 5-round floor if IsGuest weren't
+        // checked at all.
+        await SeedQualifyingRoundsAsync(guest.Id, 10, 20, 30, 40, 50);
+
+        var page = await _service.GetGlobalLeaderboardAsync(guest.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_RoundsClosedBeforeClaimingNeverCountTowardQualification()
+    {
+        var claimedAt = DateTime.UtcNow.AddDays(-5);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        // All 5 rounds closed BEFORE the claim moment — none should count,
+        // even though there are enough of them to otherwise clear REQ-409's
+        // 5-round floor.
+        for (var i = 0; i < 5; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(-1 - i));
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_OnlyRoundsClosedAfterClaimingCountTowardMedian()
+    {
+        var claimedAt = DateTime.UtcNow.AddDays(-5);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        // Two rounds closed BEFORE claiming, carrying a deliberately extreme
+        // FinalPoints — must never contribute, whether to the qualification
+        // floor or the median.
+        await SeedLockedGuessAtAsync(you.Id, 999, claimedAt.AddDays(-1));
+        await SeedLockedGuessAtAsync(you.Id, 999, claimedAt.AddDays(-2));
+        // Five rounds closed AFTER claiming, all worth 10 — these alone
+        // must both qualify and set the median.
+        for (var i = 0; i < 5; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10, claimedAt.AddDays(1 + i));
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Has.Count.EqualTo(1));
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
+    }
+
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_NeverClaimedAccount_ClaimedAtNullNeverExcludesAnyRound()
+    {
+        // The default shape for every account that was never a guest at
+        // all: ClaimedAt is null from creation, so the "closed after
+        // claiming" narrowing must never exclude anything for it — same
+        // qualification behavior as before REQ-717 existed.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Has.Count.EqualTo(1));
+        Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
 
     [Test]

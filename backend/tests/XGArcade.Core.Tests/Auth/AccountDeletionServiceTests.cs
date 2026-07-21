@@ -181,5 +181,13 @@ public class AccountDeletionServiceTests
             DeleteUserCalledWith = authProviderUserId;
             return Task.FromResult(DeleteUserResult(authProviderUserId));
         }
+
+        // REQ-717: AccountDeletionService never calls either of these —
+        // same harmless no-op stub reasoning as SignUp/SignIn above.
+        public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid() });
+
+        public Task<SupabaseAuthResult> LinkEmailPasswordAsync(string accessToken, string email, string password, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid() });
     }
 }

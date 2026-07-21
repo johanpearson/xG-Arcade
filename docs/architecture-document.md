@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.46"
+version: "0.47"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -347,6 +347,24 @@ deletion implementation was written. Separately, `AdminAuthorizationHandler`
 /auth/me`'s `MeResponse.IsAdmin` (REQ-504) reads `Admin:UserIds` the exact
 same way the "Admin" authorization policy itself does — one check, two
 callers, never two independently-maintained ones.
+
+**COMP-01 status (S-069, 2026-07-21, REQ-717/ADR-0036):** guest play added
+two `User` columns (`IsGuest bool`, `ClaimedAt DateTime?`) and made `Email`
+nullable — a guest is a real `User` row with no email/password, created via
+`POST /auth/guest` (mirrors `Signup`'s Supabase-mediation shape, ADR-0013)
+and later converted in place via `POST /auth/claim`
+(`IUserRepository.ClaimGuestAsync`), never a second table or a re-link of
+existing `Guess`/`LeagueMembership` rows. `ISupabaseAuthClient` gained
+`SignInAnonymouslyAsync`/`LinkEmailPasswordAsync` alongside the existing
+Signup/Login/Refresh/DeleteUser methods — same interface, same "never
+throws, Success/ErrorMessage shape" contract, no new component. `IsGuest`
+is consulted in exactly one place outside `AuthController` itself:
+`GuessRepository.GetPerRoundFinalPointsByUserIdsAsync` (REQ-409's
+qualifying-rounds query), which now joins `Users` to exclude guest rows and
+a claimed account's pre-claim rounds — every other query/service
+(REQ-201-210, REQ-204, REQ-406/407/408) is unmodified, per ADR-0036's own
+"For AI agents" instruction that a guest must never gain a second,
+guest-aware code path anywhere else.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never

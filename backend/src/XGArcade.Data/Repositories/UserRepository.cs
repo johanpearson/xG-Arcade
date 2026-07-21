@@ -60,6 +60,27 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
         return user;
     }
 
+    // REQ-717: the claim/upgrade path. Load-then-SaveChangesAsync (docs/
+    // coding-guidelines.md) — the InMemory provider this codebase's tests
+    // run against can't translate ExecuteUpdateAsync, same reason
+    // UpdateDisplayNameAsync above doesn't use it either.
+    public async Task<User?> ClaimGuestAsync(Guid id, string email, CancellationToken cancellationToken = default)
+    {
+        var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+        if (user is null)
+            return null;
+
+        user.Email = email;
+        user.IsGuest = false;
+        user.ClaimedAt = DateTime.UtcNow;
+        // Tier 0: Supabase's confirm-email requirement is off — see
+        // MVP-SCOPE.md and AuthController.Signup's identical assignment.
+        user.EmailConfirmed = true;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return user;
+    }
+
     public async Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
         await dbContext.Users.AsNoTracking().Where(u => ids.Contains(u.Id)).ToListAsync(cancellationToken);
 
@@ -69,7 +90,11 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
     public async Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         var normalized = email.ToLowerInvariant();
-        return await dbContext.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email.ToLower() == normalized, cancellationToken);
+        // Email is nullable since REQ-717 (a guest has none) — a guest row
+        // can never match a real email lookup, so it's excluded up front
+        // rather than risking a null.ToLower() call.
+        return await dbContext.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalized, cancellationToken);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)

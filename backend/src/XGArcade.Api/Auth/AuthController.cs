@@ -144,7 +144,10 @@ public class AuthController(
         var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
         await leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id, cancellationToken);
 
-        return CreatedAtAction(nameof(Me), null, new SignupResponse(user.Id, user.Email, user.DisplayName));
+        // Safe: this signup path always sets Email above — the null-forgiving
+        // operator here is only about User.Email's REQ-717 nullability (a
+        // guest has none), never true for a row created through this path.
+        return CreatedAtAction(nameof(Me), null, new SignupResponse(user.Id, user.Email!, user.DisplayName));
     }
 
     // REQ-606: 10 logins per IP per minute — a separate policy/counter from
@@ -170,6 +173,103 @@ public class AuthController(
         }
 
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
+    }
+
+    // REQ-717/ADR-0036: provisions a real, guessable User row with no email
+    // or password — the identity itself is a Supabase Auth Anonymous
+    // Sign-in, mediated here the same way Signup/Login are (ADR-0013),
+    // never called directly from the frontend. Rate-limited by its own,
+    // tighter policy (see Program.cs's "auth-guest" — an anonymous sign-in
+    // has even less friction than email signup, no address to type at all,
+    // making it a cheaper target for scripted identity creation). No
+    // request body: there's nothing for the caller to supply — REQ-717's
+    // whole point is zero-friction entry.
+    [EnableRateLimiting("auth-guest")]
+    [HttpPost("guest")]
+    public async Task<IActionResult> Guest(CancellationToken cancellationToken)
+    {
+        var signInResult = await authClient.SignInAnonymouslyAsync(cancellationToken);
+        if (!signInResult.Success || signInResult.AccessToken is null)
+        {
+            logger.LogWarning("Guest sign-in rejected by Supabase Auth: {ErrorMessage}", signInResult.ErrorMessage);
+            return Problem(
+                title: "Guest sign-in failed",
+                detail: "Could not start a guest session. Please try again.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        var displayName = await GenerateUniqueGuestDisplayNameAsync(cancellationToken);
+
+        User user;
+        try
+        {
+            user = await userRepository.AddAsync(new User
+            {
+                Id = Guid.NewGuid(),
+                // Safe: SupabaseAuthClient.PostAuthRequestAsync never returns
+                // Success = true without AuthProviderUserId set.
+                AuthProviderUserId = signInResult.AuthProviderUserId!.Value,
+                Email = null,
+                DisplayName = displayName,
+                // No email exists to be confirmed at all — distinct from
+                // Signup's `true` (Tier 0's confirm-email-off default for a
+                // *real* signup). REQ-702's "unconfirmed accounts cannot
+                // play" rule doesn't gate on this today either way (deferred
+                // per MVP-SCOPE.md) — this is a factual "nothing to confirm"
+                // rather than one that matters operationally yet.
+                EmailConfirmed = false,
+                IsGuest = true,
+                CreatedAt = DateTime.UtcNow,
+            }, cancellationToken);
+        }
+        catch (DisplayNameAlreadyInUseException ex)
+        {
+            // Astronomically unlikely — GenerateUniqueGuestDisplayNameAsync
+            // already retried against the same pre-check — but the same
+            // DB-level race fallback every other write against this unique
+            // index uses (Signup/UpdateDisplayName above).
+            logger.LogWarning(ex, "Guest sign-in lost a race on display name uniqueness.");
+            return Problem(
+                title: "Guest sign-in failed",
+                detail: "Could not start a guest session. Please try again.",
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
+
+        // REQ-401/REQ-717: a guest is a real User row participating in the
+        // Global league exactly like any other new account — same
+        // auto-enrollment Signup already does, no second, guest-specific
+        // mechanism.
+        var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
+        await leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id, cancellationToken);
+
+        // Same token shape as Login/Refresh — the frontend treats a guest
+        // session identically to any other login for storage purposes
+        // (ADR-0033), with no separate "guest mode" client-side branch.
+        return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
+    }
+
+    // REQ-717: Guest####-style default display name, retried on a
+    // collision the same way any other conflicting write in this system is
+    // retried — reuses REQ-701's existing case-insensitive uniqueness check
+    // (IUserRepository.DisplayNameExistsAsync), never a second mechanism.
+    private const int MaxGuestDisplayNameGenerationAttempts = 10;
+
+    private async Task<string> GenerateUniqueGuestDisplayNameAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxGuestDisplayNameGenerationAttempts; attempt++)
+        {
+            var candidate = $"Guest{Random.Shared.Next(1000, 10000)}";
+            if (!await userRepository.DisplayNameExistsAsync(candidate, cancellationToken: cancellationToken))
+            {
+                return candidate;
+            }
+        }
+
+        // Astronomically unlikely with a 9000-value range at this DB's
+        // scale, but never loop forever — falls back to a value with enough
+        // entropy to be unique in practice, still well inside REQ-701's
+        // 1-30 character bound (5 + 15 = 20 characters).
+        return $"Guest{Guid.NewGuid():N}"[..20];
     }
 
     // REQ-715: exchanges a stored refresh token for a new access token
@@ -289,6 +389,101 @@ public class AuthController(
         }
     }
 
+    // REQ-717/ADR-0036: the claim/upgrade path — a guest adds a real email
+    // and password, converting their existing identity in place (never
+    // creating a second, disconnected User row; every Guess/LeagueMembership
+    // row already attributed to this User.Id stays attributed to it
+    // unchanged, since nothing here touches those tables at all). Rejects
+    // outright if the caller isn't currently a guest — an already-real
+    // account has no "claim" to perform.
+    [Authorize]
+    [HttpPost("claim")]
+    public async Task<IActionResult> Claim([FromBody] ClaimAccountRequest request, CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        if (!user.IsGuest)
+        {
+            return Problem(
+                title: "Account is not a guest",
+                detail: "Only a guest account can be claimed.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Same REQ-701 password policy/ordering as Signup: free, local-only
+        // checks before any call to Supabase.
+        if (request.Password.Length < 8)
+        {
+            return Problem(
+                title: "Password too short",
+                detail: "Password must be at least 8 characters.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (request.Password != request.ConfirmPassword)
+        {
+            return Problem(
+                title: "Passwords do not match",
+                detail: "Password and confirm password must match.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // The claim/link call must authenticate as the guest identity being
+        // converted (see ISupabaseAuthClient.LinkEmailPasswordAsync's own
+        // doc comment) — extracted from this request's own bearer token,
+        // which [Authorize] already validated to reach this point.
+        var accessToken = GetBearerToken();
+        if (accessToken is null)
+        {
+            return Unauthorized();
+        }
+
+        var linkResult = await authClient.LinkEmailPasswordAsync(accessToken, request.Email, request.Password, cancellationToken);
+        if (!linkResult.Success)
+        {
+            logger.LogWarning("Claim rejected by Supabase Auth: {ErrorMessage}", linkResult.ErrorMessage);
+            return Problem(
+                title: "Claim could not be completed",
+                detail: "Could not add an email and password to this account. The email may already be in use.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var updated = await userRepository.ClaimGuestAsync(user.Id, request.Email, cancellationToken);
+        if (updated is null)
+        {
+            return NotFound();
+        }
+
+        var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
+        return Ok(new MeResponse(updated.Id, updated.Email, updated.DisplayName, updated.EmailConfirmed, isAdmin));
+    }
+
+    // Shared by Claim above — the raw bearer token this request itself
+    // carried in, needed because the claim/link Supabase call must
+    // authenticate as the guest identity being converted, not the shared
+    // anon key every other ISupabaseAuthClient call here uses. Returns null
+    // if the header is somehow missing/malformed, which [Authorize] having
+    // already accepted this request should make unreachable in practice —
+    // handled defensively rather than assumed.
+    private string? GetBearerToken()
+    {
+        const string bearerPrefix = "Bearer ";
+        var authorizationHeader = Request.Headers.Authorization.ToString();
+        return authorizationHeader.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
+            ? authorizationHeader[bearerPrefix.Length..]
+            : null;
+    }
+
     // REQ-710: self-service account deletion. Irreversible, so the request
     // must re-prove the caller still holds the account's own credentials —
     // re-verified against Supabase Auth via the same SignInWithPasswordAsync
@@ -311,6 +506,19 @@ public class AuthController(
         if (user is null)
         {
             return NotFound();
+        }
+
+        // REQ-717: a guest has no email/password to re-confirm at all — this
+        // self-service deletion flow, built around re-proving a password,
+        // simply doesn't apply to that identity kind. (A guest can still be
+        // removed via S-026's admin-triggered path, which doesn't go through
+        // this re-confirmation step.)
+        if (user.Email is null)
+        {
+            return Problem(
+                title: "Account deletion not available",
+                detail: "Guest accounts have no password to confirm deletion.",
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
         var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, cancellationToken);

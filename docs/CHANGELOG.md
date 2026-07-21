@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.91 → 0.92),
+  `docs/architecture-document.md` (0.46 → 0.47),
+  `docs/implementation-document.md` (0.64 → 0.65), `MVP-SCOPE.md`,
+  `docs/backlog.md` (new S-069),
+  `docs/legal/privacy-policy-draft.md` (0.7 → 0.8, noted guest play as a
+  data-collection variant: no email/password held until claimed) —
+  REQ-717/ADR-0036 guest play **backend half built**: `POST /auth/guest` (Supabase Anonymous Sign-in, mediated
+  through a new `ISupabaseAuthClient.SignInAnonymouslyAsync`, rate-limited
+  by a new, tighter `auth-guest` policy — 3/min default vs. auth-signup/
+  auth-login's 10/min), `POST /auth/claim` (claim/upgrade path, a new
+  `ISupabaseAuthClient.LinkEmailPasswordAsync` + `IUserRepository.
+  ClaimGuestAsync`, preserving every `Guess`/`LeagueMembership` row
+  unchanged), `User.IsGuest`/`User.ClaimedAt` columns (migration
+  `20260721140000_AddGuestPlaySupport`), `User.Email` made nullable (a
+  real ripple, audited across every existing caller), and REQ-409's
+  qualifying-rounds query (`GuessRepository.
+  GetPerRoundFinalPointsByUserIdsAsync`) narrowed to exclude guest rows and
+  a claimed account's pre-claim rounds. No other REQ-201-210/204/406/407/408
+  code path touched, per ADR-0036. Frontend (guest entry point, claim UI)
+  remains a separate, not-yet-scoped follow-up story — `MVP-SCOPE.md`'s
+  "Guest play" bullet updated to record the backend as implemented and the
+  frontend as still open. Two Supabase API call shapes
+  (`SignInAnonymouslyAsync`/`LinkEmailPasswordAsync`) could not be verified
+  against a live Supabase project from the build environment — flagged in
+  `SupabaseAuthClient`'s own doc comments for manual verification.
+  REQ-717/ADR-0036/S-069.
 - 2026-07-21 — `docs/requirements-document.md` (0.90 → 0.91),
   `docs/decisions/0036-guest-play-anonymous-auth.md` (new),
   `docs/architecture-document.md` (ADR table only, new row), `MVP-SCOPE.md`

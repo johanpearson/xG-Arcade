@@ -152,6 +152,30 @@ public class UserRepositoryTests
         Assert.That(found, Is.Null);
     }
 
+    // REQ-717/ADR-0036: a guest row (Email = null) must never match a real
+    // email lookup — guards against a null-reference-style failure now that
+    // Email is nullable, not just a behavioral nicety.
+    [Test]
+    public async Task REQ717_GetByEmailAsync_NeverMatchesAGuestRowWithNullEmail()
+    {
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest4242",
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var found = await _repository.GetByEmailAsync("anything@example.com");
+
+        Assert.That(found, Is.Null);
+    }
+
     // REQ-714: edit display name from Settings. DisplayNameExistsAsync's new
     // excludeUserId parameter — the mechanism AuthController.UpdateDisplayName
     // relies on so a no-op/casing-only resubmission of the caller's own
@@ -228,6 +252,47 @@ public class UserRepositoryTests
     public async Task REQ714_UpdateDisplayNameAsync_ReturnsNull_ForUnknownUserId()
     {
         var updated = await _repository.UpdateDisplayNameAsync(Guid.NewGuid(), "Doesn't Matter");
+
+        Assert.That(updated, Is.Null);
+    }
+
+    // REQ-717/ADR-0036: the claim/upgrade path — an in-place conversion of a
+    // guest row, not a new row.
+    [Test]
+    public async Task REQ717_ClaimGuestAsync_SetsEmailClearsIsGuestAndStampsClaimedAt()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest1234",
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var before = DateTime.UtcNow;
+        var updated = await _repository.ClaimGuestAsync(user.Id, "claimed@example.com");
+        var after = DateTime.UtcNow;
+
+        Assert.That(updated, Is.Not.Null);
+        Assert.That(updated!.Email, Is.EqualTo("claimed@example.com"));
+        Assert.That(updated.IsGuest, Is.False);
+        Assert.That(updated.ClaimedAt, Is.Not.Null);
+        Assert.That(updated.ClaimedAt!.Value, Is.InRange(before, after));
+
+        var reloaded = await _repository.GetByIdAsync(user.Id);
+        Assert.That(reloaded!.Email, Is.EqualTo("claimed@example.com"));
+        Assert.That(reloaded.IsGuest, Is.False);
+    }
+
+    [Test]
+    public async Task REQ717_ClaimGuestAsync_ReturnsNull_ForUnknownUserId()
+    {
+        var updated = await _repository.ClaimGuestAsync(Guid.NewGuid(), "doesnt-matter@example.com");
 
         Assert.That(updated, Is.Null);
     }

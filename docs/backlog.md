@@ -3488,3 +3488,53 @@ formalized. `docs/design-document.md` SCREEN-03/SCREEN-06 updated in the
 same session to match (median/participation-gate ranking description was
 already stale independent of this story — corrected here, not just the new
 entry point added on top of it).
+
+**S-069 · Guest play, backend half (REQ-717, ADR-0036)**
+`MVP-SCOPE.md`'s "Guest play" bullet pulled this forward by deliberate
+product decision (2026-07-21, no trigger fired) — REQ-717 and ADR-0036
+were drafted the same session; this story is the backend implementation
+both describe. Deliberately backend-only: REQ-717's acceptance criteria are
+observable-behavior statements about the API/data layer (per its own scope
+note), and a frontend guest-play entry point/claim UI is real, separate
+scope not bundled in here.
+*Accept:* REQ717-named tests (unit: `LeaderboardServiceTests`,
+`UserRepositoryTests`; API: `AuthEndpointTests`) covering guest
+provisioning (no email/password, `IsGuest = true`, auto-generated
+`Guest####` display name, Global league auto-membership), guessing/scoring/
+uniqueness/round-scoped leaderboards requiring zero new code path (verified
+by absence of any `IsGuest` branch outside the two places listed below),
+the claim/upgrade path (preserves `Guess`/`LeagueMembership` rows
+unchanged, rejects a non-guest caller), REQ-409's qualifying-rounds query
+excluding guest rows and a claimed account's pre-claim rounds, and the
+`auth-guest` rate limit's own distinct 429 behavior.
+*Deps:* S-004 (auth exists), S-060 (REQ-409 median ranking, the one query
+this story narrows).
+**Built as:** `User` gained two columns (`IsGuest bool`, default `false`;
+`ClaimedAt DateTime?`) and `Email` became nullable (`string?`) — a
+non-trivial ripple audited across every existing caller (`AuthController`'s
+Signup/Me/DeleteAccount, `UserRepository.GetByEmailAsync`,
+`UserDisplayNameBackfiller`); migration
+`20260721140000_AddGuestPlaySupport`. `ISupabaseAuthClient` gained
+`SignInAnonymouslyAsync` (POST `auth/v1/signup` with no email/password,
+mirroring `SignUpAsync`) and `LinkEmailPasswordAsync` (PUT `auth/v1/user`,
+authenticated with the guest's own access token rather than the shared anon
+key) — **neither call's exact request/response shape was verified against
+a live Supabase project** (no network access in the build environment);
+flagged in `SupabaseAuthClient`'s own doc comments for manual verification
+before this reaches production, per this repo's established practice
+around unverified external-API assumptions (ADR-0008's precedent).
+`AuthController` gained `POST /auth/guest` (rate-limited by a new,
+deliberately tighter `auth-guest` policy — 3/min per IP default vs.
+auth-signup/auth-login's 10/min, since an anonymous sign-in has no email
+step at all to slow down scripting) and `POST /auth/claim`
+(`[Authorize]`, rejects a non-guest caller, delegates to a new
+`IUserRepository.ClaimGuestAsync` that sets `Email`/clears `IsGuest`/stamps
+`ClaimedAt` via load-then-`SaveChangesAsync`, never touching
+`Guess`/`LeagueMembership`). `GuessRepository.
+GetPerRoundFinalPointsByUserIdsAsync` (REQ-409's qualifying-rounds query)
+gained a join to `Users` excluding `IsGuest` rows and, for a claimed
+account, rounds closed before `ClaimedAt`. No change to any REQ-201-210/204/
+406/407/408 code path, per ADR-0036's explicit "For AI agents" instruction —
+a guest is a real `User`/`LeagueMembership`/`Guess` row throughout. Frontend
+(guest entry point, claim/upgrade screen) intentionally not built this
+session — remains open Tier 1/2 scope in `MVP-SCOPE.md`.

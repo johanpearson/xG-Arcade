@@ -381,8 +381,8 @@ if (args is ["purge-player-pool", ..])
 // runs). A local function declaration is visible throughout this file's
 // top-level statements regardless of textual position, so this can stay
 // defined here rather than duplicated at the top.
-// REQ-606: the partition key the auth-signup/auth-login rate-limit policies
-// above key their per-IP counters on. TestServer (WebApplicationFactory)
+// REQ-606/REQ-717: the partition key the auth-signup/auth-login/auth-guest
+// rate-limit policies above key their per-IP counters on. TestServer (WebApplicationFactory)
 // leaves Connection.RemoteIpAddress null, so every request in a given test
 // host collapses onto the same "unknown" partition — that's fine, it's what
 // makes AuthEndpointTests.cs's REQ606 tests able to trip the limit
@@ -419,26 +419,37 @@ builder.Services.AddCors(options =>
 // REQ-606: rate limiting scoped narrowly to POST /auth/signup and
 // POST /auth/login (AuthController's [EnableRateLimiting("auth-signup"/
 // "auth-login")] attributes below) — not every endpoint, per REQ-606's own
-// scoping. Two separate named policies so exhausting one endpoint's limit
-// never blocks the other. Partitioned per client IP (GetClientIpPartitionKey
-// below): a fixed 1-minute window, 10 permits by default (see
-// authSignupPermitLimit/authLoginPermitLimit below — configurable per
-// environment, ci.yml's E2E job raises both), no queueing — a request over
+// scoping. REQ-717/ADR-0036 added a third, POST /auth/guest ("auth-guest").
+// Three separate named policies so exhausting one endpoint's limit never
+// blocks the others. Partitioned per client IP (GetClientIpPartitionKey
+// below): a fixed 1-minute window, no queueing — a request over
 // the limit is rejected immediately with 429 (OnRejected/RejectionStatusCode
 // below), never silently queued or left to fall through as a generic 500.
 // Uses ASP.NET Core's built-in Microsoft.AspNetCore.RateLimiting middleware
 // (available since .NET 7, part of the shared framework) — no new package.
-// Configurable rather than a bare literal: REQ-606 fixes the production
-// value at 10/min, but ci.yml's E2E job runs the whole Playwright suite
-// (signup + auto-login per test, across every spec file) against one
+// Configurable rather than a bare literal: REQ-606 fixes signup/login's
+// production value at 10/min, but ci.yml's E2E job runs the whole Playwright
+// suite (signup + auto-login per test, across every spec file) against one
 // shared backend process from a single CI-runner IP within the same
 // fixed window — a fundamentally different traffic shape than the
-// abuse scenario REQ-606 targets. ci.yml overrides both values via
-// RateLimiting__AuthSignupPermitLimit/AuthLoginPermitLimit env vars for
+// abuse scenario REQ-606 targets. ci.yml overrides both signup/login values
+// via RateLimiting__AuthSignupPermitLimit/AuthLoginPermitLimit env vars for
 // that job only; every other environment (including local dev) falls
 // back to REQ-606's specified 10, unchanged.
 var authSignupPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthSignupPermitLimit") ?? 10;
 var authLoginPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthLoginPermitLimit") ?? 10;
+// REQ-717/ADR-0036: deliberately tighter than signup/login's 10/min default
+// — an anonymous sign-in has no email step at all to slow down scripting
+// (not even a plausible-looking address to type), making it the cheapest
+// identity to mint at scale of the three endpoints here; a real person
+// retrying a flaky network call a couple of times is still comfortably
+// inside 3/min, while a scripted loop is capped far below what 10/min would
+// allow. Same override mechanism as the other two
+// (RateLimiting:AuthGuestPermitLimit) if this default ever needs tuning —
+// ci.yml doesn't currently exercise POST /auth/guest at all (no frontend
+// guest flow yet), so it needs no override today; add one the same way as
+// the other two the moment an E2E spec starts calling this endpoint.
+var authGuestPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthGuestPermitLimit") ?? 3;
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -476,6 +487,15 @@ builder.Services.AddRateLimiter(options =>
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = authLoginPermitLimit,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+
+    options.AddPolicy("auth-guest", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        GetClientIpPartitionKey(httpContext),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = authGuestPermitLimit,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
         }));

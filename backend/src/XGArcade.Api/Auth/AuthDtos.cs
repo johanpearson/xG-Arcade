@@ -18,8 +18,9 @@ public record LoginResponse(string AccessToken, string? RefreshToken);
 // IsAdmin (S-026, REQ-504) is what lets the frontend decide whether to
 // render the admin nav entry point at all — computed the same way
 // AdminAuthorizationHandler decides it server-side (Admin:UserIds), never a
-// second, independently-maintained check.
-public record MeResponse(Guid Id, string Email, string DisplayName, bool EmailConfirmed, bool IsAdmin);
+// second, independently-maintained check. Email is nullable since REQ-717:
+// a guest (IsGuest = true) has none until it claims a real account.
+public record MeResponse(Guid Id, string? Email, string DisplayName, bool EmailConfirmed, bool IsAdmin);
 
 // REQ-710: the confirmation step an irreversible self-service deletion
 // requires — the caller's current password, re-verified against Supabase
@@ -42,3 +43,10 @@ public record UpdateDisplayNameResponse(Guid Id, string DisplayName);
 // person re-entering credentials — mediated through the backend the same
 // way POST /auth/login/signup already are (ADR-0013).
 public record RefreshRequest(string RefreshToken);
+
+// REQ-717/ADR-0036: the claim/upgrade path — a guest (AuthController.Claim)
+// adds a real email+password to their existing identity. Same
+// Password/ConfirmPassword shape and REQ-701 password-policy reuse as
+// SignupRequest above, deliberately not a second, looser policy just
+// because the caller already has a session.
+public record ClaimAccountRequest(string Email, string Password, string ConfirmPassword);
