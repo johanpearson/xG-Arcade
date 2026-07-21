@@ -238,15 +238,17 @@ export async function fetchClosedRoundLeaderboard(
   return (await response.json()) as LeaderboardResponse;
 }
 
-// REQ-405 (S-027): the four fixed rolling-window resolutions SCREEN-03's
-// "Time Windows" scope offers — a closed set matching the backend's
-// `{resolution}` route segment exactly (case-insensitive server-side, but
-// the frontend always sends lowercase so there's never a reason to rely on
-// that leniency).
+// REQ-405 (S-027): the four fixed, calendar-aligned window resolutions
+// SCREEN-03's "Time Windows" scope offers — a closed set matching the
+// backend's `{resolution}` route segment exactly (case-insensitive
+// server-side, but the frontend always sends lowercase so there's never a
+// reason to rely on that leniency). "Calendar-aligned," not "rolling":
+// week/month/year are fixed calendar periods (LeaderboardService
+// .GetCalendarWindow), never a rolling last-N-days window.
 export type WindowResolution = 'round' | 'week' | 'month' | 'year';
 
-// REQ-405 (S-027): one rolling time-window's leaderboard (SCREEN-03's "Time
-// Windows" scope) — same cursor/pageSize/response shape as
+// REQ-405 (S-027): one calendar-aligned time-window's leaderboard
+// (SCREEN-03's "Time Windows" scope) — same cursor/pageSize/response shape as
 // fetchLeaderboard/fetchActiveRoundLeaderboard/fetchClosedRoundLeaderboard
 // above, summing only locked `FinalPoints` (never live/provisional points,
 // unlike fetchActiveRoundLeaderboard). An empty ranked list is a real,

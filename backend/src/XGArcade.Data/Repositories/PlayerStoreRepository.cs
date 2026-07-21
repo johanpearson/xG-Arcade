@@ -86,14 +86,10 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             return new Dictionary<Guid, IReadOnlyList<PlayerAlias>>();
 
         var idList = playerIds.ToList();
-        var aliases = await dbContext.PlayerAliases
-            .AsNoTracking()
-            .Where(pa => idList.Contains(pa.PlayerId))
-            .ToListAsync(cancellationToken);
-
-        return aliases
-            .GroupBy(a => a.PlayerId)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerAlias>)g.ToList());
+        return await GroupByPlayerIdAsync(
+            dbContext.PlayerAliases.Where(pa => idList.Contains(pa.PlayerId)),
+            alias => alias.PlayerId,
+            cancellationToken);
     }
 
     public async Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default)
@@ -203,14 +199,34 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             return new Dictionary<Guid, IReadOnlyList<PlayerAttribute>>();
 
         var idList = playerIds.ToList();
-        var attributes = await dbContext.PlayerAttributes
-            .AsNoTracking()
-            .Where(pa => idList.Contains(pa.PlayerId))
-            .ToListAsync(cancellationToken);
+        return await GroupByPlayerIdAsync(
+            dbContext.PlayerAttributes.Where(pa => idList.Contains(pa.PlayerId)),
+            attribute => attribute.PlayerId,
+            cancellationToken);
+    }
 
-        return attributes
-            .GroupBy(a => a.PlayerId)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerAttribute>)g.ToList());
+    // Shared by GetPlayerAliasesByPlayerIdsAsync/GetPlayerAttributesByPlayerIdsAsync
+    // above (quality-architect review, 2026-07-21): both were the identical
+    // "fetch rows already filtered to a set of player ids, then group into
+    // one dictionary entry per player id" shape, differing only in which
+    // entity/DbSet they queried — that boilerplate is factored out here so
+    // the two callers keep only their entity-specific query, not the
+    // AsNoTracking/GroupBy/ToDictionary ceremony duplicated a second time.
+    // The caller supplies its own already-filtered IQueryable<TEntity>
+    // (Where(x => idList.Contains(x.PlayerId))) since each source DbSet is
+    // different; this helper only owns the materialize-then-group step that
+    // was genuinely identical between them.
+    private static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<TEntity>>> GroupByPlayerIdAsync<TEntity>(
+        IQueryable<TEntity> filteredQuery,
+        Func<TEntity, Guid> playerIdSelector,
+        CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        var rows = await filteredQuery.AsNoTracking().ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(playerIdSelector)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<TEntity>)g.ToList());
     }
 
     public async Task<int> CountPlayersWithBothAttributesAsync(

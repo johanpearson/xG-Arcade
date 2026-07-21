@@ -834,6 +834,14 @@ cases; full frontend suite (205 tests), `tsc -b`, and lint all clean.
 `design-document.md` SCREEN-03 updated to document the full scope-tab
 system (also backfilled the pre-existing gap where the `live`/`past`
 scopes from S-053/S-054 had never been documented there at all).
+**Follow-up (quality-architect review, 2026-07-21):** `lib/api.ts`'s
+`WindowResolution`/`fetchWindowedLeaderboard` doc comments called these
+"rolling" windows, contradicting this story's own decided design
+(calendar-aligned, never rolling — see this entry's own text above and
+`LeaderboardService.GetCalendarWindow`); corrected in place, comment-only,
+no behavior change. `design-document.md` SCREEN-03's "Time Windows" bullet
+still says "a rolling leaderboard" and has the same drift — flagged for a
+`doc-sync`/`requirements-writer` pass rather than edited here.
 
 **S-030 · Enable Club × Club grid pairing (REQ-107)**
 `CategoryPairingRules.IsAllowedPairing` already permits Club × Club (only

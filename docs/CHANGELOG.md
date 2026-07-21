@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/backlog.md` (S-027 addendum) — quality-architect pass
+  over this session's diff: fixed a "rolling window" vs. "calendar-aligned
+  window" terminology drift in `frontend/src/lib/api.ts`'s REQ-405 doc
+  comments (comment-only, no behavior change) and factored a duplicated
+  bulk-fetch-by-player-id helper out of `PlayerStoreRepository`
+  (`GetPlayerAliasesByPlayerIdsAsync`/`GetPlayerAttributesByPlayerIdsAsync`
+  now share one private `GroupByPlayerIdAsync<TEntity>`). Backend suite
+  (642 tests) and frontend suite (256 tests) both re-verified green after
+  the change. Same drift still present in `design-document.md` SCREEN-03's
+  "Time Windows" bullet — flagged, not edited, for a `doc-sync`/
+  `requirements-writer` pass.
 - 2026-07-21 — `docs/requirements-document.md` (0.85 → 0.86), `MVP-SCOPE.md`
   (Tier 1 struck through), `docs/backlog.md` (new S-067 entry) —
   disambiguation UI (REQ-209) pulled forward and implemented, replacing
