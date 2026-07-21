@@ -175,7 +175,22 @@ public static class InternalRoundEndpoints
                 ],
             }, cancellationToken);
 
-            const string correctPlayerName = "Thierry Henry";
+            // REQ-209 fallout, found via a real CI failure: this endpoint
+            // never reused/cleaned up prior calls' rows, so repeated or
+            // concurrent test runs against the same CI Postgres instance
+            // accumulated multiple France/Arsenal "Thierry Henry" players
+            // over time. FindMatchAsync's category-fit check isn't scoped to
+            // one grid instance (Player/PlayerAttribute are global), so
+            // every one of those rows matched — REQ-209's now-correct
+            // disambiguation prompt surfaced this latent collision instead
+            // of the old auto-accept-lowest-id behavior silently masking it.
+            // A short unique tag per call (same purpose as the WikidataQid
+            // suffix below, which was already unique) keeps each call's
+            // players hermetic; every caller reads the actual generated name
+            // back from this response rather than assuming a literal, so no
+            // test file needed to change.
+            var nameTag = Guid.NewGuid().ToString("N")[..8];
+            var correctPlayerName = $"Thierry Henry {nameTag}";
             var player = await playerStoreRepository.AddPlayerAsync(
                 new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
                 cancellationToken);
@@ -193,7 +208,8 @@ public static class InternalRoundEndpoints
             // sharing the one and only valid answer). A second, equally
             // real Arsenal/France player added here so S-011's E2E suite can
             // have two players each pick a different correct answer.
-            const string alternateCorrectPlayerName = "Robert Pires";
+            var alternateNameTag = Guid.NewGuid().ToString("N")[..8];
+            var alternateCorrectPlayerName = $"Robert Pires {alternateNameTag}";
             var alternatePlayer = await playerStoreRepository.AddPlayerAsync(
                 new Player { Id = Guid.NewGuid(), FullName = alternateCorrectPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
                 cancellationToken);
