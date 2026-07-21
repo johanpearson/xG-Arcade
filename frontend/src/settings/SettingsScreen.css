@@ -163,3 +163,52 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* REQ-717/ADR-0036: the claim/upgrade section — reuses
+   .settings-screen__section's existing bordered-row treatment (same tokens
+   as the admin-link/appearance/display-name rows above) plus the same
+   field/input/error/success pattern already established by the
+   display-name form. No new tokens. */
+.settings-screen__section--claim {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.settings-screen__claim-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.settings-screen__claim-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.settings-screen__claim-error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.settings-screen__claim-submit {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.settings-screen__claim-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

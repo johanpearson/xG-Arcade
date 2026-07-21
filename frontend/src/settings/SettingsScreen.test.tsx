@@ -29,14 +29,17 @@ function renderSettingsScreen(
   const onAuthError = vi.fn();
   const onOpenAdmin = vi.fn();
   const onDisplayNameUpdated = vi.fn();
+  const onAccountClaimed = vi.fn();
   const onThemePreferenceChange = vi.fn();
 
   render(
     <SettingsScreen
       accessToken="token"
       isAdmin={false}
+      isGuest={false}
       displayName="Current Name"
       onDisplayNameUpdated={onDisplayNameUpdated}
+      onAccountClaimed={onAccountClaimed}
       onAccountDeleted={onAccountDeleted}
       onCancel={onCancel}
       onAuthError={onAuthError}
@@ -47,7 +50,15 @@ function renderSettingsScreen(
     />,
   );
 
-  return { onAccountDeleted, onCancel, onAuthError, onOpenAdmin, onDisplayNameUpdated, onThemePreferenceChange };
+  return {
+    onAccountDeleted,
+    onCancel,
+    onAuthError,
+    onOpenAdmin,
+    onDisplayNameUpdated,
+    onAccountClaimed,
+    onThemePreferenceChange,
+  };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -322,6 +333,138 @@ describe('SettingsScreen', () => {
         expect(label).not.toBeNull();
         expect(label).toHaveStyle({ minHeight: 'var(--touch-target-min)' });
       }
+    });
+  });
+
+  // REQ-717/ADR-0036: the guest claim/upgrade section.
+  describe('claim/upgrade (REQ-717)', () => {
+    it('REQ-717: isGuest=false renders no claim section at all', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      expect(screen.queryByText('Save your progress')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save my progress' })).not.toBeInTheDocument();
+    });
+
+    it('REQ-717: isGuest=true renders the claim form', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      expect(screen.getByText('Save your progress')).toBeInTheDocument();
+      expect(screen.getByLabelText('Email')).toBeInTheDocument();
+      expect(screen.getByLabelText('Password')).toBeInTheDocument();
+      expect(screen.getByLabelText('Confirm password')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save my progress' })).toBeInTheDocument();
+    });
+
+    it('REQ-701/717: blocks the claim client-side when the password is under 8 characters, without calling the API', async () => {
+      const fetchMock = vi.fn();
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: true }, fetchMock);
+
+      await user.type(screen.getByLabelText('Email'), 'player@example.com');
+      await user.type(screen.getByLabelText('Password'), 'short12');
+      await user.type(screen.getByLabelText('Confirm password'), 'short12');
+      await user.click(screen.getByRole('button', { name: 'Save my progress' }));
+
+      expect(await screen.findByText('Password must be at least 8 characters.')).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('REQ-701/717: blocks the claim client-side when confirm password does not match, without calling the API', async () => {
+      const fetchMock = vi.fn();
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: true }, fetchMock);
+
+      await user.type(screen.getByLabelText('Email'), 'player@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText('Confirm password'), 'password456');
+      await user.click(screen.getByRole('button', { name: 'Save my progress' }));
+
+      expect(await screen.findByText('Passwords do not match.')).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('REQ-717: submitting a valid claim calls POST /auth/claim and, on success, calls onAccountClaimed with the server response', async () => {
+      const fetchMock = vi.fn().mockImplementation(() =>
+        jsonResponse({
+          id: 'user-1',
+          email: 'player@example.com',
+          displayName: 'Guest8317',
+          emailConfirmed: true,
+          isAdmin: false,
+        }),
+      );
+      const user = userEvent.setup();
+      const { onAccountClaimed } = renderSettingsScreen(
+        { isGuest: true, accessToken: 'token-abc' },
+        fetchMock,
+      );
+
+      await user.type(screen.getByLabelText('Email'), 'player@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText('Confirm password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Save my progress' }));
+
+      await waitFor(() =>
+        expect(onAccountClaimed).toHaveBeenCalledWith({
+          id: 'user-1',
+          email: 'player@example.com',
+          displayName: 'Guest8317',
+          emailConfirmed: true,
+          isAdmin: false,
+        }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/claim'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }),
+          body: JSON.stringify({
+            email: 'player@example.com',
+            password: 'password123',
+            confirmPassword: 'password123',
+          }),
+        }),
+      );
+    });
+
+    it('REQ-717: a 400 (not currently a guest, or email already in use) shows the server\'s inline error, not a generic failure banner', async () => {
+      const fetchMock = vi.fn().mockImplementation(() =>
+        jsonResponse(
+          {
+            title: 'Claim could not be completed',
+            detail: 'Could not add an email and password to this account. The email may already be in use.',
+          },
+          400,
+        ),
+      );
+      const user = userEvent.setup();
+      const { onAccountClaimed } = renderSettingsScreen({ isGuest: true }, fetchMock);
+
+      await user.type(screen.getByLabelText('Email'), 'taken@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText('Confirm password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Save my progress' }));
+
+      expect(
+        await screen.findByText(
+          'Could not add an email and password to this account. The email may already be in use.',
+        ),
+      ).toBeInTheDocument();
+      expect(onAccountClaimed).not.toHaveBeenCalled();
+    });
+
+    it('REQ-717: a 401 (dead session) calls onAuthError, not the inline claim error', async () => {
+      const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized' }, 401));
+      const user = userEvent.setup();
+      const { onAuthError, onAccountClaimed } = renderSettingsScreen({ isGuest: true }, fetchMock);
+
+      await user.type(screen.getByLabelText('Email'), 'player@example.com');
+      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText('Confirm password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Save my progress' }));
+
+      await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+      expect(onAccountClaimed).not.toHaveBeenCalled();
     });
   });
 });

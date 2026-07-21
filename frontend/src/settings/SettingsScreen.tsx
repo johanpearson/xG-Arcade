@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, describeError, updateDisplayName } from '../lib/api';
+import { ApiError, claimAccount, describeError, updateDisplayName } from '../lib/api';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
+import type { CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
 import './SettingsScreen.css';
 
@@ -15,6 +16,14 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string }> = 
 export interface SettingsScreenProps {
   accessToken: string;
   isAdmin: boolean;
+  // REQ-717/ADR-0036: true only while the current account is a guest
+  // (App.tsx derives this as `currentUser.email === null` — see the note on
+  // `CurrentUser` in lib/types.ts for why: the backend's `MeResponse` has no
+  // dedicated `isGuest` field yet, a flagged gap, not silently worked
+  // around). Gates the "Save your progress" claim section below — a
+  // claimed (non-guest) account renders none of it, same "no visible trace
+  // when not applicable" pattern REQ-504's admin-link gating already uses.
+  isGuest: boolean;
   // REQ-714: the account's current DisplayName, pre-filled into the edit
   // form below — sourced from App.tsx's own GET /auth/me-backed
   // `currentUser` state, so an empty string here only ever means that
@@ -26,6 +35,13 @@ export interface SettingsScreenProps {
   // full page reload, needed for the new name to be reflected everywhere
   // this account's identity is read from that state.
   onDisplayNameUpdated: (displayName: string) => void;
+  // REQ-717/ADR-0036: called with the server's own confirmed MeResponse
+  // (email now set, effectively isGuest=false) on a successful claim, so
+  // App.tsx can replace its `currentUser` state wholesale — this response
+  // already carries every field that state needs, unlike
+  // onDisplayNameUpdated above, which only ever carries the one field that
+  // changed.
+  onAccountClaimed: (user: CurrentUser) => void;
   onAccountDeleted: () => void;
   onCancel: () => void;
   onAuthError: () => void;
@@ -58,11 +74,21 @@ const DISPLAY_NAME_MAX_LENGTH = 30;
 // form already established for the same field, and the same "server's own
 // detail text shown inline, not a generic failure banner" convention
 // DeleteAccountScreen.tsx already uses for its own 401/409-shaped errors.
+//
+// REQ-717/ADR-0036 (2026-07-21): also hosts the guest claim/upgrade
+// section, gated on the new `isGuest` prop — the one place in this screen
+// with a real visibility gate beyond `isAdmin`'s. No SCREEN-08 wireframe
+// update accompanies this in design-document.md yet beyond a short prose
+// addition (same "built functionally, flagged as a doc gap" situation
+// AuthScreen.tsx's own top-of-file note already describes for the
+// login/signup screen as a whole).
 export function SettingsScreen({
   accessToken,
   isAdmin,
+  isGuest,
   displayName,
   onDisplayNameUpdated,
+  onAccountClaimed,
   onAccountDeleted,
   onCancel,
   onAuthError,
@@ -81,11 +107,61 @@ export function SettingsScreen({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // REQ-717/ADR-0036: the claim/upgrade form's own state, separate from the
+  // display-name form above — a different submit action, a different error
+  // surface, no shared state between the two.
+  const [claimEmail, setClaimEmail] = useState('');
+  const [claimPassword, setClaimPassword] = useState('');
+  const [claimConfirmPassword, setClaimConfirmPassword] = useState('');
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!touched) {
       setNewDisplayName(displayName);
     }
   }, [displayName, touched]);
+
+  async function handleClaimSubmit(event: FormEvent) {
+    event.preventDefault();
+    setClaimError(null);
+
+    // REQ-701 password policy, same client-side check/order as
+    // AuthScreen.tsx's signup form and the server's own
+    // (AuthController.Claim): free, local checks before any request.
+    if (claimPassword.length < 8) {
+      setClaimError('Password must be at least 8 characters.');
+      return;
+    }
+
+    if (claimPassword !== claimConfirmPassword) {
+      setClaimError('Passwords do not match.');
+      return;
+    }
+
+    setClaimSubmitting(true);
+    try {
+      const updated = await claimAccount(accessToken, claimEmail, claimPassword, claimConfirmPassword);
+      onAccountClaimed(updated);
+      setClaimPassword('');
+      setClaimConfirmPassword('');
+    } catch (err) {
+      // A 401 here means the session itself is dead — same "any other 401
+      // is a dead token" handling every other authenticated screen in this
+      // app already uses (handleDisplayNameSubmit below, DeleteAccountScreen).
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      // REQ-717: a 400 (not currently a guest, or email already in use)
+      // surfaces here with the server's own specific detail text —
+      // describeError already prefers ApiError.detail over a generic
+      // message, no special-casing needed.
+      setClaimError(describeError(err));
+    } finally {
+      setClaimSubmitting(false);
+    }
+  }
 
   async function handleDisplayNameSubmit(event: FormEvent) {
     event.preventDefault();
@@ -130,6 +206,75 @@ export function SettingsScreen({
   return (
     <div className="settings-screen">
       <h2 className="settings-screen__title">Settings</h2>
+
+      {/* REQ-717/ADR-0036: the claim/upgrade section — rendered only while
+          the account is still a guest (isGuest), placed first since it's
+          this screen's primary call to action for that account. Once
+          claimed, onAccountClaimed's response flips isGuest to false and
+          this whole section disappears — no page reload needed, same
+          "caller's own state updates immediately from the server's
+          confirmed response" convention the display-name form below already
+          established. */}
+      {isGuest && (
+        <section className="settings-screen__section settings-screen__section--claim">
+          <h3 className="settings-screen__section-title">Save your progress</h3>
+          <p className="settings-screen__claim-hint">
+            You&apos;re playing as a guest. Add an email and password to keep
+            your scores and log back in from any device.
+          </p>
+          <form className="settings-screen__claim-form" onSubmit={handleClaimSubmit}>
+            <label className="settings-screen__field">
+              <span>Email</span>
+              <input
+                type="email"
+                required
+                value={claimEmail}
+                onChange={(event) => setClaimEmail(event.target.value)}
+                disabled={claimSubmitting}
+              />
+            </label>
+
+            <label className="settings-screen__field">
+              <span>Password</span>
+              {/* No native `minLength` here on purpose (REQ-701), same
+                  reasoning as AuthScreen.tsx's signup form — the JS check
+                  above shows a specific message rather than the browser's
+                  generic validation popup. */}
+              <input
+                type="password"
+                required
+                value={claimPassword}
+                onChange={(event) => setClaimPassword(event.target.value)}
+                disabled={claimSubmitting}
+              />
+            </label>
+
+            <label className="settings-screen__field">
+              <span>Confirm password</span>
+              <input
+                type="password"
+                value={claimConfirmPassword}
+                onChange={(event) => setClaimConfirmPassword(event.target.value)}
+                disabled={claimSubmitting}
+              />
+            </label>
+
+            {claimError && (
+              <p className="settings-screen__claim-error" role="alert">
+                {claimError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="settings-screen__claim-submit"
+              disabled={claimSubmitting}
+            >
+              {claimSubmitting ? 'Saving…' : 'Save my progress'}
+            </button>
+          </form>
+        </section>
+      )}
 
       {isAdmin && (
         <section className="settings-screen__section">

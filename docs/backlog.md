@@ -3538,3 +3538,45 @@ account, rounds closed before `ClaimedAt`. No change to any REQ-201-210/204/
 a guest is a real `User`/`LeagueMembership`/`Guess` row throughout. Frontend
 (guest entry point, claim/upgrade screen) intentionally not built this
 session — remains open Tier 1/2 scope in `MVP-SCOPE.md`.
+
+**S-070 · Guest play, frontend half (REQ-717, ADR-0036)**
+The frontend counterpart S-069 deliberately left out: a guest entry point
+on the login/signup screen and a claim/upgrade section in Settings, wired
+to S-069's `POST /auth/guest`/`POST /auth/claim`.
+*Deps:* S-069 (backend endpoints this story calls).
+**Built as:** `AuthScreen.tsx` gained a "Play as guest" button below the
+existing log-in/sign-up form (a new `playAsGuest()` in `lib/api.ts`,
+mirroring `login()`'s shape/error-handling exactly) — on success, routes
+through the exact same `onAuthenticated` callback a normal login/signup
+already uses, so a guest session is stored and treated identically from
+that point on (ADR-0036's explicit design goal; no separate "guest mode"
+client-side state anywhere). `SettingsScreen.tsx` gained a "Save your
+progress" claim section (new `claimAccount()` in `lib/api.ts`, `POST
+/auth/claim`), rendered only while the account is a guest, with the same
+REQ-701 password-policy/inline-error conventions `AuthScreen.tsx`'s signup
+form already established; on success, `App.tsx` replaces its
+`currentUser` state wholesale with the claim response, which makes the
+section disappear immediately (no reload). `App.tsx` also gained a small,
+low-effort header banner ("Playing as {name}. Save your progress.") while
+the session is a guest — not mandated by REQ-717, added per this story's
+own judgment call, documented in `design-document.md` (§3/§7) rather than
+left as an unreviewed addition.
+**Real gap found and flagged, not silently worked around:** the backend's
+`MeResponse` DTO (`AuthDtos.cs`) has no dedicated `isGuest` field — S-069
+added `IsGuest` to the `User` entity but never surfaced it on this
+response. The frontend derives guest status as `email === null` instead
+(a correct signal today: `AuthController.Guest` is the only path that ever
+creates a null-`Email` row, and `AuthController.Claim`/`UserRepository.
+ClaimGuestAsync` always set `Email` and clear `IsGuest` together — see the
+comment on `CurrentUser` in `frontend/src/lib/types.ts`), but a real
+`isGuest` boolean on `MeResponse` would be more robust/self-documenting
+than relying on that invariant holding forever. Recommended as a small
+follow-up for `backend-implementer`, not added here (out of this story's
+scope, and not this agent's to add per the xG Arcade/game and
+delivery-agent boundaries).
+*Accept:* Vitest coverage in `AuthScreen.test.tsx` (guest sign-in success/
+failure) and `SettingsScreen.test.tsx` (claim section visibility, REQ-701
+password-policy checks, success/400/401 handling) — exhaustive REQ717-named
+frontend coverage remains `test-writer`'s to add, per this repo's
+delivery-agent split. No Playwright E2E spec added/changed: no existing
+spec asserts on `AuthScreen`/`SettingsScreen` behavior this story alters.

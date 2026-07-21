@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.92"
+version: "0.93"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -3826,10 +3826,21 @@ required)**
   qualifying-rounds query) excludes `IsGuest` rows outright and excludes a
   claimed account's rounds closed before `ClaimedAt`. A new `auth-guest`
   rate-limit policy (3/min per IP by default, tighter than auth-signup/
-  auth-login's 10/min) gates guest creation. Frontend (a guest-play entry
-  point, claim/upgrade UI) is a separate, not-yet-scoped follow-up story —
-  this REQ's acceptance criteria below are about backend-observable
-  behavior, per its own scope note, and are met without a frontend yet.
+  auth-login's 10/min) gates guest creation.
+- **Status: Implemented (frontend), 2026-07-21 (S-070).** `AuthScreen.tsx`
+  gained a "Play as guest" entry point (calls `POST /auth/guest` and routes
+  through the exact same success path a normal login/signup already uses —
+  no separate "guest mode" client-side state). `SettingsScreen.tsx` gained
+  a "Save your progress" claim section, visible only while the account is a
+  guest, calling `POST /auth/claim`. `App.tsx` also added a small header
+  banner nudging a guest toward that claim section — a UX addition beyond
+  this REQ's own acceptance criteria, documented in `design-document.md`.
+  **Real gap flagged, not silently worked around:** the backend's
+  `MeResponse` DTO has no dedicated `isGuest` field (S-069 never added
+  one) — the frontend derives guest status as `email === null` instead,
+  a correct signal today but a less robust/self-documenting one than a
+  real `isGuest` boolean would be; see `docs/backlog.md`'s S-070 entry for
+  the full reasoning and the recommended backend follow-up.
 
 **Tier framing:** Tier 1/2 by `MVP-SCOPE.md`'s own classification (a new
 auth flow that touches the account boundary Tier 0 already locked in) —

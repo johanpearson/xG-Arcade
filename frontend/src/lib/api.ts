@@ -82,6 +82,48 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return (await response.json()) as LoginResponse;
 }
 
+// REQ-717/ADR-0036: provisions a real, auto-enrolled guest User row with no
+// email/password (POST /auth/guest, no request body at all — see
+// AuthController.Guest). Same response shape as login()/signup's follow-up
+// login above (LoginResponse), and the caller stores/treats it identically
+// to any other login from this point on — no separate "guest mode"
+// client-side state (ADR-0036's explicit design goal, mirrored here rather
+// than reinterpreted).
+export async function playAsGuest(): Promise<LoginResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/guest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LoginResponse;
+}
+
+// REQ-717/ADR-0036: the claim/upgrade path (POST /auth/claim,
+// [Authorize]-protected — AuthController.Claim) — adds a real email and
+// password to the caller's existing guest identity, converting it in place
+// rather than creating a second account. A 400 (caller isn't currently a
+// guest, or the email is already in use) is left to throw so the caller
+// shows the server's own detail text inline, same convention as
+// createLeague/joinLeague above. Returns the same MeResponse shape
+// fetchMe already returns, reflecting the account's newly-set email.
+export async function claimAccount(
+  accessToken: string,
+  email: string,
+  password: string,
+  confirmPassword: string,
+): Promise<CurrentUser> {
+  const response = await fetch(`${API_BASE_URL}/auth/claim`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ email, password, confirmPassword }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CurrentUser;
+}
+
 // REQ-715/ADR-0033: exchanges a stored refresh token for a new access token
 // (and, if Supabase's own token rotation returns one, a new refresh token),
 // mediated through the backend exactly like login/signup (ADR-0013) — never

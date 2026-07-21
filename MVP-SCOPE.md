@@ -385,12 +385,15 @@ is written as something you can actually observe, not a vague feeling:
   unmodified in guessing/scoring/uniqueness and round-scoped leaderboards
   REQ-406/407/408, excluded from REQ-409's all-time median ranking, its own
   tighter rate limit (`auth-guest`, 3/min default), and a claim/upgrade path
-  to a real account preserving guess history. **Frontend (a guest-play
-  entry point, claim/upgrade UI) remains a separate, not-yet-scoped future
-  story** — this was flagged as real Tier 1/2 scope by this document's own
-  classification (a new auth flow touching the account boundary Tier 0
-  already locked in), not a small addition, and that framing still applies
-  to the remaining frontend half.
+  to a real account preserving guess history. **Frontend implemented,
+  2026-07-21 (S-070):** a "Play as guest" entry point on the login/signup
+  screen and a "Save your progress" claim section in Settings, both wired
+  to the two endpoints above, plus a small header nudge while the session
+  is a guest — see `docs/backlog.md`'s S-070 entry for what was built and
+  a real gap it flagged back (the backend's `MeResponse` has no dedicated
+  `isGuest` field; the frontend derives it from a nullable email instead).
+  REQ-717/ADR-0036's frontend half is therefore complete end-to-end,
+  closing out this Tier 1/2 pull-forward.
 
 ## Tier 2 — already deferred, unchanged
 

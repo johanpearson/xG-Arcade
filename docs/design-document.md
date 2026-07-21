@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.43"
+version: "0.44"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1496,6 +1496,27 @@ up everywhere else it's read. No new tokens — reuses `settings-screen__section
 existing bordered-row treatment plus the same field/input pattern
 `AuthScreen.tsx` already established.
 
+**Added 2026-07-21, REQ-717/ADR-0036:** a "Save your progress" claim/upgrade
+section, rendered first (above the admin-only link), only while the
+current account is a guest — the first thing a guest sees on this screen,
+since it's the primary reason a guest would open Settings at all. Once
+claimed, the section disappears immediately (no page reload) since the
+caller's own state updates from the claim response the same way the
+display-name save above updates from its own response. Hosts a three-field
+form — Email, Password, Confirm password — with the same REQ-701
+8-character/match password-policy checks and inline-error convention
+`AuthScreen.tsx`'s signup form already established, and the same "server's
+own detail text shown inline" convention used everywhere else on this
+screen (a 400 — not currently a guest, or the email is already in use —
+surfaces the server's own message verbatim). Button copy:
+"Save my progress" (submitting: "Saving…"), matching the hint text's own
+wording rather than a generic "Submit"/"Create account". No new tokens —
+same `settings-screen__section` bordered-row treatment, same field/error/
+submit-button pattern as the display-name section above it. **Not yet
+given a wireframe in this document** — built functionally with the
+existing token system only, same "flagged, not silently left out of sync"
+treatment as this document's other unreviewed-screen gaps (see §7).
+
 ## 4. Responsive strategy
 
 Unchanged from v0.1 — built "equally both" from the start:
@@ -1853,7 +1874,27 @@ Unchanged from v0.1:
   wireframe, copy, or state list for it the way SCREEN-01/01a/02 do. Needs a
   real SCREEN-00 entry (loading/submitting state, error copy, the exact
   tab/toggle pattern) rather than leaving the built version as the
-  unreviewed de facto spec.
+  unreviewed de facto spec. **2026-07-21 (REQ-717/ADR-0036) addition to
+  this same unreviewed screen:** a "Play as guest" button sits below the
+  log-in/sign-up form, separated by a plain divider — a single tokens-only
+  bordered button (`.auth-screen__guest`, same shape as
+  `.settings-screen__admin-link`), plus a one-line hint ("No email needed.
+  You can save your progress and pick a real account any time from
+  Settings."). No new tokens. This addition should be captured by the same
+  future SCREEN-00 entry, not left to compound the existing gap further.
+- **SCREEN-08 (Settings) gained a guest claim/upgrade section (2026-07-21,
+  REQ-717/ADR-0036), also not yet reflected in a revised wireframe below** —
+  see that section's own status note for what was actually built.
+- **A new, minimal header element (2026-07-21, REQ-717/ADR-0036) has no
+  SCREEN-xx entry of its own either:** a thin banner
+  (`.app__guest-banner`, `App.tsx`) reading "Playing as {display name}." with
+  a "Save your progress" text-link action, rendered only while the current
+  session is a guest, directly below the header and above the rest of the
+  page — a deliberately low-effort nudge (REQ-717's own framing), not a
+  redesign, using only existing tokens (`surface-sunken`,
+  `border-hairline`, `accent-green-text`) and no new motion. Clicking it
+  navigates to Settings (SCREEN-08), where the claim section above actually
+  lives.
 - **No SCREEN-xx spec exists for the post-login game-selection landing
   screen either** (`frontend/src/games/GameSelectScreen.tsx`, added S-021,
   REQ-303's UX addition). Same gap as SCREEN-00 above, same reasoning: kept

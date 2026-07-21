@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.92 → 0.93),
+  `docs/design-document.md` (0.43 → 0.44), `MVP-SCOPE.md`,
+  `docs/backlog.md` (new S-070) — REQ-717/ADR-0036 guest play **frontend
+  half built (S-070)**: `AuthScreen.tsx` gained a "Play as guest" entry
+  point (`playAsGuest()` in `lib/api.ts`, `POST /auth/guest`, routed through
+  the existing login/signup success path — no separate "guest mode"
+  client-side state); `SettingsScreen.tsx` gained a "Save your progress"
+  claim section, visible only for a guest account (`claimAccount()` in
+  `lib/api.ts`, `POST /auth/claim`); `App.tsx` gained a small header banner
+  nudging a guest toward that section (a UX addition beyond this REQ's own
+  acceptance criteria, documented in `design-document.md` §3/§7). **Real gap
+  found and flagged, not silently worked around:** the backend's
+  `MeResponse` DTO has no dedicated `isGuest` field (S-069 never added
+  one) — the frontend derives guest status as `email === null` instead
+  (correct today, since only a guest row ever has a null email, but less
+  robust/self-documenting than a real field would be); recommended as a
+  small backend follow-up, not added here. Vitest coverage added in
+  `AuthScreen.test.tsx`/`SettingsScreen.test.tsx`; exhaustive REQ717-named
+  coverage remains `test-writer`'s to add. No Playwright E2E spec needed
+  updating — none asserts on the behavior this change touches.
+  REQ-717/ADR-0036/S-070.
 - 2026-07-21 — `docs/requirements-document.md` (0.91 → 0.92),
   `docs/architecture-document.md` (0.46 → 0.47),
   `docs/implementation-document.md` (0.64 → 0.65), `MVP-SCOPE.md`,

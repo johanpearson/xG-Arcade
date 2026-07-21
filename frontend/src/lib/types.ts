@@ -179,9 +179,23 @@ export interface ClosedRoundListResponse {
 // REQ-504: GET /auth/me — `isAdmin` is the only signal the frontend has for
 // whether to show the admin nav entry point at all (App.tsx); the actual
 // authorization is always re-checked server-side per request regardless.
+// REQ-717/ADR-0036: `email` is nullable — a guest account (`User.IsGuest`
+// on the backend) has none until it claims a real one via POST /auth/claim
+// (see `claimAccount` in lib/api.ts). NOTE (flagged back, not silently
+// worked around): the backend's `MeResponse` DTO (`AuthDtos.cs`) does not
+// carry an explicit `isGuest` field of its own — this frontend derives
+// guest status as `email === null` wherever it needs it (App.tsx,
+// SettingsScreen), which is a correct, not just convenient, signal today
+// (Signup/Login always set Email; only POST /auth/guest ever creates a row
+// with a null Email; POST /auth/claim always sets Email and clears
+// IsGuest together — see AuthController.Guest/Claim and
+// UserRepository.ClaimGuestAsync). Still, a first-class `isGuest` boolean
+// on `MeResponse` would be more robust/self-documenting than relying on
+// this invariant holding forever — recommended as a small backend
+// follow-up rather than added here.
 export interface CurrentUser {
   id: string;
-  email: string;
+  email: string | null;
   displayName: string;
   emailConfirmed: boolean;
   isAdmin: boolean;
