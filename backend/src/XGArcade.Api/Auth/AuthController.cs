@@ -19,8 +19,20 @@ public class AuthController(
     ILeagueRepository leagueRepository,
     IAccountDeletionService accountDeletionService,
     IConfiguration configuration,
-    ILogger<AuthController> logger) : ControllerBase
+    ILogger<AuthController> logger,
+    Random? random = null) : ControllerBase
 {
+    // REQ-717: GenerateUniqueGuestDisplayNameAsync's source of candidate
+    // numbers. Optional constructor param (same seam GridGameModule's
+    // SelectPairing already uses for its own Random.Shared dependency) so a
+    // test can pin the exact sequence of candidates drawn — e.g. to cover
+    // "collides once, then succeeds on retry" deterministically, which
+    // Random.Shared can't express since it isn't seedable. No DI
+    // registration needed: ASP.NET Core's controller activation falls back
+    // to the default (Random.Shared) when nothing registers a Random,
+    // exactly like production.
+    private readonly Random _random = random ?? Random.Shared;
+
     // REQ-606: 10 signups per IP per minute — see Program.cs's
     // AddRateLimiter registration for the shared policy/OnRejected details.
     [EnableRateLimiting("auth-signup")]
@@ -258,7 +270,7 @@ public class AuthController(
     {
         for (var attempt = 0; attempt < MaxGuestDisplayNameGenerationAttempts; attempt++)
         {
-            var candidate = $"Guest{Random.Shared.Next(1000, 10000)}";
+            var candidate = $"Guest{_random.Next(1000, 10000)}";
             if (!await userRepository.DisplayNameExistsAsync(candidate, cancellationToken: cancellationToken))
             {
                 return candidate;

@@ -104,11 +104,10 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadFromJsonAsync<SupabaseErrorResponse>(cancellationToken: cancellationToken);
             return new SupabaseAuthResult
             {
                 Success = false,
-                ErrorMessage = error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.",
+                ErrorMessage = await ReadErrorMessageAsync(response, cancellationToken),
             };
         }
 
@@ -137,11 +136,10 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
 
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadFromJsonAsync<SupabaseErrorResponse>(cancellationToken: cancellationToken);
             return new SupabaseAuthResult
             {
                 Success = false,
-                ErrorMessage = error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.",
+                ErrorMessage = await ReadErrorMessageAsync(response, cancellationToken),
             };
         }
 
@@ -162,6 +160,17 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
             AccessToken = body?.AccessToken,
             RefreshToken = body?.RefreshToken,
         };
+    }
+
+    // Shared by PostAuthRequestAsync and LinkEmailPasswordAsync above — both
+    // parse the same Supabase error-response shape on a non-success status
+    // code, previously duplicated verbatim between the two; extracted so
+    // the precedence order (msg/error_description/message/generic fallback)
+    // only ever needs updating in one place.
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var error = await response.Content.ReadFromJsonAsync<SupabaseErrorResponse>(cancellationToken: cancellationToken);
+        return error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.";
     }
 
     private record SupabaseSessionResponse

@@ -63,15 +63,20 @@ public class RoundCloseServiceScoringTests
     // Seeds a Guess row directly into the in-memory DbContext — RoundCloseService
     // reads via IGuessRepository.GetByRoundIdAsync, which reads
     // XGArcadeDbContext.Guesses directly, so no special repository test
-    // double is needed to exercise it.
+    // double is needed to exercise it. userId defaults to a fresh, unlabeled
+    // Guid (the shape every pre-REQ-717 test here uses, since
+    // RoundCloseService/ScoreLockingService never care which User a UserId
+    // belongs to) — REQ-717's tests below pass an explicit, real User row's
+    // Id instead, via the same parameter, rather than a second near-duplicate
+    // seeding method.
     private async Task<Guess> SeedGuessAsync(
-        Guid roundId, Guid cellId, bool isCorrect, Guid? playerAnswerId = null)
+        Guid roundId, Guid cellId, bool isCorrect, Guid? playerAnswerId = null, Guid? userId = null)
     {
         var guess = new Guess
         {
             Id = Guid.NewGuid(),
             RoundId = roundId,
-            UserId = Guid.NewGuid(),
+            UserId = userId ?? Guid.NewGuid(),
             CellId = cellId,
             SubmittedName = "Someone",
             PlayerAnswerId = playerAnswerId,
@@ -385,25 +390,6 @@ public class RoundCloseServiceScoringTests
         return user.Id;
     }
 
-    private async Task<Guess> SeedGuessForUserAsync(Guid roundId, Guid userId, Guid cellId, bool isCorrect, Guid? playerAnswerId = null)
-    {
-        var guess = new Guess
-        {
-            Id = Guid.NewGuid(),
-            RoundId = roundId,
-            UserId = userId,
-            CellId = cellId,
-            SubmittedName = "Someone",
-            PlayerAnswerId = playerAnswerId,
-            IsCorrect = isCorrect,
-            AttemptCount = 1,
-            CreatedAt = DateTime.UtcNow,
-        };
-        _dbContext.Guesses.Add(guess);
-        await _dbContext.SaveChangesAsync();
-        return guess;
-    }
-
     [Test]
     public async Task REQ717_CloseRoundAsync_GuestSharesAnswerWithARealAccount_CountsFullyTowardTheRealAccountsUniqueness()
     {
@@ -423,9 +409,9 @@ public class RoundCloseServiceScoringTests
         var cellId = Guid.NewGuid();
         var sharedAnswerId = Guid.NewGuid();
         var distinctAnswerId = Guid.NewGuid();
-        var guestGuess = await SeedGuessForUserAsync(round.Id, guestUserId, cellId, isCorrect: true, sharedAnswerId);
-        var realGuess = await SeedGuessForUserAsync(round.Id, realUserId, cellId, isCorrect: true, sharedAnswerId);
-        var distinctGuess = await SeedGuessForUserAsync(round.Id, distinctUserId, cellId, isCorrect: true, distinctAnswerId);
+        var guestGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, sharedAnswerId, guestUserId);
+        var realGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, sharedAnswerId, realUserId);
+        var distinctGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, distinctAnswerId, distinctUserId);
 
         await _service.CloseRoundAsync(round.Id, DateTime.UtcNow);
 

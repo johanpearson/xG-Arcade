@@ -595,19 +595,19 @@ public class AuthEndpointTests
     }
 
     // REQ-717: AuthController.GenerateUniqueGuestDisplayNameAsync retries
-    // Random.Shared.Next(1000, 10000) up to 10 times against
-    // DisplayNameExistsAsync before falling back to a longer, Guid-derived
-    // name — Random.Shared can't be seeded/mocked here, so a single-collision
-    // -then-succeeds attempt can't be pinned to a specific candidate
-    // deterministically (that would need a controllable randomness/name
-    // seam — new shared test infrastructure, flagged separately rather than
-    // built here). Instead, this test makes EVERY one of the 9000 possible
-    // "GuestNNNN" candidates (1000-9999 inclusive, the exact range
+    // its candidate up to 10 times against DisplayNameExistsAsync before
+    // falling back to a longer, Guid-derived name. This test exercises the
+    // full-exhaustion end of that behavior: it makes EVERY one of the 9000
+    // possible "GuestNNNN" candidates (1000-9999 inclusive, the exact range
     // GenerateUniqueGuestDisplayNameAsync draws from) already taken —
     // guaranteeing all 10 retry attempts collide regardless of which values
     // are drawn — and pins down the resulting fallback: a longer,
     // Guid-derived name, still unique and within REQ-701's 30-character
-    // bound, rather than an infinite loop or a duplicate row.
+    // bound, rather than an infinite loop or a duplicate row. See
+    // REQ717_Guest_Post_RetriesOnce_WhenFirstGuestNNNNCandidateCollides_ThenSucceedsWithTheSecond
+    // below for the "collides once, then succeeds on retry" case, which
+    // needs the controllable-Random seam (AuthController's optional
+    // `Random random = null` constructor param) this test predates.
     [Test]
     public async Task REQ717_Guest_Post_FallsBackToGuidDerivedDisplayName_WhenEveryGuestNNNNCandidateIsAlreadyTaken()
     {
@@ -644,6 +644,74 @@ public class AuthEndpointTests
         Assert.That(guest.DisplayName, Does.StartWith("Guest"));
         Assert.That(guest.DisplayName, Does.Not.Match(@"^Guest\d{4}$"));
         Assert.That(guest.DisplayName.Length, Is.LessThanOrEqualTo(30));
+    }
+
+    // REQ-717: the retry path itself — the first "GuestNNNN" candidate
+    // collides against a pre-seeded row, and the second (distinct) draw
+    // succeeds. Only possible deterministically because of the seam added
+    // alongside this test: AuthController's optional `Random random = null`
+    // constructor param (same pattern GridGameModule already uses for its
+    // own Random.Shared dependency — see that class's own comment), swapped
+    // here for SequentialCandidateRandom below via the same
+    // WithWebHostBuilder/AddSingleton idiom
+    // LeagueEndpointTests.REQ402_PostLeagues_EveryGeneratedInviteCodeCollides_SurfacesAsUnhandled500
+    // already uses to override one dependency for one test. Complements
+    // (does not replace) the full-exhaustion test above.
+    [Test]
+    public async Task REQ717_Guest_Post_RetriesOnce_WhenFirstGuestNNNNCandidateCollides_ThenSucceedsWithTheSecond()
+    {
+        // WithWebHostBuilder builds an entirely separate host/in-memory
+        // database from _factory's own (SetUp's ConfigureServices runs
+        // again, generating a fresh database name) — so the pre-existing
+        // colliding row must be seeded into THIS factory's database, not
+        // _factory's.
+        var deterministicFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                // Nothing registers a Random today, so AuthController's
+                // optional constructor param falls back to Random.Shared —
+                // registering one here is enough to override it, no
+                // RemoveAll needed.
+                services.AddSingleton<Random>(new SequentialCandidateRandom(5000, 5001));
+            });
+        });
+
+        using (var seedScope = deterministicFactory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = $"{Guid.NewGuid()}@example.com",
+                DisplayName = "Guest5000",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = deterministicFactory.CreateClient();
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = deterministicFactory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guest = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.IsGuest);
+        Assert.That(guest.DisplayName, Is.EqualTo("Guest5001"),
+            "the first candidate (Guest5000) must have collided against the pre-seeded row and been retried, landing on the second (Guest5001) — the retry path itself, not just the full-exhaustion fallback");
+    }
+
+    // REQ-717: a deterministic stand-in for Random.Shared, returning a
+    // fixed, caller-supplied sequence of Next(int,int) results in order —
+    // Random.Next(int,int) has been virtual since .NET 6 specifically to
+    // support this kind of test subclass.
+    private sealed class SequentialCandidateRandom(params int[] values) : Random
+    {
+        private int _index;
+
+        public override int Next(int minValue, int maxValue) => values[_index++];
     }
 
     // REQ-717/ADR-0036: a separate, tighter rate-limit policy than
