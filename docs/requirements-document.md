@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.88"
+version: "0.89"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1414,7 +1414,10 @@ reveals a name)
 > work, so I understand what a point value on a cell means without that
 > explanation being repeated on every cell.
 
-- **Status: Implemented (Tier 0, S-041, 2026-07-14).** Replaces the
+- **Status: Partially implemented (Tier 0, S-041, 2026-07-14 — grid-screen
+  reachability and the original six content points below; leaderboard-screen
+  reachability and three additional ranking/fairness content points
+  specified 2026-07-21, `docs/backlog.md` S-068, not yet built).** Replaces the
   per-cell %-breakdown/round-end disclosure text REQ-204 carried before this
   date (see REQ-204's 2026-07-14 status note) — that explanatory content now
   lives in one general place instead of being repeated, cell by cell,
@@ -1445,6 +1448,46 @@ reveals a name)
   a connected SCREEN-01a fix — see REQ-204's matching 2026-07-14 note —
   since a player asked "is wrong = max points, same as not guessing at
   all?" in the same message that reported the per-cell display bug.
+- **Reachability + content extended for the leaderboard (2026-07-21,
+  `docs/backlog.md` S-068 — decided, not yet built).** Raised because this
+  explainer's content predates two later changes that are now genuinely
+  player-visible on the leaderboard screen (SCREEN-03) but explained
+  nowhere a player actually reads it: REQ-409's median/participation-gate
+  ranking (decided/built 2026-07-20, after this REQ's own 2026-07-14
+  content update) and S-056's fairness fix (never-played members excluded
+  from ranking, REQ-404's 2026-07-20 note; an untouched cell in the live
+  scope counting at max, REQ-406/407's 2026-07-20 note). Two decisions:
+  - **Reachability: the leaderboard screen reuses this exact same
+    `ScoringExplainer` component, opened from a second, equivalent `(ⓘ)`
+    entry point in SCREEN-03's header — not a separate leaderboard-specific
+    explainer component.** Rationale: both explainers exist to state the
+    same "xG Arcade is scored like golf, lower is better" framing plus
+    whatever ranking mechanic is currently in view; a second component
+    would inevitably drift from the first over time (exactly the kind of
+    divergent-copy problem REQ-204/REQ-213 already replaced once, per this
+    REQ's own opening status note). Confirmed against the actual component
+    (`frontend/src/grid/ScoringExplainer.tsx`) rather than assumed: it
+    takes a single `onClose` prop, holds no round/grid state, and reads no
+    context from `GridScreen.tsx` — it already renders correctly with no
+    active round, no grid, and no cell data available, so **no new prop is
+    required** to open it from the leaderboard screen. Its content is not
+    conditioned on which entry point opened it — the same full explainer
+    (original six content points plus the three below) renders identically
+    from either screen, so a player who opens it from the grid screen also
+    sees the ranking content, and vice versa; this is a deliberate choice,
+    not an oversight, for the same reason there is one component: one
+    explanation of "how the whole thing works," not two partial ones keyed
+    to whichever screen happened to open it.
+  - **Content: three additional required content points, alongside the
+    six the explainer already requires** (see the expanded content list
+    below) — REQ-409's median/participation gate, REQ-404/406/407's
+    never-played and live-scope fairness rules (both S-056), and an
+    explicit restatement that the existing golf framing (lower is better)
+    is unchanged by the switch to a median. These are stated here as
+    cross-references to REQ-409/404/406/407's own acceptance criteria and
+    formulas, which remain the sole source of truth for the actual ranking
+    logic — this REQ only requires that the explainer's *text* mentions
+    them, not that it restates their formulas.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -1473,17 +1516,56 @@ reveals a name)
     footballers born in 1939 or later are ever used as answers (REQ-112,
     ADR-0025) — stated plainly so a rejected-but-technically-correct name
     reads as an intentional scope boundary, not a bug
+  - **(2026-07-21 addition)** that the all-time leaderboard ranks players by
+    the **median** of their per-round scores, not a running sum — and that
+    the existing golf-style framing above ("lower is better") applies to
+    that median exactly the same way it applies to any single round's score
+    (REQ-409); a player reading "median" next to "lower is better" must not
+    be left to wonder whether the direction changed — it hasn't
+  - **(2026-07-21 addition)** that a player must have played **at least 5
+    qualifying rounds** — closed, with at least one guess in that round —
+    before they appear on the all-time ranked list at all, stated plainly
+    enough that a player with fewer qualifying rounds reads their own
+    absence from the list as expected, not as a bug (REQ-409)
+  - **(2026-07-21 addition)** that a league member who has never submitted
+    a single guess does not appear on the ranked list at all (never ranked
+    first with a default of zero, REQ-404), and that, in the Current Round
+    (live) scope specifically, once a player has made at least one guess
+    anywhere in that round's grid, every other cell in that grid they
+    haven't touched at all counts at the maximum score — the same value a
+    cell locks at once the round closes without a correct guess
+    (REQ-406/407, S-056)
 - And the explainer is reachable from the grid screen at any time an active
   round is shown — not gated behind having attempted any particular cell,
   and not a one-time first-visit-only prompt
 - And the explainer's content is general to the scoring/live-update
   mechanic — it never includes cell-specific numbers, since it must remain
   valid regardless of which cells, or how many, the player has attempted
+- **(2026-07-21 addition, S-068)** Given the leaderboard screen (SCREEN-03)
+  is displayed
+- When the player activates the explainer entry point in that screen's
+  header
+- Then the same explainer defined above opens — identical content and
+  component to the grid-screen entry point, not a second, divergent
+  explainer — and can be dismissed the same way, returning the player to
+  the leaderboard screen without discarding any in-progress state (e.g. a
+  scope tab selection or a loaded "Load more" page)
+- And this entry point requires no active round, no particular scope tab
+  selected, and no ranked data loaded to open — it renders identically
+  regardless of which SCREEN-03 scope is currently active or whether that
+  scope's data is loading, empty, or errored
+- And the grid-screen entry point (above) is unaffected by this addition —
+  both entry points open the same component with the same content; neither
+  is a subset of the other
 
-**Test level:** UI (explainer opens from the header entry point and closes
-without losing in-progress state; contains text covering all six required
-content points — presence checks against required concepts, not exact
-wording)
+**Test level:** UI (explainer opens from the grid-screen header entry point
+and closes without losing in-progress state; contains text covering all six
+original content points — presence checks against required concepts, not
+exact wording; **(2026-07-21 addition)** explainer also opens from the
+leaderboard screen's header entry point regardless of active scope tab, and
+its content additionally covers the three ranking/fairness points above;
+opening from either entry point renders the same content, verified by
+asserting on the same text regardless of which screen triggered it)
 
 **REQ-214 – Photo reveal on a locked, correct cell**
 > As a player, I want to see the guessed player's photo, when one is
