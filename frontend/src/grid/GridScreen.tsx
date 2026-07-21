@@ -7,6 +7,7 @@ import type {
   SubmitGuessResponse,
 } from '../lib/types';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
+import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
 import { Grid } from './Grid';
 import { GuessInput } from './GuessInput';
 import { ScoringExplainer } from './ScoringExplainer';
@@ -23,7 +24,12 @@ type LoadState =
   | { phase: 'loading' }
   | { phase: 'empty' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; round: CurrentRoundResponse };
+  // REQ-303 (2026-07-21 addition): roundEndTime is computed exactly once,
+  // right here at fetch-success time (referenceTime = "now" at this
+  // instant), never recomputed on a later render/timer — see
+  // lib/roundTime.ts's own doc comment for why that's deliberate, not a
+  // shortcut to fix later.
+  | { phase: 'ready'; round: CurrentRoundResponse; roundEndTime: RoundEndTimeDisplay };
 
 // GET /rounds/current only ever returns an Active round today (round-close
 // is S-011 scope) — so roundStatus is always "active" here. SCREEN-01a's
@@ -51,7 +57,11 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
     fetchCurrentRound(accessToken)
       .then((round) => {
         if (cancelled) return;
-        setState(round ? { phase: 'ready', round } : { phase: 'empty' });
+        setState(
+          round
+            ? { phase: 'ready', round, roundEndTime: formatRoundEndTime(round.endTime, new Date()) }
+            : { phase: 'empty' },
+        );
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -188,6 +198,23 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       <div className="grid-screen__header">
         <div className="grid-screen__title-row">
           <h2>Current round</h2>
+          {/* REQ-303 (2026-07-21 addition): a relative-duration indicator
+              next to the (ⓘ) entry point below, computed once from
+              state.roundEndTime (see the fetch-success handler above) —
+              never a live/ticking countdown. tabIndex=0 + aria-label makes
+              the exact local end date/time reachable by keyboard focus and
+              screen readers, not only a mouse-hover-only tooltip; `title`
+              additionally surfaces it as a native tooltip for a sighted
+              mouse user. Text-only signal (no color-only meaning), per
+              REQ-303/§6. */}
+          <span
+            className="grid-screen__end-time mono-figure"
+            tabIndex={0}
+            title={`Round ends ${state.roundEndTime.absoluteLabel}`}
+            aria-label={formatRoundEndTimeAccessibleLabel(state.roundEndTime)}
+          >
+            {state.roundEndTime.text}
+          </span>
           {/* REQ-213 (S-041): opens SCREEN-06's general scoring/live-updates
               explainer — reachable at any time an active round is shown,
               not gated behind attempting any particular cell. */}
