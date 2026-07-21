@@ -114,12 +114,21 @@ export async function fetchCurrentRound(
   return (await response.json()) as CurrentRoundResponse;
 }
 
+// REQ-209: `chosenPlayerId` is only ever sent on a resubmission answering a
+// disambiguation prompt (the player GUID they picked from
+// SubmitGuessResponse.candidates) — omitted entirely (not sent as
+// undefined/null) on every ordinary submission, matching the backend
+// contract's "optional field, only present on a resubmission" shape.
 export async function submitGuess(
   accessToken: string,
   roundId: string,
   cellId: string,
   submittedName: string,
+  chosenPlayerId?: string,
 ): Promise<SubmitGuessResponse> {
+  const body: { submittedName: string; chosenPlayerId?: string } = { submittedName };
+  if (chosenPlayerId) body.chosenPlayerId = chosenPlayerId;
+
   const response = await fetch(
     `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/guesses`,
     {
@@ -128,7 +137,7 @@ export async function submitGuess(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ submittedName }),
+      body: JSON.stringify(body),
     },
   );
   if (!response.ok) await throwApiError(response);

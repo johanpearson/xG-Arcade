@@ -59,6 +59,23 @@ export interface CurrentRoundResponse {
   cells: CurrentRoundCell[];
 }
 
+// REQ-209: one fitting candidate the player must choose between when a
+// guess resolves to more than one real player who both satisfy the cell's
+// categories — mirrors `DisambiguationCandidateResponse` in
+// `XGArcade.Api.Guesses.GuessEndpoints` exactly (camelCase). Deliberately
+// carries no correctness signal of its own: every listed candidate already
+// satisfies both of the cell's categories server-side (that's what put it
+// in this list at all), and picking one is what actually gets scored, not
+// this list. `distinguishingAttributes` is the *other* known attributes
+// beyond the cell's own two categories (e.g. birth year, a third club) —
+// can legitimately be an empty array when nothing else is on file for that
+// player; never treat that as an error or omit the candidate.
+export interface DisambiguationCandidate {
+  playerId: string;
+  name: string;
+  distinguishingAttributes: string[];
+}
+
 export interface SubmitGuessResponse {
   isCorrect: boolean;
   attemptCount: number;
@@ -73,6 +90,16 @@ export interface SubmitGuessResponse {
   // revealed immediately after submitting (not just after a later reload)
   // needs it on this shape as well.
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-209/REQ-210: null (and every other field behaves exactly as always)
+  // on a normal, scored response. Non-null and non-empty ONLY when the
+  // submitted name resolved to more than one fitting candidate — in that
+  // case isCorrect is always false, attemptCount is always 0, locked is
+  // always false, and resolvedPlayerName/resolvedPlayerPhotoUrl are always
+  // null, because nothing was actually scored yet (no attempt consumed,
+  // nothing persisted server-side). `candidates !== null` is the one,
+  // unambiguous signal the frontend has for "render a picker instead of a
+  // scored result" — never infer this from isCorrect/attemptCount alone.
+  candidates: DisambiguationCandidate[] | null;
 }
 
 export interface SignupResponse {

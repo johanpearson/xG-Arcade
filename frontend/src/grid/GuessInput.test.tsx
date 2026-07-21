@@ -45,7 +45,7 @@ describe('GuessInput', () => {
 
   it('REQ-201: shows the category header with both flag and club badge context', () => {
     stubNoSuggestions();
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('France')).toBeInTheDocument();
     expect(screen.getByText('Arsenal')).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe('GuessInput', () => {
 
   it('REQ-210: shows no attempt count line for an untried cell', () => {
     stubNoSuggestions();
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.queryByText(/attempts used/)).not.toBeInTheDocument();
   });
@@ -61,7 +61,7 @@ describe('GuessInput', () => {
   it('REQ-210: shows the attempt count once at least one attempt has been used', () => {
     stubNoSuggestions();
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 1, locked: false } });
-    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.getByText('1 of 2 attempts used')).toBeInTheDocument();
   });
@@ -71,7 +71,7 @@ describe('GuessInput', () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onResolveDisambiguation={vi.fn()} onClose={onClose} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
@@ -85,7 +85,7 @@ describe('GuessInput', () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockRejectedValue(new Error('No attempts remaining'));
     const onClose = vi.fn();
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onResolveDisambiguation={vi.fn()} onClose={onClose} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Someone');
     await user.click(screen.getByRole('button', { name: 'Submit guess' }));
@@ -97,7 +97,7 @@ describe('GuessInput', () => {
   it('REQ-210: hides the input entirely once the cell is locked', () => {
     stubNoSuggestions();
     const cell = makeCell({ guess: { isCorrect: false, attemptCount: 2, locked: true } });
-    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={cell} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     expect(screen.queryByLabelText('Player name')).not.toBeInTheDocument();
     expect(screen.getByText(/locked/i)).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('GuessInput', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     await user.type(screen.getByLabelText('Player name'), 'T');
     await vi.advanceTimersByTimeAsync(500);
@@ -139,7 +139,7 @@ describe('GuessInput', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     const field = screen.getByLabelText('Player name');
     await user.type(field, 'Th');
@@ -169,7 +169,7 @@ describe('GuessInput', () => {
       ),
     );
 
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Th');
     await vi.advanceTimersByTimeAsync(500);
@@ -200,7 +200,7 @@ describe('GuessInput', () => {
       ),
     );
 
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onClose={vi.fn()} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);
 
     const field = screen.getByLabelText('Player name');
     await user.type(field, 'Th');
@@ -231,7 +231,7 @@ describe('GuessInput', () => {
     const onClose = vi.fn();
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
-    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onClose={onClose} />);
+    render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={onSubmit} onResolveDisambiguation={vi.fn()} onClose={onClose} />);
 
     await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
     await vi.advanceTimersByTimeAsync(500);
@@ -245,5 +245,221 @@ describe('GuessInput', () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('Thierry Henry'));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  // SCREEN-02a/REQ-209: a submission that resolves to more than one fitting
+  // candidate renders the disambiguation picker instead of closing.
+  describe('REQ-209 disambiguation prompt', () => {
+    const candidates = [
+      {
+        playerId: 'p1',
+        name: 'Ronaldo',
+        distinguishingAttributes: ['1976', 'Brazil', 'Real Madrid'],
+      },
+      {
+        playerId: 'p2',
+        name: 'Ronaldo',
+        distinguishingAttributes: ['1993', 'Brazil', 'Real Madrid'],
+      },
+    ];
+
+    it('REQ209_rendersPickerWithAllCandidatesAndAttributes: shows every candidate and its distinguishing attributes, and does not close', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+      expect(screen.getAllByText('Ronaldo')).toHaveLength(2);
+      expect(screen.getByText('1976 · Brazil · Real Madrid')).toBeInTheDocument();
+      expect(screen.getByText('1993 · Brazil · Real Madrid')).toBeInTheDocument();
+      // Nothing was scored yet — the sheet stays open, it never closes just
+      // because candidates came back (REQ-210: showing the prompt doesn't
+      // consume an attempt or resolve anything on its own).
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('REQ209_candidateWithNoDistinguishingAttributesRendersCleanly: a candidate with an empty distinguishingAttributes array shows no broken/empty meta line', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue([
+        { playerId: 'p1', name: 'Ronaldo', distinguishingAttributes: [] },
+        { playerId: 'p2', name: 'Ronaldo Nazário', distinguishingAttributes: ['1976'] },
+      ]);
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+      const options = screen.getAllByRole('radio');
+      expect(options).toHaveLength(2);
+      // The first candidate's row has a name but no meta/caption line at all
+      // — not an empty one.
+      const firstRow = options[0].closest('label');
+      expect(firstRow?.querySelector('.guess-input__candidate-meta')).toBeNull();
+      expect(screen.getByText('1976')).toBeInTheDocument();
+    });
+
+    it('REQ209_pickingCandidateResolvesWithChosenPlayerIdAndCloses: choosing a candidate and confirming calls onResolveDisambiguation with its playerId and closes on a scored result', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onResolveDisambiguation = vi.fn().mockResolvedValue(undefined);
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={onResolveDisambiguation}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+
+      await user.click(screen.getByText('1993 · Brazil · Real Madrid'));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() =>
+        expect(onResolveDisambiguation).toHaveBeenCalledWith('p2', 'Ronaldo'),
+      );
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('REQ209_confirmDisabledUntilACandidateIsChosen: the Confirm button starts disabled and is only enabled once a candidate is picked', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled();
+
+      await user.click(screen.getByRole('radio', { name: /1976/ }));
+      expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled();
+    });
+
+    it('REQ209_resolveFailureShowsErrorAndStaysOpen: a rejected resubmission shows the error inline and does not close the picker', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onResolveDisambiguation = vi.fn().mockRejectedValue(new Error('Something went wrong. Try again.'));
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={onResolveDisambiguation}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('radio', { name: /1976/ }));
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() =>
+        expect(screen.getByText('Something went wrong. Try again.')).toBeInTheDocument(),
+      );
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('radiogroup')).toBeInTheDocument();
+    });
+
+    it('REQ209_keyboardNavigation: arrow keys move the selection between candidates and Confirm submits the highlighted one', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onResolveDisambiguation = vi.fn().mockResolvedValue(undefined);
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={onResolveDisambiguation}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+
+      // Clicking the first radio focuses it; arrow keys then move (and
+      // select) within the native radio group, same as any native radio
+      // button set.
+      await user.click(screen.getByRole('radio', { name: /1976/ }));
+      expect(screen.getByRole('radio', { name: /1976/ })).toHaveFocus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByRole('radio', { name: /1993/ })).toHaveFocus();
+      expect(screen.getByRole('radio', { name: /1993/ })).toBeChecked();
+
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+      await waitFor(() => expect(onResolveDisambiguation).toHaveBeenCalledWith('p2', 'Ronaldo'));
+    });
+
+    it('REQ209_cancelAbandonsPromptWithoutSubmitting: closing via Cancel while the picker is open never resolves a guess', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onResolveDisambiguation = vi.fn();
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={onResolveDisambiguation}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Ronaldo');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Cancel guess' }));
+
+      expect(onClose).toHaveBeenCalled();
+      expect(onResolveDisambiguation).not.toHaveBeenCalled();
+    });
   });
 });

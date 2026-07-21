@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError, fetchCurrentRound, submitGuess } from '../lib/api';
-import type { CurrentRoundCell, CurrentRoundResponse } from '../lib/types';
+import type {
+  CurrentRoundCell,
+  CurrentRoundResponse,
+  DisambiguationCandidate,
+  SubmitGuessResponse,
+} from '../lib/types';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
 import { Grid } from './Grid';
 import { GuessInput } from './GuessInput';
@@ -62,13 +67,10 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
     };
   }, [accessToken, onAuthError]);
 
-  const handleSubmitGuess = useCallback(
-    async (submittedName: string) => {
-      if (!activeCell || state.phase !== 'ready') return;
-      const cellId = activeCell.cellId;
-      const roundId = state.round.roundId;
-
-      const result = await submitGuess(accessToken, roundId, cellId, submittedName);
+  // Shared by both handlers below — only ever called with a genuinely
+  // scored response (candidates: null), never a disambiguation-needed one.
+  const applyScoredGuess = useCallback(
+    (cellId: string, submittedName: string, result: SubmitGuessResponse) => {
       // uniquePercent/livePoints aren't in the submit response (REQ-204 is a
       // read-time calculation, GET /rounds/current's job, not the write
       // response's) — null here is accurate for this instant; the next
@@ -92,7 +94,48 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
         };
       });
     },
-    [accessToken, activeCell, state],
+    [],
+  );
+
+  // REQ-209/REQ-210: returns the disambiguation candidates (never undefined
+  // for that case, always a non-empty array per the API contract) when the
+  // submission needs a follow-up choice — GuessInput renders the picker for
+  // that case instead of closing. Deliberately does NOT write anything into
+  // cell state when candidates come back: nothing was scored, no attempt was
+  // consumed, and the grid must keep showing this cell as unanswered/
+  // in-progress until a real scored response (either an unambiguous
+  // submission or the chosenPlayerId resubmission below) arrives.
+  const handleSubmitGuess = useCallback(
+    async (submittedName: string): Promise<DisambiguationCandidate[] | undefined> => {
+      if (!activeCell || state.phase !== 'ready') return undefined;
+      const cellId = activeCell.cellId;
+      const roundId = state.round.roundId;
+
+      const result = await submitGuess(accessToken, roundId, cellId, submittedName);
+      if (result.candidates) return result.candidates;
+
+      applyScoredGuess(cellId, submittedName, result);
+      return undefined;
+    },
+    [accessToken, activeCell, state, applyScoredGuess],
+  );
+
+  // REQ-209/REQ-210: resolves a disambiguation prompt by resubmitting the
+  // same endpoint with the chosen candidate's playerId — always a normal,
+  // scored response (never candidates again), and per REQ-210 this is part
+  // of the same attempt that triggered the prompt, not a second one; no
+  // extra attempt-tracking logic is needed here beyond the same
+  // applyScoredGuess path every ordinary scored submission already uses.
+  const handleResolveDisambiguation = useCallback(
+    async (chosenPlayerId: string, submittedName: string) => {
+      if (!activeCell || state.phase !== 'ready') return;
+      const cellId = activeCell.cellId;
+      const roundId = state.round.roundId;
+
+      const result = await submitGuess(accessToken, roundId, cellId, submittedName, chosenPlayerId);
+      applyScoredGuess(cellId, submittedName, result);
+    },
+    [accessToken, activeCell, state, applyScoredGuess],
   );
 
   if (state.phase === 'loading') {
@@ -177,6 +220,7 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
           cell={activeCell}
           accessToken={accessToken}
           onSubmit={handleSubmitGuess}
+          onResolveDisambiguation={handleResolveDisambiguation}
           onClose={() => setActiveCell(null)}
         />
       )}
