@@ -47,11 +47,8 @@ function App() {
   // admin-only link onward to AdminScreen — a non-admin must see no trace
   // of it anywhere (nav menu or Settings screen), regardless of state.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  // REQ-717/ADR-0036: see the note on `CurrentUser` in lib/types.ts — the
-  // backend's MeResponse has no dedicated `isGuest` field yet (a flagged
-  // gap), so this derives it from the one signal that does exist and holds
-  // exactly for that purpose today: only a guest account has a null email.
-  const isGuest = currentUser !== null && currentUser.email === null;
+  // REQ-717/ADR-0036: mirrors User.IsGuest via MeResponse's isGuest field.
+  const isGuest = currentUser?.isGuest ?? false;
   // REQ-716/ADR-0034: mounted here (not inside SettingsScreen) so the
   // "system" preference's reactive prefers-color-scheme listener stays
   // active regardless of which screen is showing, not only while Settings

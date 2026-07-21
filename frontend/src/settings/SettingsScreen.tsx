@@ -17,12 +17,10 @@ export interface SettingsScreenProps {
   accessToken: string;
   isAdmin: boolean;
   // REQ-717/ADR-0036: true only while the current account is a guest
-  // (App.tsx derives this as `currentUser.email === null` — see the note on
-  // `CurrentUser` in lib/types.ts for why: the backend's `MeResponse` has no
-  // dedicated `isGuest` field yet, a flagged gap, not silently worked
-  // around). Gates the "Save your progress" claim section below — a
-  // claimed (non-guest) account renders none of it, same "no visible trace
-  // when not applicable" pattern REQ-504's admin-link gating already uses.
+  // (App.tsx passes `currentUser.isGuest` — MeResponse's own field).
+  // Gates the "Save your progress" claim section below — a claimed
+  // (non-guest) account renders none of it, same "no visible trace when
+  // not applicable" pattern REQ-504's admin-link gating already uses.
   isGuest: boolean;
   // REQ-714: the account's current DisplayName, pre-filled into the edit
   // form below — sourced from App.tsx's own GET /auth/me-backed
