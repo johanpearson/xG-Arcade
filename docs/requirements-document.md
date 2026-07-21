@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.83"
+version: "0.84"
 status: draft
 last_updated: 2026-07-20
 owner: Johan
@@ -3448,14 +3448,26 @@ a valid stored refresh token but a missing/expired access token stays
 logged in without showing a login prompt; an invalid stored refresh token
 returns to the login screen; logging out clears the stored refresh token)
 
-**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed,
-implementation-ready — design pass completed 2026-07-20. Originally
-drafted 2026-07-20 as a placeholder; the design session
-`docs/backlog.md` flagged as needed has now happened and is recorded
-below and in `docs/design-document.md` §2's new **Dark theme**
-subsection. Mechanism/persistence choice recorded in ADR-0034. Not yet
-built — that's a separate, not-yet-queued implementation story in
-`docs/backlog.md`.)*
+**REQ-716 – Selectable color themes / dark mode** *(Status: Implemented
+(S-064), 2026-07-20 — design pass and implementation both completed the
+same day. A System/Light/Dark radio group on `SettingsScreen.tsx`
+(`frontend/src/lib/theme.ts`'s `useThemePreference`), persisted in
+`localStorage`, applied as a `data-theme` attribute on `<html>` via
+`main.tsx`'s `applyStoredThemePreference()` before the React tree mounts
+(no flash of the wrong theme). Every dark-theme token value in
+`frontend/src/index.css`'s `:root[data-theme='dark']` block is copied
+verbatim from `docs/design-document.md` §2's contrast-verified table (see
+that section for the derivation; ADR-0034 for the mechanism/persistence
+decision). Verified visually via a real Chromium screenshot (light/dark
+side by side, both legible) in addition to the automated suite.
+**Flagged, not silently passed over:** the login/signup submit button's
+text color reuses `--color-surface-card` as its foreground (a
+component-level token-reuse pattern, not one of the tokens the design
+pass's audit table enumerated) — in dark theme this computes to a
+measured 4.64:1 contrast against the green button background, clearing
+the 4.5:1 AA floor but narrowly, and by coincidence rather than by
+deliberate derivation. Worth a closer look if this pattern repeats
+elsewhere or the token values ever shift.)*
 > As a player, I want to choose a different color theme (e.g. dark mode)
 > for the app, so I can use it comfortably in different lighting
 > conditions or to match my own preference.

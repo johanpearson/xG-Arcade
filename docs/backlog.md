@@ -3236,6 +3236,29 @@ mock); no flash of the wrong theme on load.
 *Deps:* the design pass above (2026-07-20, REQ-716/ADR-0034 — design
 decided), the existing `SettingsScreen.tsx` (ADR-0030's mobile-nav/
 Settings consolidation).
+**Built as:** matches the plan exactly. New `frontend/src/lib/theme.ts`
+(`useThemePreference` hook, `applyStoredThemePreference`/`resolveTheme`/
+`applyResolvedTheme` helpers) mounted once in `App.tsx` (not inside
+`SettingsScreen`, so the "system" preference's reactive
+`prefers-color-scheme` listener stays active regardless of which screen
+is showing) and called once more, standalone, in `main.tsx` before the
+React tree mounts (avoids a flash of the wrong theme). `index.css`'s
+`:root[data-theme='dark']` block copies every hex value verbatim from
+`design-document.md` §2's table — including making
+`accent-green-text`/`accent-gold-text` (dormant in dark theme per that
+table) point at the same values as `accent-green`/`accent-gold`, so every
+existing component that already reads those two specific variable names
+picks up the correct dark color with zero component-code change.
+`SettingsScreen.tsx` gained a System/Light/Dark `radiogroup`. Verified
+visually via a real Chromium screenshot (light vs. dark, both legible) in
+addition to 16 new `theme.test.ts` unit tests plus updated
+`SettingsScreen.test.tsx` coverage; full frontend suite (248 tests),
+`tsc -b`, and lint all clean. **One coincidental-not-derived finding,
+flagged rather than silently accepted:** the login/signup submit button's
+text color reuses `--color-surface-card` as its foreground — outside the
+design pass's audited token list — which in dark theme measures 4.64:1
+against the green button background (clears 4.5:1 AA, but narrowly and by
+coincidence). See REQ-716's own status note.
 
 **S-065 · Alias and fuzzy-typo matching for guess scoring (REQ-208)**
 Closes REQ-208's two still-deferred clauses — the "simple half" (lowercase/

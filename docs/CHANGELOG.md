@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-20 — `docs/requirements-document.md` (0.83 → 0.84), `docs/
+  backlog.md` (S-064 "Built as") — REQ-716 (dark mode) fully implemented:
+  System/Light/Dark toggle on Settings, `localStorage`-persisted, applied
+  before first paint (no flash of the wrong theme). Every dark token value
+  copied verbatim from the design pass's table; verified visually via a
+  real Chromium screenshot in addition to 16 new unit tests. One
+  coincidental-not-derived contrast finding flagged (login button text via
+  `--color-surface-card` reuse, 4.64:1 in dark theme — passes AA, narrowly,
+  by coincidence). Full frontend suite (248 tests) green. REQ-716.
 - 2026-07-20 — `docs/requirements-document.md` (0.82 → 0.83), `docs/
   backlog.md` (new S-065 entry) — REQ-208 fully implemented: guess-time
   matching now tries exact name, then `PlayerAlias`, then a bounded
