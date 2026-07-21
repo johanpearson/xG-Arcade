@@ -374,6 +374,20 @@ is written as something you can actually observe, not a vague feeling:
   not just membership
 - **Legal docs finalized** (`docs/legal/`) — trigger: before any public
   launch to strangers — also a bright line, not a judgment call
+- **Guest play** (REQ-717, ADR-0036) — trigger: none fired; **pulled
+  forward by deliberate product decision, 2026-07-21**, same pattern as
+  REQ-108/214/402-403's own precedent (no observed request — the product
+  owner reasoned through it directly with the goal of a better uniqueness
+  signal via more players guessing). **Decided, not yet built:** REQ-717
+  and ADR-0036 are drafted (a real, auto-provisioned `User` row with no
+  email/password, `User.IsGuest` flag, participates unmodified in
+  guessing/scoring/uniqueness and round-scoped leaderboards REQ-406/407/408,
+  excluded from REQ-409's all-time median ranking, its own tighter rate
+  limit, and a claim/upgrade path to a real account preserving guess
+  history) — implementation is a separate, not-yet-scoped future story.
+  Flagged here rather than assumed: this is a new auth flow touching the
+  account boundary Tier 0 already locked in, real Tier 1/2 scope by this
+  document's own classification, not a small addition
 
 ## Tier 2 — already deferred, unchanged
 
