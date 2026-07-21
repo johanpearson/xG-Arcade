@@ -29,6 +29,7 @@ function renderSettingsScreen(
   const onAuthError = vi.fn();
   const onOpenAdmin = vi.fn();
   const onDisplayNameUpdated = vi.fn();
+  const onThemePreferenceChange = vi.fn();
 
   render(
     <SettingsScreen
@@ -40,11 +41,13 @@ function renderSettingsScreen(
       onCancel={onCancel}
       onAuthError={onAuthError}
       onOpenAdmin={onOpenAdmin}
+      themePreference="system"
+      onThemePreferenceChange={onThemePreferenceChange}
       {...overrides}
     />,
   );
 
-  return { onAccountDeleted, onCancel, onAuthError, onOpenAdmin, onDisplayNameUpdated };
+  return { onAccountDeleted, onCancel, onAuthError, onOpenAdmin, onDisplayNameUpdated, onThemePreferenceChange };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -258,5 +261,67 @@ describe('SettingsScreen', () => {
       expect.stringContaining('/auth/display-name'),
       expect.objectContaining({ body: JSON.stringify({ displayName: 'Current Name' }) }),
     );
+  });
+
+  // REQ-716/ADR-0034: the System/Light/Dark toggle.
+  describe('theme toggle (REQ-716)', () => {
+    it('REQ-716: renders all three System/Light/Dark options as a radio group', () => {
+      renderSettingsScreen({ themePreference: 'system' });
+
+      const group = screen.getByRole('radiogroup', { name: 'Color theme' });
+      expect(group).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'System' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Light' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Dark' })).toBeInTheDocument();
+    });
+
+    it('REQ-716: checks the radio matching the current themePreference prop', () => {
+      renderSettingsScreen({ themePreference: 'dark' });
+
+      expect(screen.getByRole('radio', { name: 'Dark' })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'System' })).not.toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Light' })).not.toBeChecked();
+    });
+
+    it('REQ-716: selecting "Dark" calls onThemePreferenceChange with "dark"', async () => {
+      const user = userEvent.setup();
+      const { onThemePreferenceChange } = renderSettingsScreen({ themePreference: 'system' });
+
+      await user.click(screen.getByRole('radio', { name: 'Dark' }));
+
+      expect(onThemePreferenceChange).toHaveBeenCalledTimes(1);
+      expect(onThemePreferenceChange).toHaveBeenCalledWith('dark');
+    });
+
+    it('REQ-716: selecting "Light" calls onThemePreferenceChange with "light"', async () => {
+      const user = userEvent.setup();
+      const { onThemePreferenceChange } = renderSettingsScreen({ themePreference: 'dark' });
+
+      await user.click(screen.getByRole('radio', { name: 'Light' }));
+
+      expect(onThemePreferenceChange).toHaveBeenCalledTimes(1);
+      expect(onThemePreferenceChange).toHaveBeenCalledWith('light');
+    });
+
+    it('REQ-716: selecting "System" calls onThemePreferenceChange with "system"', async () => {
+      const user = userEvent.setup();
+      const { onThemePreferenceChange } = renderSettingsScreen({ themePreference: 'light' });
+
+      await user.click(screen.getByRole('radio', { name: 'System' }));
+
+      expect(onThemePreferenceChange).toHaveBeenCalledTimes(1);
+      expect(onThemePreferenceChange).toHaveBeenCalledWith('system');
+    });
+
+    it('REQ-716: each radio option meets the 44px touch-target-min height', () => {
+      renderSettingsScreen({ themePreference: 'system' });
+
+      for (const name of ['System', 'Light', 'Dark']) {
+        const radio = screen.getByRole('radio', { name });
+        const label = radio.closest('label');
+        expect(label).not.toBeNull();
+        expect(label).toHaveStyle({ minHeight: 'var(--touch-target-min)' });
+      }
+    });
   });
 });

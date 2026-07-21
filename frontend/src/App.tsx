@@ -10,6 +10,7 @@ import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
+import { useThemePreference } from './lib/theme';
 
 type HealthState =
   | { phase: 'loading' }
@@ -46,6 +47,13 @@ function App() {
   // admin-only link onward to AdminScreen — a non-admin must see no trace
   // of it anywhere (nav menu or Settings screen), regardless of state.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  // REQ-716/ADR-0034: mounted here (not inside SettingsScreen) so the
+  // "system" preference's reactive prefers-color-scheme listener stays
+  // active regardless of which screen is showing, not only while Settings
+  // itself is open. main.tsx's applyStoredThemePreference() already applied
+  // the same value before this component ever mounted, so this isn't the
+  // first paint of the theme — it's what keeps it in sync after that.
+  const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
 
   useEffect(() => {
     let cancelled = false
@@ -250,6 +258,8 @@ function App() {
               onCancel={() => setScreen('game-select')}
               onAuthError={handleLogout}
               onOpenAdmin={() => setScreen('admin')}
+              themePreference={themePreference}
+              onThemePreferenceChange={setThemePreference}
             />
           )
         ) : (

@@ -80,6 +80,54 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * REQ-716/ADR-0034: dark theme — every hex value below is copied verbatim
+ * from design-document.md §2's "Dark theme" subsection (contrast-verified
+ * there; do not alter or re-derive any value here, update that table first
+ * if a value genuinely needs to change). Applied via the `data-theme`
+ * attribute frontend/src/lib/theme.ts sets on <html> — light theme (no
+ * attribute, or data-theme="light") remains the default via :root above.
+ * Only color tokens change; spacing (--space-*), type (--font-*), and
+ * motion are theme-independent per that same section.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg-base: #101412;
+  --color-surface-card: #1c211f;
+  --color-surface-sunken: #0c0e0d;
+  --color-text-primary: #eef1f0;
+  --color-text-muted: #98a49e;
+  --color-border-hairline: #353b38;
+
+  /* Unchanged from the light theme (same hex) — restated explicitly so this
+     block is self-contained rather than relying on inheriting :root's
+     light-theme values. */
+  --color-accent-green: #1e9e63;
+  --color-accent-gold: #c99a2e;
+
+  /* New value — the light theme's accent-red fails WCAG AA contrast on a
+     dark surface (design-document.md §2's dark-theme table). */
+  --color-accent-red: #d2726a;
+
+  /* accent-green-text/accent-gold-text are dormant in dark theme — the
+     dark-theme table has dark theme use accent-green/accent-gold directly
+     for every role these two darkened-for-light-background variants cover
+     in the light theme (one token instead of two, not an oversight).
+     Overridden here (rather than left unset) so every existing component
+     that already reads --color-accent-green-text/--color-accent-gold-text
+     (e.g. SettingsScreen's "Display name updated." success text,
+     CellState's correct icon) picks up the correct dark-theme color with no
+     component code change. */
+  --color-accent-green-text: #1e9e63;
+  --color-accent-gold-text: #c99a2e;
+
+  /* --color-accent-green-scrim and --color-overlay-scrim (the photo-overlay
+     set) are explicitly "no change, either theme" per design-document.md
+     §2 — calibrated against a photo's own worst-case brightness, not the
+     app's chrome background — so they are deliberately NOT overridden here. */
+}
+
 * {
   box-sizing: border-box;
 }
