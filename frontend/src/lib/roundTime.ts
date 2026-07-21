@@ -32,12 +32,23 @@ const ENDING_SOON_THRESHOLD_MS = MINUTE_MS;
 
 export function formatRoundEndTime(endTimeIso: string, referenceTime: Date): RoundEndTimeDisplay {
   const endTime = new Date(endTimeIso);
+  const remainingMs = endTime.getTime() - referenceTime.getTime();
+
+  // A malformed/unparseable `endTime` (the API contract guarantees a valid
+  // ISO string, but this is a pure formatter with no other guard between it
+  // and that contract) must not be allowed to leak `NaN`/`Invalid Date` into
+  // either the visible text or the accessible name — `NaN` comparisons are
+  // always false, so without this explicit check it would fall all the way
+  // through to the `Ends in {M}m` branch as `"Ends in NaNm"`, which is
+  // exactly the "nonsensical value" REQ-303 rules out.
+  if (Number.isNaN(remainingMs)) {
+    return { text: 'Ending soon', absoluteLabel: 'an unknown time' };
+  }
+
   const absoluteLabel = endTime.toLocaleString(undefined, {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
-
-  const remainingMs = endTime.getTime() - referenceTime.getTime();
 
   if (remainingMs < ENDING_SOON_THRESHOLD_MS) {
     return { text: 'Ending soon', absoluteLabel };

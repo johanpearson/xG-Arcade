@@ -81,6 +81,18 @@ describe('formatRoundEndTime', () => {
       const endTimeIso = endTimeOffsetByMs(0);
       expect(formatRoundEndTime(endTimeIso, REFERENCE_TIME).text).toBe('Ending soon');
     });
+
+    it('REQ-303: a malformed/unparseable endTime also reads "Ending soon", never "Ends in NaNm"', () => {
+      const result = formatRoundEndTime('not-a-real-timestamp', REFERENCE_TIME);
+      expect(result.text).toBe('Ending soon');
+      expect(result.text).not.toContain('NaN');
+    });
+
+    it('REQ-303: a malformed/unparseable endTime yields a non-empty absoluteLabel, never "Invalid Date"', () => {
+      const result = formatRoundEndTime('not-a-real-timestamp', REFERENCE_TIME);
+      expect(result.absoluteLabel).toBeTruthy();
+      expect(result.absoluteLabel).not.toContain('Invalid Date');
+    });
   });
 
   describe('absoluteLabel', () => {
