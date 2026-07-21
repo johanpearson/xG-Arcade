@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.85"
+version: "0.86"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1176,19 +1176,30 @@ typos, and confirming near-miss strings that should NOT match are rejected)
 > As a player, I want a fair resolution when my guess matches more than one
 > real player, so the cell's categories — not luck — decide correctness.
 
-- **Status: Partially implemented (Tier 0's simplified handling only,
-  S-009, per `MVP-SCOPE.md`).** The "exactly one candidate satisfies both
-  categories → accept automatically" branch is fully built and matches the
-  acceptance criteria below exactly. The "no candidate satisfies both
-  categories → incorrect" branch is also fully built. **Simplified,
-  per `MVP-SCOPE.md`'s explicit Tier 0 scoping:** when more than one
-  candidate satisfies both categories, Tier 0 does not show a
-  disambiguation prompt at all — `GridGameModule.ScoreSubmissionAsync`
-  auto-accepts the lowest-`Id` fitting candidate (the same deterministic
-  pick REQ-204 already specifies for uniqueness grouping) and logs a
-  warning (`ILogger.LogWarning`) so a real occurrence is visible and can
-  trip `MVP-SCOPE.md`'s Tier 1 "build the disambiguation UI" trigger. No
-  player-facing disambiguation prompt/picker UI exists.
+- **Status: Implemented (S-067), 2026-07-21 — pulled forward ahead of
+  `MVP-SCOPE.md`'s original Tier 1 trigger (which had never actually
+  fired; see that file's own updated note).** All three branches below are
+  now built exactly as specified. When more than one candidate satisfies
+  both categories, `GridGameModule` (`AcceptMatchAsync`/
+  `BuildDisambiguationCandidatesAsync`) returns each fitting candidate's
+  name and their *other* known `PlayerAttribute` values (excluding
+  whichever of the cell's own two categories every candidate already
+  satisfies, since repeating those wouldn't distinguish anything) — not
+  birth year, which `Player` has no column for and which REQ-209's own
+  text only offered as an illustrative "e.g." example, not a literal
+  requirement. `GuessSubmissionService.SubmitGuessAsync` returns this
+  disambiguation-needed result *before ever touching the Guess
+  repository* — no row persisted, no attempt consumed — satisfying
+  REQ-210's "part of the same attempt that triggered it, not a separate
+  attempt" clause structurally, not just by convention. `POST
+  /rounds/{roundId}/cells/{cellId}/guesses` gained an optional
+  `chosenPlayerId` request field; the response's `Candidates` field (null
+  on every ordinary scored response) is the frontend's discriminator for
+  when to render `GuessInput`'s new SCREEN-02a picker instead of treating
+  the response as scored. A `chosenPlayerId` is always re-verified
+  server-side against a freshly-recomputed matching set — never trusted
+  blindly — and an invalid/stale one fails closed to an ordinary incorrect
+  guess (which does consume an attempt, since that's a real scored guess).
 - Given a normalized/alias/fuzzy-matched guess resolves to more than one
   distinct player record
 - When those candidates are checked against the cell's row and column

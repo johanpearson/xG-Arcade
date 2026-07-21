@@ -295,9 +295,11 @@ is written as something you can actually observe, not a vague feeling:
   remains deferred — autocomplete alone (a correct-spelling suggestion
   list) is what got built, not typo tolerance for free-typed guesses — and
   REQ-209's disambiguation UI (below) remains deferred too
-- **Disambiguation UI** (REQ-209) — trigger: you actually observe two real
-  players with the same normalized name both satisfying one cell (log this
-  case even in the simplified Tier 0 handling, so you'd notice if it happened)
+- ~~**Disambiguation UI** (REQ-209)~~ — **pulled forward and built
+  2026-07-21, `docs/backlog.md` S-067**, ahead of the trigger firing (no
+  real name collision was actually observed) — pulled forward by
+  deliberate choice, same pattern as REQ-108/REQ-214/REQ-402-403's own
+  precedent
 - **Player photo on cell reveal** (REQ-214) — **Pulled forward by
   deliberate choice, 2026-07-18.** No trigger fired — there was no observed
   complaint or pain point; this was pulled forward because the idea was

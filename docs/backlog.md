@@ -3350,3 +3350,64 @@ as Trophy × Trophy), tracked in ADR-0035. 20 new tests across
 `ReferenceDataSeederTests.cs`, `GridGameModuleTests.cs`; new EF Core
 migration for the `CountryDefinition` column generated and included. Full
 backend suite (627 tests) green.
+
+**S-067 · Disambiguation UI (REQ-209)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 trigger ("you
+actually observe two real players with the same normalized name both
+satisfying one cell"), which had never actually fired — by deliberate
+choice, same pattern as REQ-108/REQ-214/REQ-402-403's own precedent.
+Replaces S-065's auto-accept-lowest-id-and-log behavior: when a guess
+resolves to more than one fitting candidate, the player is now shown a
+picker instead of the system guessing on their behalf. Backend/API and
+frontend landed as two sequential sub-tasks the same day.
+*Accept:* REQ209-named tests: exactly-one-candidate still auto-accepts
+unchanged; more-than-one-candidate returns disambiguation candidates
+without persisting a `Guess` row or incrementing attempt count (REQ-210);
+a valid `chosenPlayerId` resubmission scores correctly and consumes
+exactly one attempt total (prompt + resolution together, not two); an
+invalid/stale `chosenPlayerId` is treated as an ordinary incorrect guess.
+*Deps:* S-065 (REQ-208's matching pipeline this replaces the disambiguation
+tail-end of), S-011 (guess submission).
+**Built as (backend/API):** `GridGameModule.AcceptMatchAsync` (renamed
+from `AcceptMatch`, now async) returns `ScoreResult.DisambiguationCandidates`
+— each candidate's *other* known `PlayerAttribute` values (nationality/
+club/trophy), excluding whichever of the cell's own two categories every
+candidate already satisfies, since repeating those wouldn't distinguish
+anything — instead of birth year (REQ-209's own text only offers that as
+an illustrative "e.g." example; `Player` has no birth-year column, and
+adding one was out of scope). A `chosenPlayerId` fast path re-runs the
+same exact/alias/fuzzy pipeline from scratch and only accepts if the id
+is present in the freshly-computed matching set — never trusts a
+client-supplied id blindly, and an invalid one fails closed to an
+ordinary incorrect guess rather than throwing.
+`GuessSubmissionService.SubmitGuessAsync` returns the new
+`NeedsDisambiguation` outcome *before ever touching `guessRepository`* —
+no `AddAsync`/`UpdateAsync`, no attempt-count increment — which is what
+makes REQ-210's "not a separate attempt" guarantee structural rather than
+conventional; verified directly by a test asserting no `Guess` row exists
+after a disambiguation prompt, and a companion test asserting the
+prompt-then-`chosenPlayerId`-resolution pair together consume exactly one
+attempt. API: `SubmitGuessRequest` gained `ChosenPlayerId`;
+`SubmitGuessResponse` gained `Candidates` (null on every ordinary
+response — the frontend's discriminator for "show a picker" vs. "render a
+scored result"). 15 new backend tests; full backend suite (642 tests)
+green.
+**Built as (frontend):** `GuessInput.tsx` renders SCREEN-02a's picker
+(native `role="radiogroup"` of radio-labeled candidates, each showing
+name + `distinguishingAttributes.join(' · ')`, gracefully omitted — not
+shown empty — when a candidate has none) whenever `onSubmit` resolves
+with a non-empty candidate array instead of closing; a new
+`onResolveDisambiguation` prop resubmits with the chosen `playerId` and
+closes on the resulting scored response, same error-handling shape as the
+plain form. `GridScreen.handleSubmitGuess` never writes cell state for a
+disambiguation-needed response — only the extracted `applyScoredGuess`
+(shared by the plain path and the `chosenPlayerId` resolution path) ever
+updates `state.round.cells`, so the grid keeps showing the cell as
+unanswered until a real scored response arrives. Verified visually via a
+temporary, deleted-afterward preview harness + Chromium screenshots at
+mobile/desktop widths (bottom-sheet vs. centered popover, per SCREEN-02a);
+a full logged-in-through-real-backend flow with genuinely ambiguous
+seeded data was not reachable in this sandbox, so the network round-trip
+itself is verified only via mocked-fetch Vitest coverage, not a live
+integration. 8 new frontend tests; full frontend suite (256 tests),
+`tsc -b`, and lint all clean.

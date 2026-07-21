@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.85 → 0.86), `MVP-SCOPE.md`
+  (Tier 1 struck through), `docs/backlog.md` (new S-067 entry) —
+  disambiguation UI (REQ-209) pulled forward and implemented, replacing
+  the auto-accept-lowest-id fallback: a guess matching more than one
+  fitting candidate now shows a real picker. `GuessSubmissionService`
+  returns the disambiguation-needed outcome before ever touching the
+  Guess repository — no row persisted, no attempt consumed — making
+  REQ-210's "not a separate attempt" guarantee structural. New
+  `SubmitGuessRequest.ChosenPlayerId`/`SubmitGuessResponse.Candidates`
+  API fields; `GuessInput.tsx` renders the SCREEN-02a picker. 15 new
+  backend tests (642 total) + 8 new frontend tests (256 total), both
+  suites green. REQ-209, REQ-210 (structural clarification).
 - 2026-07-21 — `docs/requirements-document.md` (0.84 → 0.85), `docs/
   decisions/0035-national-team-query-property-flag-on-country-definition.md`
   (new), `docs/implementation-document.md`, `MVP-SCOPE.md`, `docs/
