@@ -19,8 +19,11 @@ public record LoginResponse(string AccessToken, string? RefreshToken);
 // render the admin nav entry point at all — computed the same way
 // AdminAuthorizationHandler decides it server-side (Admin:UserIds), never a
 // second, independently-maintained check. Email is nullable since REQ-717:
-// a guest (IsGuest = true) has none until it claims a real account.
-public record MeResponse(Guid Id, string? Email, string DisplayName, bool EmailConfirmed, bool IsAdmin);
+// a guest (IsGuest = true) has none until it claims a real account. IsGuest
+// mirrors User.IsGuest directly (REQ-717/ADR-0036) so the frontend has a
+// first-class field to check instead of inferring guest status from
+// Email being null.
+public record MeResponse(Guid Id, string? Email, string DisplayName, bool EmailConfirmed, bool IsAdmin, bool IsGuest);
 
 // REQ-710: the confirmation step an irreversible self-service deletion
 // requires — the caller's current password, re-verified against Supabase

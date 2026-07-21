@@ -661,6 +661,7 @@ public class AuthEndpointTests
         var body = await response.Content.ReadFromJsonAsync<MeResponse>();
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Email, Is.EqualTo("claimed@example.com"));
+        Assert.That(body.IsGuest, Is.False);
 
         using var assertScope = _factory.Services.CreateScope();
         var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -808,6 +809,28 @@ public class AuthEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Email, Is.EqualTo("known-user@example.com"));
         Assert.That(body.EmailConfirmed, Is.True);
+        Assert.That(body.IsGuest, Is.False);
+    }
+
+    // REQ-717: GET /auth/me's IsGuest field mirrors User.IsGuest directly —
+    // the frontend's first-class replacement for inferring guest status
+    // from Email being null.
+    [Test]
+    public async Task REQ717_Me_Get_ReturnsIsGuestTrue_ForGuestUser()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<MeResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.IsGuest, Is.True);
+        Assert.That(body.Email, Is.Null);
     }
 
     // REQ-504: GET /auth/me's IsAdmin field — computed via the same

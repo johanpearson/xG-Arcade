@@ -324,7 +324,7 @@ public class AuthController(
         // authorization policy itself uses (AdminAuthorizationHandler).
         var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
 
-        return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed, isAdmin));
+        return Ok(new MeResponse(user.Id, user.Email, user.DisplayName, user.EmailConfirmed, isAdmin, user.IsGuest));
     }
 
     // REQ-714: edit the caller's own DisplayName from Settings — reuses
@@ -465,7 +465,7 @@ public class AuthController(
         }
 
         var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
-        return Ok(new MeResponse(updated.Id, updated.Email, updated.DisplayName, updated.EmailConfirmed, isAdmin));
+        return Ok(new MeResponse(updated.Id, updated.Email, updated.DisplayName, updated.EmailConfirmed, isAdmin, updated.IsGuest));
     }
 
     // Shared by Claim above — the raw bearer token this request itself
