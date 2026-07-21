@@ -13,6 +13,56 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/architecture-document.md` (0.47 → 0.48), `SETUP.md` —
+  closed two gaps flagged by the ADR-0037/REQ-717 captcha entry directly
+  below: added the missing ADR-0037 row to `architecture-document.md` §10's
+  ADR table, and gave `SETUP.md`'s Supabase section its own explicit step
+  for turning on Anonymous Sign-ins (off by default, never documented as a
+  precondition before a live deployment hit "Could not start a guest
+  session" because of it) ahead of the Turnstile captcha step, rather than
+  leaving it implied inside that step.
+- 2026-07-21 — `docs/requirements-document.md` (0.95 → 0.96),
+  `docs/decisions/0037-turnstile-captcha-for-guest-creation.md` (new),
+  `MVP-SCOPE.md`, `SETUP.md` — Cloudflare Turnstile added as a second,
+  complementary abuse-prevention layer for guest-account creation
+  (`POST /auth/guest` only — not signup/login), directly motivated by
+  Supabase's own dashboard warning on enabling Anonymous Sign-ins.
+  `requirements-document.md`: REQ-717 gained a dated "Bot-check (captcha)
+  for guest creation" acceptance-criteria addition (acceptance criteria
+  only, not yet built) — token obtained client-side before calling
+  `POST /auth/guest`, passed through unmodified to Supabase's native
+  `gotrue_meta_security.captcha_token` verification (no independent
+  verification in this backend), a distinct rejection response required
+  for a missing/invalid/expired token (not the existing generic "Guest
+  sign-in failed"), and a recommendation for Turnstile's invisible/managed
+  widget mode over the visible checkbox mode; its Test level line was
+  extended to match. New ADR-0037 records the provider choice (Turnstile
+  over hCaptcha) and the wiring decision (Supabase-native verification,
+  never a direct Cloudflare call from this backend) — judged to warrant
+  its own ADR rather than folding into ADR-0036, since "which provider and
+  how it's wired" is a real structural choice with alternatives, distinct
+  from ADR-0036's own guest-identity-mechanism decision. Also decided:
+  the Turnstile site key is a new frontend build-time config value,
+  `VITE_TURNSTILE_SITE_KEY`, following the existing `VITE_API_BASE_URL`
+  convention (`frontend/src/lib/api.ts`); the secret key belongs solely in
+  Supabase's own Auth dashboard settings, never in this backend's
+  configuration. `MVP-SCOPE.md`'s "Guest play" bullet got a short addendum
+  recording this as "specified, not yet built." `SETUP.md`'s Supabase
+  section gained a new step 5 for the manual Cloudflare Turnstile site
+  setup and Supabase Auth captcha-settings step — this also incidentally
+  documents enabling Supabase's Anonymous Sign-ins toggle itself for the
+  first time, closing a pre-existing gap (ADR-0036/REQ-717 shipped without
+  ever adding that toggle as a documented precondition anywhere; flagged
+  here rather than silently left, in case a fuller doc-sync pass wants to
+  treat it as its own line item). No `architecture-document.md` or
+  application code change made by this pass — flagged for `doc-sync`/
+  `backend-implementer`/`ui-implementer` follow-up (ADR-0037's own
+  Follow-up section lists the concrete deltas: `ISupabaseAuthClient.
+  SignInAnonymouslyAsync`'s new `captchaToken` parameter, `POST
+  /auth/guest`'s new request body, `AuthController.Guest`'s split error
+  handling, `infra/bicep`/`infra/README.md`'s new frontend build-time
+  variable, and `architecture-document.md` §10's ADR table row).
+  REQ-717/ADR-0037.
 - 2026-07-21 — `docs/requirements-document.md` (0.94 → 0.95),
   `docs/design-document.md` (0.44 → 0.45) — bug fix:
   `ScoringExplainer.tsx`'s card (`ScoringExplainer.css`) had no

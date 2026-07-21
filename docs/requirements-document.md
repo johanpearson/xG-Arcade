@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.95"
+version: "0.96"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -3959,6 +3959,65 @@ decision itself (added in the same session ADR-0036 was drafted).
   by the requirement itself — an implementation/tuning detail, not a
   product decision this requirement needs to make
 
+**Bot-check (captcha) for guest creation (2026-07-21 addition — acceptance
+criteria only, not yet built):** complementary to, not a replacement for,
+the rate-limiting criteria immediately above — a per-IP rate limit alone is
+weaker against a distributed/multi-IP scripted attacker than a captcha
+check is, which is exactly the abuse pattern Supabase's own dashboard warns
+about when enabling Anonymous Sign-ins ("Enable captcha for anonymous
+sign-ins — this will prevent potential abuse on sign-ins which may bloat
+your database and incur costs for monthly active users (MAU)"). Both
+layers apply together; neither supersedes the other. **Scoped to guest
+creation (`POST /auth/guest`) only** — this does not extend to
+`POST /auth/signup` or `POST /auth/login`; REQ-606's own existing rate
+limits on those two endpoints are unaffected and unchanged by this
+addition, and neither gains a captcha check as part of this REQ. Mechanism:
+Cloudflare Turnstile — see ADR-0037 for the provider choice and exact
+wiring into Supabase Auth's native captcha-token verification.
+
+- Given the "Play as guest" entry point
+- When a person activates it
+- Then the frontend first attempts to obtain a Cloudflare Turnstile token
+  (via Turnstile's client-side widget/JS) before calling `POST /auth/guest`
+  at all — the endpoint is never called without first attempting to
+  obtain a token
+- Given the frontend has obtained a Turnstile token
+- When it calls `POST /auth/guest`
+- Then the request includes that token, and the backend passes it through
+  unmodified to Supabase Auth's anonymous sign-in call, for Supabase's own
+  server-side verification against Cloudflare — this backend performs no
+  independent captcha verification of its own, the same "mediate, don't
+  reimplement" principle ADR-0013 already established for signup/login
+- Given `POST /auth/guest` is called with a missing, expired, or otherwise
+  invalid Turnstile token
+- When Supabase's anonymous sign-in call rejects the request for that
+  reason
+- Then the response is a distinct, specific rejection the frontend can act
+  on — never the same generic "Guest sign-in failed" response this
+  endpoint already returns for its other failure modes (e.g. display-name
+  generation exhausted) — so the frontend can tell "the captcha check
+  failed, reset the widget and retry" apart from any other failure
+- Given the frontend receives that distinct captcha-rejection response
+- Then it resets/reinitializes the Turnstile widget and obtains a fresh
+  token before allowing another guest-creation attempt — never a silent
+  retry re-using the same rejected or expired token
+
+**Widget UX recommendation:** Turnstile's invisible/managed mode (no
+visible checkbox interaction required unless Cloudflare's own risk scoring
+escalates to an interactive challenge) is recommended over the always-shown
+checkbox widget — consistent with "Play as guest" being a zero-friction
+entry point by design (this REQ's own user story above); an always-visible
+checkbox would reintroduce, for the overwhelming majority of legitimate
+players, exactly the friction guest play exists to remove.
+
+**External precondition (not application behavior — recorded here for
+traceability; full steps belong in `SETUP.md`):** a Cloudflare Turnstile
+site must be created (free) before any of the above can function, yielding
+a site key (public, safe in frontend code) and a secret key. The secret key
+is configured directly in Supabase's own Auth settings dashboard, never in
+this application's backend or frontend — Supabase verifies the token with
+Cloudflare directly, not through this backend.
+
 **Claim/upgrade path:**
 - Given a guest wants to add an email and password
 - When they complete the claim/upgrade flow (the UI/flow itself is left to
@@ -3996,9 +4055,15 @@ and satisfies REQ-701's bounds; REQ-409's qualifying-rounds query excludes
 guest rows and excludes a claimed account's pre-claim rounds), API (guest
 creation endpoint is rate-limited distinctly from `auth-signup`/
 `auth-login`; REQ-407/408 leaderboard responses include a guest row;
-REQ-409's response excludes one), Manual (spot-check that a claimed
-account's guess history and league memberships survive the conversion
-unchanged)
+REQ-409's response excludes one; a missing/invalid Turnstile token produces
+the distinct captcha-rejection response required by the 2026-07-21 addition
+above, distinguishable from this endpoint's other failure responses —
+exercised with Cloudflare's documented always-pass/always-fail test site
+keys, not a live network call to Cloudflare, the same way automated tests
+avoid live third-party calls elsewhere in this system), Manual (spot-check
+that a claimed account's guess history and league memberships survive the
+conversion unchanged; the "Play as guest" flow end-to-end with the
+invisible/managed widget against a real Cloudflare Turnstile site)
 
 ---
 
@@ -4123,6 +4188,14 @@ that document's Dark theme subsection — implementation not yet queued in
 `docs/backlog.md`.
 
 No open questions remain from 2026-07-20 as of this pass.
+
+REQ-717's 2026-07-21 "Bot-check (captcha) for guest creation" addition
+raised no open product question of its own — provider choice (Cloudflare
+Turnstile), scope (guest creation only), widget mode (invisible/managed,
+recommended), and the failure-mode/error-distinguishability requirement
+were all decided directly by the product owner or follow established
+precedent (ADR-0013's mediation boundary), and are recorded in REQ-717's
+acceptance criteria and ADR-0037, not left open here.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:
