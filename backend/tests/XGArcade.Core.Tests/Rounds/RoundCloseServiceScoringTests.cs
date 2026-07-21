@@ -63,15 +63,20 @@ public class RoundCloseServiceScoringTests
     // Seeds a Guess row directly into the in-memory DbContext — RoundCloseService
     // reads via IGuessRepository.GetByRoundIdAsync, which reads
     // XGArcadeDbContext.Guesses directly, so no special repository test
-    // double is needed to exercise it.
+    // double is needed to exercise it. userId defaults to a fresh, unlabeled
+    // Guid (the shape every pre-REQ-717 test here uses, since
+    // RoundCloseService/ScoreLockingService never care which User a UserId
+    // belongs to) — REQ-717's tests below pass an explicit, real User row's
+    // Id instead, via the same parameter, rather than a second near-duplicate
+    // seeding method.
     private async Task<Guess> SeedGuessAsync(
-        Guid roundId, Guid cellId, bool isCorrect, Guid? playerAnswerId = null)
+        Guid roundId, Guid cellId, bool isCorrect, Guid? playerAnswerId = null, Guid? userId = null)
     {
         var guess = new Guess
         {
             Id = Guid.NewGuid(),
             RoundId = roundId,
-            UserId = Guid.NewGuid(),
+            UserId = userId ?? Guid.NewGuid(),
             CellId = cellId,
             SubmittedName = "Someone",
             PlayerAnswerId = playerAnswerId,
@@ -355,5 +360,69 @@ public class RoundCloseServiceScoringTests
 
         Assert.That(ex!.Message, Does.Contain("some-unregistered-game"),
             "the exception must propagate all the way out of CloseRoundAsync, not be caught/swallowed anywhere in RoundCloseService/ScoreLockingService");
+    }
+
+    // ---- REQ-717/ADR-0036: a guest's guess counts fully toward another
+    // account's uniqueness, never excluded, weighted differently, or
+    // flagged ------------------------------------------------------------
+    // ScoreLockingService/UniquenessCalculator never query the Users table
+    // at all (only Round/Guess) — every test above already exercises this
+    // with plain, unlabeled Guids for UserId, which implicitly proves no
+    // special-casing is even possible here. This test instead ties that
+    // "zero new code path" design claim to two real User rows (one guest,
+    // one not) sharing an answer, directly operationalizing REQ-717's
+    // "Scoring and uniqueness — no special-casing" acceptance criterion.
+
+    private async Task<Guid> SeedUserAsync(bool isGuest)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = isGuest ? null : $"{Guid.NewGuid()}@example.com",
+            DisplayName = isGuest ? $"Guest{Guid.NewGuid():N}"[..12] : $"Player-{Guid.NewGuid():N}",
+            EmailConfirmed = !isGuest,
+            IsGuest = isGuest,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        return user.Id;
+    }
+
+    [Test]
+    public async Task REQ717_CloseRoundAsync_GuestSharesAnswerWithARealAccount_CountsFullyTowardTheRealAccountsUniqueness()
+    {
+        // Three correct guessers on one cell: a guest and a real account
+        // share one answer, a second real account has a distinct one —
+        // exactly REQ205_CloseRoundAsync_TwoOfThreeCorrectGuessesShareAnAnswer_
+        // SharedPairLocksHalfAndDistinctLocksZero's own shape above, except
+        // one of the sharing pair is a real Guest User row rather than an
+        // unlabeled Guid. If the guest's guess were silently excluded from
+        // the "other correct guessers" denominator, the real account
+        // sharing its answer would instead score as if uniquely correct
+        // (1.0, 0 points) rather than the 0.5/50 it must score here.
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var guestUserId = await SeedUserAsync(isGuest: true);
+        var realUserId = await SeedUserAsync(isGuest: false);
+        var distinctUserId = await SeedUserAsync(isGuest: false);
+        var cellId = Guid.NewGuid();
+        var sharedAnswerId = Guid.NewGuid();
+        var distinctAnswerId = Guid.NewGuid();
+        var guestGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, sharedAnswerId, guestUserId);
+        var realGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, sharedAnswerId, realUserId);
+        var distinctGuess = await SeedGuessAsync(round.Id, cellId, isCorrect: true, distinctAnswerId, distinctUserId);
+
+        await _service.CloseRoundAsync(round.Id, DateTime.UtcNow);
+
+        var persistedReal = await _dbContext.Guesses.AsNoTracking().SingleAsync(g => g.Id == realGuess.Id);
+        var persistedGuest = await _dbContext.Guesses.AsNoTracking().SingleAsync(g => g.Id == guestGuess.Id);
+        var persistedDistinct = await _dbContext.Guesses.AsNoTracking().SingleAsync(g => g.Id == distinctGuess.Id);
+        Assert.That(persistedReal.FinalUniquenessScore, Is.EqualTo(0.5), "the guest's shared guess must count as one of the real account's 'other correct guessers', not be excluded");
+        Assert.That(persistedReal.FinalPoints, Is.EqualTo(50));
+        Assert.That(persistedGuest.FinalUniquenessScore, Is.EqualTo(0.5), "the guest's own guess is scored identically to any other account — never flagged/excluded from its own uniqueness either");
+        Assert.That(persistedGuest.FinalPoints, Is.EqualTo(50));
+        Assert.That(persistedDistinct.FinalUniquenessScore, Is.EqualTo(1.0));
+        Assert.That(persistedDistinct.FinalPoints, Is.EqualTo(0));
     }
 }

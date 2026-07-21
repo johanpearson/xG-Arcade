@@ -392,7 +392,10 @@ public class AdminManagementEndpointTests
         await SeedGuessAsync(user.Id);
         var client = CreateAdminClient();
 
-        var response = await client.DeleteAsync($"/admin/users?email={Uri.EscapeDataString(user.Email)}");
+        // Safe: SeedDeletableUserAsync always sets a real email string — the
+        // null-forgiving operator here is only about User.Email's REQ-717
+        // nullability (a guest has none), never true for this seeded row.
+        var response = await client.DeleteAsync($"/admin/users?email={Uri.EscapeDataString(user.Email!)}");
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
 
@@ -424,7 +427,10 @@ public class AdminManagementEndpointTests
         var user = await SeedDeletableUserAsync("forbidden-target@example.com");
         var client = CreateAuthenticatedClient(Guid.NewGuid());
 
-        var response = await client.DeleteAsync($"/admin/users?email={Uri.EscapeDataString(user.Email)}");
+        // Safe: SeedDeletableUserAsync always sets a real email string — the
+        // null-forgiving operator here is only about User.Email's REQ-717
+        // nullability (a guest has none), never true for this seeded row.
+        var response = await client.DeleteAsync($"/admin/users?email={Uri.EscapeDataString(user.Email!)}");
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }

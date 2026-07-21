@@ -90,6 +90,34 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     public Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default) =>
         Task.FromResult(true);
 
+    // REQ-717/ADR-0036: no real Supabase project exists in this mode — a
+    // fresh random identity every call (unlike Authenticate below, there's
+    // no email to derive a deterministic id from, which is exactly the
+    // point of an anonymous sign-in).
+    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default)
+    {
+        var authProviderUserId = Guid.NewGuid();
+        return Task.FromResult(new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = authProviderUserId,
+            AccessToken = LocalE2EAuth.MintToken(authProviderUserId),
+            RefreshToken = RefreshTokenPrefix + authProviderUserId,
+        });
+    }
+
+    // REQ-717/ADR-0036: no real Supabase project exists in this mode —
+    // always succeeds, letting ci.yml's local E2E stack (once it exercises
+    // the claim flow) proceed without a live Supabase project. The access
+    // token argument isn't a real Supabase JWT that could be re-validated
+    // against an identity server-side here, so it's accepted but unused —
+    // this stand-in has no real per-identity state to check it against.
+    public Task<SupabaseAuthResult> LinkEmailPasswordAsync(string accessToken, string email, string password, CancellationToken cancellationToken = default)
+    {
+        var authProviderUserId = DeterministicGuid(email);
+        return Task.FromResult(new SupabaseAuthResult { Success = true, AuthProviderUserId = authProviderUserId });
+    }
+
     // REQ-715: not a real Supabase refresh token — a deterministic stand-in
     // RefreshTokenAsync above can decode back into an authProviderUserId,
     // matching the pattern DeterministicGuid already uses to keep sign-up

@@ -10,6 +10,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Core.Auth;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.Data.Repositories;
 
 namespace XGArcade.Api.Tests;
 
@@ -534,6 +535,360 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    // ---- REQ-717/ADR-0036: guest play ----
+
+    [Test]
+    public async Task REQ717_Guest_Post_ReturnsAccessAndRefreshToken_AndCreatesGuestUserRowWithNoEmail()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.AccessToken, Is.EqualTo("a-fake-guest-access-token"));
+        Assert.That(body.RefreshToken, Is.EqualTo("a-fake-guest-refresh-token"));
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCalled, Is.True);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync();
+        Assert.That(user.IsGuest, Is.True);
+        Assert.That(user.Email, Is.Null);
+        Assert.That(user.ClaimedAt, Is.Null);
+    }
+
+    // REQ-717: "Guest####-style" default display name, satisfying REQ-701's
+    // existing 1-30 character bound.
+    [Test]
+    public async Task REQ717_Guest_Post_GeneratesDefaultDisplayNameMatchingGuestPattern()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync();
+        Assert.That(user.DisplayName, Does.StartWith("Guest"));
+        Assert.That(user.DisplayName.Length, Is.LessThanOrEqualTo(30));
+    }
+
+    // REQ-401/REQ-717: a guest is auto-enrolled in the Global league exactly
+    // like any other new account, through the same ordinary LeagueMembership
+    // mechanism — no second, guest-specific enrollment path.
+    [Test]
+    public async Task REQ717_Guest_Post_EnrollsGuestInGlobalLeague()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync();
+        var membership = await dbContext.LeagueMemberships.SingleOrDefaultAsync(m => m.UserId == user.Id);
+        Assert.That(membership, Is.Not.Null);
+    }
+
+    // REQ-717: AuthController.GenerateUniqueGuestDisplayNameAsync retries
+    // its candidate up to 10 times against DisplayNameExistsAsync before
+    // falling back to a longer, Guid-derived name. This test exercises the
+    // full-exhaustion end of that behavior: it makes EVERY one of the 9000
+    // possible "GuestNNNN" candidates (1000-9999 inclusive, the exact range
+    // GenerateUniqueGuestDisplayNameAsync draws from) already taken —
+    // guaranteeing all 10 retry attempts collide regardless of which values
+    // are drawn — and pins down the resulting fallback: a longer,
+    // Guid-derived name, still unique and within REQ-701's 30-character
+    // bound, rather than an infinite loop or a duplicate row. See
+    // REQ717_Guest_Post_RetriesOnce_WhenFirstGuestNNNNCandidateCollides_ThenSucceedsWithTheSecond
+    // below for the "collides once, then succeeds on retry" case, which
+    // needs the controllable-Random seam (AuthController's optional
+    // `Random random = null` constructor param) this test predates.
+    [Test]
+    public async Task REQ717_Guest_Post_FallsBackToGuidDerivedDisplayName_WhenEveryGuestNNNNCandidateIsAlreadyTaken()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var takenNames = new List<User>();
+            for (var candidate = 1000; candidate < 10000; candidate++)
+            {
+                takenNames.Add(new User
+                {
+                    Id = Guid.NewGuid(),
+                    AuthProviderUserId = Guid.NewGuid(),
+                    Email = $"{Guid.NewGuid()}@example.com",
+                    DisplayName = $"Guest{candidate}",
+                    EmailConfirmed = true,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+            dbContext.Users.AddRange(takenNames);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guest = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.IsGuest);
+        // None of the 9000 "GuestNNNN" candidates were available, so the
+        // Guid-derived fallback must have been used instead of the short
+        // random-4-digit form every other guest in this file gets.
+        Assert.That(guest.DisplayName, Does.StartWith("Guest"));
+        Assert.That(guest.DisplayName, Does.Not.Match(@"^Guest\d{4}$"));
+        Assert.That(guest.DisplayName.Length, Is.LessThanOrEqualTo(30));
+    }
+
+    // REQ-717: the retry path itself — the first "GuestNNNN" candidate
+    // collides against a pre-seeded row, and the second (distinct) draw
+    // succeeds. Only possible deterministically because of the seam added
+    // alongside this test: AuthController's optional `Random random = null`
+    // constructor param (same pattern GridGameModule already uses for its
+    // own Random.Shared dependency — see that class's own comment), swapped
+    // here for SequentialCandidateRandom below via the same
+    // WithWebHostBuilder/AddSingleton idiom
+    // LeagueEndpointTests.REQ402_PostLeagues_EveryGeneratedInviteCodeCollides_SurfacesAsUnhandled500
+    // already uses to override one dependency for one test. Complements
+    // (does not replace) the full-exhaustion test above.
+    [Test]
+    public async Task REQ717_Guest_Post_RetriesOnce_WhenFirstGuestNNNNCandidateCollides_ThenSucceedsWithTheSecond()
+    {
+        // WithWebHostBuilder builds an entirely separate host/in-memory
+        // database from _factory's own (SetUp's ConfigureServices runs
+        // again, generating a fresh database name) — so the pre-existing
+        // colliding row must be seeded into THIS factory's database, not
+        // _factory's.
+        var deterministicFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                // Nothing registers a Random today, so AuthController's
+                // optional constructor param falls back to Random.Shared —
+                // registering one here is enough to override it, no
+                // RemoveAll needed.
+                services.AddSingleton<Random>(new SequentialCandidateRandom(5000, 5001));
+            });
+        });
+
+        using (var seedScope = deterministicFactory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = Guid.NewGuid(),
+                Email = $"{Guid.NewGuid()}@example.com",
+                DisplayName = "Guest5000",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = deterministicFactory.CreateClient();
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = deterministicFactory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guest = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.IsGuest);
+        Assert.That(guest.DisplayName, Is.EqualTo("Guest5001"),
+            "the first candidate (Guest5000) must have collided against the pre-seeded row and been retried, landing on the second (Guest5001) — the retry path itself, not just the full-exhaustion fallback");
+    }
+
+    // REQ-717: a deterministic stand-in for Random.Shared, returning a
+    // fixed, caller-supplied sequence of Next(int,int) results in order —
+    // Random.Next(int,int) has been virtual since .NET 6 specifically to
+    // support this kind of test subclass.
+    private sealed class SequentialCandidateRandom(params int[] values) : Random
+    {
+        private int _index;
+
+        public override int Next(int minValue, int maxValue) => values[_index++];
+    }
+
+    // REQ-717/ADR-0036: a separate, tighter rate-limit policy than
+    // auth-signup/auth-login's 10/min (Program.cs's "auth-guest" —
+    // 3/min by default, unless RateLimiting:AuthGuestPermitLimit overrides
+    // it, which this test host doesn't). Same deterministic single-client
+    // burst idiom as REQ606_Signup/Login above.
+    [Test]
+    public async Task REQ717_Guest_Post_ReturnsTooManyRequests_AfterExceedingPerMinuteLimit()
+    {
+        var client = _factory.CreateClient();
+
+        HttpResponseMessage? lastWithinLimitResponse = null;
+        for (var i = 0; i < 3; i++)
+        {
+            lastWithinLimitResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+        }
+        Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.OK), "The 3rd request in the window should still be processed normally.");
+
+        var overLimitResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+        var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Too many attempts"));
+    }
+
+    // The important assertion: auth-guest is a separate counter from
+    // auth-signup/auth-login — exhausting one never blocks the others.
+    [Test]
+    public async Task REQ717_ExhaustingGuestRateLimit_DoesNotAffectSignupOrLogin()
+    {
+        var client = _factory.CreateClient();
+
+        for (var i = 0; i < 4; i++)
+        {
+            await client.PostAsJsonAsync("/auth/guest", new { });
+        }
+        var guestResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+        Assert.That(guestResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+
+        var signupResponse = await client.PostAsJsonAsync(
+            "/auth/signup",
+            new SignupRequest("guest-rate-limit-isolation@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true));
+        Assert.That(signupResponse.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+
+        var loginResponse = await client.PostAsJsonAsync(
+            "/auth/login",
+            new LoginRequest("known-user@example.com", "a-reasonable-password"));
+        Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+    }
+
+    // ---- REQ-717/ADR-0036: claim/upgrade path ----
+
+    [Test]
+    public async Task REQ717_Claim_Post_ConvertsGuestToRealAccount_ClearsIsGuestAndStampsClaimedAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("claimed@example.com", "a-reasonable-password", "a-reasonable-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<MeResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Email, Is.EqualTo("claimed@example.com"));
+        Assert.That(body.IsGuest, Is.False);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var updated = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == guest.Id);
+        Assert.That(updated.IsGuest, Is.False);
+        Assert.That(updated.Email, Is.EqualTo("claimed@example.com"));
+        Assert.That(updated.ClaimedAt, Is.Not.Null);
+    }
+
+    // The important assertion (REQ-717's explicit acceptance criterion):
+    // every Guess/LeagueMembership row already attributed to this User.Id
+    // survives the claim unchanged — no re-linking, no new rows.
+    [Test]
+    public async Task REQ717_Claim_Post_PreservesExistingGuessAndLeagueMembershipRowsUnchanged()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+        await SeedGuessAsync(guest.Id);
+        Guid membershipLeagueId;
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var league = await dbContext.Leagues.SingleAsync();
+            membershipLeagueId = league.Id;
+        }
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("claimed-2@example.com", "a-reasonable-password", "a-reasonable-password"));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guesses = await assertDbContext.Guesses.AsNoTracking().ToListAsync();
+        Assert.That(guesses, Has.Count.EqualTo(1));
+        Assert.That(guesses.Single().UserId, Is.EqualTo(guest.Id));
+        var memberships = await assertDbContext.LeagueMemberships.AsNoTracking().Where(m => m.UserId == guest.Id).ToListAsync();
+        Assert.That(memberships, Has.Count.EqualTo(1));
+        Assert.That(memberships.Single().LeagueId, Is.EqualTo(membershipLeagueId));
+    }
+
+    [Test]
+    public async Task REQ717_Claim_Post_RejectsWhenCallerIsNotAGuest()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("already-real@example.com", "a-reasonable-password", "a-reasonable-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task REQ717_Claim_Post_RejectsMismatchedConfirmPassword()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("mismatched@example.com", "a-reasonable-password", "a-different-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task REQ717_Claim_Post_Unauthenticated_Returns401()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("anyone@example.com", "a-reasonable-password", "a-reasonable-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // REQ-717: seeds a guest User row directly (IsGuest = true, no email) —
+    // same idiom as SeedDeletableUserAsync below, for the claim-path tests
+    // above.
+    private async Task<User> SeedGuestUserAsync(Guid authProviderUserId)
+    {
+        using var seedScope = _factory.Services.CreateScope();
+        var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = authProviderUserId,
+            Email = null,
+            DisplayName = $"Guest{Guid.NewGuid():N}"[..12],
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var leagueRepository = seedScope.ServiceProvider.GetRequiredService<ILeagueRepository>();
+        var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync();
+        await leagueRepository.AddMembershipAsync(globalLeague.Id, user.Id);
+
+        return user;
+    }
+
     [Test]
     public async Task ProtectedEndpoint_Get_RejectsAnonymousCalls()
     {
@@ -574,6 +929,28 @@ public class AuthEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Email, Is.EqualTo("known-user@example.com"));
         Assert.That(body.EmailConfirmed, Is.True);
+        Assert.That(body.IsGuest, Is.False);
+    }
+
+    // REQ-717: GET /auth/me's IsGuest field mirrors User.IsGuest directly —
+    // the frontend's first-class replacement for inferring guest status
+    // from Email being null.
+    [Test]
+    public async Task REQ717_Me_Get_ReturnsIsGuestTrue_ForGuestUser()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<MeResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.IsGuest, Is.True);
+        Assert.That(body.Email, Is.Null);
     }
 
     // REQ-504: GET /auth/me's IsAdmin field — computed via the same
@@ -932,6 +1309,36 @@ public class AuthEndpointTests
         Assert.That(guesses.Count(g => g.UserId == deletedUser.Id), Is.EqualTo(0));
     }
 
+    // REQ-717/ADR-0036: a guest has no password to re-confirm at all — this
+    // self-service deletion flow (built around re-proving a password) simply
+    // doesn't apply to that identity kind (AuthController.DeleteAccount's own
+    // comment). A guest can still be removed via S-026's admin-triggered
+    // path instead (AdminManagementEndpointTests' REQ-506 coverage), which
+    // doesn't go through this re-confirmation step at all.
+    [Test]
+    public async Task REQ717_DeleteAccount_Delete_ReturnsBadRequest_ForGuestAccountWithNoPasswordToConfirm()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("irrelevant-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        // The important assertion: this never even attempts to re-verify a
+        // password a guest doesn't have — the check is rejected before any
+        // call to Supabase, same discipline as every other pre-check in this
+        // controller.
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stillThere = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.IsGuest);
+        Assert.That(stillThere, Is.Not.Null, "the guest row must be untouched by the rejected request");
+    }
+
     private static HttpRequestMessage BuildDeleteRequest(string password) =>
         new(HttpMethod.Delete, "/auth/account")
         {
@@ -996,6 +1403,33 @@ public class AuthEndpointTests
         {
             DeleteUserCalledWith = authProviderUserId;
             return Task.FromResult(DeleteUserResult(authProviderUserId));
+        }
+
+        // REQ-717: controllable per-test, same idiom as SignUpResult/
+        // SignInResult above — default succeeds so most tests don't need to
+        // set it up.
+        public bool SignInAnonymouslyCalled { get; private set; }
+
+        public Func<SupabaseAuthResult> SignInAnonymouslyResult { get; set; } =
+            () => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid(), AccessToken = "a-fake-guest-access-token", RefreshToken = "a-fake-guest-refresh-token" };
+
+        public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default)
+        {
+            SignInAnonymouslyCalled = true;
+            return Task.FromResult(SignInAnonymouslyResult());
+        }
+
+        public string? LinkEmailPasswordCalledWithAccessToken { get; private set; }
+        public string? LinkEmailPasswordCalledWithEmail { get; private set; }
+
+        public Func<string, string, string, SupabaseAuthResult> LinkEmailPasswordResult { get; set; } =
+            (_, _, _) => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid() };
+
+        public Task<SupabaseAuthResult> LinkEmailPasswordAsync(string accessToken, string email, string password, CancellationToken cancellationToken = default)
+        {
+            LinkEmailPasswordCalledWithAccessToken = accessToken;
+            LinkEmailPasswordCalledWithEmail = email;
+            return Task.FromResult(LinkEmailPasswordResult(accessToken, email, password));
         }
     }
 }

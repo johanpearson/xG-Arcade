@@ -378,16 +378,24 @@ is written as something you can actually observe, not a vague feeling:
   forward by deliberate product decision, 2026-07-21**, same pattern as
   REQ-108/214/402-403's own precedent (no observed request — the product
   owner reasoned through it directly with the goal of a better uniqueness
-  signal via more players guessing). **Decided, not yet built:** REQ-717
-  and ADR-0036 are drafted (a real, auto-provisioned `User` row with no
-  email/password, `User.IsGuest` flag, participates unmodified in
-  guessing/scoring/uniqueness and round-scoped leaderboards REQ-406/407/408,
-  excluded from REQ-409's all-time median ranking, its own tighter rate
-  limit, and a claim/upgrade path to a real account preserving guess
-  history) — implementation is a separate, not-yet-scoped future story.
-  Flagged here rather than assumed: this is a new auth flow touching the
-  account boundary Tier 0 already locked in, real Tier 1/2 scope by this
-  document's own classification, not a small addition
+  signal via more players guessing). **Backend implemented, 2026-07-21**
+  (`POST /auth/guest`, `POST /auth/claim`, `User.IsGuest`/`User.ClaimedAt`,
+  REQ-409's qualifying-rounds query narrowed for both) — a real,
+  auto-provisioned `User` row with no email/password, participating
+  unmodified in guessing/scoring/uniqueness and round-scoped leaderboards
+  REQ-406/407/408, excluded from REQ-409's all-time median ranking, its own
+  tighter rate limit (`auth-guest`, 3/min default), and a claim/upgrade path
+  to a real account preserving guess history. **Frontend implemented,
+  2026-07-21 (S-070):** a "Play as guest" entry point on the login/signup
+  screen and a "Save your progress" claim section in Settings, both wired
+  to the two endpoints above, plus a small header nudge while the session
+  is a guest — see `docs/backlog.md`'s S-070 entry for what was built. A
+  same-day follow-up (backend `MeResponse.IsGuest` field + a matching
+  frontend switch-over) closed the one gap S-070 flagged back (the
+  frontend originally derived guest status from a nullable email instead
+  of a real field) — see that entry's own addendum. REQ-717/ADR-0036's
+  frontend half is therefore complete end-to-end, closing out this Tier
+  1/2 pull-forward.
 
 ## Tier 2 — already deferred, unchanged
 

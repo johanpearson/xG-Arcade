@@ -3488,3 +3488,113 @@ formalized. `docs/design-document.md` SCREEN-03/SCREEN-06 updated in the
 same session to match (median/participation-gate ranking description was
 already stale independent of this story — corrected here, not just the new
 entry point added on top of it).
+
+**S-069 · Guest play, backend half (REQ-717, ADR-0036)**
+`MVP-SCOPE.md`'s "Guest play" bullet pulled this forward by deliberate
+product decision (2026-07-21, no trigger fired) — REQ-717 and ADR-0036
+were drafted the same session; this story is the backend implementation
+both describe. Deliberately backend-only: REQ-717's acceptance criteria are
+observable-behavior statements about the API/data layer (per its own scope
+note), and a frontend guest-play entry point/claim UI is real, separate
+scope not bundled in here.
+*Accept:* REQ717-named tests (unit: `LeaderboardServiceTests`,
+`UserRepositoryTests`; API: `AuthEndpointTests`) covering guest
+provisioning (no email/password, `IsGuest = true`, auto-generated
+`Guest####` display name, Global league auto-membership), guessing/scoring/
+uniqueness/round-scoped leaderboards requiring zero new code path (verified
+by absence of any `IsGuest` branch outside the two places listed below),
+the claim/upgrade path (preserves `Guess`/`LeagueMembership` rows
+unchanged, rejects a non-guest caller), REQ-409's qualifying-rounds query
+excluding guest rows and a claimed account's pre-claim rounds, and the
+`auth-guest` rate limit's own distinct 429 behavior.
+*Deps:* S-004 (auth exists), S-060 (REQ-409 median ranking, the one query
+this story narrows).
+**Built as:** `User` gained two columns (`IsGuest bool`, default `false`;
+`ClaimedAt DateTime?`) and `Email` became nullable (`string?`) — a
+non-trivial ripple audited across every existing caller (`AuthController`'s
+Signup/Me/DeleteAccount, `UserRepository.GetByEmailAsync`,
+`UserDisplayNameBackfiller`); migration
+`20260721140000_AddGuestPlaySupport`. `ISupabaseAuthClient` gained
+`SignInAnonymouslyAsync` (POST `auth/v1/signup` with no email/password,
+mirroring `SignUpAsync`) and `LinkEmailPasswordAsync` (PUT `auth/v1/user`,
+authenticated with the guest's own access token rather than the shared anon
+key) — **neither call's exact request/response shape was verified against
+a live Supabase project** (no network access in the build environment);
+flagged in `SupabaseAuthClient`'s own doc comments for manual verification
+before this reaches production, per this repo's established practice
+around unverified external-API assumptions (ADR-0008's precedent).
+`AuthController` gained `POST /auth/guest` (rate-limited by a new,
+deliberately tighter `auth-guest` policy — 3/min per IP default vs.
+auth-signup/auth-login's 10/min, since an anonymous sign-in has no email
+step at all to slow down scripting) and `POST /auth/claim`
+(`[Authorize]`, rejects a non-guest caller, delegates to a new
+`IUserRepository.ClaimGuestAsync` that sets `Email`/clears `IsGuest`/stamps
+`ClaimedAt` via load-then-`SaveChangesAsync`, never touching
+`Guess`/`LeagueMembership`). `GuessRepository.
+GetPerRoundFinalPointsByUserIdsAsync` (REQ-409's qualifying-rounds query)
+gained a join to `Users` excluding `IsGuest` rows and, for a claimed
+account, rounds closed before `ClaimedAt`. No change to any REQ-201-210/204/
+406/407/408 code path, per ADR-0036's explicit "For AI agents" instruction —
+a guest is a real `User`/`LeagueMembership`/`Guess` row throughout. Frontend
+(guest entry point, claim/upgrade screen) intentionally not built this
+session — remains open Tier 1/2 scope in `MVP-SCOPE.md`.
+
+**S-070 · Guest play, frontend half (REQ-717, ADR-0036)**
+The frontend counterpart S-069 deliberately left out: a guest entry point
+on the login/signup screen and a claim/upgrade section in Settings, wired
+to S-069's `POST /auth/guest`/`POST /auth/claim`.
+*Deps:* S-069 (backend endpoints this story calls).
+**Built as:** `AuthScreen.tsx` gained a "Play as guest" button below the
+existing log-in/sign-up form (a new `playAsGuest()` in `lib/api.ts`,
+mirroring `login()`'s shape/error-handling exactly) — on success, routes
+through the exact same `onAuthenticated` callback a normal login/signup
+already uses, so a guest session is stored and treated identically from
+that point on (ADR-0036's explicit design goal; no separate "guest mode"
+client-side state anywhere). `SettingsScreen.tsx` gained a "Save your
+progress" claim section (new `claimAccount()` in `lib/api.ts`, `POST
+/auth/claim`), rendered only while the account is a guest, with the same
+REQ-701 password-policy/inline-error conventions `AuthScreen.tsx`'s signup
+form already established; on success, `App.tsx` replaces its
+`currentUser` state wholesale with the claim response, which makes the
+section disappear immediately (no reload). `App.tsx` also gained a small,
+low-effort header banner ("Playing as {name}. Save your progress.") while
+the session is a guest — not mandated by REQ-717, added per this story's
+own judgment call, documented in `design-document.md` (§3/§7) rather than
+left as an unreviewed addition.
+**Real gap found and flagged, not silently worked around (closed same day
+— see follow-up below):** the backend's `MeResponse` DTO (`AuthDtos.cs`)
+had no dedicated `isGuest` field — S-069 added `IsGuest` to the `User`
+entity but never surfaced it on this response. The frontend derived guest
+status as `email === null` instead (a correct signal at the time:
+`AuthController.Guest` is the only path that ever creates a null-`Email`
+row, and `AuthController.Claim`/`UserRepository.ClaimGuestAsync` always
+set `Email` and clear `IsGuest` together), but a real `isGuest` boolean on
+`MeResponse` was recommended as more robust/self-documenting than relying
+on that invariant holding forever. Recommended as a small follow-up for
+`backend-implementer`, not added in this story (out of its scope, and not
+this agent's to add per the xG Arcade/game and delivery-agent boundaries).
+*Accept:* Vitest coverage in `AuthScreen.test.tsx` (guest sign-in success/
+failure) and `SettingsScreen.test.tsx` (claim section visibility, REQ-701
+password-policy checks, success/400/401 handling) — exhaustive REQ717-named
+frontend coverage remains `test-writer`'s to add, per this repo's
+delivery-agent split. No Playwright E2E spec added/changed: no existing
+spec asserts on `AuthScreen`/`SettingsScreen` behavior this story alters.
+
+**Follow-up (2026-07-21, same day, REQ-717):** `backend-implementer` added
+`MeResponse.IsGuest` (mirrors `User.IsGuest` directly), and this story's
+own frontend was switched over to it — `CurrentUser.isGuest` in
+`frontend/src/lib/types.ts`, consumed by `App.tsx`/`SettingsScreen.tsx` —
+removing the `email === null` inference entirely. `test-writer` then added
+the remaining REQ717-named coverage this story's *Accept* left open
+(uniqueness-denominator counting, REQ-409's exact-`ClaimedAt` cutoff and
+post-claim-only 5-round floor, explicit REQ-406/407/408 participation,
+guess-attempt-limit parity, `DeleteAccount`'s guest-rejection branch, and
+the header banner's show/hide/disappears-after-claim behavior in
+`App.test.tsx`) across `AuthEndpointTests.cs`, `LeaderboardServiceTests.cs`,
+`RoundCloseServiceScoringTests.cs`, `GuessSubmissionServiceTests.cs`, and
+`App.test.tsx`. A `quality-architect` pass then gave
+`GenerateUniqueGuestDisplayNameAsync` an optional `Random` seam (same
+pattern `GridGameModule` already uses) so the collision-retry branch could
+be tested deterministically, extracted `SupabaseAuthClient`'s duplicated
+error-parsing into one shared helper, and merged a near-duplicate
+guest-guess-seeding test helper into the existing one.

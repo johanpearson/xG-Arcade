@@ -68,6 +68,16 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
     // after materializing, but only over one row per (user, qualifying
     // round) pair rather than the raw Guess table, which stays the
     // efficient, single-query shape.
+    // REQ-717/ADR-0036 (2026-07-21): two additional narrowings on top of the
+    // REQ-409 shape below, both joining in Users (guess has no navigation
+    // property to User either, same reason as the Round join above) —
+    // (1) a guest (User.IsGuest) is excluded outright, regardless of how
+    // many qualifying rounds they've accumulated; (2) a claimed
+    // (guest-then-upgraded) account's rounds closed *before* the moment of
+    // claiming (User.ClaimedAt) never count — only rounds closed after
+    // claiming do. Both conditions are trivially true (never exclude
+    // anything) for an account that was never a guest at all: IsGuest is
+    // false and ClaimedAt is null from creation.
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
         IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
     {
@@ -77,7 +87,12 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
         var perUserPerRoundTotals = await (
             from guess in dbContext.Guesses.AsNoTracking()
             join round in dbContext.Rounds.AsNoTracking() on guess.RoundId equals round.Id
-            where guess.UserId != null && userIds.Contains(guess.UserId.Value) && round.ClosedAt != null
+            join user in dbContext.Users.AsNoTracking() on guess.UserId equals (Guid?)user.Id
+            where guess.UserId != null
+                && userIds.Contains(guess.UserId.Value)
+                && round.ClosedAt != null
+                && !user.IsGuest
+                && (user.ClaimedAt == null || round.ClosedAt > user.ClaimedAt)
             group guess by new { UserId = guess.UserId!.Value, guess.RoundId } into perRoundGroup
             select new { perRoundGroup.Key.UserId, Total = perRoundGroup.Sum(g => g.FinalPoints ?? 0) })
             .ToListAsync(cancellationToken);

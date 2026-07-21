@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.91"
+version: "0.94"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -3813,17 +3813,47 @@ that switching the toggle actually changes rendered colors, once built.
 **REQ-717 – Guest play (auto-provisioned identity, no email/password
 required)**
 
-*(Status: Proposed — not yet built.)* **Tier framing:** Tier 1/2 by
-`MVP-SCOPE.md`'s own classification (a new auth flow that touches the
-account boundary Tier 0 already locked in) — pulled forward by explicit
-product decision, same pattern as REQ-108/214/402-403's own precedent
-(each pulled forward ahead of its trigger firing, by deliberate choice, not
-because a trigger fired). **Unlike those three, this is not an existing
-Tier 1 bullet being pulled forward — `MVP-SCOPE.md`'s Tier 1 list
-currently has no "guest play" trigger at all.** Adding one (and recording
-this pull-forward there the way REQ-108/214/402-403's own entries do) is
-outside this requirement's remit — flagged back for `doc-sync` or the main
-session to action, not done here.
+- **Status: Implemented (backend), 2026-07-21 — ADR-0036 (auth mechanism).**
+  `POST /auth/guest` provisions a real `User` row (`IsGuest = true`,
+  `Email = null`, an auto-generated `Guest####`-style `DisplayName`) via a
+  backend-mediated Supabase Anonymous Sign-in (`ISupabaseAuthClient.
+  SignInAnonymouslyAsync`), auto-enrolled in the Global league exactly like
+  any other signup. `POST /auth/claim` is the claim/upgrade path
+  (`ISupabaseAuthClient.LinkEmailPasswordAsync` + `IUserRepository.
+  ClaimGuestAsync`): sets `Email`, clears `IsGuest`, stamps `ClaimedAt`, and
+  touches no `Guess`/`LeagueMembership` row. `LeaderboardService`/
+  `GuessRepository.GetPerRoundFinalPointsByUserIdsAsync` (REQ-409's
+  qualifying-rounds query) excludes `IsGuest` rows outright and excludes a
+  claimed account's rounds closed before `ClaimedAt`. A new `auth-guest`
+  rate-limit policy (3/min per IP by default, tighter than auth-signup/
+  auth-login's 10/min) gates guest creation.
+- **Status: Implemented (frontend), 2026-07-21 (S-070).** `AuthScreen.tsx`
+  gained a "Play as guest" entry point (calls `POST /auth/guest` and routes
+  through the exact same success path a normal login/signup already uses —
+  no separate "guest mode" client-side state). `SettingsScreen.tsx` gained
+  a "Save your progress" claim section, visible only while the account is a
+  guest, calling `POST /auth/claim`. `App.tsx` also added a small header
+  banner nudging a guest toward that claim section — a UX addition beyond
+  this REQ's own acceptance criteria, documented in `design-document.md`.
+  **Gap since closed (2026-07-21 follow-up, same day):** this note
+  originally flagged that the backend's `MeResponse` DTO had no dedicated
+  `isGuest` field, and that the frontend derived guest status as
+  `email === null` instead. A same-day backend follow-up added
+  `MeResponse.IsGuest` (mirroring `User.IsGuest` directly), and a matching
+  frontend follow-up switched `AuthScreen.tsx`/`SettingsScreen.tsx`/
+  `App.tsx` over to that real field, removing the `email === null`
+  inference entirely. See `docs/backlog.md`'s S-070 entry for the
+  full before/after.
+
+**Tier framing:** Tier 1/2 by `MVP-SCOPE.md`'s own classification (a new
+auth flow that touches the account boundary Tier 0 already locked in) —
+pulled forward by explicit product decision, same pattern as
+REQ-108/214/402-403's own precedent (each pulled forward ahead of its
+trigger firing, by deliberate choice, not because a trigger fired).
+**Unlike those three, this was not an existing Tier 1 bullet being pulled
+forward** — `MVP-SCOPE.md`'s Tier 1 list had no "guest play" trigger before
+this; `MVP-SCOPE.md`'s "Guest play" bullet now records the pull-forward
+decision itself (added in the same session ADR-0036 was drafted).
 
 > As a person who wants to try the game before committing to an account, I
 > want to play immediately without providing an email or password, so I

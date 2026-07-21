@@ -47,6 +47,8 @@ function App() {
   // admin-only link onward to AdminScreen — a non-admin must see no trace
   // of it anywhere (nav menu or Settings screen), regardless of state.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  // REQ-717/ADR-0036: mirrors User.IsGuest via MeResponse's isGuest field.
+  const isGuest = currentUser?.isGuest ?? false;
   // REQ-716/ADR-0034: mounted here (not inside SettingsScreen) so the
   // "system" preference's reactive prefers-color-scheme listener stays
   // active regardless of which screen is showing, not only while Settings
@@ -225,6 +227,25 @@ function App() {
         )}
       </header>
 
+      {/* REQ-717/ADR-0036: a low-effort nudge, not a redesign — no SCREEN-xx
+          entry mandates this, but a guest playing without realizing their
+          progress isn't tied to a recoverable account is a real gap this
+          closes cheaply. Only ever renders once currentUser has actually
+          resolved to a guest (never during the brief window before GET
+          /auth/me returns, same as the admin nav link's own gating). */}
+      {accessToken && isGuest && (
+        <div className="app__guest-banner">
+          <span>Playing as {currentUser?.displayName ?? 'Guest'}.</span>
+          <button
+            type="button"
+            className="app__guest-banner-action"
+            onClick={() => setScreen('settings')}
+          >
+            Save your progress
+          </button>
+        </div>
+      )}
+
       <main className="app__main">
         {accessToken ? (
           screen === 'game-select' ? (
@@ -250,10 +271,17 @@ function App() {
             <SettingsScreen
               accessToken={accessToken}
               isAdmin={currentUser?.isAdmin ?? false}
+              isGuest={isGuest}
               displayName={currentUser?.displayName ?? ''}
               onDisplayNameUpdated={(displayName) =>
                 setCurrentUser((current) => (current ? { ...current, displayName } : current))
               }
+              // REQ-717/ADR-0036: the claim response is the full, current
+              // MeResponse (email now set, effectively isGuest=false) — a
+              // wholesale replace, not a partial patch like
+              // onDisplayNameUpdated above, since every field in it is
+              // already the server's own confirmed new state.
+              onAccountClaimed={(user) => setCurrentUser(user)}
               onAccountDeleted={handleLogout}
               onCancel={() => setScreen('game-select')}
               onAuthError={handleLogout}

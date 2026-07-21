@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { describeError, login, signup } from '../lib/api';
+import { describeError, login, playAsGuest, signup } from '../lib/api';
 import './AuthScreen.css';
 
 export interface AuthScreenProps {
@@ -23,7 +23,13 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [displayName, setDisplayName] = useState('');
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // REQ-717: a separate submitting flag from the login/signup form's own
+  // `submitting` above — "Play as guest" isn't part of that form and must
+  // stay independently disable-able (and vice versa) rather than sharing
+  // one flag that could leave either control in the wrong state.
+  const [guestSubmitting, setGuestSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const busy = submitting || guestSubmitting;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -80,6 +86,25 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     }
   }
 
+  // REQ-717/ADR-0036: zero-friction entry — no fields to fill in, so there's
+  // nothing to client-side-validate before calling the API, unlike
+  // handleSubmit above. On success, routes through the exact same
+  // onAuthenticated callback a normal login/signup uses (App.tsx's
+  // handleAuthenticated) — a guest session is stored and treated
+  // identically from this point on, no separate "guest mode" path.
+  async function handlePlayAsGuest() {
+    setError(null);
+    setGuestSubmitting(true);
+    try {
+      const { accessToken, refreshToken } = await playAsGuest();
+      onAuthenticated(accessToken, refreshToken);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setGuestSubmitting(false);
+    }
+  }
+
   return (
     <div className="auth-screen">
       <div className="auth-screen__tabs" role="tablist" aria-label="Account action">
@@ -117,7 +142,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            disabled={submitting}
+            disabled={busy}
           />
         </label>
 
@@ -135,7 +160,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             required
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            disabled={submitting}
+            disabled={busy}
           />
         </label>
 
@@ -151,7 +176,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               type="password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
-              disabled={submitting}
+              disabled={busy}
             />
           </label>
         )}
@@ -168,7 +193,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               maxLength={30}
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              disabled={submitting}
+              disabled={busy}
             />
           </label>
         )}
@@ -182,7 +207,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               type="checkbox"
               checked={ageConfirmed}
               onChange={(event) => setAgeConfirmed(event.target.checked)}
-              disabled={submitting}
+              disabled={busy}
             />
             <span>I confirm I&apos;m at least 16 years old.</span>
           </label>
@@ -194,7 +219,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           </p>
         )}
 
-        <button type="submit" className="auth-screen__submit" disabled={submitting}>
+        <button type="submit" className="auth-screen__submit" disabled={busy}>
           {submitting
             ? 'Working…'
             : mode === 'signup'
@@ -202,6 +227,29 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               : 'Log in'}
         </button>
       </form>
+
+      {/* REQ-717/ADR-0036: zero-friction guest entry, sitting below (not
+          inside) the log-in/sign-up form since it needs none of that form's
+          fields — a real, separate action, not a third tab, since it has no
+          form state of its own to switch between. Styled with only the
+          existing token system, same as the rest of this unreviewed screen
+          (see this file's own top-of-file note on the missing SCREEN-xx spec,
+          now also covering this addition). */}
+      <div className="auth-screen__divider" role="separator" aria-label="or">
+        <span>or</span>
+      </div>
+      <button
+        type="button"
+        className="auth-screen__guest"
+        onClick={handlePlayAsGuest}
+        disabled={busy}
+      >
+        {guestSubmitting ? 'Starting…' : 'Play as guest'}
+      </button>
+      <p className="auth-screen__guest-hint">
+        No email needed. You can save your progress and pick a real account
+        any time from Settings.
+      </p>
     </div>
   );
 }

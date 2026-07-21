@@ -216,4 +216,46 @@ describe('AuthScreen', () => {
     expect(screen.queryByText(/already registered/i)).not.toBeInTheDocument();
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
+
+  // REQ-717/ADR-0036: the guest entry point.
+  it('REQ-717: clicking "Play as guest" calls POST /auth/guest with no body, and routes through onAuthenticated exactly like a normal login', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/auth/guest')) {
+        return jsonResponse({ accessToken: 'guest-token', refreshToken: 'guest-refresh' });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('guest-token', 'guest-refresh'));
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/guest'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('REQ-717: shows the server error detail when guest sign-in fails, rather than a generic message', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse(
+        { title: 'Guest sign-in failed', detail: 'Could not start a guest session. Please try again.' },
+        500,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    expect(
+      await screen.findByText('Could not start a guest session. Please try again.'),
+    ).toBeInTheDocument();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
 });

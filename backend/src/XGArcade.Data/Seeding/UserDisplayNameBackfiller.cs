@@ -20,6 +20,14 @@ public static class UserDisplayNameBackfiller
         var users = await dbContext.Users.Where(u => u.DisplayName == string.Empty).ToListAsync(cancellationToken);
         foreach (var user in users)
         {
+            // REQ-717: Email is nullable now (a guest has none), but a guest
+            // always gets a generated Guest####-style DisplayName at
+            // creation (AuthController.Guest), so it can never match the
+            // empty-DisplayName filter above in practice. Guarded anyway
+            // rather than assuming that invariant always holds.
+            if (user.Email is null)
+                continue;
+
             user.DisplayName = user.Email.Split('@')[0];
         }
 

@@ -32,6 +32,18 @@ public interface IUserRepository
     // pre-check and this save.
     Task<User?> UpdateDisplayNameAsync(Guid id, string newDisplayName, CancellationToken cancellationToken = default);
 
+    // REQ-717: the claim/upgrade path — sets Email, clears IsGuest, and
+    // stamps ClaimedAt on the caller's own row (resolved by AuthController.
+    // Claim from the caller's own JWT, same as every other authenticated
+    // endpoint here). Load-then-SaveChangesAsync, same pattern as
+    // UpdateDisplayNameAsync — never ExecuteUpdateAsync (docs/coding-
+    // guidelines.md). Returns null if no such user exists (defensive only;
+    // the caller should already have resolved this row via
+    // GetByAuthProviderUserIdAsync before calling this). Never touches
+    // Guess/LeagueMembership rows — REQ-717 is explicit that claiming is an
+    // in-place identity conversion, not a re-link.
+    Task<User?> ClaimGuestAsync(Guid id, string email, CancellationToken cancellationToken = default);
+
     // REQ-404's leaderboard: resolves every member's DisplayName in one
     // query rather than one round-trip per row.
     Task<IReadOnlyList<User>> GetByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default);

@@ -27,6 +27,21 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-21 — Supabase Anonymous Sign-ins / user-update API shapes unverified (S-069, REQ-717)
+`SupabaseAuthClient.SignInAnonymouslyAsync` (`POST auth/v1/signup` with no
+email/password) and `LinkEmailPasswordAsync` (`PUT auth/v1/user`,
+bearer-authenticated as the guest's own access token) were written from
+Supabase's documented behavior, but neither was exercised against a real
+Supabase project — this sandbox has no network access. Both response-shape
+assumptions (anonymous signup returns the same session shape as a real
+signup; user-update returns the updated user at the top level) reuse
+existing, already-verified parsing code (`PostAuthRequestAsync`,
+`SupabaseUser`), but the *request* shapes themselves are unverified. Same
+class of risk as S-036/S-037's guessed Wikidata QIDs — flag for manual
+verification against a real Supabase project before this reaches
+production, don't assume correct just because it compiles/reads
+plausibly.
+
 ### 2026-07-14 — EF Core's InMemory provider doesn't support ExecuteUpdate/ExecuteDelete (S-025)
 Every repository test in this codebase runs against EF Core's InMemory
 provider (`Microsoft.EntityFrameworkCore.InMemory`), which does not support

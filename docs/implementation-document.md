@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.64"
+version: "0.65"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -519,11 +519,16 @@ public class User
 {
     public Guid Id { get; set; }
     public Guid AuthProviderUserId { get; set; }  // Supabase Auth's user id
-    public string Email { get; set; }
+    // Nullable since S-069 (REQ-717/ADR-0036): a guest (IsGuest = true) has
+    // no email at all. Every pre-existing caller that assumed this was
+    // always set was audited for the change (AuthController's Signup/Me/
+    // DeleteAccount, UserRepository.GetByEmailAsync, UserDisplayNameBackfiller).
+    public string? Email { get; set; }
     // Added S-011 (REQ-401/404/701): the only identity a leaderboard shows
     // another player — collected at signup, 1-30 chars, required. Rows that
     // predate this column were backfilled (UserDisplayNameBackfiller) from
-    // the email's local part (before "@").
+    // the email's local part (before "@"). A guest row gets an
+    // auto-generated `Guest####`-style value instead (S-069).
     public string DisplayName { get; set; }
     // Added S-017 (REQ-701): lowercase-folded mirror of DisplayName, kept in
     // lockstep by the DisplayName setter (User.NormalizeCase is the one
@@ -534,6 +539,15 @@ public class User
     // the index was added — see ADR-0019.
     public string NormalizedDisplayName { get; private set; }
     public bool EmailConfirmed { get; set; }       // mirrors Supabase Auth's confirmed state; see REQ-702
+    // Added S-069 (REQ-717/ADR-0036): true only for a row created via
+    // POST /auth/guest. Consulted in exactly one place outside AuthController
+    // itself — REQ-409's qualifying-rounds query — never branched on
+    // anywhere else (REQ-201-210/204/406/407/408 are unmodified).
+    public bool IsGuest { get; set; }
+    // Added S-069 (REQ-717/ADR-0036): set once, the moment a guest claims a
+    // real account (POST /auth/claim) — null until then. REQ-409's
+    // qualifying-rounds query excludes any round closed before this instant.
+    public DateTime? ClaimedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 

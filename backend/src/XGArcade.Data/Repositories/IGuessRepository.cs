@@ -59,6 +59,12 @@ public interface IGuessRepository
     // dictionary (never present with an empty list) — callers (currently
     // only LeaderboardService's median ranking) treat a missing key the
     // same as an empty list, i.e. "doesn't qualify."
+    //
+    // REQ-717/ADR-0036 (2026-07-21): a User with IsGuest = true never
+    // contributes a qualifying round here, regardless of count; a claimed
+    // (formerly-guest) User's rounds closed before User.ClaimedAt don't
+    // either — only rounds closed after claiming do. See the
+    // implementation's own doc comment for the full rationale.
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
         IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
 

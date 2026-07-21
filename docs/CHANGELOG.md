@@ -13,6 +13,80 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.93 → 0.94), `MVP-SCOPE.md`,
+  `docs/backlog.md` (S-070 addendum) — doc-sync pass, plus the same-day
+  follow-up work it's reconciling: `backend-implementer` added
+  `MeResponse.IsGuest` (mirrors `User.IsGuest` directly), and a matching
+  frontend commit switched `AuthScreen.tsx`/`SettingsScreen.tsx`/`App.tsx`
+  over to `CurrentUser.isGuest`, removing the `email === null` inference
+  the S-070 entry below had flagged as a gap. `test-writer` then added the
+  remaining REQ717-named coverage S-069/S-070 had left open (28
+  REQ717-named tests total across `AuthEndpointTests.cs`,
+  `UserRepositoryTests.cs`, `LeaderboardServiceTests.cs`,
+  `RoundCloseServiceScoringTests.cs`, `GuessSubmissionServiceTests.cs`, and
+  `App.test.tsx`): a guest's guess counting fully toward a real account's
+  uniqueness denominator, REQ-409's exact-`ClaimedAt` cutoff and
+  post-claim-only 5-round floor, explicit REQ-406/407/408 participation,
+  guess-attempt-limit parity, `DeleteAccount`'s guest-rejection branch, and
+  the header banner's show/hide/disappears-after-claim behavior.
+  `quality-architect` then gave `AuthController.
+  GenerateUniqueGuestDisplayNameAsync` an optional `Random` seam (the same
+  pattern `GridGameModule` already uses) so its collision-retry branch is
+  now deterministically testable, extracted `SupabaseAuthClient`'s
+  duplicated error-parsing into one shared helper, and merged a
+  near-duplicate guest-guess-seeding test helper into the existing one —
+  no behavior change, no new ADR (pure internal refactor). This pass
+  updates the two stale spots this follow-up work left behind: REQ-717's
+  frontend status note (`requirements-document.md`) and `MVP-SCOPE.md`'s
+  "Guest play" bullet both still described the now-closed `isGuest` gap as
+  open. REQ-717/ADR-0036/S-069/S-070.
+- 2026-07-21 — `docs/requirements-document.md` (0.92 → 0.93),
+  `docs/design-document.md` (0.43 → 0.44), `MVP-SCOPE.md`,
+  `docs/backlog.md` (new S-070) — REQ-717/ADR-0036 guest play **frontend
+  half built (S-070)**: `AuthScreen.tsx` gained a "Play as guest" entry
+  point (`playAsGuest()` in `lib/api.ts`, `POST /auth/guest`, routed through
+  the existing login/signup success path — no separate "guest mode"
+  client-side state); `SettingsScreen.tsx` gained a "Save your progress"
+  claim section, visible only for a guest account (`claimAccount()` in
+  `lib/api.ts`, `POST /auth/claim`); `App.tsx` gained a small header banner
+  nudging a guest toward that section (a UX addition beyond this REQ's own
+  acceptance criteria, documented in `design-document.md` §3/§7). **Real gap
+  found and flagged, not silently worked around:** the backend's
+  `MeResponse` DTO has no dedicated `isGuest` field (S-069 never added
+  one) — the frontend derives guest status as `email === null` instead
+  (correct today, since only a guest row ever has a null email, but less
+  robust/self-documenting than a real field would be); recommended as a
+  small backend follow-up, not added here. Vitest coverage added in
+  `AuthScreen.test.tsx`/`SettingsScreen.test.tsx`; exhaustive REQ717-named
+  coverage remains `test-writer`'s to add. No Playwright E2E spec needed
+  updating — none asserts on the behavior this change touches.
+  REQ-717/ADR-0036/S-070.
+- 2026-07-21 — `docs/requirements-document.md` (0.91 → 0.92),
+  `docs/architecture-document.md` (0.46 → 0.47),
+  `docs/implementation-document.md` (0.64 → 0.65), `MVP-SCOPE.md`,
+  `docs/backlog.md` (new S-069),
+  `docs/legal/privacy-policy-draft.md` (0.7 → 0.8, noted guest play as a
+  data-collection variant: no email/password held until claimed) —
+  REQ-717/ADR-0036 guest play **backend half built**: `POST /auth/guest` (Supabase Anonymous Sign-in, mediated
+  through a new `ISupabaseAuthClient.SignInAnonymouslyAsync`, rate-limited
+  by a new, tighter `auth-guest` policy — 3/min default vs. auth-signup/
+  auth-login's 10/min), `POST /auth/claim` (claim/upgrade path, a new
+  `ISupabaseAuthClient.LinkEmailPasswordAsync` + `IUserRepository.
+  ClaimGuestAsync`, preserving every `Guess`/`LeagueMembership` row
+  unchanged), `User.IsGuest`/`User.ClaimedAt` columns (migration
+  `20260721140000_AddGuestPlaySupport`), `User.Email` made nullable (a
+  real ripple, audited across every existing caller), and REQ-409's
+  qualifying-rounds query (`GuessRepository.
+  GetPerRoundFinalPointsByUserIdsAsync`) narrowed to exclude guest rows and
+  a claimed account's pre-claim rounds. No other REQ-201-210/204/406/407/408
+  code path touched, per ADR-0036. Frontend (guest entry point, claim UI)
+  remains a separate, not-yet-scoped follow-up story — `MVP-SCOPE.md`'s
+  "Guest play" bullet updated to record the backend as implemented and the
+  frontend as still open. Two Supabase API call shapes
+  (`SignInAnonymouslyAsync`/`LinkEmailPasswordAsync`) could not be verified
+  against a live Supabase project from the build environment — flagged in
+  `SupabaseAuthClient`'s own doc comments for manual verification.
+  REQ-717/ADR-0036/S-069.
 - 2026-07-21 — `docs/requirements-document.md` (0.90 → 0.91),
   `docs/decisions/0036-guest-play-anonymous-auth.md` (new),
   `docs/architecture-document.md` (ADR table only, new row), `MVP-SCOPE.md`

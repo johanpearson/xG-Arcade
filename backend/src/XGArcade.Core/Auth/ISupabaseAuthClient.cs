@@ -26,6 +26,24 @@ public interface ISupabaseAuthClient
     // Supabase's Admin API and requires the service_role key, never the
     // anon key (see SupabaseAuthClient's own doc comment).
     Task<bool> DeleteUserAsync(Guid authProviderUserId, CancellationToken cancellationToken = default);
+
+    // REQ-717/ADR-0036: provisions a brand-new anonymous identity via
+    // Supabase Auth's Anonymous Sign-ins feature (no email/password at
+    // all) — mediated through the backend the same way SignUpAsync already
+    // is (ADR-0013), never called directly from the frontend. Same
+    // anon-keyed HttpClient defaults as SignUpAsync/SignInWithPasswordAsync
+    // above, and the same "never throws, Success=false + ErrorMessage on
+    // rejection" contract.
+    Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default);
+
+    // REQ-717/ADR-0036: the claim/upgrade path — adds email+password to an
+    // *existing* anonymous identity, converting it in place (Supabase's
+    // user-update operation; never creates a second, disconnected
+    // identity). accessToken must be the guest's own current access token:
+    // this call authenticates as the identity being converted, unlike every
+    // other method here, which authenticates with the shared anon key (see
+    // SupabaseAuthClient.LinkEmailPasswordAsync's own doc comment for why).
+    Task<SupabaseAuthResult> LinkEmailPasswordAsync(string accessToken, string email, string password, CancellationToken cancellationToken = default);
 }
 
 public record SupabaseAuthResult
