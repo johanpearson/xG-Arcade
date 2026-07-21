@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.60"
+version: "0.63"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -485,15 +485,14 @@ public class GridCell
     public Guid GridInstanceId { get; set; }
     public int Row { get; set; }
     public int Col { get; set; }
-    // RowCategoryType/ColCategoryType ("country" | "club") were added in
-    // S-007, beyond this section's original illustrative shape: Tier 0
-    // generates either Country x Club or, as of S-030, Club x Club
-    // (MVP-SCOPE.md) — recording the type per cell (rather than assuming a
-    // fixed axis) is what lets guess-checking (S-009) know whether to query
-    // PlayerAttribute's "nationality" or "club" AttributeType for a given
-    // cell without re-deriving it, and keeps the schema correct once a
-    // future Tier 1 grid mixes in further category types (REQ-108's
-    // Trophy) across an axis.
+    // RowCategoryType/ColCategoryType ("country" | "club" | "trophy") were
+    // added in S-007, beyond this section's original illustrative shape:
+    // Tier 0 generates Country x Club, Club x Club (S-030), or a
+    // Trophy-involving pairing (S-031, REQ-108) (MVP-SCOPE.md) — recording
+    // the type per cell (rather than assuming a fixed axis) is what lets
+    // guess-checking (S-009) know whether to query PlayerAttribute's
+    // "nationality"/"club"/"trophy" AttributeType for a given cell without
+    // re-deriving it.
     public string RowCategoryType { get; set; }
     public string RowCategoryValue { get; set; }
     public string ColCategoryType { get; set; }
@@ -599,13 +598,15 @@ public class League
 {
     public Guid Id { get; set; }
     public string Name { get; set; }
-    public string Type { get; set; }          // "global" | "custom" — Tier 0
-                                                // (S-011) only ever writes
-                                                // "global"; a filtered
-                                                // unique index enforces at
-                                                // most one such row exists
-    public string? InviteCode { get; set; }   // Tier 1 (REQ-402), always null for "global"
-    public Guid? CreatedByUserId { get; set; } // Tier 1 (REQ-402), always null for "global"
+    public string Type { get; set; }          // "global" | "custom" — a filtered
+                                                // unique index enforces at most one
+                                                // "global" row; "custom" rows are
+                                                // REQ-402/403 (S-063, built)
+    public string? InviteCode { get; set; }   // REQ-402 (S-063): 6-character,
+                                                // uniqueness via an in-app
+                                                // pre-check plus a DB unique index;
+                                                // always null for "global"
+    public Guid? CreatedByUserId { get; set; } // REQ-402 (S-063): always null for "global"
 }
 
 public class LeagueMembership
@@ -815,12 +816,19 @@ or (as of S-008) `POST /internal/generate-round`
 `GridGenerationException` — and, as of the 2026-07-12 fix, any other
 exception too — and surfaces it the same way), no separate alerting
 channel exists yet.
-This shape is also Tier 0-scoped to two possible pairings, chosen once per
-instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
-Country (rows) × Club (columns), or, as of S-030, Club × Club — never a
-mixed axis within one grid, never Trophy — so the "whichever category
-types this GridTemplate allows" line above still doesn't vary *within* a
-single grid, only across grids.
+This shape is also Tier 0-scoped to (up to) five possible pairings, chosen
+once per instance by `SelectPairing` (`GridGameModule.GenerateInstanceAsync`):
+Country (rows) × Club (columns), Club × Club (S-030), Country × Trophy,
+Club × Trophy, or Trophy × Trophy (S-031, REQ-108, Trophy always kept
+second in a mixed pairing) — never a mixed axis *within* one grid, so the
+"whichever category types this GridTemplate allows" line above still
+doesn't vary within a single grid, only across grids. In production,
+Trophy pairings are mechanically wired up but structurally never chosen —
+`ReferenceDataSeeder` seeds only one trophy (Ballon d'Or), and
+`trophyCount(1)` can never clear `size` for any realistic grid (see
+`SelectPairing`'s own comment and REQ-108's status note) — proven as a
+mechanism via a larger faked trophy pool in `GridGameModuleTests`, not by
+anything production data triggers yet.
 
 **REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
 iterates every Country × Club and Club × Club pair the reference tables can
@@ -1155,15 +1163,37 @@ explicit, global 1-based `Rank` (not a page-local array index — a later
 page no longer starts at rank 1), and `RequestingUserRow` is always
 populated with the caller's own row even when it falls outside the current
 page, so SCREEN-03's sticky "your position" footer never needs a second
-round-trip. Still the global league only (no `{leagueId}` route parameter
-— custom leagues don't exist yet, deferred per `MVP-SCOPE.md`/T-109).
+round-trip. Still the global league only (no `{leagueId}` route parameter)
+— custom leagues (REQ-402/403, S-063) exist and can be created/joined via
+`LeagueEndpoints`/`LeagueService`, but this endpoint and every other
+leaderboard route below it still only ever read the one global league; a
+custom league's own leaderboard remains tracked follow-up work, not this
+section's scope.
 
-Two deliberate MVP-scale choices, not gaps: (1) member `DisplayName`s and
-each member's `SUM(Guess.FinalPoints ?? 0)` are still fetched via
-`GuessRepository.GetTotalFinalPointsByUserIdsAsync`'s database-side
-`GROUP BY` for the *full* membership, but ranking and the `cursor`/
-`pageSize` slice itself happen in memory afterward — bounding the
-*response*, not doing a DB-level `ORDER BY`/`LIMIT`; acceptable at Tier 0
+**2026-07-20/S-060, REQ-409 — supersedes this section's original ranking
+formula:** `GET /leagues/global/leaderboard` no longer ranks by
+`SUM(Guess.FinalPoints ?? 0)`. It now ranks by each member's **median**
+per-round total (`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`,
+one `SUM(FinalPoints)` per closed round the member has >=1 `Guess` in),
+and a member needs >= 5 such qualifying rounds to be ranked at all — fewer
+and they're simply absent from the list, same exclusion shape as the old
+zero-guess case. The per-round query is still database-side (`GROUP BY`
+round then by user); the median itself, the 5-round filter, ranking, and
+the `cursor`/`pageSize` slice all happen in memory afterward, same
+MVP-scale tradeoff this section's pagination note already accepted for the
+plain-sum version. The two repository methods this replaced —
+`GetTotalFinalPointsByUserIdsAsync` (the old all-time SUM) and
+`GetUserIdsWithAnyGuessAsync` (the old zero-guess exclusion) — were removed
+outright; no other caller referenced them. `GET
+/leagues/global/leaderboard/active-round` (REQ-407) and
+`/closed-rounds[/{roundId}]` (REQ-408) are untouched by this change — see
+architecture-document.md §6.2a for the corrected full flow, including the
+new `/window/{resolution}` route (REQ-405, S-027), which keeps its own
+plain within-window sum and is likewise unaffected by the median change.
+
+Two deliberate MVP-scale choices, not gaps, both still true post-REQ-409:
+(1) ranking/median computation and the `cursor`/`pageSize` slice happen in
+memory rather than via a DB-level `ORDER BY`/`LIMIT` — acceptable at Tier 0
 membership sizes, revisit if the global league's membership grows large
 enough for this to matter. (2) pagination is a plain in-memory offset
 under a cursor-shaped contract (per this section's original note above),
@@ -1385,24 +1415,37 @@ Semantics note: the Country category means **citizenship (P27)**, not
 citizenship even without caps). If a player disputes a cell, this is the
 rule to point at.
 
-**Tier 0 uses United Kingdom, not England, specifically to avoid the
-exception below** (see `MVP-SCOPE.md` for the reasoning) — this makes
-`P27` uniform across every country in the current list, no special case
-needed in `DataSync.Clients` yet.
+**Tier 0 used United Kingdom, not England,** specifically to avoid the
+exception below (see `MVP-SCOPE.md` for the original reasoning) — this
+kept `P27` uniform across every country in the original list, no special
+case needed in `DataSync.Clients` at the time.
 
-**Known limitation for Tier 1's future "national teams" feature:** none
-of England, Scotland, Wales, or Northern Ireland are sovereign states, so
-`P27` citizenship for their players is uniformly `Q145` (United Kingdom),
-never the home nation specifically — querying `P27 = Q21` (England)
-directly returns nothing. The property that actually means "which country
-represented in competition" is **`P1532`** ("country for sport") —
-Wikidata's own definition matches exactly what football fandom means by
-"England." When national teams are added (a distinct Tier 1 feature, not
-just swapping United Kingdom back to England), this needs a second query
-path in `DataSync.Clients` alongside the existing `P27` one — citizenship
-and "country represented in competition" are genuinely different concepts
-for dual nationals and naturalized players, so this is correct modeling,
-not incidental complexity to simplify away.
+**REQ-114/ADR-0035 (2026-07-21, pulled forward from Tier 1 by explicit
+product decision):** none of England, Scotland, Wales, or Northern Ireland
+are sovereign states, so `P27` citizenship for their players is uniformly
+`Q145` (United Kingdom), never the home nation specifically — querying
+`P27 = Q21` (England) directly returns nothing. The property that actually
+means "which country represented in competition" is **`P1532`** ("country
+for sport") — Wikidata's own definition matches exactly what football
+fandom means by "England." `CountryDefinition` gained a
+`UsesCountryForSportProperty` flag (default `false`, `true` only for these
+four rows, seeded as *additional* rows alongside United Kingdom, never
+replacing it); `WikidataClient` gained a second query path
+(`QueryNationalTeamClubIntersectionAsync`/`BuildNationalTeamClubIntersectionQuery`,
+truthy `wdt:P1532` — safe unlike `wdt:P54`, since there's no Wikidata
+editorial convention of marking one `P1532` statement preferred rank the
+way editors routinely do for a player's *current* club); and
+`WikidataLookupService.LookupAndPersistAsync` is the single place that
+branches on the flag to choose between the two paths — `GridGameModule`'s
+dispatch call site needed no change. Citizenship (`P27`) and "country
+represented in competition" (`P1532`) remain genuinely different concepts
+for dual nationals and naturalized players, queried and persisted through
+two separate code paths, never merged into one — this was correct modeling
+to keep, not incidental complexity. See ADR-0035 for the rejected
+alternative (a separate `NationalTeamDefinition` category type) and REQ-114
+for the full acceptance criteria. All four seeded QIDs (`Q21`/`Q22`/`Q25`/
+`Q26`) are training-knowledge values, not independently verified against
+live Wikidata pages — see `ReferenceDataSeeder`'s own doc comment.
 
 Semantics note: the Club category means **senior/first-team career
 only** — a deliberate decision, not the "any club *entity* a P54

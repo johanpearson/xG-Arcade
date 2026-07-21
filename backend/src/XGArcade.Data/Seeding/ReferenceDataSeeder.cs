@@ -26,12 +26,42 @@ namespace XGArcade.Data.Seeding;
 // from a correct one after the fact). S-037's 11 further new clubs use
 // QIDs someone actually checked, not training-knowledge guesses.
 //
-// Idempotent by (Name) — CountryDefinition/ClubDefinition's unique index —
-// but *not* purely additive: an existing row whose seeded WikidataQid no
-// longer matches this file (a correction, not a new entry) gets its QID
-// updated in place, not skipped — otherwise fixing a wrong QID here would
-// silently do nothing against an already-seeded database, exactly the
-// gap that let S-037's correction not take effect on its own.
+// Idempotent by (Name) — CountryDefinition/ClubDefinition/TrophyDefinition's
+// unique index — but *not* purely additive: an existing row whose seeded
+// WikidataQid no longer matches this file (a correction, not a new entry)
+// gets its QID updated in place, not skipped — otherwise fixing a wrong QID
+// here would silently do nothing against an already-seeded database,
+// exactly the gap that let S-037's correction not take effect on its own.
+//
+// S-031 (2026-07-20, REQ-108/ADR-0012): added the Trophies array below,
+// seeding exactly one value, Ballon d'Or (Q166177). Like S-036's expansion
+// above, this QID was **not verified against a live Wikidata endpoint from
+// this sandbox** (same network policy block — wikidata.org is unreachable
+// here) — it's a training-knowledge value, not a freshly looked-up one.
+// Given S-036/S-037's own history (4 of 6 guessed club QIDs turned out
+// wrong, silently returning real-but-wrong player data until a live check
+// caught it), **a human must verify Q166177 against the live Wikidata page
+// for Ballon d'Or before this is relied on in a real deployment.** If it
+// turns out wrong, correct it here the same way S-037 corrected the club
+// QIDs — this class's idempotent-by-Name upsert will apply the fix on the
+// next seed run without any separate migration.
+//
+// 2026-07-21 (REQ-114/ADR-0035, Tier 1 pulled forward per explicit product
+// decision): added the NationalTeams array below — England (Q21), Scotland
+// (Q22), Wales (Q25), Northern Ireland (Q26), each seeded into the SAME
+// CountryDefinition table as Countries above but with
+// UsesCountryForSportProperty = true, so WikidataLookupService queries
+// them via P1532 ("country for sport") instead of P27 ("country of
+// citizenship") — see CountryDefinition's own doc comment and ADR-0035.
+// These four QIDs were **not verified against a live Wikidata endpoint
+// from this sandbox** (same network policy block as every other QID in
+// this file) — they are well-known, extremely stable training-knowledge
+// values (these four items are among the most-referenced geography QIDs
+// on Wikidata), but given S-036/S-037's own history of guessed QIDs
+// turning out wrong, **a human must verify all four against their live
+// Wikidata pages before this is relied on in a real deployment.** If any
+// turns out wrong, correct it here the same way S-037 corrected the club
+// QIDs — idempotent-by-Name upsert applies the fix on the next seed run.
 public static class ReferenceDataSeeder
 {
     private static readonly (string Name, string WikidataQid)[] Countries =
@@ -86,6 +116,20 @@ public static class ReferenceDataSeeder
         ("South Africa", "Q258"),
     ];
 
+    // REQ-114/ADR-0035: a parallel array, not additional Countries entries —
+    // these four rows go into the same CountryDefinition table but need the
+    // extra UsesCountryForSportProperty=true flag Countries' rows don't, so
+    // SeedAsync below seeds them in a separate loop rather than widening
+    // Countries' tuple shape for every existing entry. Unverified QIDs — see
+    // this class's own doc comment above.
+    private static readonly (string Name, string WikidataQid)[] NationalTeams =
+    [
+        ("England", "Q21"),
+        ("Scotland", "Q22"),
+        ("Wales", "Q25"),
+        ("Northern Ireland", "Q26"),
+    ];
+
     private static readonly (string Name, string WikidataQid)[] Clubs =
     [
         // Original 15 (S-005).
@@ -129,6 +173,15 @@ public static class ReferenceDataSeeder
         ("West Ham United", "Q18747"),
     ];
 
+    // S-031: v1 seeds exactly one trophy (individual awards only, REQ-108) —
+    // IsTeamTrophy = false. Q166177 is a training-knowledge QID, NOT
+    // verified against a live Wikidata page this session — see this class's
+    // own doc comment above.
+    private static readonly (string Name, string WikidataQid, bool IsTeamTrophy)[] Trophies =
+    [
+        ("Ballon d'Or", "Q166177", false),
+    ];
+
     public static async Task SeedAsync(XGArcadeDbContext dbContext, CancellationToken cancellationToken = default)
     {
         // Keyed by Name (CountryDefinition/ClubDefinition's unique index) so
@@ -138,9 +191,38 @@ public static class ReferenceDataSeeder
         foreach (var (name, wikidataQid) in Countries)
         {
             if (existingCountries.TryGetValue(name, out var existing))
+            {
                 existing.WikidataQid = wikidataQid;
+                // Self-correcting, same as the QID assignment above — an
+                // ordinary country must never be left/reset to the P1532
+                // query path by a stale row.
+                existing.UsesCountryForSportProperty = false;
+            }
             else
-                dbContext.CountryDefinitions.Add(new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid });
+            {
+                dbContext.CountryDefinitions.Add(new CountryDefinition
+                {
+                    Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, UsesCountryForSportProperty = false,
+                });
+            }
+        }
+
+        // REQ-114/ADR-0035: same CountryDefinition table as Countries above,
+        // idempotent-by-Name upsert included — only the seeded flag differs.
+        foreach (var (name, wikidataQid) in NationalTeams)
+        {
+            if (existingCountries.TryGetValue(name, out var existing))
+            {
+                existing.WikidataQid = wikidataQid;
+                existing.UsesCountryForSportProperty = true;
+            }
+            else
+            {
+                dbContext.CountryDefinitions.Add(new CountryDefinition
+                {
+                    Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, UsesCountryForSportProperty = true,
+                });
+            }
         }
 
         var existingClubs = await dbContext.ClubDefinitions.ToDictionaryAsync(c => c.Name, cancellationToken);
@@ -150,6 +232,23 @@ public static class ReferenceDataSeeder
                 existing.WikidataQid = wikidataQid;
             else
                 dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid });
+        }
+
+        var existingTrophies = await dbContext.TrophyDefinitions.ToDictionaryAsync(t => t.Name, cancellationToken);
+        foreach (var (name, wikidataQid, isTeamTrophy) in Trophies)
+        {
+            if (existingTrophies.TryGetValue(name, out var existing))
+            {
+                existing.WikidataQid = wikidataQid;
+                existing.IsTeamTrophy = isTeamTrophy;
+            }
+            else
+            {
+                dbContext.TrophyDefinitions.Add(new TrophyDefinition
+                {
+                    Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid, IsTeamTrophy = isTeamTrophy,
+                });
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);

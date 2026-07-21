@@ -2,13 +2,28 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { CategoryLabel } from './CategoryLabel';
 import { describeError, fetchPlayerAutocomplete } from '../lib/api';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
-import type { CurrentRoundCell, PlayerAutocompleteSuggestion } from '../lib/types';
+import type { CurrentRoundCell, DisambiguationCandidate, PlayerAutocompleteSuggestion } from '../lib/types';
 import './GuessInput.css';
 
 export interface GuessInputProps {
   cell: CurrentRoundCell;
   accessToken: string;
-  onSubmit: (submittedName: string) => Promise<void>;
+  // REQ-209: resolves to the disambiguation candidates when the submitted
+  // name matched more than one fitting player (SubmitGuessResponse.candidates
+  // non-null/non-empty) — GuessInput renders SCREEN-02a's picker instead of
+  // closing in that case. Resolves to `undefined` for every ordinary,
+  // already-scored result (correct or incorrect), same as this prop's
+  // original contract — GuessInput closes exactly as it always did.
+  onSubmit: (submittedName: string) => Promise<DisambiguationCandidate[] | undefined>;
+  // REQ-209/REQ-210: resolves the picker by resubmitting the same guess with
+  // the chosen candidate's playerId. Always a normal, scored response
+  // (never another disambiguation prompt) — resolving this promise closes
+  // the sheet exactly like a normal onSubmit success; rejecting it shows the
+  // error inline and leaves the picker open, same error-handling shape as
+  // the plain guess form. This never consumes a separate attempt — it's the
+  // same attempt REQ-210 already counted for the submission that triggered
+  // the prompt, per REQ-210's explicit clause.
+  onResolveDisambiguation: (chosenPlayerId: string, submittedName: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -35,10 +50,18 @@ const SUGGESTION_LIMIT = 8;
 // answer. The suggestions fetch is a nice-to-have: a network failure here
 // is swallowed and just shows no suggestions, never blocking or erroring
 // the guess form itself.
-export function GuessInput({ cell, accessToken, onSubmit, onClose }: GuessInputProps) {
+export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguation, onClose }: GuessInputProps) {
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // REQ-209/SCREEN-02a: non-null only once a submission comes back needing
+  // disambiguation — while set, the picker view replaces the plain guess
+  // form entirely (the categories header and Cancel button stay, since
+  // abandoning the picker via Cancel/backdrop-click is still "the guess is
+  // not submitted," same as abandoning the plain form).
+  const [candidates, setCandidates] = useState<DisambiguationCandidate[] | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
   const [suggestions, setSuggestions] = useState<PlayerAutocompleteSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -136,7 +159,32 @@ export function GuessInput({ cell, accessToken, onSubmit, onClose }: GuessInputP
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(trimmed);
+      const result = await onSubmit(trimmed);
+      if (result) {
+        // REQ-209: nothing was scored — show the picker instead of closing.
+        setCandidates(result);
+        setSelectedCandidateId(null);
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleConfirmDisambiguation(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedCandidateId) {
+      setError('Choose a player to submit your guess.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onResolveDisambiguation(selectedCandidateId, name.trim());
       onClose();
     } catch (err) {
       setError(describeError(err));
@@ -181,7 +229,52 @@ export function GuessInput({ cell, accessToken, onSubmit, onClose }: GuessInputP
           </p>
         )}
 
-        {locked ? (
+        {candidates ? (
+          // SCREEN-02a: the disambiguation prompt (REQ-209) — replaces the
+          // plain guess form once a submission comes back matching more than
+          // one fitting candidate. The header/Cancel button above stay put,
+          // so abandoning this via Cancel or a backdrop click still means
+          // "the guess is not submitted" (SCREEN-02a), same as abandoning
+          // the plain form.
+          <form onSubmit={handleConfirmDisambiguation} className="guess-input__form">
+            <h3 className="guess-input__disambiguation-prompt">Which player did you mean?</h3>
+            <div
+              className="guess-input__candidates"
+              role="radiogroup"
+              aria-label="Choose the player you meant"
+            >
+              {candidates.map((candidate) => (
+                <label key={candidate.playerId} className="guess-input__candidate">
+                  <input
+                    type="radio"
+                    className="guess-input__candidate-radio"
+                    name="guess-input-disambiguation-candidate"
+                    value={candidate.playerId}
+                    checked={selectedCandidateId === candidate.playerId}
+                    onChange={() => setSelectedCandidateId(candidate.playerId)}
+                    disabled={submitting}
+                  />
+                  <span className="guess-input__candidate-text">
+                    <span className="guess-input__candidate-name">{candidate.name}</span>
+                    {candidate.distinguishingAttributes.length > 0 && (
+                      <span className="guess-input__candidate-meta">
+                        {candidate.distinguishingAttributes.join(' · ')}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {error && <p className="guess-input__error">{error}</p>}
+            <button
+              type="submit"
+              className="guess-input__submit"
+              disabled={submitting || !selectedCandidateId}
+            >
+              {submitting ? 'Submitting…' : 'Confirm'}
+            </button>
+          </form>
+        ) : locked ? (
           <p className="guess-input__locked">
             This cell is locked — no attempts remain.
           </p>

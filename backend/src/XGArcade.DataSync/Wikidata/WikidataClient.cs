@@ -65,6 +65,22 @@ public class WikidataClient(
         return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
     }
 
+    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
+    // counterpart of QueryCountryClubIntersectionAsync above.
+    public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
+        string nationalTeamWikidataQid,
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(nationalTeamWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{nationalTeamWikidataQid}'", nameof(nationalTeamWikidataQid));
+        if (!WikidataQid.IsValid(clubWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
+
+        var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
+        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
@@ -77,6 +93,34 @@ public class WikidataClient(
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
         return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
+        CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(trophyWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
+        if (!WikidataQid.IsValid(countryWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
+
+        var query = BuildTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
+        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
+        string trophyWikidataQid,
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default)
+    {
+        if (!WikidataQid.IsValid(trophyWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
+        if (!WikidataQid.IsValid(clubWikidataQid))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
+
+        var query = BuildTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
+        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, cancellationToken);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
@@ -181,6 +225,33 @@ public class WikidataClient(
               MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
             """);
 
+    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland aren't
+    // sovereign states, so P27 ("country of citizenship") can't distinguish
+    // them — every English/Scottish/Welsh/Northern Irish player's P27 is
+    // uniformly United Kingdom (Q145). P1532 ("country for sport") is
+    // Wikidata's own property for "country represented in competition,"
+    // which is exactly what a football trivia game means by "England."
+    // Deliberately uses the truthy wdt:P1532 shortcut, unlike P54's full
+    // statement path above — P1532 doesn't have P54's "current club" rank-
+    // hiding problem: there's no Wikidata editorial convention of marking
+    // one P1532 statement "preferred rank" to mean "the country they
+    // currently represent" the way editors routinely do for a player's
+    // *current* club on P54 (see BuildCountryClubIntersectionQuery's own
+    // comment for that incident). A player either represented a given
+    // national team or they didn't — best-rank semantics and "represented
+    // this country at all" coincide here, the same reasoning
+    // BuildTrophyCountryIntersectionQuery's comment gives for P166's truthy
+    // shortcut. Same P54 full-statement-path club-membership half as every
+    // other club-involving query in this file — do not "simplify" that half
+    // to wdt:P54.
+    private static string BuildNationalTeamClubIntersectionQuery(string nationalTeamQid, string clubQid) =>
+        BuildIntersectionQuery($$"""
+              ?player wdt:P1532 wd:{{nationalTeamQid}}.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:{{clubQid}}.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+            """);
+
     // S-030: "ever played for both clubs" — P54 checked twice instead of
     // once against P27, same full-statement-path-not-truthy P54 rule as
     // BuildCountryClubIntersectionQuery above (see its comment for why
@@ -195,6 +266,40 @@ public class WikidataClient(
               ?player p:P54 ?clubBStatement.
               ?clubBStatement ps:P54 wd:{{clubBQid}}.
               MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
+            """);
+
+    // S-031/REQ-108: P166 ("award received") — deliberately uses the truthy
+    // wdt:P166 shortcut, unlike P54 above. This is a real judgment call, not
+    // a reflexive "truthy is simpler": P54's truthy shortcut is unsafe
+    // specifically because Wikidata editors routinely mark a player's
+    // *current* club statement preferred rank, which silently drops every
+    // normal-rank historical club from the best-rank-only wdt: graph (see
+    // BuildCountryClubIntersectionQuery's own comment for the Sandro Tonali
+    // incident this pins down). A repeatable individual award like Ballon
+    // d'Or has no equivalent editorial convention — there's no "this win
+    // supersedes that win" preferred-rank practice on P166 statements the
+    // way there is for "this is my current club" on P54 — so best-rank
+    // semantics and "received this award at all" coincide here, and truthy
+    // is safe. If a future trophy turns out to have its own rank quirk,
+    // this reasoning (and the truthy shortcut) needs re-checking per-trophy,
+    // not assumed to hold universally just because it holds for Ballon d'Or.
+    private static string BuildTrophyCountryIntersectionQuery(string trophyQid, string countryQid) =>
+        BuildIntersectionQuery($$"""
+              ?player wdt:P166 wd:{{trophyQid}}.
+              ?player wdt:P27 wd:{{countryQid}}.
+            """);
+
+    // S-031/REQ-108: P166 (truthy, see BuildTrophyCountryIntersectionQuery's
+    // comment) + P54 (full statement path, excluding only deprecated rank —
+    // the same non-negotiable "ever played for," not "currently plays for,"
+    // reasoning as every other P54 use in this file). Do not "simplify" the
+    // P54 half to wdt:P54.
+    private static string BuildTrophyClubIntersectionQuery(string trophyQid, string clubQid) =>
+        BuildIntersectionQuery($$"""
+              ?player wdt:P166 wd:{{trophyQid}}.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:{{clubQid}}.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
             """);
 
     public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(

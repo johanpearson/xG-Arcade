@@ -149,3 +149,102 @@ test.describe('REQ-712: header nav collapses behind a menu toggle below the mobi
     await expectNoHorizontalOverflow(page)
   })
 })
+
+// REQ-402/403: create a custom league and join one via its real invite code
+// — the API-level equivalent (backend/tests/XGArcade.Api.Tests/
+// LeagueEndpointTests.cs) already covers request validation/response shape;
+// this is the one thing only the real UI proves — that the invite code
+// shown on player A's screen actually round-trips through the Join form to
+// add player B's own account as a member, and that a made-up code shows a
+// clear inline error and adds nothing.
+test.describe('REQ-402/403: custom leagues create/join', () => {
+  test('REQ-402/403: create a league, join with its real invite code from a second player, reject an invalid code', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT)
+
+    // Player A creates a league.
+    await signUpNewPlayer(page)
+    await page.getByRole('button', { name: 'Leagues' }).click()
+    await expect(page.getByRole('heading', { name: 'Leagues', exact: true })).toBeVisible()
+
+    const leagueName = `Friends League ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    await page.getByLabel('League name').fill(leagueName)
+    await page.getByRole('button', { name: 'Create league' }).click()
+
+    const createdRow = page.getByRole('listitem').filter({ hasText: leagueName })
+    await expect(createdRow).toBeVisible()
+    const codeText = await createdRow.getByText(/^Code: /).innerText()
+    const inviteCode = codeText.replace('Code:', '').trim()
+    expect(inviteCode.length).toBeGreaterThan(0)
+
+    // Player B: this suite's established two-user pattern
+    // (play-grid.spec.ts's signUpAndLoginViaApi) drives a second user purely
+    // via the API when the UI itself isn't under test — here the join UI IS
+    // the thing under test, so player B is driven through the real UI
+    // instead, reusing the same single `page` sequentially after player A
+    // logs out. Nothing about this scenario requires the two sessions to be
+    // concurrent, so a second browser context isn't needed either.
+    await page.getByRole('button', { name: 'Log out' }).click()
+    await signUpNewPlayer(page)
+    await page.getByRole('button', { name: 'Leagues' }).click()
+    await expect(page.getByRole('heading', { name: 'Leagues', exact: true })).toBeVisible()
+    await expect(page.getByText("You're not in any custom leagues yet.")).toBeVisible()
+
+    // An invalid/made-up invite code: a clear inline error, nothing added.
+    await page.getByLabel('Invite code').fill('NOSUCH1')
+    await page.getByRole('button', { name: 'Join league' }).click()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(page.getByText("You're not in any custom leagues yet.")).toBeVisible()
+
+    // The real invite code: joins, and the league now appears in player B's
+    // own "my leagues" list too.
+    await page.getByLabel('Invite code').fill(inviteCode)
+    await page.getByRole('button', { name: 'Join league' }).click()
+    await expect(page.getByRole('listitem').filter({ hasText: leagueName })).toBeVisible()
+  })
+})
+
+// REQ-716/ADR-0034: the System/Light/Dark toggle. theme.test.ts already
+// unit-tests resolveTheme/applyStoredThemePreference/useThemePreference in
+// isolation; what only a real browser round trip proves is that main.tsx's
+// localStorage-read-before-first-paint mechanism actually survives a real
+// page reload, not just a re-render within the same SPA session.
+test.describe('REQ-716: dark mode toggle', () => {
+  test('REQ-716: System is selected by default; Dark updates data-theme and survives a reload; Light flips it back', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT)
+    await signUpNewPlayer(page)
+
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await expect(page.getByRole('radiogroup', { name: 'Color theme' })).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'System' })).toBeChecked()
+
+    await page.getByRole('radio', { name: 'Dark' }).check()
+    await expect(page.getByRole('radio', { name: 'Dark' })).toBeChecked()
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+      .toBe('dark')
+
+    // Reload: proves the preference survived via localStorage and
+    // main.tsx's applyStoredThemePreference() (read before first paint),
+    // not merely theme.ts's in-memory React state for this SPA session.
+    await page.reload()
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+      .toBe('dark')
+
+    // App.tsx's `screen` state resets to its 'game-select' default on
+    // reload even though the session (access token in localStorage)
+    // itself survived — navigate back to Settings to flip the preference
+    // back to Light.
+    await expect(page.getByText('Choose a game')).toBeVisible()
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('radio', { name: 'Light' }).check()
+    await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked()
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
+      .toBe('light')
+  })
+})

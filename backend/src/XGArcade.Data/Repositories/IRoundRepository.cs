@@ -32,6 +32,16 @@ public interface IRoundRepository
     // second COUNT query.
     Task<IReadOnlyList<Round>> GetClosedByGameKeyAsync(string gameKey, int skip, int take, CancellationToken cancellationToken = default);
 
+    // REQ-405: the ids of every closed round (ClosedAt != null — same
+    // locked-only rule as REQ-401/404/408) for this game whose EndTime falls
+    // within [windowStartUtc, windowEndUtc) — the half-open range
+    // LeaderboardService uses for its calendar-aligned week/month/year
+    // windows. Deliberately ids-only rather than full Round rows: callers
+    // only ever feed the result straight into
+    // IGuessRepository.GetTotalFinalPointsByRoundIdsAsync.
+    Task<IReadOnlyList<Guid>> GetClosedIdsWithinWindowAsync(
+        string gameKey, DateTime windowStartUtc, DateTime windowEndUtc, CancellationToken cancellationToken = default);
+
     Task<Round?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<Round> AddAsync(Round round, CancellationToken cancellationToken = default);

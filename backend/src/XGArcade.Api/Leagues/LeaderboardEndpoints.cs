@@ -29,6 +29,17 @@ namespace XGArcade.Api.Leagues;
 // "no active round" -> 404) — this is the Api (outer composition) layer, so
 // hardcoding GridGameModule.XGGridGameKey here is fine (ADR-0003); Core.Leagues
 // itself never references it.
+//
+// REQ-405 (2026-07-20, backlog S-027): one more route,
+// /leagues/global/leaderboard/window/{resolution}, for the
+// round/week/month/year time-window resolutions alongside the all-time
+// default — same auth/paging/gameKey shape as every route above.
+//
+// REQ-409 (2026-07-20, backlog S-060): the original all-time route's
+// *ranking formula* changes (median, 5-round-qualified) but its route,
+// auth, and paging contract stay exactly the same — this is a same-route
+// replacement, not a new endpoint. It no longer resolves "the active
+// round" before calling ILeaderboardService, unlike REQ-406/407 above.
 public static class LeaderboardEndpoints
 {
     // implementation-document.md §6's example (`pageSize=50`) as the
@@ -43,9 +54,7 @@ public static class LeaderboardEndpoints
         app.MapGet("/leagues/global/leaderboard", async (
             ClaimsPrincipal principal,
             IUserRepository userRepository,
-            IRoundRepository roundRepository,
             ILeaderboardService leaderboardService,
-            TimeProvider timeProvider,
             int? cursor,
             int? pageSize,
             CancellationToken cancellationToken) =>
@@ -61,14 +70,13 @@ public static class LeaderboardEndpoints
             if (requestingUser is null)
                 return Results.Unauthorized();
 
-            // REQ-406: folded on top of the locked total when a round is
-            // currently active; unaffected (identical to pre-REQ-406
-            // behavior) when none is.
-            var now = timeProvider.GetUtcNow().UtcDateTime;
-            var activeRound = await roundRepository.GetActiveByGameKeyAsync(GridGameModule.XGGridGameKey, now, cancellationToken);
-
+            // REQ-409 (2026-07-20): median-based ranking, locked rounds only
+            // — no active-round resolution needed here any more (REQ-406's
+            // old live-fold onto this same route is retired along with the
+            // sum-based ranking it applied to; see ILeaderboardService's own
+            // doc comment on GetGlobalLeaderboardAsync for the full reasoning).
             var page = await leaderboardService.GetGlobalLeaderboardAsync(
-                requestingUser.Id, cursor ?? 0, pageSize ?? DefaultPageSize, activeRound, cancellationToken);
+                requestingUser.Id, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             return Results.Ok(ToResponse(page));
         }).RequireAuthorization();
@@ -176,6 +184,43 @@ public static class LeaderboardEndpoints
                     statusCode: StatusCodes.Status409Conflict),
                 _ => Results.Ok(ToResponse(result.Page!)),
             };
+        }).RequireAuthorization();
+
+        // REQ-405: round/week/month/year resolutions alongside the all-time
+        // default above. {resolution} is a route string parsed
+        // case-insensitively; anything else is a 400, same
+        // Results.Problem pattern ValidatePaging already uses.
+        app.MapGet("/leagues/global/leaderboard/window/{resolution}", async (
+            string resolution,
+            ClaimsPrincipal principal,
+            IUserRepository userRepository,
+            ILeaderboardService leaderboardService,
+            TimeProvider timeProvider,
+            int? cursor,
+            int? pageSize,
+            CancellationToken cancellationToken) =>
+        {
+            if (!Enum.TryParse<LeaderboardWindowResolution>(resolution, ignoreCase: true, out var parsedResolution))
+            {
+                return Results.Problem(
+                    title: "Invalid resolution",
+                    detail: $"'{resolution}' is not a valid leaderboard resolution. Expected one of: round, week, month, year.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            var validationError = ValidatePaging(cursor, pageSize);
+            if (validationError is not null)
+                return validationError;
+
+            var requestingUser = await ResolveRequestingUserAsync(principal, userRepository, cancellationToken);
+            if (requestingUser is null)
+                return Results.Unauthorized();
+
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var page = await leaderboardService.GetWindowedLeaderboardAsync(
+                requestingUser.Id, GridGameModule.XGGridGameKey, parsedResolution, now, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
+
+            return Results.Ok(ToResponse(page));
         }).RequireAuthorization();
     }
 

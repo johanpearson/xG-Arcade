@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
+using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
@@ -42,7 +43,7 @@ public static class GuessEndpoints
             try
             {
                 result = await guessSubmissionService.SubmitGuessAsync(
-                    roundId, user.Id, cellId, request.SubmittedName, cancellationToken);
+                    roundId, user.Id, cellId, request.SubmittedName, request.ChosenPlayerId, cancellationToken);
             }
             catch (GuessScoringException ex)
             {
@@ -65,7 +66,20 @@ public static class GuessEndpoints
             {
                 GuessSubmissionOutcome.Accepted => Results.Ok(
                     new SubmitGuessResponse(
-                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl)),
+                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl, Candidates: null)),
+                // REQ-209/REQ-210: still a 200 (nothing about the request was
+                // wrong — the guess just resolved to more than one fitting
+                // candidate), but with Candidates populated and every other
+                // field left at its default/false/0/null — nothing was
+                // actually scored, and showing this prompt never consumed an
+                // attempt. Candidates != null is the frontend's unambiguous
+                // signal to render the picker instead of a normal result.
+                GuessSubmissionOutcome.NeedsDisambiguation => Results.Ok(
+                    new SubmitGuessResponse(
+                        IsCorrect: false, AttemptCount: 0, Locked: false, ResolvedPlayerName: null, ResolvedPlayerPhotoUrl: null,
+                        Candidates: result.DisambiguationCandidates!
+                            .Select(c => new DisambiguationCandidateResponse(c.PlayerId, c.Name, c.DistinguishingAttributes))
+                            .ToList())),
                 GuessSubmissionOutcome.RoundNotFound => Results.NotFound(),
                 GuessSubmissionOutcome.RoundNotActive => Results.Problem(
                     title: "Round is not active",
@@ -89,7 +103,12 @@ public static class GuessEndpoints
     }
 }
 
-public record SubmitGuessRequest(string SubmittedName);
+// ChosenPlayerId (REQ-209/REQ-210): null on an ordinary guess. Set only on a
+// resubmission answering a disambiguation prompt from a prior response on
+// this same cell (SubmitGuessResponse.Candidates) — the id of whichever
+// candidate the player picked. Always re-verified server-side
+// (GridGameModule), never trusted blindly.
+public record SubmitGuessRequest(string SubmittedName, Guid? ChosenPlayerId = null);
 
 // ResolvedPlayerName (frontend name-display fix): the canonical, properly-
 // cased player name, only ever set when IsCorrect — never a substitute for
@@ -101,7 +120,29 @@ public record SubmitGuessRequest(string SubmittedName);
 // plus null whenever no Wikidata photo exists for this player. Absent/null
 // is the normal, error-free "no photo" case; the frontend falls back to
 // today's text-only reveal (REQ-212) whenever this is null.
-public record SubmitGuessResponse(bool IsCorrect, int AttemptCount, bool Locked, string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl);
+//
+// Candidates (REQ-209): null on every ordinary (scored) response — this is
+// the frontend's unambiguous signal to distinguish "this response means:
+// show a picker" (Candidates != null) from "this response means: scored,
+// render normally" (Candidates == null). Non-null and non-empty only when
+// the guess resolved to more than one fitting candidate; in that case
+// IsCorrect/AttemptCount/Locked/ResolvedPlayerName/ResolvedPlayerPhotoUrl are
+// all left at their default/false/0/null values — nothing was actually
+// scored yet, and REQ-210 guarantees showing this prompt never consumed an
+// attempt. The player must resubmit with ChosenPlayerId set to one of these
+// candidates' PlayerId to actually score the guess.
+public record SubmitGuessResponse(
+    bool IsCorrect,
+    int AttemptCount,
+    bool Locked,
+    string? ResolvedPlayerName,
+    string? ResolvedPlayerPhotoUrl,
+    IReadOnlyList<DisambiguationCandidateResponse>? Candidates);
+
+// REQ-209: one entry per candidate the player must choose between — mirrors
+// Core.Games.DisambiguationCandidate at the API boundary (DTOs at the API
+// boundary, never a domain/Core type serialized directly).
+public record DisambiguationCandidateResponse(Guid PlayerId, string Name, IReadOnlyList<string> DistinguishingAttributes);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalRoundEndpoints.RoundGenerationLogCategory.

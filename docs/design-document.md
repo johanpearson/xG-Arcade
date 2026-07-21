@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.38"
+version: "0.41"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -19,7 +19,7 @@ update_when:
 
 # UX & Design Document – xG Arcade (working title)
 
-Version 0.37 · 2026-07-20
+Version 0.40 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
 
 > **This document describes the full system, not what's being built right
@@ -67,7 +67,11 @@ entirely.
 
 ## 2. Token system
 
-**Color** (light theme only for v1):
+**Color** (light theme is the default and, as of v1's actual shipped UI,
+the only theme rendered in the app — see the **Dark theme** subsection
+below §2's light-theme table for a fully specified, contrast-verified dark
+counterpart, decided 2026-07-20 as REQ-716's design pass. Implementation
+is not yet built; this table remains the light-theme spec, unchanged):
 
 | Token | Hex | Use |
 |---|---|---|
@@ -124,6 +128,86 @@ lighter, more saturated hue was the deliberate intent and the applicable
 floor (3:1, non-text UI components) is already met (e.g. `accent-green`'s
 live-dot against a card background measures the same ~3.4:1, which
 clears 3:1 fine for a decorative indicator).
+
+**Dark theme (REQ-716, decided 2026-07-20 — token values only, not yet
+implemented):** resolves §7's former open question ("whether a dark theme
+is ever offered"). **This is a fresh derivation, not a revival of v0.1's
+rejected dark tokens** (see this document's revision note at the top) — v0.1
+was rejected for reading as a generic "dark-mode-analytics-dashboard" that
+had nothing to do with football specifically; that critique was about the
+app's *default* identity, not about whether a dark theme is ever offered as
+an *option*. Every value below is independently derived and contrast-checked
+against this dark surface set, not copied from v0.1.
+
+*Mechanism decision (resolves the persistence/toggle question §7 also left
+open — see ADR-0034 for the full alternatives-considered record):* an
+**explicit toggle in Settings (`SettingsScreen.tsx`, SCREEN-08),
+not an automatic-only `prefers-color-scheme` switch.** Three states —
+**System** (default), **Light**, **Dark** — persisted in `localStorage`
+under a new key (device-local, same pattern as ADR-0033's refresh-token
+storage: no `User`-level/account-synced preference for v1, no new backend
+surface). "System" reads `prefers-color-scheme` at load and reactively via
+its `change` event; "Light"/"Dark" pin the theme regardless of the OS
+setting. Reasoning:
+- REQ-716's own request text is explicit — *"I want to **choose** a
+  different color theme... to match my own preference"* — a
+  system-preference-only approach answers "does the app support dark mode"
+  but not "can I choose it independent of my OS setting," which is what was
+  actually asked. An automatic-only approach was considered and rejected on
+  this basis, not on complexity grounds.
+- Simplicity is still respected within that constraint: this is Tier 0 and
+  a solo/small-scale product (`MVP-SCOPE.md`), so the decision stops at the
+  minimum that satisfies the actual request — one `localStorage` key, no
+  account-level sync across devices (a real gap if a player switches
+  devices, but not worth a backend change for a preference this low-stakes;
+  revisit only if actually requested), no per-user theme authoring beyond
+  the two themes already designed here.
+- `localStorage` over a `User`-level column: mirrors ADR-0033's own
+  reasoning almost exactly (device-local, no new backend/API surface, one
+  storage mechanism already understood in this codebase) — the trade-off
+  there was XSS blast radius for a security-sensitive token; here the
+  trade-off is just "doesn't follow the player to a new device," a far
+  lower stake for a cosmetic preference. Implementation should read this
+  key the same way `App.tsx` already reads `ACCESS_TOKEN_STORAGE_KEY` at
+  startup, applying the resolved theme (System-resolved-to-Light/Dark, or
+  the explicit pin) as a `data-theme` attribute (or class) on `<html>`
+  before first paint, to avoid a flash of the wrong theme.
+- Defaulting to "System" (rather than defaulting to "Light" and requiring
+  an opt-in click) means a player who has never opened Settings still gets
+  a sensible, lighting-condition-appropriate result — the toggle exists for
+  the player who wants to *override* that, not as the only way to get a
+  dark UI at all.
+
+*Token values.* Colors only — every value below is a straight color-token
+substitution. **Layout, spacing (`--space-*`), typography (type scale,
+`--font-*`), and animation (badge-dock slide, rejected-guess shake) are
+unchanged and theme-independent** — nothing in §3/§4's spacing or motion
+specs needs re-reading for dark theme; only the hex/`rgba()` values below
+differ.
+
+| Token | Dark value | Notes / contrast |
+|---|---|---|
+| `bg-base` | `#101412` | App background — near-black, same quiet green undertone (low-saturation, ~152° hue family) as `text-primary`'s own undertone in the light theme, inverted in lightness rather than a neutral/blue-black default |
+| `surface-card` | `#1C211F` | Cards/cells — lighter than `bg-base` so cards still "lift" without a shadow, mirroring the light theme's `surface-card` (white) being lighter than its `bg-base` (off-white) |
+| `surface-sunken` | `#0C0E0D` | Empty/inactive cells, input backgrounds — darkest of the three neutral surfaces, same relative ordering as the light theme (there, `surface-sunken` is also the darkest of the three: `surface-card` > `bg-base` > `surface-sunken` by luminance; here: `surface-card` > `bg-base` > `surface-sunken` too) |
+| `text-primary` | `#EEF1F0` | Primary text — near-white, same green undertone as its light-theme counterpart, inverted. **16.3:1** against `bg-base`, **14.4:1** against `surface-card` (WCAG relative-luminance formula) — both far above the 4.5:1 floor, consistent with the light theme's own near-black-on-near-white pairing also clearing it by a wide margin |
+| `text-muted` | `#98A49E` | Secondary text/labels. **6.3:1** against `surface-card` (the lighter, more binding of the two real backgrounds this token sits on), **7.2:1** against `bg-base` — clears 4.5:1 with real margin, same role as the light theme's `text-muted` (which was tuned close to the floor, ~4.6:1, against `bg-base`; more margin was taken here deliberately since there's no reason to shave it thin) |
+| `border-hairline` | `#353B38` | Dividers/card borders — same "thin, quiet" decorative role as the light theme's hairline, which itself was never given a hard contrast floor (measured ~1.2:1 against `bg-base` there, i.e. deliberately subtle, not a WCAG-bound UI-component boundary); this dark value is subtle by the same design intent, not by a computed floor |
+| `accent-green` | `#1E9E63` | **Unchanged from the light theme — same hex.** Non-text/decorative use (live-dot, focus ring, tab underline), same role as light theme. **New finding for dark theme, verified rather than assumed:** this same value also now clears the text/icon contrast floor when used as *text* on a dark surface — **4.76:1** against `surface-card`, **5.42:1** against `bg-base` — because the direction of the light/dark split reverses on a dark background, the same phenomenon already documented for `overlay-scrim`'s gold pairing. Consequently: |
+| `accent-green-text` | *(not used in dark theme)* | The light theme's darkened variant is **dormant in dark theme, not carried over** — verified to fail on dark surfaces (**3.21:1** against `surface-card`, below 4.5:1) precisely because darkening a color lowers its luminance, which helps contrast against a *light* background and hurts it against a *dark* one. Dark theme uses `accent-green` directly (row above) for every role `accent-green-text` covers in the light theme (button labels, correct-adjacent green text) — one token instead of two, a genuine simplification, not an oversight |
+| `accent-gold` | `#C99A2E` | **Unchanged from the light theme — same hex**, same reasoning as `accent-green` above: this value clears text/icon contrast on a dark surface — **6.33:1** against `surface-card` — so it serves both the decorative and text/icon roles in dark theme |
+| `accent-gold-text` | *(not used in dark theme)* | Dormant in dark theme, same reasoning as `accent-green-text` above — verified to fail (**3.34:1** against `surface-card`) since it's a darkened-for-light-backgrounds variant |
+| `accent-red` | `#D2726A` | **New value — the light theme's `accent-red` (`#C4463C`) fails on a dark surface** (**3.33:1** against `surface-card`, below 4.5:1) since it's a mid-lightness color calibrated to pass against white, and unlike gold/green there was no existing brighter sibling token to fall back to. This is the same hue/saturation as `accent-red` (H≈4°, S≈54%), lightness raised from 50% to 62% — **4.94:1** against `surface-card`, **5.62:1** against `bg-base` — a genuinely new token needed for dark theme, not a reuse |
+| `overlay-scrim` / `accent-green-scrim` (photo-overlay set, plus `accent-gold`/`surface-card` used as their foreground pairing) | **No change, either theme.** | These are calibrated against a *photo's* own worst-case brightness (a pure-white photo showing through the scrim — see each token's own row above), not against the app's chrome background — a real player photo's brightness has no relationship to which theme the surrounding UI is in. The existing verification (89% opacity scrim, `accent-gold`/`accent-green-scrim`/`surface-card` foreground pairings) applies unchanged in dark theme; do not re-derive or theme-split these |
+
+**Contrast methodology note:** every ratio above uses the same WCAG
+relative-luminance formula this document already applies elsewhere (see
+`overlay-scrim`/`accent-green-scrim`'s derivations above) — `surface-card`
+was used as the binding/worst-case background for each text-on-surface
+pairing where a token could plausibly sit on either `bg-base` or
+`surface-card`, since it's the lighter (lower-contrast-margin) of the two
+dark-theme surfaces, mirroring how the light theme's own ratios are
+computed against `surface-card`/white as the binding case there.
 
 **Type:**
 
@@ -869,6 +953,73 @@ rank — it must never be omitted or left implicit in the ranking order
 alone. Rank #1 is always the lowest `TotalPoints`, consistent with
 `LeaderboardService`'s ascending sort.
 
+**Scope selector (REQ-406/407/408, S-053/S-054 — backfilled here 2026-07-20,
+this section had not been updated when those stories shipped) and Time
+Windows (REQ-405, S-027, added 2026-07-20):** a row of scope tabs sits
+above the ranked list, distinct from the `[Global] [My League ▾] [+ New]`
+league tabs above (those stay a deferred mock per `MVP-SCOPE.md`; this
+selector exists alongside them, not instead of them):
+
+```
+┌───────────────────────────────────────────┐
+│ [All-time] [Current Round] [Previous       │
+│  Rounds] [Time Windows]                    │
+│ Lowest total wins                          │
+├───────────────────────────────────────────┤
+│  (Time Windows only)                       │
+│  [Round] [Week] [Month] [Year]             │
+├───────────────────────────────────────────┤
+│ 1  Sam         120 pts                     │
+│ 2  You         138 pts               ← you │
+│ 3  Alex        142 pts                     │
+├───────────────────────────────────────────┤
+│               [ Load more ]                │
+└───────────────────────────────────────────┘
+```
+
+Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
+(`accent-green` underline on the active tab) — one visual tab pattern
+reused, not a second one invented. Four scopes:
+- **All-time** (REQ-401/404): the existing locked, all-time global
+  leaderboard, unchanged, and the default scope shown on first load.
+- **Current Round** (REQ-407/ADR-0031): the active round's own
+  leaderboard, recomputed live on every read. Rows and the running total
+  render with the same "~N pts estimated" wording SCREEN-01's live cell
+  value already uses (never presented as a locked final), with an
+  explicit "Live — estimated, can still change until the round closes."
+  note under the tabs. "No round is currently active — check back once
+  one starts" is a plain informational empty state (not an error) when
+  nothing is active; "No one has played this round yet" is the separate,
+  distinct empty state for an active-but-unplayed round.
+- **Previous Rounds** (REQ-408): a browsable list of closed rounds
+  (labeled by their `closedAt` timestamp — there is no round-number field
+  to fall back on), drilling into one round's own locked, final
+  leaderboard (plain "N pts", never "estimated").
+- **Time Windows** (REQ-405, S-027): a calendar-aligned (never rolling)
+  leaderboard summed only
+  over locked `FinalPoints` within a fixed window, never live/provisional
+  points — so, like Previous Rounds, its rows always render plain "N pts",
+  never "estimated". Selecting this scope reveals a second, visually
+  quieter row of round/week/month/year sub-tabs directly below the
+  top-level tabs (same `role="tab"`/`aria-selected` pattern, smaller
+  font-size, no bottom border of its own — a nested row, not a second
+  competing tab bar) — "Round" is the default sub-tab, since it's the
+  most specific/recent window and the one closest to what "Current Round"
+  already trains a player to check. Switching sub-tabs re-fetches that
+  resolution's leaderboard. An empty ranked list here (nothing has
+  happened in that window yet) is a real, calm empty state — "No one
+  scored in this window yet." — never an error.
+
+Re-entering **Current Round**, **Previous Rounds**, or **Time Windows**
+after visiting a different scope always issues a fresh request and briefly
+shows a loading state again, rather than silently leaving a previous,
+possibly-stale response on screen — each of these three scopes' whole
+value proposition is "check back for something more current," so a loading
+flash is the more honest signal on re-entry than quiet staleness. **All-time**
+is the one exception: its 15-second background poll runs continuously
+regardless of which scope tab is active, so switching back to it never
+shows a loading flash — the data was never stale to begin with.
+
 ### SCREEN-04: Admin (unverified data review, round control, user deletion)
 
 Still deliberately plainer/denser than the rest of the product — a working
@@ -1580,8 +1731,15 @@ Unchanged from v0.1:
 
 ## 7. Open questions
 
-- Whether a dark theme is ever offered as a user preference, now that light
-  is the default (reversed from v0.1's "dark only" assumption)
+- ~~Whether a dark theme is ever offered as a user preference, now that
+  light is the default (reversed from v0.1's "dark only" assumption)~~ —
+  **resolved 2026-07-20 (REQ-716):** yes — see §2's **Dark theme**
+  subsection for the full token table and contrast derivations, and
+  `requirements-document.md`'s REQ-716 for the mechanism decision (an
+  explicit three-state System/Light/Dark toggle in Settings, persisted in
+  `localStorage`, not an automatic-`prefers-color-scheme`-only approach).
+  Token values are decided and contrast-verified; implementation is a
+  separate, not-yet-built story.
 - Whether the badge-dock animation is cheap enough in practice once built;
   if janky on low-end mobile, the reduced-motion fallback (instant + flash)
   may need to become the default rather than just the accessibility path

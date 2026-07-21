@@ -20,12 +20,41 @@ public interface IPlayerStoreRepository
 
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
-    // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): guess-time name matching
-    // queries Player.NormalizedFullName directly — no PlayerNameIndex/COMP-10
-    // (deferred, Tier 1) and no PlayerAlias (also deferred for matching
-    // purposes — "defer the alias table" in MVP-SCOPE.md's Tier 0 scoping).
+    // REQ-208: guess-time name matching's primary-name path — queries
+    // Player.NormalizedFullName directly. Still never PlayerNameIndex/
+    // COMP-10 (ADR-0007's autocomplete/correctness separation, permanent,
+    // not a Tier boundary).
     Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
         string normalizedFullName, CancellationToken cancellationToken = default);
+
+    // REQ-208: guess-time name matching's alias path, checked only when the
+    // primary-name path above found no candidate satisfying the cell's
+    // categories — PlayerAlias.NormalizedAlias is populated at persist time
+    // (WikidataLookupService.PersistAliasesAsync) with the same
+    // PlayerNameNormalizer.Normalize used here, so an exact string match is
+    // enough. Never PlayerNameIndex — same boundary as the method above.
+    Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
+        string normalizedAlias, CancellationToken cancellationToken = default);
+
+    // REQ-208: the bounded candidate pool for fuzzy/edit-distance matching
+    // (GridGameModule.FindFuzzyCandidatesAsync) — every player already known
+    // (via a cached PlayerAttribute row) to satisfy at least one of the
+    // cell's two categories. A player satisfying neither category can never
+    // be a correct answer for this cell regardless of how close their name
+    // is, so this never excludes a genuine match while keeping the fuzzy
+    // pass's cost bounded by this cell's own category population rather
+    // than a full-table scan.
+    Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
+
+    // REQ-208: bulk alias fetch for the fuzzy pass's bounded candidate pool
+    // above — one query for every candidate's aliases rather than one
+    // GetPlayerAliasesAsync call per candidate. A playerId with no aliases
+    // is simply absent from the result (not present with an empty list).
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
 
     Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default);
 
@@ -50,9 +79,47 @@ public interface IPlayerStoreRepository
     Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
         IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default);
 
+    // REQ-503 (2026-07-20 extension): the "remove" action — hard-deletes one
+    // or more PlayerData rows in a single call. Unlike
+    // ApprovePlayerDataAsync, there is no "must still be unverified"
+    // precondition: removing a data point is a general corrective action,
+    // not exclusively tied to the review queue's current state, so a row
+    // already flipped to "verified" (by another admin, between selection
+    // and submission) can still be removed. Bulk includes single-row as the
+    // N=1 case. Each id is evaluated independently and never fails the rest
+    // of the batch — a row that no longer exists (already removed by
+    // another admin between selection and submission) is reported as a
+    // failed outcome for that id only. One SaveChangesAsync call for the
+    // whole batch (load-then-SaveChangesAsync, coding-guidelines.md).
+    //
+    // No ApprovedByAdminId/ApprovedAt-style audit columns for removal: once
+    // a row is deleted there's nothing left in this table to attach
+    // "who/when" to. Nothing else in the schema references a PlayerData
+    // row by its own Id (PlayerOverride keys on (PlayerId, Field), not a
+    // PlayerData row id; PlayerAttribute has no PlayerData reference at
+    // all), so a hard delete is safe here without a soft-delete flag to
+    // protect some other table's foreign key. The "who and when" REQ-503
+    // requires ("the action is logged with admin_id and a timestamp") is
+    // satisfied by a structured ILogger line at the call site
+    // (AdminEndpoints.cs) instead — matching this codebase's established
+    // preference (PlayerOverride/PlayerData's own audit columns) for not
+    // introducing a general-purpose audit-log table.
+    Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
+        IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
+
+    // REQ-209: disambiguation-prompt candidate building
+    // (GridGameModule.BuildDisambiguationCandidatesAsync) — every cached
+    // PlayerAttribute row for a batch of candidate players in one query,
+    // rather than one GetPlayerAttributesAsync-shaped call per candidate.
+    // Same bulk-by-player-ids shape as GetPlayerAliasesByPlayerIdsAsync; a
+    // playerId with no attribute rows at all is simply absent from the
+    // result (not present with an empty list).
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
 
     // Grid generation's candidate-matching query (REQ-101): how many
     // players satisfy both category values at once. A single indexed join
@@ -127,4 +194,15 @@ public enum PlayerDataApprovalFailureReason
     // write time — already approved, or otherwise changed, by another
     // admin between selection and submission.
     NotUnverified,
+}
+
+// REQ-503 (2026-07-20 extension): per-row outcome of
+// IPlayerStoreRepository.RemovePlayerDataAsync.
+public record PlayerDataRemovalOutcome(Guid PlayerDataId, bool Removed, PlayerDataRemovalFailureReason? FailureReason);
+
+public enum PlayerDataRemovalFailureReason
+{
+    // The id didn't match any PlayerData row — already removed (or never
+    // existed) between selection and submission.
+    NotFound,
 }

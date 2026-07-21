@@ -1,10 +1,13 @@
 namespace XGArcade.DataSync.Wikidata;
 
 // COMP-07 (DataSync.Clients), Tier 0 half: the Wikidata half of ADR-0011's
-// live-lookup waterfall. Tier 0 grids are Country x Club and, as of
-// docs/backlog.md S-030, Club x Club (MVP-SCOPE.md) — so this is scoped to
-// those two intersections rather than a generic n-category query — Trophy
-// support is Tier 1.
+// live-lookup waterfall. Tier 0 grids are Country x Club, Club x Club (as of
+// docs/backlog.md S-030), and a Trophy-involving pairing (as of S-031,
+// REQ-108, individual awards only) (MVP-SCOPE.md) — so this is scoped to
+// those intersections rather than a generic n-category query. Team-
+// competition trophies (World Cup, Champions League) need a structurally
+// different query (squad membership + tournament result) and remain
+// deferred to a follow-up story.
 public interface IWikidataClient
 {
     // Never LIMITs the underlying SPARQL query — see implementation-document.md
@@ -15,6 +18,22 @@ public interface IWikidataClient
         string clubWikidataQid,
         CancellationToken cancellationToken = default);
 
+    // REQ-114/ADR-0035: the P1532 ("country for sport") counterpart of
+    // QueryCountryClubIntersectionAsync's P27 ("country of citizenship")
+    // query — for England/Scotland/Wales/Northern Ireland, none of which
+    // are sovereign states and so can't be queried via P27 the way every
+    // other seeded country can (their players' P27 is uniformly United
+    // Kingdom). A second query path, not a replacement: callers pick
+    // between this and QueryCountryClubIntersectionAsync per
+    // `CountryDefinition.UsesCountryForSportProperty`
+    // (WikidataLookupService), never both for the same row. Same P54
+    // full-statement-path club-membership half and no-LIMIT/never-throws
+    // contract as every other intersection query in this interface.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
+        string nationalTeamWikidataQid,
+        string clubWikidataQid,
+        CancellationToken cancellationToken = default);
+
     // S-030: "ever played for both clubs" — same P54-based "any point in
     // their career" semantics as QueryCountryClubIntersectionAsync's P54
     // half, just checked twice against two different clubs instead of once
@@ -22,6 +41,27 @@ public interface IWikidataClient
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: "received this individual award AND holds this
+    // citizenship" — P166 ("award received") + P27, the Trophy counterpart
+    // of QueryCountryClubIntersectionAsync's P27+P54 shape. Uses the truthy
+    // wdt:P166 shortcut (unlike P54) — see BuildIntersectionQuery's Trophy
+    // comment in WikidataClient for why that's safe here. Same
+    // no-LIMIT/never-throws contract as every other intersection query.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: "received this individual award AND ever played for
+    // this club" — P166 (truthy) + P54 (full statement path, same
+    // non-truthy reasoning as QueryCountryClubIntersectionAsync/
+    // QueryClubClubIntersectionAsync's P54 halves). Same
+    // no-LIMIT/never-throws contract.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
+        string trophyWikidataQid,
+        string clubWikidataQid,
         CancellationToken cancellationToken = default);
 
     // S-032/ADR-0007/REQ-207: PlayerNameIndexImporter's bulk-import query —

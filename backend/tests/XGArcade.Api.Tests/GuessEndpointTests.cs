@@ -149,6 +149,62 @@ public class GuessEndpointTests
         return (round.Id, cellId, "Thierry Henry");
     }
 
+    // REQ-209: same shape as SeedRoundWithCellAsync above, but seeds TWO
+    // same-named players who both satisfy the cell's row/col categories —
+    // enough to exercise the disambiguation-prompt response end-to-end.
+    private async Task<(Guid RoundId, Guid CellId, string SharedName, Guid FirstPlayerId, Guid SecondPlayerId)> SeedRoundWithAmbiguousCellAsync(
+        DateTime startTime, DateTime endTime, bool allowGuessChange)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var instanceId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        dbContext.GridInstances.Add(new GridInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Cells =
+            [
+                new GridCell
+                {
+                    Id = cellId,
+                    GridInstanceId = instanceId,
+                    Row = 0,
+                    Col = 0,
+                    RowCategoryType = CategoryPairingRules.Country,
+                    RowCategoryValue = "France",
+                    ColCategoryType = CategoryPairingRules.Club,
+                    ColCategoryValue = "Arsenal",
+                },
+            ],
+        });
+
+        const string sharedName = "John Smith";
+        var first = new Player { Id = Guid.NewGuid(), FullName = sharedName, WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = sharedName, WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        dbContext.Players.AddRange(first, second);
+        foreach (var player in new[] { first, second })
+        {
+            dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+            dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        }
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = GridGameModule.XGGridGameKey,
+            GameInstanceId = instanceId,
+            StartTime = startTime,
+            EndTime = endTime,
+            AllowGuessChange = allowGuessChange,
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return (round.Id, cellId, sharedName, first.Id, second.Id);
+    }
+
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
     {
         var client = _factory.CreateClient();
@@ -440,5 +496,88 @@ public class GuessEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.That(problem!.Title, Is.EqualTo("No attempts remaining"));
+    }
+
+    // ---- REQ-209/REQ-210: disambiguation prompt ----------------------------
+
+    [Test]
+    public async Task REQ209_Guess_Post_NameMatchesMultipleFittingCandidates_ReturnsOkWithCandidates_NotScored()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, sharedName, firstPlayerId, secondPlayerId) = await SeedRoundWithAmbiguousCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(sharedName));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Candidates, Is.Not.Null.And.Count.EqualTo(2), "Candidates != null is the frontend's signal to show the picker");
+        Assert.That(body.Candidates!.Select(c => c.PlayerId), Is.EquivalentTo(new[] { firstPlayerId, secondPlayerId }));
+        Assert.That(body.IsCorrect, Is.False, "nothing was actually scored yet");
+        Assert.That(body.AttemptCount, Is.EqualTo(0), "REQ-210: showing the prompt must never consume an attempt");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await dbContext.Guesses.FirstOrDefaultAsync(g => g.RoundId == roundId && g.CellId == cellId && g.UserId == userId);
+        Assert.That(stored, Is.Null, "REQ-210: showing the prompt must never persist a Guess row at all");
+    }
+
+    [Test]
+    public async Task REQ210_Guess_Post_ValidChosenPlayerIdResubmission_ScoresCorrectly_AndConsumesExactlyOneAttempt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, sharedName, firstPlayerId, _) = await SeedRoundWithAmbiguousCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        var prompt = await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(sharedName));
+        Assert.That(prompt.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var promptBody = await prompt.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(promptBody!.Candidates, Is.Not.Null);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(sharedName, firstPlayerId));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Candidates, Is.Null, "a resolved ChosenPlayerId response is scored normally, never another prompt");
+        Assert.That(body.IsCorrect, Is.True);
+        Assert.That(body.AttemptCount, Is.EqualTo(1),
+            "REQ-210: resolving the prompt is part of the same attempt that triggered it, not a second one");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == cellId && g.UserId == userId);
+        Assert.That(stored.AttemptCount, Is.EqualTo(1));
+        Assert.That(stored.PlayerAnswerId, Is.EqualTo(firstPlayerId));
+        Assert.That(stored.IsCorrect, Is.True);
+    }
+
+    [Test]
+    public async Task REQ209_Guess_Post_InvalidChosenPlayerIdResubmission_ReturnsIncorrect_ConsumingAnAttempt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, sharedName, _, _) = await SeedRoundWithAmbiguousCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(sharedName, Guid.NewGuid()));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Candidates, Is.Null);
+        Assert.That(body.IsCorrect, Is.False);
+        Assert.That(body.AttemptCount, Is.EqualTo(1), "an invalid ChosenPlayerId is a real scored guess, not free like the prompt itself");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == cellId && g.UserId == userId);
+        Assert.That(stored.AttemptCount, Is.EqualTo(1));
+        Assert.That(stored.IsCorrect, Is.False);
     }
 }

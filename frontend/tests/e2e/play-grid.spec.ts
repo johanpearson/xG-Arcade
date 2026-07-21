@@ -411,7 +411,6 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     page,
     request,
   }) => {
-    const seed = await seedFreshRound(request)
     // A short unique tag (not just the email) — repeated local runs against
     // a persisted dev DB would otherwise accumulate multiple "Leaderboard
     // Alex" rows and break the row locators' strict-mode single-match
@@ -427,19 +426,35 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     const playerAToken = await signUpAndLoginViaApi(request, playerAEmail, playerADisplayName)
     const playerBToken = await signUpAndLoginViaApi(request, playerBEmail, playerBDisplayName)
 
-    const guessA = await submitGuessViaApi(
-      request, playerAToken, seed.roundId, seed.cellId, seed.correctPlayerName,
-    )
-    expect(guessA.isCorrect).toBe(true)
-    const guessB = await submitGuessViaApi(
-      request, playerBToken, seed.roundId, seed.cellId, seed.alternateCorrectPlayerName,
-    )
-    expect(guessB.isCorrect).toBe(true)
+    // REQ-409 (added after this test was first written): the "All-time"
+    // scope viewed below now requires >=5 qualifying rounds (a closed round
+    // with >=1 guess in it) before ranking anyone at all
+    // (LeaderboardService.MinimumQualifyingRoundsForRanking) — REQ-401's
+    // "shows up on the global leaderboard" claim is only observable there
+    // once both players clear that floor, so the seed/guess/close flow this
+    // test always did once now repeats 5 times. Each iteration is its own
+    // freshly seeded, uniquely-named pair of correct answers
+    // (seedFreshRound), so both players remain each other's sole correct
+    // guesser every round — ADR-0020/0021's "100% unique -> 0 points" holds
+    // for all 5, so the median (REQ-409) is still 0, unchanged from the
+    // single-round assertion this test originally made.
+    for (let i = 0; i < 5; i += 1) {
+      const seed = await seedFreshRound(request)
 
-    const closeResponse = await request.post(
-      `${API_BASE_URL}/internal/test-data/force-close-round/${seed.roundId}`,
-    )
-    expect(closeResponse.ok(), `force-close-round failed: ${closeResponse.status()}`).toBeTruthy()
+      const guessA = await submitGuessViaApi(
+        request, playerAToken, seed.roundId, seed.cellId, seed.correctPlayerName,
+      )
+      expect(guessA.isCorrect).toBe(true)
+      const guessB = await submitGuessViaApi(
+        request, playerBToken, seed.roundId, seed.cellId, seed.alternateCorrectPlayerName,
+      )
+      expect(guessB.isCorrect).toBe(true)
+
+      const closeResponse = await request.post(
+        `${API_BASE_URL}/internal/test-data/force-close-round/${seed.roundId}`,
+      )
+      expect(closeResponse.ok(), `force-close-round failed: ${closeResponse.status()}`).toBeTruthy()
+    }
 
     // View the leaderboard as Player A, through the real UI (not the API) —
     // this is the one part of the scenario SCREEN-03 itself needs to prove.

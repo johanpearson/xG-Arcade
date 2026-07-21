@@ -3,8 +3,10 @@ import './HeaderNav.css';
 
 export interface HeaderNavProps {
   isLeaderboardCurrent: boolean;
+  isLeaguesCurrent: boolean;
   isSettingsCurrent: boolean;
   onSelectLeaderboard: () => void;
+  onSelectLeagues: () => void;
   onSelectSettings: () => void;
   onLogout: () => void;
 }
@@ -24,8 +26,10 @@ export interface HeaderNavProps {
 // there forces the row visible regardless of this state).
 export function HeaderNav({
   isLeaderboardCurrent,
+  isLeaguesCurrent,
   isSettingsCurrent,
   onSelectLeaderboard,
+  onSelectLeagues,
   onSelectSettings,
   onLogout,
 }: HeaderNavProps) {
@@ -68,6 +72,16 @@ export function HeaderNav({
           onClick={() => selectAndClose(onSelectLeaderboard)}
         >
           Leaderboard
+        </button>
+        {/* REQ-402/403: a player's custom leagues — create, join, and see
+            which ones they belong to. */}
+        <button
+          type="button"
+          className="header-nav__link"
+          aria-current={isLeaguesCurrent ? 'page' : undefined}
+          onClick={() => selectAndClose(onSelectLeagues)}
+        >
+          Leagues
         </button>
         {/* REQ-713: replaces the previously separate "Delete account" and
             (admin-only) "Admin" top-level links with this one entry. */}

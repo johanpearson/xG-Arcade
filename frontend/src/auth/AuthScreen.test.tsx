@@ -37,6 +37,26 @@ describe('AuthScreen', () => {
     expect(onAuthenticated).not.toHaveBeenCalled();
   });
 
+  it('REQ-701: blocks signup client-side when the password is under 8 characters, without calling the API', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'short12');
+    await user.type(screen.getByLabelText('Confirm password'), 'short12');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
+    await user.click(screen.getByLabelText(/at least 16/));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByText('Password must be at least 8 characters.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
   it('REQ-701: blocks signup client-side when confirm password does not match, without calling the API', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -131,5 +151,69 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Log in' }));
 
     expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
+  });
+
+  // REQ-606: a 429 from the backend's rate limiter (Program.cs's
+  // OnRejected — {title: "Too many attempts", detail: "..."}) renders
+  // through the exact same describeError path as any other ApiError, no
+  // special-casing needed in AuthScreen.tsx.
+  it('REQ-606: shows a clear message when the login attempt is rate-limited (429)', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse(
+        { title: 'Too many attempts', detail: 'Too many attempts. Please wait a minute and try again.' },
+        429,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AuthScreen onAuthenticated={vi.fn()} />);
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(
+      await screen.findByText('Too many attempts. Please wait a minute and try again.'),
+    ).toBeInTheDocument();
+  });
+
+  // REQ-701: the account-enumeration-safe error (AuthController.Signup's
+  // generic detail when Supabase rejects the signup) renders exactly as
+  // returned — this test's real purpose is documenting that the UI never
+  // adds its own "this email is already registered"-style text on top of
+  // whatever the server sends.
+  it('REQ-701: shows the generic, enumeration-safe error on a failed signup rather than a specific one', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/auth/signup')) {
+        return jsonResponse(
+          {
+            title: 'Signup could not be completed',
+            detail: 'Check your email to confirm your account, or reset your password if you already have one.',
+          },
+          400,
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
+    await user.type(screen.getByLabelText('Email'), 'already-has-an-account@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password123');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
+    await user.click(screen.getByLabelText(/at least 16/));
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(
+      await screen.findByText('Check your email to confirm your account, or reset your password if you already have one.'),
+    ).toBeInTheDocument();
+    // The important assertion: nothing in the UI adds an enumeration-leaking
+    // message (e.g. "already registered"/"already exists") on top of it.
+    expect(screen.queryByText(/already registered/i)).not.toBeInTheDocument();
+    expect(onAuthenticated).not.toHaveBeenCalled();
   });
 });

@@ -136,6 +136,96 @@ describe('GridScreen', () => {
     ).toHaveAttribute('aria-expanded', 'true');
   });
 
+  // REQ-209/REQ-210: a disambiguation-needed response (candidates non-null)
+  // must not be treated as a scored result — the cell stays showing as
+  // unanswered/in-progress (still the plain "Guess …" open button, not the
+  // reveal toggle a scored guess produces) until a real scored response
+  // (here, the chosenPlayerId resubmission) arrives.
+  it('REQ-209: a disambiguation response does not write anything into cell state, and the resubmission with chosenPlayerId does', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/rounds/current')) {
+        return jsonResponse({
+          roundId: 'round-1',
+          startTime: '2026-07-10T00:00:00Z',
+          endTime: '2026-07-11T00:00:00Z',
+          allowGuessChange: false,
+          cells: [
+            {
+              cellId: 'cell-1',
+              row: 0,
+              col: 0,
+              rowCategoryType: 'country',
+              rowCategoryValue: 'France',
+              colCategoryType: 'club',
+              colCategoryValue: 'Arsenal',
+              guess: null,
+            },
+          ],
+        });
+      }
+      if (String(url).includes('/guesses') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { submittedName: string; chosenPlayerId?: string };
+        if (body.chosenPlayerId) {
+          // The resubmission answering the prompt is always a normal,
+          // scored response.
+          return jsonResponse({
+            isCorrect: true,
+            attemptCount: 1,
+            locked: true,
+            resolvedPlayerName: 'Ronaldo',
+            candidates: null,
+          });
+        }
+        // The first submission resolves to more than one fitting candidate
+        // — nothing scored yet (REQ-209/REQ-210's own field values).
+        return jsonResponse({
+          isCorrect: false,
+          attemptCount: 0,
+          locked: false,
+          resolvedPlayerName: null,
+          candidates: [
+            { playerId: 'p1', name: 'Ronaldo', distinguishingAttributes: ['1976'] },
+            { playerId: 'p2', name: 'Ronaldo', distinguishingAttributes: ['1993'] },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<GridScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    const cellButton = await screen.findByRole('button', { name: 'Guess France × Arsenal' });
+    await user.click(cellButton);
+
+    await user.type(screen.getByLabelText('Player name'), 'ronaldo');
+    await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+    // The picker is showing — and nothing was written into cell state: the
+    // grid still has 0/1 answered and the cell is still the plain open
+    // button, not a reveal toggle.
+    await waitFor(() => expect(screen.getByRole('radiogroup')).toBeInTheDocument());
+    expect(screen.getByText('0/1 answered')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Show guessed player for France × Arsenal' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /1993/ }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    // The resubmission's scored result now does update cell state normally.
+    const revealButton = await screen.findByRole('button', {
+      name: 'Show guessed player for France × Arsenal',
+    });
+    expect(revealButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('1/1 answered')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(revealButton);
+    expect(screen.getByText('Ronaldo')).toBeInTheDocument();
+  });
+
   // S-020: a cell's very first guess this session mounts CellState directly
   // (GridCell renders nothing for an unattempted cell — no CellState exists
   // to transition), so a code-reviewer pass on the CellState-only unit tests

@@ -29,47 +29,63 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             .Where(g => g.RoundId == roundId)
             .ToListAsync(cancellationToken);
 
-    // REQ-206/401: the same "sum FinalPoints, treating null as 0" formula
-    // Core.Scoring.ScoreCalculator.CalculateTotalPoints implements, computed
-    // database-side instead — the leaderboard's scope (every guess a member
-    // has ever made) is too large to pull into memory just to re-sum it.
-    // Keep both in sync if this formula ever changes. ADR-0021: lower is
-    // better (SUM is minimized, not maximized) — see LeaderboardService's
-    // ascending sort, the actual place this total's direction matters.
-    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByUserIdsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default) =>
-        await dbContext.Guesses
+    // REQ-408: same DB-side GroupBy/Sum shape as
+    // GetTotalFinalPointsByRoundIdsAsync below, scoped to one round instead
+    // of a set of them. Delegates to GetTotalFinalPointsByRoundIdsAsync
+    // (REQ-405) with a one-element collection rather than keeping two
+    // independent query implementations — signature/callers unchanged.
+    public Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
+        GetTotalFinalPointsByRoundIdsAsync([roundId], cancellationToken);
+
+    // REQ-405: same "sum FinalPoints, treating null as 0" formula, filtered
+    // to a *set* of rounds (a calendar window's closed round ids) rather
+    // than a single one. `RoundId` is the unique (RoundId, UserId, CellId)
+    // index's leading column (see XGArcadeDbContext.OnModelCreating), so a
+    // `RoundId IN (...)` filter here is already index-covered — no new index
+    // needed for this REQ-405 query shape either.
+    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdsAsync(IReadOnlyCollection<Guid> roundIds, CancellationToken cancellationToken = default)
+    {
+        if (roundIds.Count == 0)
+            return new Dictionary<Guid, int>();
+
+        return await dbContext.Guesses
             .AsNoTracking()
-            .Where(g => g.UserId != null && userIds.Contains(g.UserId.Value))
+            .Where(g => roundIds.Contains(g.RoundId) && g.UserId != null)
             .GroupBy(g => g.UserId!.Value)
             .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
             .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
-
-    // REQ-401/404 (2026-07-20): plain existence check, deliberately not
-    // derived from GetTotalFinalPointsByUserIdsAsync (which only reflects
-    // *locked* FinalPoints and would miss a user whose only guesses are in
-    // the currently active, still-unlocked round) — see this method's own
-    // doc comment on IGuessRepository.
-    public async Task<IReadOnlySet<Guid>> GetUserIdsWithAnyGuessAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
-    {
-        var idsWithGuesses = await dbContext.Guesses
-            .AsNoTracking()
-            .Where(g => g.UserId != null && userIds.Contains(g.UserId.Value))
-            .Select(g => g.UserId!.Value)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        return idsWithGuesses.ToHashSet();
     }
 
-    // REQ-408: same DB-side GroupBy/Sum shape as GetTotalFinalPointsByUserIdsAsync
-    // above, scoped to one round instead of a user's whole history.
-    public async Task<IReadOnlyDictionary<Guid, int>> GetTotalFinalPointsByRoundIdAsync(Guid roundId, CancellationToken cancellationToken = default) =>
-        await dbContext.Guesses
-            .AsNoTracking()
-            .Where(g => g.RoundId == roundId && g.UserId != null)
-            .GroupBy(g => g.UserId!.Value)
-            .Select(group => new { UserId = group.Key, Total = group.Sum(g => g.FinalPoints ?? 0) })
-            .ToDictionaryAsync(x => x.UserId, x => x.Total, cancellationToken);
+    // REQ-409 (2026-07-20): for the leaderboard's median ranking. Guess has
+    // no navigation property to Round (see Guess's own doc comment on why
+    // RoundId/CellId stay plain Guids), so "closed round" is checked via an
+    // explicit join rather than a navigated `.Round.ClosedAt`. GroupBy on
+    // (UserId, RoundId) first to get one already-DB-summed row per
+    // (user, qualifying round) pair, then a second, in-memory GroupBy on
+    // UserId alone to fold those into each user's list — EF Core can't
+    // project a GroupBy's element sequence into a nested
+    // IReadOnlyList<int> server-side, so this second grouping has to happen
+    // after materializing, but only over one row per (user, qualifying
+    // round) pair rather than the raw Guess table, which stays the
+    // efficient, single-query shape.
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
+        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
+    {
+        if (userIds.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<int>>();
+
+        var perUserPerRoundTotals = await (
+            from guess in dbContext.Guesses.AsNoTracking()
+            join round in dbContext.Rounds.AsNoTracking() on guess.RoundId equals round.Id
+            where guess.UserId != null && userIds.Contains(guess.UserId.Value) && round.ClosedAt != null
+            group guess by new { UserId = guess.UserId!.Value, guess.RoundId } into perRoundGroup
+            select new { perRoundGroup.Key.UserId, Total = perRoundGroup.Sum(g => g.FinalPoints ?? 0) })
+            .ToListAsync(cancellationToken);
+
+        return perUserPerRoundTotals
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<int>)g.Select(x => x.Total).ToList());
+    }
 
     public async Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default)
     {

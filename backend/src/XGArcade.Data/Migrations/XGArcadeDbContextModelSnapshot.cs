@@ -53,6 +53,9 @@ namespace XGArcade.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("UsesCountryForSportProperty")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("WikidataQid")
                         .HasColumnType("text");
 
@@ -203,6 +206,9 @@ namespace XGArcade.Data.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InviteCode")
+                        .IsUnique();
 
                     b.HasIndex("Type")
                         .IsUnique()

@@ -29,6 +29,16 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     event.preventDefault();
     setError(null);
 
+    // REQ-701 password policy: minimum 8 characters, no forced complexity
+    // rules — blocked client-side before the confirm-password check below,
+    // same reasoning as the server-side ordering (AuthController.Signup):
+    // checking a mismatch between two already-invalid passwords isn't
+    // useful. Not just relying on the server's 400.
+    if (mode === 'signup' && password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+
     // REQ-701: signup is blocked client-side when the passwords don't
     // match, not just relying on the server's 400.
     if (mode === 'signup' && password !== confirmPassword) {
@@ -113,10 +123,16 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
         <label className="auth-screen__field">
           <span>Password</span>
+          {/* No native `minLength` here on purpose (REQ-701) — same reasoning
+              as Confirm password/Display name/the age checkbox below: the JS
+              check above shows a specific message ("Password must be at
+              least 8 characters.") rather than the browser's generic
+              validation popup, which would otherwise block handleSubmit from
+              running at all. `required` is kept — that's just "not empty",
+              unrelated to the length policy. */}
           <input
             type="password"
             required
-            minLength={8}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={submitting}
@@ -126,13 +142,13 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         {mode === 'signup' && (
           <label className="auth-screen__field">
             <span>Confirm password</span>
-            {/* No native `required` here on purpose, same reasoning as the
-                age checkbox below — the JS check above shows a specific
-                message rather than the browser's generic validation popup,
-                which would otherwise block handleSubmit from running at all. */}
+            {/* No native `required`/`minLength` here on purpose, same
+                reasoning as the age checkbox below — the JS check above
+                shows a specific message rather than the browser's generic
+                validation popup, which would otherwise block handleSubmit
+                from running at all. */}
             <input
               type="password"
-              minLength={8}
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               disabled={submitting}

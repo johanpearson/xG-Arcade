@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -123,6 +124,80 @@ public class AuthEndpointTests
         // The important assertion: the mismatch is enforced before any
         // identity is created anywhere, not just before a User row is saved.
         Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    // REQ-701 password policy: minimum 8 characters, no forced complexity
+    // rules — checked before Supabase Auth is ever called, same discipline
+    // as the checkbox/confirm-password checks above.
+    [Test]
+    public async Task REQ701_Signup_BlockedWithPasswordUnder8Characters()
+    {
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("short-password@example.com", "short12", "short12", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        // The important assertion: the length check is enforced before any
+        // identity is created anywhere, not just before a User row is saved.
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False);
+    }
+
+    // Exact lower boundary (the valid edge): the policy rejects only
+    // length < 8, so 8 characters exactly must be accepted. Pairs with
+    // REQ701_Signup_BlockedWithPasswordUnder8Characters above, which covers
+    // the 7-character (invalid) side of the same boundary.
+    [Test]
+    public async Task REQ701_Signup_SucceedsWithPasswordExactly8Characters()
+    {
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("eight-char-password@example.com", "eightchr", "eightchr", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.True);
+    }
+
+    // REQ-701 account-enumeration-safe error: attempting to register an
+    // email that already has an account must return a generic error whose
+    // text never confirms or denies the account's existence.
+    [Test]
+    public async Task REQ701_Signup_ReturnsGenericEnumerationSafeError_WhenSupabaseRejectsAsAlreadyRegistered()
+    {
+        _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("already-registered-2@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        // Supabase's own "already registered" wording must never reach the
+        // client — that's exactly what would confirm the account exists.
+        Assert.That(body!.Detail, Does.Not.Contain("already registered"));
+        Assert.That(body.Detail, Does.Not.Contain("exists"));
+        Assert.That(body.Detail, Is.EqualTo("Check your email to confirm your account, or reset your password if you already have one."));
+    }
+
+    // The important assertion for enumeration-safety: a completely different
+    // Supabase rejection reason produces the exact same response body as the
+    // already-registered case above. If the two cases were distinguishable
+    // in any way, that difference itself would leak which one occurred.
+    [Test]
+    public async Task REQ701_Signup_ReturnsSameGenericError_RegardlessOfSupabaseRejectionReason()
+    {
+        _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Unable to validate email address: invalid format" };
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("some-other-rejection-reason@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Detail, Is.EqualTo("Check your email to confirm your account, or reset your password if you already have one."));
     }
 
     [Test]
@@ -323,6 +398,98 @@ public class AuthEndpointTests
         var response = await client.PostAsJsonAsync("/auth/login", request);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // REQ-606: rate limiting scoped to POST /auth/signup (Program.cs's
+    // "auth-signup" fixed-window policy — 10 requests/minute per IP). The
+    // password-policy/confirm-password/age-checkbox checks all run inside
+    // the controller action, but the rate limiter middleware counts every
+    // request that reaches the route regardless of what the action itself
+    // returns — so a fast, deliberately-invalid request (age checkbox
+    // unchecked, always a cheap 400) is enough to exercise the limiter
+    // without 10+ real signups. WebApplicationFactory's TestServer leaves
+    // Connection.RemoteIpAddress null, so every request from this test's
+    // single client collapses onto the same partition (see Program.cs's
+    // GetClientIpPartitionKey), making this deterministic without waiting
+    // out a real window or mocking the clock.
+    [Test]
+    public async Task REQ606_Signup_ReturnsTooManyRequests_AfterExceedingPerMinuteLimit()
+    {
+        var client = _factory.CreateClient();
+
+        HttpResponseMessage? lastWithinLimitResponse = null;
+        for (var i = 0; i < 10; i++)
+        {
+            lastWithinLimitResponse = await client.PostAsJsonAsync(
+                "/auth/signup",
+                new SignupRequest($"rate-limit-signup-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+        }
+        Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest), "The 10th request in the window should still be processed normally.");
+
+        var overLimitResponse = await client.PostAsJsonAsync(
+            "/auth/signup",
+            new SignupRequest("rate-limit-signup-11@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+
+        Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+        var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Too many attempts"));
+    }
+
+    // Same as above but for POST /auth/login (Program.cs's "auth-login"
+    // policy, a separate counter from "auth-signup" above).
+    [Test]
+    public async Task REQ606_Login_ReturnsTooManyRequests_AfterExceedingPerMinuteLimit()
+    {
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials" };
+        var client = _factory.CreateClient();
+
+        HttpResponseMessage? lastWithinLimitResponse = null;
+        for (var i = 0; i < 10; i++)
+        {
+            lastWithinLimitResponse = await client.PostAsJsonAsync(
+                "/auth/login",
+                new LoginRequest("rate-limit-login@example.com", "the-wrong-password"));
+        }
+        Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized), "The 10th request in the window should still be processed normally.");
+
+        var overLimitResponse = await client.PostAsJsonAsync(
+            "/auth/login",
+            new LoginRequest("rate-limit-login@example.com", "the-wrong-password"));
+
+        Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+        var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Too many attempts"));
+    }
+
+    // The important assertion: signup and login are rate-limited
+    // independently (two named policies in Program.cs, not one shared
+    // counter) — exhausting one endpoint's limit must never block the
+    // other.
+    [Test]
+    public async Task REQ606_ExhaustingSignupRateLimit_DoesNotAffectLogin()
+    {
+        var client = _factory.CreateClient();
+
+        for (var i = 0; i < 11; i++)
+        {
+            await client.PostAsJsonAsync(
+                "/auth/signup",
+                new SignupRequest($"rate-limit-isolation-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+        }
+
+        // Sanity check: signup really is exhausted at this point.
+        var signupResponse = await client.PostAsJsonAsync(
+            "/auth/signup",
+            new SignupRequest("rate-limit-isolation-confirm@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+        Assert.That(signupResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+
+        // Login uses a separate policy/counter, so it's still unaffected.
+        var loginResponse = await client.PostAsJsonAsync(
+            "/auth/login",
+            new LoginRequest("known-user@example.com", "a-reasonable-password"));
+        Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
     }
 
     // REQ-715: POST /auth/refresh exchanges a stored refresh token for a new
@@ -770,6 +937,20 @@ public class AuthEndpointTests
         {
             Content = JsonContent.Create(new DeleteAccountRequest(password)),
         };
+
+    // Minimal shape for reading a ProblemDetails-style JSON body back in
+    // tests (REQ-701's enumeration-safe error, REQ-606's 429 body) — explicit
+    // [JsonPropertyName] rather than relying on default (de)serialization
+    // case-matching, same idiom SupabaseAuthClient's own SupabaseErrorResponse
+    // already uses for parsing an external JSON shape.
+    private record ProblemDetailsBody
+    {
+        [JsonPropertyName("title")]
+        public string? Title { get; init; }
+
+        [JsonPropertyName("detail")]
+        public string? Detail { get; init; }
+    }
 
     // Test double for ISupabaseAuthClient (COMP-01's only path to the auth
     // provider — see ADR-0013): never makes a real HTTP call, and exposes

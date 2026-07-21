@@ -17,6 +17,14 @@ public interface IWikidataLookupService
     // country/club combination — empty if either value has no resolved
     // WikidataQid yet (REQ-109), or if the query timed out/errored/found
     // no match (REQ-103). Never throws for those cases.
+    //
+    // REQ-114/ADR-0035: internally branches on
+    // `country.UsesCountryForSportProperty` to query Wikidata's P1532
+    // ("country for sport") instead of the default P27 ("country of
+    // citizenship") — England/Scotland/Wales/Northern Ireland aren't
+    // sovereign states, so P27 can't distinguish them. Callers (GridGameModule)
+    // don't need to know which path was taken; both persist under the same
+    // "nationality"/country.Name attribute.
     Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country,
         ClubDefinition club,
@@ -30,6 +38,25 @@ public interface IWikidataLookupService
     Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA,
         ClubDefinition clubB,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: the Trophy x Country counterpart, same
+    // empty-on-unresolved-QID/never-throws contract. Persists matched
+    // players under AttributeType "trophy"/trophy.Name and
+    // "nationality"/country.Name.
+    Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+        TrophyDefinition trophy,
+        CountryDefinition country,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default);
+
+    // S-031/REQ-108: the Trophy x Club counterpart, same
+    // empty-on-unresolved-QID/never-throws contract. Persists matched
+    // players under AttributeType "trophy"/trophy.Name and "club"/club.Name.
+    Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+        TrophyDefinition trophy,
+        ClubDefinition club,
         WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default);
 }

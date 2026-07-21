@@ -5,10 +5,12 @@ import type {
   ClosedRoundListResponse,
   CurrentRoundResponse,
   CurrentUser,
+  CustomLeague,
   LeaderboardResponse,
   LoginResponse,
   PlayerAutocompleteSuggestion,
   PlayerOverride,
+  RemovePlayerDataResponse,
   SignupResponse,
   SubmitGuessResponse,
   UnverifiedPlayerData,
@@ -112,12 +114,21 @@ export async function fetchCurrentRound(
   return (await response.json()) as CurrentRoundResponse;
 }
 
+// REQ-209: `chosenPlayerId` is only ever sent on a resubmission answering a
+// disambiguation prompt (the player GUID they picked from
+// SubmitGuessResponse.candidates) — omitted entirely (not sent as
+// undefined/null) on every ordinary submission, matching the backend
+// contract's "optional field, only present on a resubmission" shape.
 export async function submitGuess(
   accessToken: string,
   roundId: string,
   cellId: string,
   submittedName: string,
+  chosenPlayerId?: string,
 ): Promise<SubmitGuessResponse> {
+  const body: { submittedName: string; chosenPlayerId?: string } = { submittedName };
+  if (chosenPlayerId) body.chosenPlayerId = chosenPlayerId;
+
   const response = await fetch(
     `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/guesses`,
     {
@@ -126,7 +137,7 @@ export async function submitGuess(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ submittedName }),
+      body: JSON.stringify(body),
     },
   );
   if (!response.ok) await throwApiError(response);
@@ -221,6 +232,42 @@ export async function fetchClosedRoundLeaderboard(
   const query = params.toString();
   const response = await fetch(
     `${API_BASE_URL}/leagues/global/leaderboard/closed-rounds/${roundId}${query ? `?${query}` : ''}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as LeaderboardResponse;
+}
+
+// REQ-405 (S-027): the four fixed, calendar-aligned window resolutions
+// SCREEN-03's "Time Windows" scope offers — a closed set matching the
+// backend's `{resolution}` route segment exactly (case-insensitive
+// server-side, but the frontend always sends lowercase so there's never a
+// reason to rely on that leniency). "Calendar-aligned," not "rolling":
+// week/month/year are fixed calendar periods (LeaderboardService
+// .GetCalendarWindow), never a rolling last-N-days window.
+export type WindowResolution = 'round' | 'week' | 'month' | 'year';
+
+// REQ-405 (S-027): one calendar-aligned time-window's leaderboard
+// (SCREEN-03's "Time Windows" scope) — same cursor/pageSize/response shape as
+// fetchLeaderboard/fetchActiveRoundLeaderboard/fetchClosedRoundLeaderboard
+// above, summing only locked `FinalPoints` (never live/provisional points,
+// unlike fetchActiveRoundLeaderboard). An empty ranked list is a real,
+// expected state (nothing has happened in that window yet) — the response
+// still resolves normally with `rows: []`, not a 404, so there's no
+// empty-as-null handling needed here the way fetchCurrentRound has for its
+// own different "empty" meaning.
+export async function fetchWindowedLeaderboard(
+  accessToken: string,
+  resolution: WindowResolution,
+  cursor?: number,
+  pageSize?: number,
+): Promise<LeaderboardResponse> {
+  const params = new URLSearchParams();
+  if (cursor !== undefined) params.set('cursor', String(cursor));
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/leagues/global/leaderboard/window/${resolution}${query ? `?${query}` : ''}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!response.ok) await throwApiError(response);
@@ -332,6 +379,30 @@ export async function approvePlayerData(
   return (await response.json()) as ApprovePlayerDataResponse;
 }
 
+// REQ-503 (2026-07-20 extension): the bulk "remove" action — sibling to
+// approvePlayerData above in every respect except the endpoint it calls: a
+// single id is just the N=1 case, same endpoint. Always resolves (never
+// throws) with a 200 and one result per requested id; a row that no longer
+// exists fails independently of the rest of the batch (surfaced per-row via
+// each result's `failureReason`), never as an all-or-nothing batch
+// success/failure. No `reason` field — same as approve, unlike
+// createPlayerOverride below.
+export async function removePlayerData(
+  accessToken: string,
+  playerDataIds: string[],
+): Promise<RemovePlayerDataResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-data/remove`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerDataIds }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as RemovePlayerDataResponse;
+}
+
 // REQ-501: 409 (an override already exists for this playerId/field) is left
 // to throw like any other error — the caller shows the server's own detail
 // text inline rather than treating it specially, since there's no "edit an
@@ -423,4 +494,49 @@ export async function deleteUserByEmail(
   if (response.status === 404) return 'not-found';
   if (!response.ok) await throwApiError(response);
   return 'deleted';
+}
+
+// REQ-402: creates a custom league and automatically enrolls the caller as
+// its first member (XGArcade.Api.Leagues.LeagueEndpoints — POST /leagues).
+export async function createLeague(accessToken: string, name: string): Promise<CustomLeague> {
+  const response = await fetch(`${API_BASE_URL}/leagues`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CustomLeague;
+}
+
+// REQ-403: joins the caller to the league identified by inviteCode
+// (POST /leagues/join). An unrecognized code throws (404, title "Invalid
+// invite code") — left to throw (not swallowed to null/empty) so the
+// caller shows the server's own specific detail text inline, same
+// "server's own detail text shown inline" convention SettingsScreen's
+// display-name conflict already uses.
+export async function joinLeague(accessToken: string, inviteCode: string): Promise<CustomLeague> {
+  const response = await fetch(`${API_BASE_URL}/leagues/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ inviteCode }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CustomLeague;
+}
+
+// This story's "simple list" of the caller's own custom leagues
+// (GET /leagues/mine) — no per-league leaderboard data, just enough to
+// show which league(s) exist and their invite code for re-sharing.
+export async function fetchMyLeagues(accessToken: string): Promise<CustomLeague[]> {
+  const response = await fetch(`${API_BASE_URL}/leagues/mine`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CustomLeague[];
 }

@@ -7,5 +7,5 @@ namespace XGArcade.Data.Entities;
 public static class LeagueTypes
 {
     public const string Global = "global";
-    public const string Custom = "custom"; // Tier 1 (REQ-402) — not written anywhere yet
+    public const string Custom = "custom"; // REQ-402: written by LeagueService.CreateCustomLeagueAsync
 }

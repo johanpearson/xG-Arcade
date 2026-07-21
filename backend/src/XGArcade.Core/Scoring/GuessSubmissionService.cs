@@ -22,7 +22,7 @@ public class GuessSubmissionService(
     TimeProvider timeProvider) : IGuessSubmissionService
 {
     public async Task<GuessSubmissionResult> SubmitGuessAsync(
-        Guid roundId, Guid userId, Guid cellId, string submittedName, CancellationToken cancellationToken = default)
+        Guid roundId, Guid userId, Guid cellId, string submittedName, Guid? chosenPlayerId = null, CancellationToken cancellationToken = default)
     {
         var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
         if (round is null)
@@ -50,7 +50,17 @@ public class GuessSubmissionService(
 
         var gameModule = gameModuleResolver.Resolve(round.GameKey);
         var scoreResult = await gameModule.ScoreSubmissionAsync(
-            round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName), cancellationToken);
+            round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName, chosenPlayerId), cancellationToken);
+
+        // REQ-209/REQ-210: showing a disambiguation prompt is part of the
+        // same attempt that triggered it, not a separate one — return
+        // immediately, without ever touching guessRepository (no
+        // AddAsync/UpdateAsync, no attempt-count increment, no lock check).
+        // Only the player's eventual choice (valid or not) is a real scored
+        // guess, handled by a later call to this method with chosenPlayerId
+        // set.
+        if (scoreResult.DisambiguationCandidates is { Count: > 0 })
+            return GuessSubmissionResult.NeedsDisambiguation(scoreResult.DisambiguationCandidates);
 
         var attemptCount = (existingGuess?.AttemptCount ?? 0) + 1;
         if (existingGuess is null)

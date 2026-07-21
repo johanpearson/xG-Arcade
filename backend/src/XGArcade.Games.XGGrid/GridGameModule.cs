@@ -9,11 +9,12 @@ namespace XGArcade.Games.XGGrid;
 
 // COMP-05: IGameModule implementation for the xG Grid game.
 //
-// Tier 0 scope (MVP-SCOPE.md): grids are always Country x Club or, as of
-// docs/backlog.md S-030, Club x Club — never Country x Country (REQ-107),
-// never Trophy (REQ-108, deferred). Which pairing a given instance uses is
-// picked once per call (SelectPairing), randomly whenever the seeded
-// reference data can support either. Row/column headers are then fixed
+// Tier 0 scope (MVP-SCOPE.md): grids are Country x Club, Club x Club (as of
+// docs/backlog.md S-030), or, as of S-031 (REQ-108), a Trophy-involving
+// pairing (Country x Trophy, Club x Trophy, or Trophy x Trophy) — never
+// Country x Country (REQ-107). Which pairing a given instance uses is
+// picked once per call (SelectPairing), uniformly at random among whichever
+// pairings the seeded reference data can support. Row/column headers are then fixed
 // once chosen (REQ-102's "N unique row categories and N unique column
 // categories") — rows are picked first (any candidate satisfies REQ-107 on
 // its own, since the ban only applies to a Country/Country pairing), then
@@ -37,14 +38,16 @@ public class GridGameModule(
 {
     public const string XGGridGameKey = "xg-grid";
 
-    // PlayerAttribute.AttributeType's vocabulary for these two category
-    // types — see CategoryPairingRules' doc comment for why this differs
-    // from "country"/"club".
+    // PlayerAttribute.AttributeType's vocabulary for these category types —
+    // see CategoryPairingRules' doc comment for why this differs from
+    // "country"/"club"/"trophy". Trophy's own AttributeType happens to be
+    // spelled identically ("trophy") in both vocabularies, so it needs no
+    // constant of its own here (see MapAttributeType).
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
 
-    // Only the Country x Club / Club x Club pairing coin-flip goes through
-    // this field (see SelectPairing) — candidate-order shuffling still uses
+    // SelectPairing's uniform-at-random choice among every feasible pairing
+    // goes through this field — candidate-order shuffling still uses
     // Random.Shared, same as before S-030, since no test relies on
     // controlling shuffle order. Optional constructor param (like
     // WikidataClient's queryTimeout) so tests can pin the pairing choice
@@ -62,9 +65,21 @@ public class GridGameModule(
     public string GameKey => XGGridGameKey;
 
     // A row/column header candidate, abstracted away from which reference
-    // table (CountryDefinition/ClubDefinition) it came from — REQ-107's
-    // generalized pairing selection (S-030) needs to treat both uniformly.
-    private readonly record struct CategoryCandidate(string Name, string? WikidataQid);
+    // table (CountryDefinition/ClubDefinition/TrophyDefinition) it came from
+    // — REQ-107's generalized pairing selection (S-030, extended S-031)
+    // needs to treat all three uniformly.
+    //
+    // REQ-114/ADR-0035: `UsesCountryForSportProperty` carries
+    // CountryDefinition's per-row query-property flag through generation
+    // and the guess-time fallback to the point LookupLiveMatchesAsync
+    // actually dispatches a live Wikidata call — the smaller, cleaner diff
+    // versus re-resolving the full CountryDefinition row by name at
+    // dispatch time (which PickHeadersAsync's hot loop would otherwise do
+    // once per GetMatchCountAsync call, a real extra query cost that
+    // ResolveCandidateAsync's single per-guess lookup doesn't have to
+    // justify). Meaningless for Club/Trophy candidates — always false
+    // there, never read for those types.
+    private readonly record struct CategoryCandidate(string Name, string? WikidataQid, bool UsesCountryForSportProperty = false);
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
@@ -74,14 +89,16 @@ public class GridGameModule(
         // REQ-109: candidate values only ever come from the reference
         // tables, never derived ad hoc from PlayerAttribute.
         var countries = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
-            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+            .Select(c => new CategoryCandidate(c.Name, c.WikidataQid, c.UsesCountryForSportProperty)).ToList();
         var clubs = (await categoryValueRepository.GetClubsAsync(cancellationToken))
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+        var trophies = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
+            .Select(t => new CategoryCandidate(t.Name, t.WikidataQid)).ToList();
 
-        var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count);
+        var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count, trophies.Count);
 
-        var rowPool = rowCategoryType == CategoryPairingRules.Country ? countries : clubs;
-        var colPool = colCategoryType == CategoryPairingRules.Country ? countries : clubs;
+        var rowPool = PoolFor(rowCategoryType, countries, clubs, trophies);
+        var colPool = PoolFor(colCategoryType, countries, clubs, trophies);
 
         // REQ-102: N unique row categories. Any candidate is a valid row
         // header on its own — REQ-107's ban only bites once paired with a
@@ -113,36 +130,67 @@ public class GridGameModule(
         return new GameInstance { Id = instance.Id };
     }
 
-    // REQ-107 (S-030): Country x Club and Club x Club are the only two
-    // pairings Tier 0 ever generates (Trophy is Tier 1, REQ-108) —
-    // Country x Country is never a candidate, so there's nothing to filter
-    // out here, only to choose between. Prefers whichever pairing(s) the
-    // seeded reference data can actually support (Club x Club needs 2xSize
-    // distinct clubs, since REQ-102 forbids a value appearing on both
-    // axes), choosing randomly between the two only when both are feasible.
-    private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount)
+    // REQ-107/REQ-108 (S-030, extended S-031): Country x Country is never a
+    // candidate, so there's nothing to filter out here, only to choose
+    // between. Every other pairing CategoryPairingRules.IsAllowedPairing
+    // permits is a candidate: Country x Club, Club x Club, Country x Trophy,
+    // Club x Trophy, and Trophy x Trophy — Trophy is always kept as the
+    // *second* type in a mixed pairing (Country/Club always first), the
+    // same precedent Country x Club already set for Country preceding Club.
+    // A same-type pairing (Club x Club, Trophy x Trophy) needs 2xSize
+    // distinct values, since REQ-102 forbids a value appearing on both axes;
+    // a mixed pairing just needs >= size in each of the two pools. Chooses
+    // uniformly at random among whichever pairings the seeded reference
+    // data can actually support — generalizing S-030's two-way coin flip to
+    // an N-way choice.
+    //
+    // Non-obvious consequence, load-bearing for what actually ships (see
+    // ReferenceDataSeeder and docs/backlog.md S-031): with only one trophy
+    // seeded (Ballon d'Or), trophyCount(1) is smaller than `size` for any
+    // realistic grid size, so every Trophy pairing below is infeasible in
+    // production — Trophy can never actually be selected yet. That's
+    // expected, not a bug: REQ-108 describes the trophy list as reference
+    // data meant to grow later ("a data change, not a code change"), so this
+    // mechanism only becomes live once more trophies are added — see this
+    // class's unit tests for proof the mechanism itself works, using a
+    // larger injected trophy pool.
+    private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount, int trophyCount)
     {
-        var countryClubFeasible = countryCount >= size && clubCount >= size;
-        var clubClubFeasible = clubCount >= size * 2;
+        var candidates = new (string RowType, string ColType, bool Feasible)[]
+        {
+            (CategoryPairingRules.Country, CategoryPairingRules.Club, countryCount >= size && clubCount >= size),
+            (CategoryPairingRules.Club, CategoryPairingRules.Club, clubCount >= size * 2),
+            (CategoryPairingRules.Country, CategoryPairingRules.Trophy, countryCount >= size && trophyCount >= size),
+            (CategoryPairingRules.Club, CategoryPairingRules.Trophy, clubCount >= size && trophyCount >= size),
+            (CategoryPairingRules.Trophy, CategoryPairingRules.Trophy, trophyCount >= size * 2),
+        };
 
-        if (!countryClubFeasible && !clubClubFeasible)
+        var feasible = candidates.Where(c => c.Feasible).Select(c => (c.RowType, c.ColType)).ToList();
+
+        if (feasible.Count == 0)
         {
             throw new GridGenerationException(
                 $"Not enough reference data to build a {size}x{size} grid " +
-                $"({countryCount} countries, {clubCount} clubs available).");
+                $"({countryCount} countries, {clubCount} clubs, {trophyCount} trophies available).");
         }
 
-        if (countryClubFeasible && clubClubFeasible)
-        {
-            return _random.Next(2) == 0
-                ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
-                : (CategoryPairingRules.Club, CategoryPairingRules.Club);
-        }
-
-        return countryClubFeasible
-            ? (CategoryPairingRules.Country, CategoryPairingRules.Club)
-            : (CategoryPairingRules.Club, CategoryPairingRules.Club);
+        return feasible[_random.Next(feasible.Count)];
     }
+
+    // PlayerAttribute.AttributeType's reference-table equivalent — which
+    // seeded pool a given category type's candidates are drawn from.
+    // Distinct from MapAttributeType below (that one maps to
+    // PlayerAttribute's vocabulary for guess-checking; this one picks a
+    // CategoryCandidate pool for generation).
+    private static List<CategoryCandidate> PoolFor(
+        string categoryType, List<CategoryCandidate> countries, List<CategoryCandidate> clubs, List<CategoryCandidate> trophies) =>
+        categoryType switch
+        {
+            CategoryPairingRules.Country => countries,
+            CategoryPairingRules.Club => clubs,
+            CategoryPairingRules.Trophy => trophies,
+            _ => throw new GridGenerationException($"Unknown category type '{categoryType}'."),
+        };
 
     // S-009: REQ-210's lock/attempt-cap checks and REQ-202's guess-change
     // policy already happened in Core.Scoring before this was ever called
@@ -159,13 +207,18 @@ public class GridGameModule(
         var cell = instance.Cells.FirstOrDefault(c => c.Id == guessSubmission.CellId)
             ?? throw new GuessScoringException($"Cell '{guessSubmission.CellId}' not found in grid instance '{instanceId}'.");
 
-        // REQ-208 (Tier 0's simple half, MVP-SCOPE.md): normalize only — no
-        // PlayerAlias/fuzzy tolerance (both deferred, "defer the alias table
-        // and fuzzy typo tolerance").
+        // REQ-208: normalize once — FindMatchAsync below applies the
+        // normalized/alias/fuzzy comparisons in order (exact primary name,
+        // then alias, then bounded fuzzy).
         var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
 
-        var result = await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
-        if (result.IsCorrect)
+        var result = await FindMatchAsync(cell, normalized, guessSubmission.ChosenPlayerId, instanceId, cancellationToken);
+
+        // REQ-209: a genuinely correct guess never needs a live-lookup
+        // retry; neither does an ambiguous one — the cell already resolved
+        // from cache (just to more than one fitting candidate), which is a
+        // different case from "didn't already resolve from cache" below.
+        if (result.IsCorrect || (result.DisambiguationCandidates?.Count ?? 0) > 0)
             return result;
 
         // REQ-211 (Tier 0 simplified — no PlayerNameIndex prerequisite,
@@ -189,7 +242,7 @@ public class GridGameModule(
         if (!await RefreshCellFromLiveLookupAsync(cell, cancellationToken))
             return result;
 
-        return await FindMatchAsync(cell, normalized, instanceId, cancellationToken);
+        return await FindMatchAsync(cell, normalized, guessSubmission.ChosenPlayerId, instanceId, cancellationToken);
     }
 
     // ADR-0021: round-close's unanswered-cell penalty needs every cell id
@@ -202,11 +255,57 @@ public class GridGameModule(
         return instance.Cells.Select(c => c.Id).ToList();
     }
 
+    // REQ-208's three-stage matching order — exact primary name, then
+    // alias, then bounded fuzzy — each stage only runs if the previous one
+    // resolved to zero candidates satisfying both of the cell's categories.
+    // Each stage reuses FilterByCategoriesAsync/AcceptMatchAsync so REQ-209's
+    // disambiguation rule (a single fitting candidate auto-accepted, more
+    // than one triggers a disambiguation prompt) applies identically
+    // regardless of which stage produced the candidates.
+    //
+    // chosenPlayerId (REQ-209/REQ-210): when set, this call is a
+    // resubmission answering a disambiguation prompt raised by an earlier
+    // call for the same attempt — the pipeline below still re-runs from
+    // scratch (never trusting a cached "which stage matched" from that
+    // earlier call, since data can change between the prompt and the
+    // resubmission) and AcceptMatchAsync validates chosenPlayerId against
+    // whichever stage's `matching` list this run actually produces.
     private async Task<ScoreResult> FindMatchAsync(
-        GridCell cell, string normalizedName, Guid instanceId, CancellationToken cancellationToken)
+        GridCell cell, string normalizedName, Guid? chosenPlayerId, Guid instanceId, CancellationToken cancellationToken)
     {
-        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        var exactCandidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        var matching = await FilterByCategoriesAsync(cell, exactCandidates, cancellationToken);
 
+        if (matching.Count == 0)
+        {
+            // REQ-208: known aliases/stage names, matched via PlayerAlias —
+            // an exact NormalizedAlias equality check, same normalization as
+            // the primary-name path (PlayerNameNormalizer.Normalize applied
+            // at persist time, WikidataLookupService.PersistAliasesAsync).
+            var aliasCandidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
+            matching = await FilterByCategoriesAsync(cell, aliasCandidates, cancellationToken);
+        }
+
+        if (matching.Count == 0)
+        {
+            // REQ-208: minor-typo tolerance — only reached when neither an
+            // exact primary-name nor an exact alias match resolved anything,
+            // per REQ-208's own ordering ("applied only when no exact or
+            // alias match is found").
+            var fuzzyCandidates = await FindFuzzyCandidatesAsync(cell, normalizedName, cancellationToken);
+            matching = await FilterByCategoriesAsync(cell, fuzzyCandidates, cancellationToken);
+        }
+
+        return await AcceptMatchAsync(cell, instanceId, matching, chosenPlayerId, cancellationToken);
+    }
+
+    // The category-fit half of FindMatchAsync's pipeline, shared by every
+    // stage: a candidate is only ever a real answer for this cell if it
+    // satisfies both the row and column category (REQ-203's effective-data
+    // check, override-aware).
+    private async Task<List<Player>> FilterByCategoriesAsync(
+        GridCell cell, IReadOnlyList<Player> candidates, CancellationToken cancellationToken)
+    {
         var matching = new List<Player>();
         foreach (var candidate in candidates)
         {
@@ -221,33 +320,161 @@ public class GridGameModule(
                 matching.Add(candidate);
         }
 
+        return matching;
+    }
+
+    // REQ-209: exactly one fitting candidate is accepted automatically; more
+    // than one raises a disambiguation prompt instead of guessing on the
+    // player's behalf. Shared by every stage of FindMatchAsync above so this
+    // rule can't drift between the exact/alias/fuzzy paths.
+    //
+    // chosenPlayerId fast path (REQ-209/REQ-210): when set, this is a
+    // resubmission answering a prompt raised earlier in the same attempt —
+    // skip straight to verifying that specific player is (a) among this
+    // run's `matching` candidates for whichever stage produced them and
+    // (b) therefore still satisfies both categories right now (membership in
+    // a freshly-computed `matching` list proves both at once — never trust
+    // the client-supplied id blindly). A chosenPlayerId that doesn't
+    // validate — not in the matching set any more, or matching is empty —
+    // is treated as an ordinary incorrect guess, never thrown, same
+    // fail-closed discipline as every other guess-scoring edge case here.
+    private async Task<ScoreResult> AcceptMatchAsync(
+        GridCell cell, Guid instanceId, IReadOnlyList<Player> matching, Guid? chosenPlayerId, CancellationToken cancellationToken)
+    {
+        if (chosenPlayerId is not null)
+        {
+            var chosen = matching.FirstOrDefault(p => p.Id == chosenPlayerId.Value);
+            return chosen is null
+                ? new ScoreResult { IsCorrect = false }
+                : new ScoreResult { IsCorrect = true, PlayerAnswerId = chosen.Id };
+        }
+
         if (matching.Count == 0)
             return new ScoreResult { IsCorrect = false };
 
-        // REQ-204: identical guesses by different players must always group
-        // as the same answer — the lowest Id among fits is the deterministic
-        // pick, same rule REQ-209's simplified Tier 0 disambiguation uses.
-        var accepted = matching.OrderBy(p => p.Id).First();
+        if (matching.Count == 1)
+            return new ScoreResult { IsCorrect = true, PlayerAnswerId = matching[0].Id };
 
-        if (matching.Count > 1)
-        {
-            // REQ-209 (Tier 0 simplified, MVP-SCOPE.md): any fitting
-            // candidate is accepted, no disambiguation picker — logged so a
-            // real occurrence trips the Tier 1 "disambiguation UI" trigger
-            // ("log this case even in the simplified Tier 0 handling, so
-            // you'd notice if it happened").
-            logger.LogWarning(
-                "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
-                "accepted the lowest Id ({PlayerId}) per REQ-204's deterministic-pick rule.",
-                cell.Id, instanceId, matching.Count, accepted.Id);
-        }
+        logger.LogInformation(
+            "Guess for cell {CellId} in instance {InstanceId} matched {Count} fitting candidates; " +
+            "showing a disambiguation prompt per REQ-209.",
+            cell.Id, instanceId, matching.Count);
 
-        return new ScoreResult { IsCorrect = true, PlayerAnswerId = accepted.Id };
+        var candidates = await BuildDisambiguationCandidatesAsync(cell, matching, cancellationToken);
+        return new ScoreResult { IsCorrect = false, DisambiguationCandidates = candidates };
     }
 
+    // REQ-209: builds one DisambiguationCandidate per fitting player, each
+    // carrying their OTHER known PlayerAttribute values — excluding
+    // whichever of the cell's own two categories every candidate already
+    // satisfies (redundant to show again, since that's exactly what put
+    // them all in `matching`). Ordered by Id for a deterministic response
+    // shape, same tie-break precedent as REQ-204's grouping.
+    private async Task<IReadOnlyList<DisambiguationCandidate>> BuildDisambiguationCandidatesAsync(
+        GridCell cell, IReadOnlyList<Player> matching, CancellationToken cancellationToken)
+    {
+        var rowAttributeType = MapAttributeType(cell.RowCategoryType);
+        var colAttributeType = MapAttributeType(cell.ColCategoryType);
+
+        var attributesByPlayerId = await playerStoreRepository.GetPlayerAttributesByPlayerIdsAsync(
+            matching.Select(p => p.Id).ToList(), cancellationToken);
+
+        var candidates = new List<DisambiguationCandidate>(matching.Count);
+        foreach (var player in matching.OrderBy(p => p.Id))
+        {
+            IReadOnlyList<string> distinguishing = attributesByPlayerId.TryGetValue(player.Id, out var attributes)
+                ? attributes
+                    .Where(a => !(a.AttributeType == rowAttributeType && a.AttributeValue == cell.RowCategoryValue) &&
+                                !(a.AttributeType == colAttributeType && a.AttributeValue == cell.ColCategoryValue))
+                    .Select(a => a.AttributeValue)
+                    .Distinct()
+                    .ToList()
+                : [];
+
+            candidates.Add(new DisambiguationCandidate(player.Id, player.FullName, distinguishing));
+        }
+
+        return candidates;
+    }
+
+    // REQ-208's fuzzy/edit-distance pass. Bounded candidate pool: only
+    // players already known (via a cached PlayerAttribute row) to satisfy at
+    // least one of this cell's two categories — a player satisfying neither
+    // can never be a correct answer for this cell regardless of name, so
+    // narrowing here loses no genuine match while keeping the per-guess cost
+    // bounded by this cell's own category population, never a full-table
+    // scan across every player in the store. Both the candidate's primary
+    // name and every recorded alias are checked — a typo of an alias
+    // deserves the same tolerance as a typo of the primary name.
+    private async Task<IReadOnlyList<Player>> FindFuzzyCandidatesAsync(
+        GridCell cell, string normalizedName, CancellationToken cancellationToken)
+    {
+        var pool = await playerStoreRepository.GetPlayersWithEitherAttributeAsync(
+            MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
+            MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
+            cancellationToken);
+
+        if (pool.Count == 0)
+            return [];
+
+        var aliasesByPlayerId = await playerStoreRepository.GetPlayerAliasesByPlayerIdsAsync(
+            pool.Select(p => p.Id).ToList(), cancellationToken);
+
+        var maxDistance = MaxEditDistance(normalizedName.Length);
+        var fuzzyMatches = new List<Player>();
+
+        foreach (var candidate in pool)
+        {
+            if (NameEditDistance.Distance(normalizedName, candidate.NormalizedFullName) <= maxDistance)
+            {
+                fuzzyMatches.Add(candidate);
+                continue;
+            }
+
+            if (aliasesByPlayerId.TryGetValue(candidate.Id, out var aliases) &&
+                aliases.Any(alias => NameEditDistance.Distance(normalizedName, alias.NormalizedAlias) <= maxDistance))
+            {
+                fuzzyMatches.Add(candidate);
+            }
+        }
+
+        return fuzzyMatches;
+    }
+
+    // REQ-208: "a small edit-distance tolerance" — three tiers, proportional
+    // to the guessed name's normalized length rather than one fixed number
+    // for every name. Measured against real name pairs (NameEditDistance),
+    // not guessed:
+    //   - length <= 4 (e.g. "pele", "zico", "kaka"): tolerance 0 (exact
+    //     only). Real 4-letter football nicknames collide at distance 1 far
+    //     too often to safely tolerate — "pele" vs "dele" (Dele Alli's own
+    //     nickname) is distance 1, and those are two different real
+    //     players. At this length, any fuzzy pass would already have been
+    //     an exact/alias hit if it were the "same" name, so 0 here costs
+    //     nothing genuine while closing that collision.
+    //   - length 5-8 (e.g. "zidane", "ronaldo"): tolerance 1. Covers a
+    //     single dropped/doubled/substituted letter ("zidane" -> "zidan" is
+    //     distance 1) while still rejecting two different real players of
+    //     similar length — "ronaldo" vs "rivaldo" is distance 2, correctly
+    //     over this tier's tolerance of 1.
+    //   - length >= 9 (e.g. "ronaldinho", full "first last" names):
+    //     tolerance 2. A two-character slip is still a small fraction of a
+    //     name this long ("ronaldinho" -> "ronaldinoh", a trailing
+    //     transposition, is distance 2) and stays well short of matching an
+    //     unrelated name of similar length (a genuinely different full name
+    //     is reliably >2 edits away).
+    private static int MaxEditDistance(int normalizedNameLength) => normalizedNameLength switch
+    {
+        <= 4 => 0,
+        <= 8 => 1,
+        _ => 2,
+    };
+
     // REQ-211's Tier 0 fallback (ADR-0018) knows how to refresh a
-    // Country x Club cell and, as of S-030, a Club x Club cell too — any
-    // other pairing (e.g. a future Trophy cell) can't be resolved from the
+    // Country x Club cell, a Club x Club cell (S-030), and, as of S-031, a
+    // Country x Trophy or Club x Trophy cell — any other pairing (e.g.
+    // Trophy x Trophy, which has no dedicated persist method — see
+    // LookupLiveMatchesAsync's own comment) can't be resolved from the
     // reference tables this way at all, and is left to fail closed via the
     // caller's existing cached-only result, same as a genuinely-incorrect
     // guess. Routes through the same LookupLiveMatchesAsync dispatcher
@@ -280,7 +507,7 @@ public class GridGameModule(
         {
             var country = (await categoryValueRepository.GetCountriesAsync(cancellationToken))
                 .FirstOrDefault(c => c.Name == categoryValue);
-            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid);
+            return country is null ? null : new CategoryCandidate(country.Name, country.WikidataQid, country.UsesCountryForSportProperty);
         }
 
         if (categoryType == CategoryPairingRules.Club)
@@ -290,17 +517,27 @@ public class GridGameModule(
             return club is null ? null : new CategoryCandidate(club.Name, club.WikidataQid);
         }
 
+        if (categoryType == CategoryPairingRules.Trophy)
+        {
+            var trophy = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
+                .FirstOrDefault(t => t.Name == categoryValue);
+            return trophy is null ? null : new CategoryCandidate(trophy.Name, trophy.WikidataQid);
+        }
+
         return null;
     }
 
-    // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club")
-    // differs from GridCell's RowCategoryType/ColCategoryType vocabulary
-    // ("country" | "club") — same mapping GetMatchCountAsync below already
-    // needs for grid generation.
+    // PlayerAttribute.AttributeType's vocabulary ("nationality" | "club" |
+    // "trophy") differs from GridCell's RowCategoryType/ColCategoryType
+    // vocabulary ("country" | "club" | "trophy") only for Country — Trophy
+    // happens to be spelled identically in both, per REQ-108's acceptance
+    // text. Same mapping GetMatchCountAsync below already needs for grid
+    // generation.
     private static string MapAttributeType(string categoryType) => categoryType switch
     {
         CategoryPairingRules.Country => NationalityAttributeType,
         CategoryPairingRules.Club => ClubAttributeType,
+        CategoryPairingRules.Trophy => CategoryPairingRules.Trophy,
         _ => throw new GuessScoringException($"Unknown category type '{categoryType}'."),
     };
 
@@ -338,10 +575,12 @@ public class GridGameModule(
         CancellationToken cancellationToken)
     {
         // REQ-107: checked once, before any matching-count query — every
-        // column candidate in this call pairs the same two category types,
-        // so this is invariant per call, not per candidate. Tier 1 mixed
-        // axes (e.g. Trophy) would call this per candidate instead, once
-        // row/column category types can vary within one grid.
+        // column candidate in this call pairs the same two category types
+        // (including a Trophy pairing, S-031 — still fixed for the whole
+        // call, never varying per candidate), so this is invariant per
+        // call. A hypothetical future grid whose row/column category types
+        // vary *within* one call would need to check this per candidate
+        // instead.
         if (!CategoryPairingRules.IsAllowedPairing(rowCategoryType, colCategoryType))
             throw new GridGenerationException("Country x Country pairing is never allowed (REQ-107).");
 
@@ -434,7 +673,8 @@ public class GridGameModule(
     // GetMatchCountAsync (generation-time) and RefreshCellFromLiveLookupAsync
     // (REQ-211 guess-time fallback) so the two can't drift on which pairings
     // are handled. Returns null for a pairing neither method knows how to
-    // resolve (e.g. a future Trophy cell) — distinct from an empty list,
+    // resolve (e.g. Trophy x Trophy, which has no dedicated persist method)
+    // — distinct from an empty list,
     // which means the pairing IS handled but Wikidata found no match.
     // WikidataLookupService only ever reads Name/WikidataQid off the
     // CountryDefinition/ClubDefinition it's given (never Id) — safe to
@@ -453,8 +693,13 @@ public class GridGameModule(
     {
         if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Club)
         {
+            // REQ-114/ADR-0035: row.UsesCountryForSportProperty threads
+            // CategoryCandidate's copy of CountryDefinition's per-row query-
+            // property flag through — LookupAndPersistAsync itself decides
+            // P27 vs. P1532 from it, so this call site needs no pairing-
+            // specific branching of its own.
             return await wikidataLookupService.LookupAndPersistAsync(
-                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid, UsesCountryForSportProperty = row.UsesCountryForSportProperty },
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
                 origin,
                 cancellationToken);
@@ -467,6 +712,52 @@ public class GridGameModule(
                 new ClubDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
                 origin,
                 cancellationToken);
+        }
+
+        // S-031/REQ-108: SelectPairing always keeps Trophy as the *second*
+        // type in a mixed pairing (Country/Club always first) — only these
+        // three orderings are ever produced, never Trophy first.
+        //
+        // REQ-114/ADR-0035 scope note: unlike the Country x Club branch
+        // above, row.UsesCountryForSportProperty is deliberately NOT
+        // threaded through here — LookupAndPersistTrophyCountryAsync has no
+        // P1532-aware counterpart to BuildTrophyCountryIntersectionQuery
+        // yet, so a national-team country in a Country x Trophy pairing
+        // would silently fall back to (wrong) P27 semantics if it reached
+        // this branch. In practice it can't: SelectPairing's own comment
+        // notes trophyCount(1) never clears any realistic grid `size`, so
+        // this branch is unreachable in production today, same as Trophy x
+        // Trophy below. Extending P1532 support to this pairing is
+        // follow-up work for whenever the trophy pool actually grows enough
+        // to make it reachable.
+        if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            return await wikidataLookupService.LookupAndPersistTrophyCountryAsync(
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                origin,
+                cancellationToken);
+        }
+
+        if (rowCategoryType == CategoryPairingRules.Club && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            return await wikidataLookupService.LookupAndPersistTrophyClubAsync(
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                origin,
+                cancellationToken);
+        }
+
+        if (rowCategoryType == CategoryPairingRules.Trophy && colCategoryType == CategoryPairingRules.Trophy)
+        {
+            // Trophy x Trophy has no dedicated IWikidataLookupService method
+            // (S-031 scoped the two new methods to Country/Club x Trophy
+            // only, per docs/backlog.md — a live-lookup fallback for this
+            // pairing is unreachable in practice anyway, see SelectPairing's
+            // own comment on trophyCount(1) never clearing `size`). Falls
+            // through to `return null` below, same as any other
+            // not-yet-handled pairing — fails closed, never throws.
+            return null;
         }
 
         return null;

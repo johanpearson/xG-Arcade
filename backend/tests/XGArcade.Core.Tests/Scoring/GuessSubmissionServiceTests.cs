@@ -74,6 +74,14 @@ public class GuessSubmissionServiceTests
     private static void SetNextResult(FakeGameModule gameModule, bool isCorrect, Guid? playerAnswerId = null) =>
         gameModule.ScoreSubmissionResult = (_, _, _) => new ScoreResult { IsCorrect = isCorrect, PlayerAnswerId = playerAnswerId };
 
+    // REQ-209: simulates GridGameModule's "more than one fitting candidate"
+    // outcome — Core.Scoring's own job is only to relay this to the caller
+    // without ever touching guessRepository (REQ-210); the candidate list's
+    // own content (DistinguishingAttributes etc.) is GridGameModuleTests'
+    // responsibility.
+    private static void SetDisambiguationResult(FakeGameModule gameModule, IReadOnlyList<DisambiguationCandidate> candidates) =>
+        gameModule.ScoreSubmissionResult = (_, _, _) => new ScoreResult { IsCorrect = false, DisambiguationCandidates = candidates };
+
     // ---- REQ-201: submit a guess ------------------------------------------
 
     [Test]
@@ -418,5 +426,120 @@ public class GuessSubmissionServiceTests
         Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
         Assert.That(_gameModule.ScoreSubmissionAsyncCallCount, Is.EqualTo(2),
             "a rejected-by-REQ-210 submission must never reach the game module a third time");
+    }
+
+    // ---- REQ-209/REQ-210: disambiguation prompt is not a separate attempt -
+
+    [Test]
+    public async Task REQ209_SubmitGuess_MultipleCandidatesSatisfyBothCategories_ReturnsNeedsDisambiguation_WithoutPersistingGuessRow_OrIncrementingAttemptCount()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        var candidates = new List<DisambiguationCandidate>
+        {
+            new(Guid.NewGuid(), "John Smith", ["Chelsea"]),
+            new(Guid.NewGuid(), "John Smith", []),
+        };
+        SetDisambiguationResult(_gameModule, candidates);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "John Smith");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NeedsDisambiguation));
+        Assert.That(result.DisambiguationCandidates, Is.EqualTo(candidates));
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.AttemptCount, Is.EqualTo(0), "REQ-210: showing the prompt must never consume an attempt");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Null, "REQ-210: showing the prompt must never persist a Guess row at all");
+    }
+
+    [Test]
+    public async Task REQ209_SubmitGuess_ChosenPlayerIdResubmission_PassesChosenPlayerIdThroughToGameModule()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        var chosenId = Guid.NewGuid();
+        GuessSubmission? capturedSubmission = null;
+        _gameModule.ScoreSubmissionResult = (_, _, submission) =>
+        {
+            capturedSubmission = (GuessSubmission)submission;
+            return new ScoreResult { IsCorrect = true, PlayerAnswerId = chosenId };
+        };
+        var service = BuildService();
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "John Smith", chosenId);
+
+        Assert.That(capturedSubmission, Is.Not.Null);
+        Assert.That(capturedSubmission!.ChosenPlayerId, Is.EqualTo(chosenId));
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_ValidChosenPlayerIdResubmission_ScoresCorrectly_AndConsumesExactlyOneAttempt()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        var candidates = new List<DisambiguationCandidate> { new(Guid.NewGuid(), "John Smith", []) };
+        SetDisambiguationResult(_gameModule, candidates);
+        var service = BuildService();
+        var promptResult = await service.SubmitGuessAsync(round.Id, userId, cellId, "John Smith");
+        Assert.That(promptResult.Outcome, Is.EqualTo(GuessSubmissionOutcome.NeedsDisambiguation));
+        var chosenId = candidates[0].PlayerId;
+        SetNextResult(_gameModule, isCorrect: true, chosenId);
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "John Smith", chosenId);
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.AttemptCount, Is.EqualTo(1),
+            "REQ-210: resolving the prompt is part of the same attempt that triggered it, not a second one");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Not.Null);
+        Assert.That(stored!.AttemptCount, Is.EqualTo(1));
+        Assert.That(stored.IsCorrect, Is.True);
+    }
+
+    [Test]
+    public async Task REQ209_SubmitGuess_InvalidChosenPlayerIdResubmission_TreatedAsOrdinaryIncorrectGuess_ConsumingAnAttempt()
+    {
+        // Simulates GridGameModule's fail-closed behavior for a stale/no-
+        // longer-valid ChosenPlayerId (GridGameModuleTests covers the actual
+        // validation) — Core.Scoring's own job is just to treat whatever
+        // ScoreResult comes back as an ordinary scored guess whenever
+        // DisambiguationCandidates is null/empty, chosenPlayerId or not.
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "John Smith", Guid.NewGuid());
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.AttemptCount, Is.EqualTo(1), "an invalid ChosenPlayerId is a real scored guess, not free like the prompt itself");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Not.Null);
+        Assert.That(stored!.AttemptCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_AlreadyCorrectlyLockedCell_RejectedWithoutEverCallingGameModule_EvenWhenNextResultWouldBeDisambiguation()
+    {
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Correct Guess");
+        SetDisambiguationResult(_gameModule, [new DisambiguationCandidate(Guid.NewGuid(), "John Smith", [])]);
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Second Guess");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.CellAlreadySolved));
+        Assert.That(_gameModule.ScoreSubmissionAsyncCallCount, Is.EqualTo(1),
+            "REQ-210's lock/cap checks must run before disambiguation is ever reached, same as any other outcome");
     }
 }

@@ -12,21 +12,24 @@ import { HeaderNav } from './HeaderNav';
 // etc.).
 function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {}) {
   const onSelectLeaderboard = vi.fn();
+  const onSelectLeagues = vi.fn();
   const onSelectSettings = vi.fn();
   const onLogout = vi.fn();
 
   render(
     <HeaderNav
       isLeaderboardCurrent={false}
+      isLeaguesCurrent={false}
       isSettingsCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
+      onSelectLeagues={onSelectLeagues}
       onSelectSettings={onSelectSettings}
       onLogout={onLogout}
       {...overrides}
     />,
   );
 
-  return { onSelectLeaderboard, onSelectSettings, onLogout };
+  return { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout };
 }
 
 describe('HeaderNav', () => {
@@ -71,7 +74,7 @@ describe('HeaderNav', () => {
   // and so would not actually cover the acceptance criterion.
 
   it('REQ-712/REQ-713: clicking "Leaderboard" calls onSelectLeaderboard and closes the menu (selectAndClose)', async () => {
-    const { onSelectLeaderboard, onSelectSettings, onLogout } = renderHeaderNav();
+    const { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
     const toggle = screen.getByTestId('header-nav-toggle');
 
@@ -81,13 +84,31 @@ describe('HeaderNav', () => {
     await user.click(screen.getByRole('button', { name: 'Leaderboard' }));
 
     expect(onSelectLeaderboard).toHaveBeenCalledTimes(1);
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // REQ-402/403: same "click, calls its own handler, closes the menu" shape
+  // as every other nav entry above/below.
+  it('REQ-402/403: clicking "Leagues" calls onSelectLeagues and closes the menu (selectAndClose)', async () => {
+    const { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
+    const user = userEvent.setup();
+    const toggle = screen.getByTestId('header-nav-toggle');
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: 'Leagues' }));
+
+    expect(onSelectLeagues).toHaveBeenCalledTimes(1);
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
     expect(onSelectSettings).not.toHaveBeenCalled();
     expect(onLogout).not.toHaveBeenCalled();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('REQ-712/REQ-713: clicking "Settings" calls onSelectSettings and closes the menu (selectAndClose)', async () => {
-    const { onSelectLeaderboard, onSelectSettings, onLogout } = renderHeaderNav();
+    const { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
     const toggle = screen.getByTestId('header-nav-toggle');
 
@@ -96,12 +117,13 @@ describe('HeaderNav', () => {
 
     expect(onSelectSettings).toHaveBeenCalledTimes(1);
     expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
     expect(onLogout).not.toHaveBeenCalled();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('REQ-712: clicking "Log out" calls onLogout and closes the menu (selectAndClose)', async () => {
-    const { onSelectLeaderboard, onSelectSettings, onLogout } = renderHeaderNav();
+    const { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
     const toggle = screen.getByTestId('header-nav-toggle');
 
@@ -110,28 +132,41 @@ describe('HeaderNav', () => {
 
     expect(onLogout).toHaveBeenCalledTimes(1);
     expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
     expect(onSelectSettings).not.toHaveBeenCalled();
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('REQ-712: aria-current="page" reflects isLeaderboardCurrent/isSettingsCurrent — neither current by default', () => {
+  it('REQ-712: aria-current="page" reflects isLeaderboardCurrent/isLeaguesCurrent/isSettingsCurrent — none current by default', () => {
     renderHeaderNav();
 
+    expect(screen.getByRole('button', { name: 'Leaderboard' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Leagues' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('REQ-712: aria-current="page" is set on "Leaderboard" when isLeaderboardCurrent is true, and not on "Leagues"/"Settings"', () => {
+    renderHeaderNav({ isLeaderboardCurrent: true });
+
+    expect(screen.getByRole('button', { name: 'Leaderboard' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Leagues' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('aria-current');
+  });
+
+  // REQ-402/403: same aria-current wiring as the other two nav entries.
+  it('REQ-402/403: aria-current="page" is set on "Leagues" when isLeaguesCurrent is true, and not on "Leaderboard"/"Settings"', () => {
+    renderHeaderNav({ isLeaguesCurrent: true });
+
+    expect(screen.getByRole('button', { name: 'Leagues' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'Leaderboard' })).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('aria-current');
   });
 
-  it('REQ-712: aria-current="page" is set on "Leaderboard" when isLeaderboardCurrent is true, and not on "Settings"', () => {
-    renderHeaderNav({ isLeaderboardCurrent: true });
-
-    expect(screen.getByRole('button', { name: 'Leaderboard' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('button', { name: 'Settings' })).not.toHaveAttribute('aria-current');
-  });
-
-  it('REQ-712: aria-current="page" is set on "Settings" when isSettingsCurrent is true, and not on "Leaderboard"', () => {
+  it('REQ-712: aria-current="page" is set on "Settings" when isSettingsCurrent is true, and not on "Leaderboard"/"Leagues"', () => {
     renderHeaderNav({ isSettingsCurrent: true });
 
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'Leaderboard' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Leagues' })).not.toHaveAttribute('aria-current');
   });
 });

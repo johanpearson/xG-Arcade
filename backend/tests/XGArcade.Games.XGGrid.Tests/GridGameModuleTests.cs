@@ -67,8 +67,9 @@ public class GridGameModuleTests
     private GridGameModule BuildModule(
         int minValidAnswers, int maxAttempts, Random? random = null,
         TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
-        IWikidataLookupService? wikidataLookupService = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
+        IWikidataLookupService? wikidataLookupService = null,
+        IPlayerStoreRepository? playerStoreRepository = null) =>
+        new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
             random ?? new FixedChoiceRandom(0),
@@ -82,9 +83,16 @@ public class GridGameModuleTests
         return template;
     }
 
-    private CountryDefinition SeedCountry(string name, string? wikidataQid = "unset")
+    private CountryDefinition SeedCountry(string name, string? wikidataQid = "unset", bool usesCountryForSportProperty = false)
     {
-        var country = new CountryDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qcountry-{name}" : wikidataQid };
+        var country = new CountryDefinition
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            WikidataQid = wikidataQid == "unset" ? $"Qcountry-{name}" : wikidataQid,
+            // REQ-114/ADR-0035.
+            UsesCountryForSportProperty = usesCountryForSportProperty,
+        };
         _dbContext.CountryDefinitions.Add(country);
         _dbContext.SaveChanges();
         return country;
@@ -96,6 +104,15 @@ public class GridGameModuleTests
         _dbContext.ClubDefinitions.Add(club);
         _dbContext.SaveChanges();
         return club;
+    }
+
+    // S-031/REQ-108.
+    private TrophyDefinition SeedTrophy(string name, string? wikidataQid = "unset")
+    {
+        var trophy = new TrophyDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qtrophy-{name}" : wikidataQid };
+        _dbContext.TrophyDefinitions.Add(trophy);
+        _dbContext.SaveChanges();
+        return trophy;
     }
 
     // Seeds `count` distinct players in the local cache, each satisfying
@@ -137,6 +154,44 @@ public class GridGameModuleTests
             _dbContext.Players.Add(player);
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubAName });
             _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubBName });
+        }
+        _dbContext.SaveChanges();
+    }
+
+    // S-031: Trophy x Country counterpart to SeedCachedMatches — one side is
+    // AttributeType "trophy", the other "nationality".
+    private void SeedCachedTrophyCountryMatches(string trophyName, string countryName, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = $"{trophyName}-{countryName}-Player{i}",
+                WikidataQid = $"Qplayer-{trophyName}-{countryName}-{i}",
+            };
+            _dbContext.Players.Add(player);
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = trophyName });
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = countryName });
+        }
+        _dbContext.SaveChanges();
+    }
+
+    // S-031: Trophy x Club counterpart to SeedCachedMatches — one side is
+    // AttributeType "trophy", the other "club".
+    private void SeedCachedTrophyClubMatches(string trophyName, string clubName, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = $"{trophyName}-{clubName}-Player{i}",
+                WikidataQid = $"Qplayer-{trophyName}-{clubName}-{i}",
+            };
+            _dbContext.Players.Add(player);
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = trophyName });
+            _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = clubName });
         }
         _dbContext.SaveChanges();
     }
@@ -601,6 +656,257 @@ public class GridGameModuleTests
             "with both pairings feasible, FixedChoiceRandom(1) must steer SelectPairing to Club x Club, not the Country x Club default");
     }
 
+    // ---- REQ-108/S-031: Trophy category ------------------------------------
+    // Production only ever seeds one trophy (Ballon d'Or, ReferenceDataSeeder)
+    // — trophyCount(1) can never clear `size` for any realistic grid, so a
+    // Trophy pairing structurally never gets selected in production (see
+    // SelectPairing's own comment). Tests below inject a larger fake trophy
+    // pool (SeedTrophy, 3+ values) specifically to prove the mechanism itself
+    // works even though production data won't trigger it yet.
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TrophyCountryPairing_ProducesGridUsingTrophyCategoryType()
+    {
+        // Zero clubs seeded -> every Club-involving pairing is infeasible.
+        // Three trophies (>= size but < 2*size) makes Trophy x Trophy
+        // infeasible too, leaving Country x Trophy as the only feasible
+        // pairing — deterministic regardless of the injected Random.
+        var template = SeedTemplate(size: 2);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
+        foreach (var trophyName in trophyNames)
+            SeedTrophy(trophyName);
+        foreach (var countryName in new[] { "France", "Spain" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyCountryMatches(trophyName, countryName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
+        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "SelectPairing must have picked Country x Trophy — Trophy always second, per the Country/Club-first precedent");
+        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
+        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
+        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
+        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TrophyClubPairing_ProducesGridUsingTrophyCategoryType()
+    {
+        // Zero countries seeded -> every Country-involving pairing is
+        // infeasible. Three trophies (>= size but < 2*size) makes
+        // Trophy x Trophy infeasible too, leaving Club x Trophy as the only
+        // feasible pairing — deterministic regardless of the injected Random.
+        var template = SeedTemplate(size: 2);
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        var trophyNames = Enumerable.Range(0, 3).Select(i => $"Trophy{i}").ToList();
+        foreach (var trophyName in trophyNames)
+            SeedTrophy(trophyName);
+        foreach (var clubName in new[] { "Arsenal", "Barcelona" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyClubMatches(trophyName, clubName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(4));
+        Assert.That(instance.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "SelectPairing must have picked Club x Trophy — Trophy always second, per the Country/Club-first precedent");
+        var rowValues = instance.Cells.Select(c => c.RowCategoryValue).Distinct().ToList();
+        var colValues = instance.Cells.Select(c => c.ColCategoryValue).Distinct().ToList();
+        Assert.That(rowValues, Has.Count.EqualTo(2), "REQ-102: N unique row categories");
+        Assert.That(colValues, Has.Count.EqualTo(2), "REQ-102: N unique column categories");
+    }
+
+    [Test]
+    public async Task REQ108_SelectPairing_OnlyOneTrophySeeded_MatchingRealSeedData_NeverSelectsAnyTrophyPairing()
+    {
+        // The real ReferenceDataSeeder shape: exactly one trophy (Ballon
+        // d'Or). With size >= 2, trophyCount(1) can never clear `size` for
+        // any mixed pairing, nor `size * 2` for Trophy x Trophy — so every
+        // Trophy pairing is infeasible and Country x Club is the only
+        // choice, regardless of the injected Random. This documents S-031's
+        // "structurally dormant in production" consequence as an asserted
+        // behavior, not just a code comment.
+        var template = SeedTemplate(size: 2);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedTrophy("Ballon d'Or");
+        SeedCachedMatches("France", "Arsenal", 2);
+        SeedCachedMatches("France", "Barcelona", 2);
+        SeedCachedMatches("Spain", "Arsenal", 2);
+        SeedCachedMatches("Spain", "Barcelona", 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Trophy || c.ColCategoryType == CategoryPairingRules.Trophy),
+            "with only one trophy seeded (matching real seed data), Trophy can never be selected for any realistic grid size");
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyCountryCell_CandidateSatisfiesBothCategories_ReturnsCorrect()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True, "a PlayerAttribute record of type 'trophy' must satisfy a Trophy category cell");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyClubCell_CandidateSatisfiesBothCategories_ReturnsCorrect()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Real Madrid", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Luka Modric", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Real Madrid" });
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "trophy", AttributeValue = "Ballon d'Or" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Luka Modric"));
+
+        Assert.That(result.IsCorrect, Is.True, "a PlayerAttribute record of type 'trophy' must satisfy a Trophy category cell");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyCell_PlayerLacksTrophyAttribute_ReturnsIncorrect()
+    {
+        // Right nationality, but no "trophy"/"Ballon d'Or" PlayerAttribute —
+        // must satisfy BOTH categories, not just the non-Trophy one.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Some Frenchman", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        await _dbContext.SaveChangesAsync();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Some Frenchman"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_TrophyOverride_WinsOverConflictingCachedPlayerAttribute()
+    {
+        // Mirrors REQ203_ScoreSubmissionAsync_OverridePresent_WinsOverConflictingCachedPlayerAttribute_EndToEnd
+        // for the Trophy category — "a PlayerAttribute (or override) record
+        // of type trophy" (REQ-108's acceptance text) explicitly includes
+        // PlayerOverride, not just the raw cached attribute.
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        _dbContext.Players.Add(player);
+        _dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
+        // Cached (unverified) data has no trophy attribute at all — an
+        // admin override supplies it instead.
+        await _dbContext.SaveChangesAsync();
+        await _playerStoreRepository.AddOverrideAsync(new PlayerOverride
+        {
+            Id = Guid.NewGuid(),
+            PlayerId = player.Id,
+            Field = "trophy",
+            Value = "Ballon d'Or",
+            Reason = "Manual correction",
+            LockedByAdminId = Guid.NewGuid(),
+            LockedAt = DateTime.UtcNow,
+        });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True, "the override must be effective even though nothing cached confirms the trophy category");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyCountryCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        SeedCountry("France");
+        SeedTrophy("Ballon d'Or");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "France", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var zidane = new Player { Id = Guid.NewGuid(), FullName = "Zinedine Zidane", WikidataQid = "Qzidane" };
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "France", [zidane]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedine Zidane"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata Trophy x Country lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(zidane.Id));
+        Assert.That(_wikidataLookupService.GetTrophyCountryCallCount("Ballon d'Or", "France"), Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastOrigin("Ballon d'Or", "France"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyClubCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        SeedClub("Real Madrid");
+        SeedTrophy("Ballon d'Or");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Real Madrid", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Club, colCategoryType: CategoryPairingRules.Trophy);
+        var modric = new Player { Id = Guid.NewGuid(), FullName = "Luka Modric", WikidataQid = "Qmodric" };
+        _wikidataLookupService.SetTrophyClubMatches("Ballon d'Or", "Real Madrid", [modric]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Luka Modric"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live Wikidata Trophy x Club lookup must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(modric.Id));
+        Assert.That(_wikidataLookupService.GetTrophyClubCallCount("Ballon d'Or", "Real Madrid"), Is.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetTrophyClubLastOrigin("Ballon d'Or", "Real Madrid"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_TrophyTrophyCell_UnhandledByFallback_SkipsLiveLookup_DoesNotThrow()
+    {
+        // Trophy x Trophy has no dedicated IWikidataLookupService method
+        // (never generated in practice — see SelectPairing's own comment —
+        // but not otherwise impossible for a cell to have) and must
+        // gracefully skip the fallback (stay incorrect) rather than throw,
+        // same guard as the existing Club(rows) x Country(cols) test above.
+        SeedTrophy("Ballon d'Or");
+        SeedTrophy("Golden Boot");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "Ballon d'Or", "Golden Boot", rowCategoryType: CategoryPairingRules.Trophy, colCategoryType: CategoryPairingRules.Trophy);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () =>
+            result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Anyone")));
+
+        Assert.That(result!.IsCorrect, Is.False);
+    }
+
     // ---- REQ-109: category value reference tables --------------------------
 
     [Test]
@@ -965,6 +1271,120 @@ public class GridGameModuleTests
 
     // ---- REQ-208: name normalization and matching --------------------------
 
+    // Thin call-counting wrapper around the real, InMemory-backed
+    // IPlayerStoreRepository (never a hand-rolled reimplementation of its
+    // behavior — every method just delegates) used only to verify REQ-208's
+    // "exact match first, then alias, then fuzzy — fuzzy only runs when the
+    // first two produced nothing" ordering: the alias/fuzzy repository
+    // calls must never happen once an earlier stage already resolved a fit.
+    private sealed class CallCountingPlayerStoreRepository(IPlayerStoreRepository inner) : IPlayerStoreRepository
+    {
+        public int GetPlayersByNormalizedAliasAsyncCallCount { get; private set; }
+        public int GetPlayersWithEitherAttributeAsyncCallCount { get; private set; }
+
+        public Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByWikidataQidAsync(wikidataQid, cancellationToken);
+
+        public Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerByIdAsync(id, cancellationToken);
+
+        public Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
+            IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByIdsAsync(ids, cancellationToken);
+
+        public Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAsync(player, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
+            string normalizedFullName, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersByNormalizedFullNameAsync(normalizedFullName, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
+            string normalizedAlias, CancellationToken cancellationToken = default)
+        {
+            GetPlayersByNormalizedAliasAsyncCallCount++;
+            return inner.GetPlayersByNormalizedAliasAsync(normalizedAlias, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default)
+        {
+            GetPlayersWithEitherAttributeAsyncCallCount++;
+            return inner.GetPlayersWithEitherAttributeAsync(
+                firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+        }
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
+            IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAliasesByPlayerIdsAsync(playerIds, cancellationToken);
+
+        public Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerDataAsync(data, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default) =>
+            inner.GetUnverifiedPlayerDataAsync(cancellationToken);
+
+        public Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
+            IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default) =>
+            inner.ApprovePlayerDataAsync(playerDataIds, adminId, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
+            IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default) =>
+            inner.RemovePlayerDataAsync(playerDataIds, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
+            string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAttributesAsync(attributeType, attributeValue, cancellationToken);
+
+        public Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAttributeAsync(attribute, cancellationToken);
+
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
+            IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAttributesByPlayerIdsAsync(playerIds, cancellationToken);
+
+        public Task<int> CountPlayersWithBothAttributesAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.CountPlayersWithBothAttributesAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        public Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAliasesAsync(playerId, cancellationToken);
+
+        public Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAliasAsync(alias, cancellationToken);
+
+        public Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default) =>
+            inner.GetOverrideAsync(playerId, field, cancellationToken);
+
+        public Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.GetOverrideByIdAsync(id, cancellationToken);
+
+        public Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
+            inner.AddOverrideAsync(playerOverride, cancellationToken);
+
+        public Task UpdateOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
+            inner.UpdateOverrideAsync(playerOverride, cancellationToken);
+
+        public Task<bool> DeleteOverrideAsync(Guid id, CancellationToken cancellationToken = default) =>
+            inner.DeleteOverrideAsync(id, cancellationToken);
+
+        public Task<bool> HasEffectiveAttributeAsync(
+            Guid playerId, string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
+            inner.HasEffectiveAttributeAsync(playerId, attributeType, attributeValue, cancellationToken);
+
+        public Task<IReadOnlyList<Player>> GetPlayersMissingPhotoAsync(
+            IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersMissingPhotoAsync(excludingPlayerIds, batchSize, cancellationToken);
+
+        public Task UpdatePlayerPhotosAsync(
+            IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default) =>
+            inner.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
+    }
+
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
     [TestCase("thierry henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_CaseIgnored")]
     [TestCase("Thierry   Henry", "Thierry Henry", TestName = "REQ208_ScoreSubmissionAsync_ExtraWhitespaceIgnored")]
@@ -994,17 +1414,12 @@ public class GridGameModuleTests
     }
 
     [Test]
-    public async Task REQ208_ScoreSubmissionAsync_AliasOnlyMatch_DoesNotMatch_TierZeroScopeBoundary()
+    public async Task REQ208_ScoreSubmissionAsync_AliasExactMatch_ScoresCorrect()
     {
-        // Tier 0 explicitly defers the alias table for matching purposes
-        // (MVP-SCOPE.md, "defer the alias table and fuzzy typo tolerance") —
-        // guess-time matching queries only Player.NormalizedFullName
-        // (GetPlayersByNormalizedFullNameAsync), never PlayerAlias. A guess
-        // that only matches a recorded alias, with no exact FullName match,
-        // is therefore NOT found in Tier 0, even though the alias itself
-        // exists in the data. This documents that scope boundary rather than
-        // asserting REQ-208's full "known aliases/stage names" criterion,
-        // which is not yet implemented.
+        // Known aliases/stage names are matched via PlayerAlias, not just
+        // the primary name field — a guess that only matches a recorded
+        // alias, with no exact Player.FullName match, must still score
+        // correct if that player fits the cell's categories.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
         await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
@@ -1012,12 +1427,173 @@ public class GridGameModuleTests
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
 
-        Assert.That(result.IsCorrect, Is.False, "Tier 0 matches only Player.FullName, not PlayerAlias — see MVP-SCOPE.md");
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_AliasMatch_RequiresCategoryFit_JustLikeAPrimaryNameMatch()
+    {
+        // An alias match is handled by exactly the same category-fit check
+        // as a primary-name match (REQ-203/REQ-209) — an alias belonging to
+        // a player who doesn't satisfy this cell's categories must not score
+        // correct just because the name string matched.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "England", "Chelsea");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_ExactPrimaryNameMatch_AliasAndFuzzyStagesNeverConsulted()
+    {
+        // REQ-208's ordering: exact match first, then alias, then fuzzy —
+        // the alias/fuzzy repository calls must never happen once the exact
+        // primary-name stage already resolved a fit. A distinct player whose
+        // name is one edit away from the guess (would fuzzy-match if the
+        // fuzzy stage ran) is deliberately seeded to prove this isn't just
+        // "no alias/fuzzy data exists to find."
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var exactPlayer = await SeedPlayerAsync("Henry", "France", "Arsenal");
+        await SeedPlayerAsync("Henri", "France", "Arsenal"); // distance 1 from "henry" — would fuzzy-match if reached
+        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Henry"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(exactPlayer.Id));
+        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(0),
+            "the alias stage must never be consulted once the exact primary-name stage already resolved a fit");
+        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+            "the fuzzy stage must never be consulted once the exact primary-name stage already resolved a fit");
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_AliasMatch_FuzzyStageNeverConsulted()
+    {
+        // Same ordering guarantee as above, one stage later: once the alias
+        // stage resolves a fit, the fuzzy stage must never run either.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var aliasPlayer = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = aliasPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(1),
+            "the alias stage must be consulted once the exact primary-name stage found nothing");
+        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+            "the fuzzy stage must never be consulted once the alias stage already resolved a fit");
+    }
+
+    [TestCase("Zidane", "Zidan", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_SingleDroppedLetter_MatchesViaPrimaryName")]
+    [TestCase("Ronaldinho", "Ronaldinoh", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_TrailingTransposition_MatchesViaPrimaryName_LongerName")]
+    [TestCase("Zinedine Zidane", "Zinedine Zidence", TestName = "REQ208_ScoreSubmissionAsync_FuzzyTypo_ExactlyAtThreshold_Matches")]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_MatchesViaPrimaryName(string storedFullName, string submittedName)
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var player = await SeedPlayerAsync(storedFullName, "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, submittedName));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_MatchesViaAlias()
+    {
+        // A typo of a known alias deserves the same tolerance as a typo of
+        // the primary name — "Kaeka" is one edit away from the alias "Kaka",
+        // not from the player's full legal name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
+        var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaeka"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(player.Id));
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyMatch_CandidateMustStillSatisfyBothCategories_DoesNotMatch()
+    {
+        // The fuzzy pass's bounded candidate pool is "satisfies at least one
+        // of the cell's two categories" (never a full-table scan) — but a
+        // name being fuzzy-close is not enough on its own: the same
+        // both-categories check as every other stage still applies
+        // afterwards. This player satisfies the row category (France) only,
+        // so a fuzzy name match must not score correct.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        await SeedPlayerAsync("Zidane", "France", "Chelsea");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zidan"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_SimilarButDistinctPlayerName_DoesNotMatch()
+    {
+        // "Ronaldo" and "Rivaldo" are two different real players, seven
+        // characters each, edit distance 2 apart — this codebase's chosen
+        // tolerance for that length tier is 1, so this must NOT match. Guards
+        // against an edit-distance threshold loose enough to make guessing
+        // trivially easy by accepting a similarly-shaped but wrong name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "Barcelona");
+        await SeedPlayerAsync("Rivaldo", "Brazil", "Barcelona");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Ronaldo"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_ShortNickname_NoFuzzyToleranceForDistanceOne_DoesNotMatch()
+    {
+        // Names of 4 normalized characters or fewer get zero fuzzy
+        // tolerance — "Pele" and "Dele" (Dele Alli's own nickname) are one
+        // edit apart but are two different real players; at this length any
+        // fuzzy pass would already have been an exact/alias hit if it were
+        // really the same name.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "Santos");
+        await SeedPlayerAsync("Pele", "Brazil", "Santos");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Dele"));
+
+        Assert.That(result.IsCorrect, Is.False);
+    }
+
+    [Test]
+    public async Task REQ208_ScoreSubmissionAsync_FuzzyTypo_DistanceExceedsThreshold_DoesNotMatch()
+    {
+        // One edit past this length tier's threshold (2) — "Zinedin
+        // Zidence" is distance 3 from "Zinedine Zidane" — must not match,
+        // confirming the threshold has a real ceiling rather than silently
+        // accepting anything vaguely similar.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Real Madrid");
+        await SeedPlayerAsync("Zinedine Zidane", "France", "Real Madrid");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Zinedin Zidence"));
+
+        Assert.That(result.IsCorrect, Is.False);
     }
 
     // ---- REQ-209: disambiguating multiple players with a matching name -----
-    // (Tier 0 simplified per MVP-SCOPE.md: no disambiguation prompt — any
-    // fitting candidate is accepted, deterministically the lowest Id.)
 
     [Test]
     public async Task REQ209_ScoreSubmissionAsync_ExactlyOneCandidateSatisfiesBothCategories_AcceptedAutomatically()
@@ -1033,22 +1609,7 @@ public class GridGameModuleTests
 
         Assert.That(result.IsCorrect, Is.True);
         Assert.That(result.PlayerAnswerId, Is.EqualTo(fittingPlayer.Id));
-    }
-
-    [Test]
-    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesSatisfyBothCategories_AcceptsDeterministicallyLowestId()
-    {
-        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
-        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
-        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
-        var expected = new[] { first, second }.OrderBy(p => p.Id).First();
-        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
-
-        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
-
-        Assert.That(result.IsCorrect, Is.True);
-        Assert.That(result.PlayerAnswerId, Is.EqualTo(expected.Id),
-            "REQ-204's deterministic-pick rule: the lowest Id among fitting candidates is always chosen");
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a single fitting candidate never needs a disambiguation prompt");
     }
 
     [Test]
@@ -1062,5 +1623,207 @@ public class GridGameModuleTests
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
 
         Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.DisambiguationCandidates, Is.Null,
+            "no candidate satisfying both categories at all is a plain incorrect guess, not a disambiguation case");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesSatisfyBothCategories_ReturnsDisambiguationCandidates_NotAutoAccepted()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        // Each candidate also has an "other" club, distinct from the cell's
+        // own two categories (France/Arsenal) — these are what should
+        // surface as DistinguishingAttributes, never France/Arsenal again.
+        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = first.Id, AttributeType = "club", AttributeValue = "Monaco" });
+        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = second.Id, AttributeType = "club", AttributeValue = "Lyon" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.IsCorrect, Is.False, "an ambiguous guess is never auto-accepted on the player's behalf");
+        Assert.That(result.PlayerAnswerId, Is.Null);
+        Assert.That(result.DisambiguationCandidates, Is.Not.Null.And.Count.EqualTo(2));
+        Assert.That(result.DisambiguationCandidates!.Select(c => c.PlayerId), Is.EquivalentTo(new[] { first.Id, second.Id }));
+        var firstCandidate = result.DisambiguationCandidates!.Single(c => c.PlayerId == first.Id);
+        var secondCandidate = result.DisambiguationCandidates!.Single(c => c.PlayerId == second.Id);
+        Assert.That(firstCandidate.Name, Is.EqualTo("John Smith"));
+        Assert.That(firstCandidate.DistinguishingAttributes, Is.EquivalentTo(new[] { "Monaco" }),
+            "must show the candidate's OTHER attributes, never the cell's own France/Arsenal categories again");
+        Assert.That(secondCandidate.DistinguishingAttributes, Is.EquivalentTo(new[] { "Lyon" }));
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_MultipleCandidatesWithNoOtherKnownAttributes_ReturnsEmptyDistinguishingAttributes_NotBlocked()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
+
+        Assert.That(result.DisambiguationCandidates, Is.Not.Null.And.Count.EqualTo(2));
+        Assert.That(result.DisambiguationCandidates!.Select(c => c.PlayerId), Is.EquivalentTo(new[] { first.Id, second.Id }));
+        Assert.That(result.DisambiguationCandidates!, Has.All.Matches<DisambiguationCandidate>(c => c.DistinguishingAttributes.Count == 0),
+            "a candidate with no other known attributes must still appear, just with an empty list — never blocking the feature");
+    }
+
+    // ---- REQ-209/REQ-210: the ChosenPlayerId resubmission fast path -------
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdMatchesAFittingCandidate_AcceptsIt()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var first = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var second = await SeedPlayerAsync("John Smith", "France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith", ChosenPlayerId: second.Id));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(second.Id));
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a resolved ChosenPlayerId submission is a real scored guess, not another prompt");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdRealPlayerButNoLongerSatisfiesBothCategories_TreatedAsOrdinaryIncorrectGuess_DoesNotThrow()
+    {
+        // staleChoice is a real player matching the submitted name, but only
+        // satisfies ONE of the cell's two categories (e.g. an admin
+        // correction landed between the disambiguation prompt and this
+        // resubmission) — never trust the client-supplied id blindly, always
+        // re-verify server-side.
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var staleChoice = await SeedPlayerAsync("John Smith", "France", "Chelsea");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        ScoreResult? result = null;
+        Assert.DoesNotThrowAsync(async () => result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith", ChosenPlayerId: staleChoice.Id)));
+
+        Assert.That(result!.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
+        Assert.That(result.DisambiguationCandidates, Is.Null, "a failed ChosenPlayerId resubmission is a plain incorrect guess, not another prompt");
+    }
+
+    [Test]
+    public async Task REQ209_ScoreSubmissionAsync_ChosenPlayerIdSuppliedButNothingMatchesAtAll_TreatedAsOrdinaryIncorrectGuess()
+    {
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(
+            instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nobody At All", ChosenPlayerId: Guid.NewGuid()));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.DisambiguationCandidates, Is.Null);
+    }
+
+    // ---- REQ-114/ADR-0035: national teams as distinct footballing entities
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_NationalTeamCountry_PairsWithClubsExactlyLikeAnyOtherCountry()
+    {
+        // No special-casing needed anywhere in grid generation's pairing
+        // logic (SelectPairing/CategoryPairingRules) — a flagged country is
+        // just another CountryDefinition row.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        SeedCachedMatches("England", "Tottenham Hotspur", 3);
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.Count.EqualTo(1));
+        Assert.That(instance.Cells[0].RowCategoryType, Is.EqualTo(CategoryPairingRules.Country));
+        Assert.That(instance.Cells[0].RowCategoryValue, Is.EqualTo("England"));
+        Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Tottenham Hotspur"));
+    }
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_OrdinaryCountry_StillDispatchesWithFlagFalse()
+    {
+        // The existing P27 path (represented here by
+        // UsesCountryForSportProperty = false reaching the lookup service)
+        // must stay completely unaffected — this is generation's cache-miss
+        // path (GetMatchCountAsync), not the guess-time fallback.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France"); // usesCountryForSportProperty defaults to false
+        SeedClub("Arsenal");
+        // No SeedCachedMatches call — forces the live-lookup path so
+        // LookupAndPersistAsync is actually invoked and its flag captured.
+        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakeLivePlayers("France-Arsenal", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ114_GenerateInstanceAsync_NationalTeamCountry_LiveLookupDispatchedWithFlagTrue()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        // No SeedCachedMatches call — forces the live-lookup path
+        // (GetMatchCountAsync's cache miss) so LookupAndPersistAsync is
+        // actually invoked and its flag captured.
+        _wikidataLookupService.SetMatches("England", "Tottenham Hotspur", BuildFakeLivePlayers("England-Spurs", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("England", "Tottenham Hotspur"), Is.True,
+            "CategoryCandidate must carry CountryDefinition.UsesCountryForSportProperty through to the live-lookup dispatch site");
+    }
+
+    [Test]
+    public async Task REQ114_ScoreSubmissionAsync_NationalTeamCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess()
+    {
+        // REQ-211's guess-time fallback dispatching through the right query
+        // path for a national-team cell — mirrors
+        // REQ211_ScoreSubmissionAsync_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess
+        // above, but the row category is a flagged national team.
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedClub("Tottenham Hotspur");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("England", "Tottenham Hotspur");
+        // Some other player already satisfies this cell in the cache (what
+        // let grid generation accept the pairing in the first place) — but
+        // the guessed player himself was never synced.
+        await SeedPlayerAsync("Some Other Spur", "England", "Tottenham Hotspur");
+        var kane = new Player { Id = Guid.NewGuid(), FullName = "Harry Kane", WikidataQid = "Qkane" };
+        _wikidataLookupService.SetMatches("England", "Tottenham Hotspur", [kane]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Harry Kane"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live lookup for a national-team cell must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(kane.Id));
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("England", "Tottenham Hotspur"), Is.True,
+            "the guess-time fallback (RefreshCellFromLiveLookupAsync -> ResolveCandidateAsync) must re-resolve the full " +
+            "CountryDefinition row, including its UsesCountryForSportProperty flag, not just Name/WikidataQid");
+    }
+
+    [Test]
+    public async Task REQ114_ScoreSubmissionAsync_OrdinaryCountryCell_LiveLookupFallback_StillDispatchesWithFlagFalse()
+    {
+        // The guess-time fallback's existing P27 path must stay completely
+        // unaffected for every ordinary country.
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
+
+        Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
     }
 }

@@ -137,6 +137,65 @@
   color: var(--color-text-muted);
 }
 
+/* SCREEN-02a (REQ-209): disambiguation prompt. Same neutral-token
+   discipline as .guess-input__suggestions above — no accent-green/
+   accent-gold anywhere in this list, since none of these candidates is
+   known to be correct yet; picking one is what actually gets scored. */
+.guess-input__disambiguation-prompt {
+  /* h1/h2/h3's global rule (index.css) already sets font-family/weight/color
+     (--font-display, 600, --color-text-primary) — only size is set here. */
+  font-size: 16px;
+}
+
+.guess-input__candidates {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.guess-input__candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  background: var(--color-surface-card);
+}
+
+.guess-input__candidate:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.guess-input__candidate-radio {
+  min-width: 20px;
+  min-height: 20px;
+  accent-color: var(--color-accent-green-text);
+  flex-shrink: 0;
+}
+
+.guess-input__candidate-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.guess-input__candidate-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.guess-input__candidate-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 .guess-input__error {
   color: var(--color-accent-red);
   font-size: 13px;

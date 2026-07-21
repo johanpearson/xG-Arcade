@@ -805,6 +805,43 @@ multiple weeks/months/years; a round still in progress never appears in
 any window's totals; the "round" resolution always resolves to the most
 recently closed round, never an arbitrary one. *Deps:* S-011 (locked
 `FinalPoints`/leaderboard exist).
+**Built as:** matches the plan. New `GET
+/leagues/global/leaderboard/window/{resolution}` route
+(`XGArcade.Api.Leagues.LeaderboardEndpoints`), `{resolution}` parsed
+case-insensitively into a new `LeaderboardWindowResolution` enum — anything
+else is a 400. `LeaderboardService.GetWindowedLeaderboardAsync`: `Round`
+reuses REQ-408's exact single-round path
+(`GetClosedByGameKeyAsync(gameKey, 0, 1)` +
+`GetTotalFinalPointsByRoundIdAsync`); `Week`/`Month`/`Year` compute a
+calendar-aligned, half-open UTC window and go through two new repository
+methods, `IRoundRepository.GetClosedIdsWithinWindowAsync` (locked-only,
+`EndTime` range) and `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`
+(the existing single-round method now delegates to this plural one rather
+than duplicating the query). **Indexing plan honored without a new
+migration:** the existing `Round(GameKey, EndTime)` index (REQ-408) and
+`Guess`'s existing unique index on `(RoundId, UserId, CellId)` (`RoundId`
+leading) already cover both new query shapes — documented inline on the
+new repository methods rather than re-derived at review time. 18 new
+REQ405-named tests (8 `LeaderboardServiceTests`, 10
+`LeaderboardEndpointTests`, including a month-boundary case and the
+invalid-resolution 400); full backend suite (510 tests) passes. **Frontend
+(same session, follow-up commit):** a 4th "Time Windows" scope on
+`LeaderboardScreen.tsx` with its own round/week/month/year sub-tabs, same
+prev-scope/prev-resolution-ref fetch-on-transition pattern the `live`/`past`
+scopes already established, rows rendered non-provisional (locked totals
+only). New `fetchWindowedLeaderboard` in `lib/api.ts`. 4 new REQ405 Vitest
+cases; full frontend suite (205 tests), `tsc -b`, and lint all clean.
+`design-document.md` SCREEN-03 updated to document the full scope-tab
+system (also backfilled the pre-existing gap where the `live`/`past`
+scopes from S-053/S-054 had never been documented there at all).
+**Follow-up (quality-architect review, 2026-07-21):** `lib/api.ts`'s
+`WindowResolution`/`fetchWindowedLeaderboard` doc comments called these
+"rolling" windows, contradicting this story's own decided design
+(calendar-aligned, never rolling — see this entry's own text above and
+`LeaderboardService.GetCalendarWindow`); corrected in place, comment-only,
+no behavior change. `design-document.md` SCREEN-03's "Time Windows" bullet
+still says "a rolling leaderboard" and has the same drift — flagged for a
+`doc-sync`/`requirements-writer` pass rather than edited here.
 
 **S-030 · Enable Club × Club grid pairing (REQ-107)**
 `CategoryPairingRules.IsAllowedPairing` already permits Club × Club (only
@@ -891,6 +928,43 @@ scored correct only via a `PlayerAttribute`/`PlayerOverride` record of type
 `trophy`; REQ211-named test confirms a Trophy cell missing cache also gets
 the live-lookup fallback. *Deps:* S-007, S-030 (shares the generalized
 header-selection and live-lookup-fallback work).
+
+**Built as:** `CategoryPairingRules.Trophy` added; `GridGameModule.
+SelectPairing` generalized from S-030's two-way coin flip to a uniform
+random choice among however many of five candidate pairings (Country×Club,
+Club×Club, Country×Trophy, Club×Trophy, Trophy×Trophy) the seeded reference
+data can support — Trophy is always kept second in a mixed pairing, same
+precedent Country×Club already set for Country preceding Club.
+`MapAttributeType`/`ResolveCandidateAsync`/`LookupLiveMatchesAsync` all gained
+a Trophy branch; Trophy×Trophy has no dedicated live-lookup persist method
+(unreachable in practice, see below) and falls through to the existing
+fail-closed `null` return. `WikidataClient` gained
+`QueryTrophyCountryIntersectionAsync`/`QueryTrophyClubIntersectionAsync`
+(P166 "award received", truthy — a deliberate, documented call distinct from
+P54's non-truthy rule, see the query builders' own comments — + P27/P54
+respectively), reusing `BuildIntersectionQuery`'s shared plumbing.
+`WikidataLookupService` gained `LookupAndPersistTrophyCountryAsync`/
+`LookupAndPersistTrophyClubAsync`, reusing the existing `PersistMatchesAsync`
+helper, persisting matches under `PlayerAttribute.AttributeType="trophy"`.
+`ReferenceDataSeeder` gained a `Trophies` array seeding exactly one row,
+Ballon d'Or (`Q166177`, `IsTeamTrophy=false`) — **this QID was not
+independently verified against a live Wikidata page this session** (same
+sandbox network limitation `ReferenceDataSeeder`'s own doc comment already
+documents for S-036/S-037's guessed club QIDs, 4 of which turned out wrong)
+— a human must check it before relying on this in production; `Trophy
+Definition.Name` already had a unique index (`ADR-0012` scaffolding), so no
+new migration was needed. **Confirmed, asserted-not-just-commented
+consequence:** with only this one seeded trophy, every Trophy pairing is
+infeasible for any realistic grid size and so structurally never selected
+in production (`REQ108_SelectPairing_OnlyOneTrophySeeded_MatchingRealSeedData
+_NeverSelectsAnyTrophyPairing`) — the mechanism itself is proven correct via
+a faked larger trophy pool (5+/3+ values) in the rest of the new
+`GridGameModuleTests` coverage. 42 new REQ108/REQ211-named tests added
+across `GridGameModuleTests.cs`, `WikidataClientTests.cs`,
+`WikidataLookupServiceTests.cs`, and `ReferenceDataSeederTests.cs`; full
+backend suite (552 tests) passes. `docs/requirements-document.md` (REQ-107/
+REQ-108 status notes), `MVP-SCOPE.md`, and `GridTemplate`/`IWikidataClient`'s
+own doc comments updated to describe Trophy as built, not deferred.
 
 **S-032 · Autocomplete + `PlayerNameIndex` (REQ-207, ADR-0007)**
 Pulled forward from Tier 1 by deliberate choice, 2026-07-12 — not because
@@ -3003,6 +3077,97 @@ the suite's default (desktop-sized) viewport, unaffected by a ≤480px-only
 fix. `docs/design-document.md` updated in the same story (§4's cell-sizing
 notes, new S-059 bullet).
 
+**S-060 · Median, participation-gated all-time leaderboard (REQ-409)**
+Implements REQ-409's 2026-07-20 decision (see that REQ's full text): the
+all-time leaderboard ranks by the median of each player's per-round
+`SUM(FinalPoints)` totals (locked rounds only, no live component) instead
+of the raw sum, gated by a minimum of 5 qualifying rounds (closed round +
+at least one `Guess` in it) to appear ranked at all — replacing, not
+adding a tab alongside, the existing `GetGlobalLeaderboardAsync` ranking.
+Below-threshold players are excluded the same way REQ-404's zero-guess
+exclusion already works. Ties broken by display name, same as every other
+ranking. See REQ-404's added status note for how the interim (pre-this-
+story) behavior is described.
+*Accept:* REQ409-named tests: median computed correctly for odd/even
+qualifying-round counts; exactly-4-rounds excluded, exactly-5 included and
+ranked; an active/unlocked round never counts toward the threshold or the
+median; sort order and tie-break match every other leaderboard ranking.
+API test confirms the all-time endpoint returns the median-based ranking
+and a below-threshold member is absent, not present with a placeholder.
+*Deps:* S-011 (global leaderboard), S-034 (pagination).
+**Built as:** matches the plan exactly, plus one deliberate removal beyond
+the plan's literal scope. New `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync`
+joins `Guesses` to `Rounds` (`Guess` has no navigation property to
+`Round`), filters `ClosedAt != null`, groups by `(UserId, RoundId)`
+DB-side. `LeaderboardService.GetGlobalLeaderboardAsync`'s median uses
+`MidpointRounding.AwayFromZero` only for the displayed `int` value — the
+underlying `double` drives sort order/ties, so rounding never affects
+rank. The REQ-406 live-round fold was removed from this method entirely
+rather than left dormant (no resolved meaning for folding a live round
+into a median — `GetActiveRoundLeaderboardAsync`/REQ-407 is untouched and
+still live); `GetTotalFinalPointsByUserIdsAsync`/`GetUserIdsWithAnyGuessAsync`
+were deleted as dead code once this was rewritten (no other callers).
+Existing tests whose premise (single-guess ranking, live-fold behavior)
+no longer held were updated to seed real closed rounds and 5+ qualifying
+rounds rather than deleted; 9 new REQ409 unit tests and 2 new API tests
+added. Full backend suite: 580/580 passing.
+
+**S-062 · Password policy, enumeration-safe errors, signup/login rate limiting (REQ-701/606)**
+Closes REQ-701's password-policy and account-enumeration-safe-error
+clauses and REQ-606's signup/login rate-limiting clause — all three
+already fully specified, no product decision needed. Password policy is
+the existing §5 default (minimum 8 characters, no forced complexity),
+enforced server-side first among `AuthController.Signup`'s free local
+checks and client-side in `AuthScreen.tsx`. Every Supabase signup-rejection
+reason now returns the identical generic body rather than Supabase's own
+wording — deliberately not narrowed to the already-registered case, since
+a distinctly different message only for that case would itself leak which
+case occurred; Supabase's real error is logged server-side only.
+Signup/login get a 10-request/minute-per-IP rate limit via ASP.NET Core's
+built-in `RateLimiting` middleware (`QueueLimit = 0`, 429 on exceeding, no
+new package).
+*Accept:* REQ701-named tests: signup blocked under 8 characters, succeeds
+at exactly 8, generic error returned for every Supabase rejection reason
+(never the real reason). REQ606-named tests: signup/login both 429 after
+exceeding the per-minute limit; exhausting one endpoint's limit doesn't
+affect the other.
+*Deps:* S-004 (auth exists).
+**Built as:** matches the plan exactly. Rate-limit tests exploit that
+`WebApplicationFactory`'s TestServer leaves `RemoteIpAddress` null (all
+requests collapse onto one partition), so a fast in-process burst of 11
+requests deterministically trips the limit with no clock mocking needed.
+7 new backend tests, 3 new frontend tests; full backend suite (580 tests)
+and frontend suite (212 tests) both green, `tsc -b`/lint clean.
+
+**S-061 · Admin "remove the data point" action (REQ-503, closes the last gap)**
+S-057 built "approve"; this closes REQ-503's other missing action,
+"remove," the same day. `POST /admin/player-data/remove` (`AdminEndpoints`,
+Admin policy), bulk-capable from the start like "approve," per-id
+success/failure reporting. Hard-deletes the `PlayerData` row — checked
+first that nothing holds a foreign key to a specific row id
+(`PlayerOverride` keys on `(PlayerId, Field)`, not a `PlayerData` id;
+`PlayerAttribute` has no reference to it at all), so a real delete is safe
+and matches the REQ's own "remove," not "hide," wording. Unlike "approve,"
+removal has no "must still be unverified" precondition — it's a general
+corrective action, not tied to the review queue's current state. No new
+`RemovedByAdminId`/`RemovedAt` audit columns (nothing survives to attach
+them to once the row is gone) — audit logging is a structured `ILogger`
+line at removal time instead, matching this codebase's established
+preference against a general-purpose audit-log table (same reasoning
+`PlayerOverride`'s own audit columns already established elsewhere).
+`AdminScreen.tsx` gained a "Remove selected" action in the same
+bulk-selection bar as "Approve selected."
+*Accept:* REQ503-named tests: single remove deletes one row; bulk remove
+(including select-all) deletes every selected row; a row already removed
+between selection and submission reports `NotFound` for that id without
+failing the rest of the batch; a non-admin gets 403 and the row survives.
+*Deps:* S-057 (existing review list/approve action this extends).
+**Built as:** matches the plan exactly. 5 new backend tests
+(`AdminEndpointTests.cs`), 4 new frontend tests (`AdminScreen.test.tsx`);
+full backend suite (557 tests) and frontend suite (209 tests) both green,
+`tsc -b`/lint clean. REQ-503's full acceptance criteria (approve, correct,
+remove) are now all built.
+
 ## Tier 1 backlog (unordered — each waits for its trigger in `MVP-SCOPE.md`)
 
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
@@ -3014,6 +3179,243 @@ S-031 — automated ID resolution for team-competition trophies is T-105's
 unclaimed remainder) ·
 T-106 dev/prod split + sync (ADR-0006/0009, REQ-801-804) · T-107 backups +
 alerting (REQ-901/902 — **bright line: before any non-self user**) ·
-T-108 email confirmation + Resend (REQ-701-705) · T-109 custom leagues
-(REQ-402-404) · T-110 legal docs finalized (**bright line: before public
+T-108 email confirmation + Resend (REQ-702-705 — REQ-701's own
+password-policy/enumeration-safe-error clauses are built, S-062) ·
+~~T-109 custom leagues~~ (create/join pulled forward and built, see
+S-063 — REQ-404's full per-custom-league leaderboard is T-109's unclaimed
+remainder) · T-110 legal docs finalized (**bright line: before public
 launch**).
+
+**S-063 · Custom leagues create/join (REQ-402/403)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 placement — no
+trigger fired (no request was actually observed), same "pulled forward by
+deliberate choice" pattern as REQ-108/REQ-214. Scope: create a league
+(auto-enrolls the creator), join via a 6-character invite code (887M-symbol
+alphabet excluding visually-ambiguous characters), list a player's own
+custom leagues by name/code. New `Core.Leagues.LeagueService`/
+`ILeagueService`, `Api.Leagues.LeagueEndpoints` (`POST /leagues`,
+`POST /leagues/join`, `GET /leagues/mine`), `LeaguesScreen.tsx` (new nav
+entry alongside Leaderboard/Settings). Explicitly out of scope: REQ-404's
+full per-custom-league leaderboard (no tab switcher, no per-league
+leaderboard reads — `LeaderboardScreen.tsx`/`LeaderboardService.cs`/
+`LeaderboardEndpoints.cs` untouched) and the per-user league caps
+(25 created / 100 joined) requirements-document.md mentions elsewhere —
+neither was requested for this story.
+*Accept:* REQ402-named tests: create succeeds and auto-adds the creator,
+invite codes are unique. REQ403-named tests: join with a valid code
+succeeds; join with an invalid code returns a clear error and creates no
+membership; unauthenticated calls are rejected.
+*Deps:* S-004 (auth).
+**Built as:** matches the plan, plus one gap caught and fixed before
+merge: the new `League.InviteCode` unique index was added to
+`XGArcadeDbContext.OnModelCreating` but the corresponding EF Core
+migration was missing — generated and included
+(`20260720163147_AddLeagueInviteCodeUniqueIndex`) so the constraint
+actually exists against a real database, not just the in-memory test
+provider. Invite-code collision handling: an in-app pre-check
+(`InviteCodeExistsAsync`, retried up to 5 times) plus the DB unique index
+as the real race-safety net, mirroring `User.NormalizedDisplayName`'s
+existing pattern; re-joining a league the caller already belongs to is an
+idempotent success (`JoinLeagueOutcome.AlreadyMember`), not an error — a
+documented product-shape choice since REQ-403 doesn't specify this case.
+18 new backend tests (8 `LeagueServiceTests`, 10 `LeagueEndpointTests`),
+12 new frontend tests (`LeaguesScreen.test.tsx` + `HeaderNav.test.tsx`);
+full backend suite (580 tests) and frontend suite (226 tests) both green,
+`tsc -b`/lint clean.
+
+**S-064 · Implement dark mode / selectable color themes (REQ-716)**
+Builds the design decided in the 2026-07-20 design pass (REQ-716,
+`docs/design-document.md` §2's "Dark theme" subsection, ADR-0034) — no
+new design decisions to make here, purely implementation. A three-state
+System/Light/Dark toggle on `SettingsScreen.tsx`, persisted in
+`localStorage` under a new key, applied as a `data-theme` attribute on
+`<html>` before first paint (avoid a flash of the wrong theme, same
+concern `App.tsx`'s existing `ACCESS_TOKEN_STORAGE_KEY` read-at-startup
+already has to handle). Every CSS custom property in `frontend/src/index.css`
+gets a `:root[data-theme="dark"]` (or equivalent) override matching
+ADR-0034's token table exactly — colors only, no layout/spacing/type/
+animation changes. "System" resolves `prefers-color-scheme` at load and
+reactively on its `change` event.
+*Accept:* toggling to Dark/Light pins that theme regardless of OS setting
+and persists across a reload; System (default) follows
+`prefers-color-scheme`, including a live OS-level change while the app is
+open; every screen renders legibly in both themes (spot-check each SCREEN
+mock); no flash of the wrong theme on load.
+*Deps:* the design pass above (2026-07-20, REQ-716/ADR-0034 — design
+decided), the existing `SettingsScreen.tsx` (ADR-0030's mobile-nav/
+Settings consolidation).
+**Built as:** matches the plan exactly. New `frontend/src/lib/theme.ts`
+(`useThemePreference` hook, `applyStoredThemePreference`/`resolveTheme`/
+`applyResolvedTheme` helpers) mounted once in `App.tsx` (not inside
+`SettingsScreen`, so the "system" preference's reactive
+`prefers-color-scheme` listener stays active regardless of which screen
+is showing) and called once more, standalone, in `main.tsx` before the
+React tree mounts (avoids a flash of the wrong theme). `index.css`'s
+`:root[data-theme='dark']` block copies every hex value verbatim from
+`design-document.md` §2's table — including making
+`accent-green-text`/`accent-gold-text` (dormant in dark theme per that
+table) point at the same values as `accent-green`/`accent-gold`, so every
+existing component that already reads those two specific variable names
+picks up the correct dark color with zero component-code change.
+`SettingsScreen.tsx` gained a System/Light/Dark `radiogroup`. Verified
+visually via a real Chromium screenshot (light vs. dark, both legible) in
+addition to 16 new `theme.test.ts` unit tests plus updated
+`SettingsScreen.test.tsx` coverage; full frontend suite (248 tests),
+`tsc -b`, and lint all clean. **One coincidental-not-derived finding,
+flagged rather than silently accepted:** the login/signup submit button's
+text color reuses `--color-surface-card` as its foreground — outside the
+design pass's audited token list — which in dark theme measures 4.64:1
+against the green button background (clears 4.5:1 AA, but narrowly and by
+coincidence). See REQ-716's own status note.
+
+**S-065 · Alias and fuzzy-typo matching for guess scoring (REQ-208)**
+Closes REQ-208's two still-deferred clauses — the "simple half" (lowercase/
+diacritics/punctuation normalization) was already built, S-009.
+`GridGameModule.FindMatchAsync` now tries three stages in order, each only
+reached if the previous produced no candidate fitting both of the cell's
+categories: exact `Player.NormalizedFullName` match (unchanged),
+`PlayerAlias.NormalizedAlias` exact match, then a bounded edit-distance
+fuzzy pass. Stays entirely on the correctness-checking side
+(`PlayerAttribute`/`PlayerAlias`, COMP-06) — no new read path into
+`PlayerNameIndex` (COMP-10), per ADR-0007's boundary rule (autocomplete
+and correctness matching must never merge).
+*Accept:* REQ208-named tests: diacritics (existing coverage), a new
+alias-match case, fuzzy-typo cases that should match, and near-miss
+strings that should NOT match (confirms the edit-distance threshold
+doesn't make the game trivially easy).
+*Deps:* S-009 (name normalization, exact matching).
+**Built as:** matches the plan, plus a length-tiered edit-distance
+threshold rather than one fixed number — 0 for names <=4 characters
+normalized length, 1 for 5-8, 2 for >=9 — verified against concrete name
+pairs before committing to the thresholds (e.g. "Pele"/"Dele," two
+different real players, is distance 1, so a flat tolerance of 1 would
+have made them collide; "Ronaldo"/"Rivaldo" is distance 2, correctly
+rejected at the 5-8 tier's tolerance of 1). New
+`XGArcade.Data.NameEditDistance` (plain Levenshtein, O(n·m) DP — the
+smallest well-understood metric for "minor typos," not
+transposition-aware or phonetic matching). The fuzzy candidate pool is
+bounded to players already known (via a cached `PlayerAttribute` row) to
+satisfy at least one of the cell's two categories, never a full-table
+scan — a player satisfying neither can never be a correct answer for this
+cell regardless of name. `FilterByCategoriesAsync`/`AcceptMatch` extracted
+so all three stages (exact/alias/fuzzy) share identical
+category-fit/REQ-209-disambiguation handling, preventing drift between
+them. 27 new tests (`GridGameModuleTests.cs`, `PlayerStoreRepositoryTests.cs`,
+new `NameEditDistanceTests.cs`), including two ordering tests proving
+alias/fuzzy repository calls never happen once an earlier stage already
+resolved a match. Full backend suite (607 tests) green.
+
+**S-066 · National teams as distinct footballing entities (REQ-114, ADR-0035)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 placement, by
+explicit product decision (not a triggered event from that file's own
+trigger list — struck through there per its own "update when pulled
+forward" instruction). England, Scotland, Wales, and Northern Ireland
+seeded as four additional `CountryDefinition` rows (alongside, never
+replacing, United Kingdom), each with a new `UsesCountryForSportProperty`
+flag set `true` — queried via Wikidata's `P1532` ("country for sport")
+instead of `P27` ("citizenship"), since none of the four are sovereign
+states and every home-nation player's `P27` is uniformly United Kingdom.
+See ADR-0035 for the full alternatives-considered record, including why
+this is a per-row flag on the existing "Country" category type rather than
+a new category type or a separate reference table.
+*Accept:* REQ114-named tests: the new `P1532` query path is used only for
+flagged countries; the existing `P27` path is completely unaffected for
+every other seeded country; a national-team country pairs with clubs
+exactly like any other country, no special-casing in grid generation
+itself; the guess-time live-lookup fallback (REQ-211) also dispatches
+through the right query path for a national-team cell.
+*Deps:* S-006 (Wikidata client), S-030 (generalized pairing selection).
+**Built as:** matches the plan exactly. `GridGameModule`'s internal
+`CategoryCandidate` record struct gains a third field carrying the flag
+from `CategoryValueRepository` through generation/guess-time-fallback to
+the point a live Wikidata call is actually dispatched — chosen over
+re-resolving the full `CountryDefinition` row at each dispatch site, since
+that dispatch point (`LookupLiveMatchesAsync`) is called from
+`GetMatchCountAsync` inside `PickHeadersAsync`'s hot loop, and an extra
+repository round-trip per candidate tried during generation would be a
+real, avoidable cost (see ADR-0035's alternatives table). The
+`P27`-vs-`P1532` choice is made in exactly one place,
+`WikidataLookupService.LookupAndPersistAsync` — `GridGameModule`'s
+dispatch call site needed no change at all. New
+`IWikidataClient.QueryNationalTeamClubIntersectionAsync`/
+`BuildNationalTeamClubIntersectionQuery`, using the truthy `wdt:P1532`
+shortcut (safe here — unlike `P54`, there's no Wikidata editorial
+convention of marking one `P1532` statement "preferred rank," so best-rank
+semantics and "represented this country at all" coincide, same reasoning
+already used for `P166`'s truthy shortcut in S-031). Matched players
+persist under the same `PlayerAttribute.AttributeType = "nationality"`
+vocabulary as every other country — "England" is just another value,
+same as "United Kingdom" already is. QIDs (England `Q21`, Scotland `Q22`,
+Wales `Q25`, Northern Ireland `Q26`) are training-knowledge values, **not
+verified against live Wikidata from this sandbox** — flagged in the
+seeder, REQ-114, and ADR-0035; a human must verify before relying on them
+in a real deployment, same process S-037 already established. **Known
+follow-up, not fixed here:** Country × Trophy's dispatch branch doesn't
+yet honor the flag — currently unreachable in production (the seeded
+trophy pool is too small for any Trophy pairing to ever be selected, same
+as Trophy × Trophy), tracked in ADR-0035. 20 new tests across
+`WikidataClientTests.cs`, `WikidataLookupServiceTests.cs`,
+`ReferenceDataSeederTests.cs`, `GridGameModuleTests.cs`; new EF Core
+migration for the `CountryDefinition` column generated and included. Full
+backend suite (627 tests) green.
+
+**S-067 · Disambiguation UI (REQ-209)**
+Pulled forward ahead of `MVP-SCOPE.md`'s original Tier 1 trigger ("you
+actually observe two real players with the same normalized name both
+satisfying one cell"), which had never actually fired — by deliberate
+choice, same pattern as REQ-108/REQ-214/REQ-402-403's own precedent.
+Replaces S-065's auto-accept-lowest-id-and-log behavior: when a guess
+resolves to more than one fitting candidate, the player is now shown a
+picker instead of the system guessing on their behalf. Backend/API and
+frontend landed as two sequential sub-tasks the same day.
+*Accept:* REQ209-named tests: exactly-one-candidate still auto-accepts
+unchanged; more-than-one-candidate returns disambiguation candidates
+without persisting a `Guess` row or incrementing attempt count (REQ-210);
+a valid `chosenPlayerId` resubmission scores correctly and consumes
+exactly one attempt total (prompt + resolution together, not two); an
+invalid/stale `chosenPlayerId` is treated as an ordinary incorrect guess.
+*Deps:* S-065 (REQ-208's matching pipeline this replaces the disambiguation
+tail-end of), S-011 (guess submission).
+**Built as (backend/API):** `GridGameModule.AcceptMatchAsync` (renamed
+from `AcceptMatch`, now async) returns `ScoreResult.DisambiguationCandidates`
+— each candidate's *other* known `PlayerAttribute` values (nationality/
+club/trophy), excluding whichever of the cell's own two categories every
+candidate already satisfies, since repeating those wouldn't distinguish
+anything — instead of birth year (REQ-209's own text only offers that as
+an illustrative "e.g." example; `Player` has no birth-year column, and
+adding one was out of scope). A `chosenPlayerId` fast path re-runs the
+same exact/alias/fuzzy pipeline from scratch and only accepts if the id
+is present in the freshly-computed matching set — never trusts a
+client-supplied id blindly, and an invalid one fails closed to an
+ordinary incorrect guess rather than throwing.
+`GuessSubmissionService.SubmitGuessAsync` returns the new
+`NeedsDisambiguation` outcome *before ever touching `guessRepository`* —
+no `AddAsync`/`UpdateAsync`, no attempt-count increment — which is what
+makes REQ-210's "not a separate attempt" guarantee structural rather than
+conventional; verified directly by a test asserting no `Guess` row exists
+after a disambiguation prompt, and a companion test asserting the
+prompt-then-`chosenPlayerId`-resolution pair together consume exactly one
+attempt. API: `SubmitGuessRequest` gained `ChosenPlayerId`;
+`SubmitGuessResponse` gained `Candidates` (null on every ordinary
+response — the frontend's discriminator for "show a picker" vs. "render a
+scored result"). 15 new backend tests; full backend suite (642 tests)
+green.
+**Built as (frontend):** `GuessInput.tsx` renders SCREEN-02a's picker
+(native `role="radiogroup"` of radio-labeled candidates, each showing
+name + `distinguishingAttributes.join(' · ')`, gracefully omitted — not
+shown empty — when a candidate has none) whenever `onSubmit` resolves
+with a non-empty candidate array instead of closing; a new
+`onResolveDisambiguation` prop resubmits with the chosen `playerId` and
+closes on the resulting scored response, same error-handling shape as the
+plain form. `GridScreen.handleSubmitGuess` never writes cell state for a
+disambiguation-needed response — only the extracted `applyScoredGuess`
+(shared by the plain path and the `chosenPlayerId` resolution path) ever
+updates `state.round.cells`, so the grid keeps showing the cell as
+unanswered until a real scored response arrives. Verified visually via a
+temporary, deleted-afterward preview harness + Chromium screenshots at
+mobile/desktop widths (bottom-sheet vs. centered popover, per SCREEN-02a);
+a full logged-in-through-real-backend flow with genuinely ambiguous
+seeded data was not reachable in this sandbox, so the network round-trip
+itself is verified only via mocked-fetch Vitest coverage, not a live
+integration. 8 new frontend tests; full frontend suite (256 tests),
+`tsc -b`, and lint all clean.

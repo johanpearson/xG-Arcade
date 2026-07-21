@@ -161,8 +161,10 @@ E2E against.
 **Grid content**: Country × Club, plus Club × Club as of `docs/backlog.md`
 S-030 (2026-07-12) — REQ-107 already permitted this pairing, Tier 0 grid
 generation just never used it; no new reference data needed. REQ-108's
-Trophy category is a separate pull-forward, S-031 — see the Tier 1 section
-below for why it's scoped narrower than REQ-108's full definition.
+Trophy category is a separate pull-forward, **built 2026-07-20 as S-031** —
+see the Tier 1 section below for why it's scoped narrower than REQ-108's
+full definition, and why it's mechanically wired up but structurally
+dormant (won't actually be selected) until more than one trophy is seeded.
 **Revised, per an explicit decision to prioritize full historical
 correctness over club-count breadth**: a small, **hand-curated** list of
 roughly **15 clubs** and **15-20 countries** in `CountryDefinition`/
@@ -239,8 +241,10 @@ required to play** (REQ-701-705 — defer; turn off Supabase's
 confirmation requirement in project settings). Resend integration
 (ADR-0005) — defer entirely, not needed if nothing requires confirmation yet.
 
-**Leagues**: global leaderboard only (REQ-401). Custom leagues
-(REQ-402-404) — defer.
+**Leagues**: global leaderboard (REQ-401). Custom leagues create/join
+(REQ-402/403) pulled forward and built 2026-07-20, `docs/backlog.md`
+S-063 — see the Tier 1 section below. REQ-404's full per-custom-league
+leaderboard (tab switching, per-league reads) remains deferred.
 
 **Not needed yet**: backups (REQ-901), failure alerting (REQ-902), legal
 docs (`docs/legal/`) — none of these have real stakes until real users and
@@ -291,9 +295,11 @@ is written as something you can actually observe, not a vague feeling:
   remains deferred — autocomplete alone (a correct-spelling suggestion
   list) is what got built, not typo tolerance for free-typed guesses — and
   REQ-209's disambiguation UI (below) remains deferred too
-- **Disambiguation UI** (REQ-209) — trigger: you actually observe two real
-  players with the same normalized name both satisfying one cell (log this
-  case even in the simplified Tier 0 handling, so you'd notice if it happened)
+- ~~**Disambiguation UI** (REQ-209)~~ — **pulled forward and built
+  2026-07-21, `docs/backlog.md` S-067**, ahead of the trigger firing (no
+  real name collision was actually observed) — pulled forward by
+  deliberate choice, same pattern as REQ-108/REQ-214/REQ-402-403's own
+  precedent
 - **Player photo on cell reveal** (REQ-214) — **Pulled forward by
   deliberate choice, 2026-07-18.** No trigger fired — there was no observed
   complaint or pain point; this was pulled forward because the idea was
@@ -315,29 +321,38 @@ is written as something you can actually observe, not a vague feeling:
   played enough rounds that it feels repetitive, a subjective call but one
   you'll notice by just playing it yourself for a couple of weeks~~ —
   **Trigger judged hit, 2026-07-12**, after two weeks/29 stories' worth of
-  real play. Queued as `docs/backlog.md` S-031, deliberately scoped
-  narrower than REQ-108's full definition: **individual awards only for
-  v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received") —
-  the same simple query shape as the existing Country×Club intersection
+  real play. **Built 2026-07-20, `docs/backlog.md` S-031**, deliberately
+  scoped narrower than REQ-108's full definition: **individual awards only
+  for v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received")
+  — the same simple query shape as the existing Country×Club intersection
   query. Team-competition trophies (World Cup, Champions League) need a
   genuinely different query pattern (squad membership + tournament result
   — no single property links a player directly to "won this tournament")
-  and stay explicitly deferred to a follow-up story, not folded into S-031
-- **National teams as distinct footballing entities** (England, Scotland,
+  and stay explicitly deferred to a follow-up story, not folded into S-031.
+  Two things worth knowing about what actually shipped, not just that it
+  did: (1) Ballon d'Or's QID was a training-knowledge guess, not verified
+  against a live Wikidata page (same sandbox limitation that bit S-036) —
+  needs a human check before real reliance; (2) with only this one trophy
+  seeded, every Trophy pairing is currently infeasible for any realistic
+  grid size, so Trophy is mechanically wired up but won't actually be
+  selected until more trophies are added as reference data — exactly the
+  "a data change, not a code change" growth path REQ-108 was designed for.
+- ~~**National teams as distinct footballing entities** (England, Scotland,
   Wales, Northern Ireland) — trigger: "United Kingdom" as a category
   starts feeling wrong/generic for football trivia, or you specifically
-  want the England card back. Mechanically: none of the four home nations
-  are sovereign states, so they can't be queried via `P27` citizenship the
-  way United Kingdom (or any other Tier 0 country) can — English players'
-  citizenship is uniformly UK. The property that actually means "which
-  country represented in competition" is **`P1532`** ("country for
-  sport") — Wikidata's own definition matches exactly what a football
-  trivia game means by "England." This would likely be modeled as a
-  second query path in `DataSync.Clients` (P1532-based), not a
-  replacement for the P27 path the other countries use — the two concepts
-  (citizenship vs. national team represented) genuinely differ for dual
-  nationals and naturalized players, so keeping them separate is correct,
-  not incidental complexity.
+  want the England card back~~ — **Pulled forward by explicit product
+  decision and built, 2026-07-21 (REQ-114/ADR-0035)**, ahead of the
+  trigger firing, same pattern as REQ-108/REQ-214/REQ-402-403's own
+  precedent. `CountryDefinition` gained a `UsesCountryForSportProperty`
+  flag (default `false`); England/Scotland/Wales/Northern Ireland are
+  seeded as four additional `CountryDefinition` rows (never replacing
+  United Kingdom) with the flag `true`, queried via Wikidata's `P1532`
+  ("country for sport") through a second `WikidataClient` query path,
+  never a replacement for the `P27` path every other country uses — see
+  ADR-0035 for why a per-row flag was chosen over a separate category
+  type, and REQ-114's status note for the unverified-QID caveat (`Q21`/
+  `Q22`/`Q25`/`Q26`, not checked against a live Wikidata page this
+  session).
 - **Creating a real "prod" environment** (ADR-0006, ADR-0009, REQ-801-804's
   full test-data API) — trigger: you have at least one real user who isn't
   you, or you find yourself nervous about testing a change directly
@@ -350,8 +365,13 @@ is written as something you can actually observe, not a vague feeling:
   once real people's accounts/scores exist
 - **Email confirmation + Resend** (REQ-701-705, ADR-0005) — trigger:
   opening the game to anyone you don't personally know/trust
-- **Custom leagues** (REQ-402-404) — trigger: someone actually asks for a
-  private group with friends
+- ~~**Custom leagues** (REQ-402-404)~~ — **create/join (REQ-402/403)
+  pulled forward and built 2026-07-20, `docs/backlog.md` S-063**, ahead of
+  the trigger firing (no request was actually observed — pulled forward by
+  deliberate choice, same pattern as REQ-108/REQ-214's own precedent).
+  REQ-404's full per-custom-league leaderboard remains deferred — trigger:
+  someone actually wants to see a ranked view scoped to one custom league,
+  not just membership
 - **Legal docs finalized** (`docs/legal/`) — trigger: before any public
   launch to strangers — also a bright line, not a judgment call
 

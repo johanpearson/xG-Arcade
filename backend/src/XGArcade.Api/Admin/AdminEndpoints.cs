@@ -77,6 +77,60 @@ public static class AdminEndpoints
             return Results.Ok(new ApprovePlayerDataResponse(results));
         }).RequireAuthorization("Admin");
 
+        // REQ-503 (2026-07-20 extension): the "remove" action — sibling to
+        // "approve" above in every respect except what it does to the row:
+        // bulk-capable from the start (single-row is just the N=1 case),
+        // same per-id success/failure reporting shape, same "Admin" policy,
+        // always 200 with a per-id result rather than an all-or-nothing
+        // batch outcome. Unlike approve, a row doesn't need to still be
+        // "unverified" to be removed — see
+        // IPlayerStoreRepository.RemovePlayerDataAsync's own comment for why.
+        //
+        // Audit logging: this hard-deletes the row, so there is nothing left
+        // to attach an "ApprovedByAdminId/ApprovedAt"-shaped pair of columns
+        // to (see PlayerData.cs's comment on why that shape doesn't apply to
+        // removal). "The action is logged with admin_id and a timestamp"
+        // (REQ-503) is satisfied here by a structured ILogger line per
+        // successfully-removed row, rather than a new audit-log table —
+        // this codebase has deliberately avoided a general-purpose one so
+        // far (PlayerOverride/PlayerData's own audit columns instead).
+        app.MapPost("/admin/player-data/remove", async (
+            RemovePlayerDataRequest request,
+            ClaimsPrincipal principal,
+            IPlayerStoreRepository playerStoreRepository,
+            ILogger<AdminEndpointsLogCategory> logger,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.PlayerDataIds is null || request.PlayerDataIds.Count == 0)
+            {
+                return Results.Problem(
+                    title: "Invalid removal request",
+                    detail: "playerDataIds must contain at least one id.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            // Policy above already required a valid "sub" claim to reach here.
+            var adminId = principal.GetAuthProviderUserId()!.Value;
+            var outcomes = await playerStoreRepository.RemovePlayerDataAsync(request.PlayerDataIds, cancellationToken);
+
+            var removedAt = DateTime.UtcNow;
+            foreach (var outcome in outcomes)
+            {
+                if (!outcome.Removed)
+                    continue;
+
+                logger.LogInformation(
+                    "Admin {AdminId} removed PlayerData {PlayerDataId} at {RemovedAt}",
+                    adminId, outcome.PlayerDataId, removedAt);
+            }
+
+            var results = outcomes
+                .Select(o => new PlayerDataRemovalResult(o.PlayerDataId, o.Removed, o.FailureReason?.ToString()))
+                .ToList();
+
+            return Results.Ok(new RemovePlayerDataResponse(results));
+        }).RequireAuthorization("Admin");
+
         // REQ-501: creating an override always wins over cached
         // PlayerData/PlayerAttribute for the same (PlayerId, Field) — see
         // ADR-0015 for exactly what "wins" means (replaces the whole
@@ -177,6 +231,10 @@ public static class AdminEndpoints
             playerOverride.Reason, playerOverride.LockedByAdminId, playerOverride.LockedAt);
 }
 
+// Pure log-category marker for ILogger<T> — same pattern as
+// AdminManagementEndpoints.AdminManagementLogCategory.
+internal sealed class AdminEndpointsLogCategory;
+
 public record UnverifiedPlayerDataResponse(
     Guid Id, Guid PlayerId, string PlayerFullName, string Field, string Value, string Source, string Confidence, DateTime SyncedAt);
 
@@ -189,6 +247,18 @@ public record ApprovePlayerDataRequest(IReadOnlyList<Guid> PlayerDataIds);
 public record PlayerDataApprovalResult(Guid PlayerDataId, bool Approved, string? FailureReason);
 
 public record ApprovePlayerDataResponse(IReadOnlyList<PlayerDataApprovalResult> Results);
+
+public record RemovePlayerDataRequest(IReadOnlyList<Guid> PlayerDataIds);
+
+// FailureReason is null when Removed is true; otherwise the string form of
+// PlayerDataRemovalFailureReason (XGArcade.Data.Repositories) — only
+// "NotFound" exists for removal, unlike approve's two reasons (see
+// RemovePlayerDataAsync's own comment for why "NotUnverified" doesn't apply
+// here) — kept as a plain string at the API boundary rather than
+// serializing the repository-layer enum type directly.
+public record PlayerDataRemovalResult(Guid PlayerDataId, bool Removed, string? FailureReason);
+
+public record RemovePlayerDataResponse(IReadOnlyList<PlayerDataRemovalResult> Results);
 
 public record CreatePlayerOverrideRequest(Guid PlayerId, string Field, string Value, string Reason);
 

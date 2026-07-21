@@ -13,6 +13,198 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.86 → 0.87) — two real CI
+  failures on PR #93 fixed after this session's own feature work collided
+  with itself. (1) `/internal/test-data/seed-guessable-round` created
+  identically-named "Thierry Henry"/"Robert Pires" players on every call
+  with no reuse; concurrent E2E calls against one CI Postgres accumulated
+  duplicate matches for the same cell, which REQ-209's now-correct
+  multi-match handling surfaced as an unexpected disambiguation prompt
+  instead of the old auto-accept masking it — fixed with a short unique
+  name suffix per call (mirrors the existing `WikidataQid` pattern).
+  (2) This session's own test-coverage-extension work (custom leagues +
+  dark mode E2E tests) pushed the whole Playwright suite's total
+  signup+login count for one CI run just over REQ-606's 10/minute-per-IP
+  limit, since every spec file's traffic lands on one backend process from
+  the single CI-runner IP within the same window. Made both permit counts
+  configurable (`RateLimiting:AuthSignupPermitLimit`/`AuthLoginPermitLimit`,
+  default 10, unchanged) and raised them for `ci.yml`'s E2E job only — see
+  REQ-606's new status note. (3) `play-grid.spec.ts`'s REQ-401 leaderboard
+  assertion predated REQ-409's 5-qualifying-round minimum on the "All-time"
+  scope it reads; updated to loop its seed/guess/close flow 5 times per
+  player (cheap — these guesses hit pre-seeded `PlayerAttribute` rows, no
+  live Wikidata lookup) instead of once. All 9 E2E tests + 643 backend
+  tests re-verified green locally against a real Postgres+backend stack
+  before pushing.
+- 2026-07-21 — `docs/backlog.md` (S-027 addendum) — quality-architect pass
+  over this session's diff: fixed a "rolling window" vs. "calendar-aligned
+  window" terminology drift in `frontend/src/lib/api.ts`'s REQ-405 doc
+  comments (comment-only, no behavior change) and factored a duplicated
+  bulk-fetch-by-player-id helper out of `PlayerStoreRepository`
+  (`GetPlayerAliasesByPlayerIdsAsync`/`GetPlayerAttributesByPlayerIdsAsync`
+  now share one private `GroupByPlayerIdAsync<TEntity>`). Backend suite
+  (642 tests) and frontend suite (256 tests) both re-verified green after
+  the change. Same drift still present in `design-document.md` SCREEN-03's
+  "Time Windows" bullet — flagged, not edited, for a `doc-sync`/
+  `requirements-writer` pass.
+- 2026-07-21 — `docs/requirements-document.md` (0.85 → 0.86), `MVP-SCOPE.md`
+  (Tier 1 struck through), `docs/backlog.md` (new S-067 entry) —
+  disambiguation UI (REQ-209) pulled forward and implemented, replacing
+  the auto-accept-lowest-id fallback: a guess matching more than one
+  fitting candidate now shows a real picker. `GuessSubmissionService`
+  returns the disambiguation-needed outcome before ever touching the
+  Guess repository — no row persisted, no attempt consumed — making
+  REQ-210's "not a separate attempt" guarantee structural. New
+  `SubmitGuessRequest.ChosenPlayerId`/`SubmitGuessResponse.Candidates`
+  API fields; `GuessInput.tsx` renders the SCREEN-02a picker. 15 new
+  backend tests (642 total) + 8 new frontend tests (256 total), both
+  suites green. REQ-209, REQ-210 (structural clarification).
+- 2026-07-21 — `docs/requirements-document.md` (0.84 → 0.85), `docs/
+  decisions/0035-national-team-query-property-flag-on-country-definition.md`
+  (new), `docs/implementation-document.md`, `MVP-SCOPE.md`, `docs/
+  backlog.md` (new S-066 entry) — national teams (England/Scotland/Wales/
+  Northern Ireland) pulled forward and implemented (REQ-114): a per-row
+  `UsesCountryForSportProperty` flag on `CountryDefinition`, queried via
+  Wikidata's `P1532` instead of `P27`, rather than a new category type —
+  see ADR-0035 for the full alternatives-considered record. The
+  `P27`-vs-`P1532` choice is made in exactly one place
+  (`WikidataLookupService.LookupAndPersistAsync`); `GridGameModule`'s
+  pairing/dispatch logic needed no changes. QIDs unverified against live
+  Wikidata, flagged accordingly. Known follow-up: Country × Trophy doesn't
+  yet honor the flag (unreachable in production today). 20 new tests; full
+  backend suite (627 tests) green. REQ-114, ADR-0035.
+- 2026-07-20 — `docs/requirements-document.md` (0.83 → 0.84), `docs/
+  backlog.md` (S-064 "Built as") — REQ-716 (dark mode) fully implemented:
+  System/Light/Dark toggle on Settings, `localStorage`-persisted, applied
+  before first paint (no flash of the wrong theme). Every dark token value
+  copied verbatim from the design pass's table; verified visually via a
+  real Chromium screenshot in addition to 16 new unit tests. One
+  coincidental-not-derived contrast finding flagged (login button text via
+  `--color-surface-card` reuse, 4.64:1 in dark theme — passes AA, narrowly,
+  by coincidence). Full frontend suite (248 tests) green. REQ-716.
+- 2026-07-20 — `docs/requirements-document.md` (0.82 → 0.83), `docs/
+  backlog.md` (new S-065 entry) — REQ-208 fully implemented: guess-time
+  matching now tries exact name, then `PlayerAlias`, then a bounded
+  edit-distance fuzzy pass (length-tiered tolerance: 0/1/2 for
+  <=4/5-8/>=9 character names), each stage only reached if the previous
+  found nothing. Stays on the correctness-checking side only, no new read
+  path into `PlayerNameIndex` (ADR-0007). 27 new tests; full backend
+  suite (607 tests) green. REQ-208.
+- 2026-07-20 — `docs/design-document.md` (0.39 → 0.40), `docs/
+  requirements-document.md` (0.81 → 0.82) — REQ-716 (selectable color
+  themes / dark mode) design pass: decided and contrast-verified a full
+  dark-theme token set in `design-document.md` §2 (WCAG relative-luminance
+  ratios computed for every text/icon-on-background pairing that carries
+  real information — body/muted text, and the `accent-green`/`accent-gold`/
+  `accent-red` correctness colors; the photo-overlay scrim set needs no
+  theme-specific value at all, since it's calibrated against a photo's own
+  brightness, not app chrome). Mechanism decided: an explicit System/Light/
+  Dark toggle on `SettingsScreen.tsx`, persisted in `localStorage`
+  (device-local, no `User`-level sync, same reasoning as ADR-0033),
+  defaulting to `prefers-color-scheme` — not an automatic-only approach,
+  since REQ-716's own request text asks to *choose*. Colors only — layout,
+  spacing, type, and animation tokens are unaffected. Design/spec only;
+  no component code changed. REQ-716 moved from "Proposed, placeholder,
+  not implementation-ready" to "Proposed, implementation-ready" (not
+  Implemented). §7 open questions in both docs updated to record the
+  resolution. Implementation is a separate, not-yet-queued
+  `docs/backlog.md` story. `docs/decisions/0034-dark-mode-explicit-toggle-localstorage.md`
+  (new) records the mechanism/persistence choice (explicit toggle over
+  automatic-only; `localStorage` over a `User`-level column) — a real,
+  could-have-gone-another-way decision, same bar as ADR-0033. REQ-716,
+  ADR-0034.
+- 2026-07-20 — `docs/requirements-document.md` (0.80 → 0.81), `MVP-SCOPE.md`
+  (Tier 0/Tier 1 sections updated), `docs/backlog.md` (new S-063 entry) —
+  REQ-402/403 (custom leagues create/join) pulled forward and implemented,
+  ahead of `MVP-SCOPE.md`'s original Tier 1 trigger, by deliberate choice.
+  `POST /leagues`, `POST /leagues/join`, `GET /leagues/mine`
+  (`LeagueEndpoints`/`LeagueService`), `LeaguesScreen.tsx`. 6-character
+  invite codes, uniqueness via an in-app pre-check plus a new DB unique
+  index (migration included). REQ-404's full per-custom-league leaderboard
+  remains deferred. 18 new backend + 12 new frontend tests. REQ-402,
+  REQ-403.
+- 2026-07-20 — `docs/requirements-document.md` (0.79 → 0.80), `docs/
+  backlog.md` (new S-062 entry) — REQ-701/606 fully implemented: password
+  policy (min 8 chars) and account-enumeration-safe signup errors
+  (identical generic body for every Supabase rejection reason), plus
+  signup/login rate limiting (10 req/min per IP, ASP.NET Core built-in
+  `RateLimiting`, 429, no queueing). 7 new backend + 3 new frontend tests.
+  REQ-701, REQ-606.
+- 2026-07-20 — `docs/requirements-document.md` (0.79 → 0.80, REQ-404's
+  interim-state note superseded), `docs/backlog.md` (S-060 "Built as") —
+  REQ-409 implemented: the all-time leaderboard now ranks by median
+  per-round score (>= 5 qualifying rounds), replacing the raw-sum ranking.
+  REQ-406's live-round fold removed from this endpoint (no resolved
+  meaning for a live round in a median). 9 new unit + 2 new API tests;
+  full backend suite (580 tests) green. REQ-409, REQ-404 (status note).
+- 2026-07-20 — `docs/requirements-document.md` (0.78 → 0.79), `docs/
+  backlog.md` (new S-061 entry) — REQ-503 fully implemented: `POST
+  /admin/player-data/remove` (bulk, hard-delete, `ILogger`-based audit
+  logging, no "must be unverified" precondition unlike "approve"),
+  `AdminScreen.tsx` gained "Remove selected." Approve/correct/remove are
+  now all built. REQ-503.
+- 2026-07-20 — `docs/requirements-document.md` (0.77 → 0.78) — REQ-409
+  decided (Status: Proposed, implementation-ready, not yet built): the
+  all-time leaderboard ranks by the median of each player's per-round
+  `SUM(FinalPoints)` totals (locked rounds only, no live component),
+  requiring at least 5 qualifying rounds to appear ranked, replacing (not
+  adding a tab alongside) REQ-401/404's raw-sum ranking; below-threshold
+  players excluded the same way REQ-404's zero-guess exclusion already
+  works. REQ-404 gained a cross-referencing status note; removed from §7's
+  open-questions list as resolved. Implementation not yet queued in
+  `docs/backlog.md`.
+- 2026-07-20 — `docs/requirements-document.md` (0.76 → 0.77),
+  `docs/architecture-document.md` (0.43 → 0.44), `docs/
+  implementation-document.md` (0.60 → 0.61), `docs/backlog.md` (S-031
+  "Built as"), `MVP-SCOPE.md` — REQ-108 implemented
+  (Tier 0, S-031, ADR-0012): Trophy as a third grid category type, seeded
+  with exactly one value, Ballon d'Or (individual award, Wikidata `P166`
+  "award received"). `CategoryPairingRules.Trophy` added;
+  `GridGameModule.SelectPairing` generalized from S-030's two-way coin flip
+  to a uniform-random choice among however many of five candidate pairings
+  (Country×Club, Club×Club, Country×Trophy, Club×Trophy, Trophy×Trophy)
+  the seeded data supports; `MapAttributeType`/`ResolveCandidateAsync`/
+  `LookupLiveMatchesAsync` gained Trophy branches (Trophy×Trophy has no
+  live-lookup persist method — unreachable in practice, so falls through to
+  the existing fail-closed `null`). `WikidataClient` gained
+  `QueryTrophyCountryIntersectionAsync`/`QueryTrophyClubIntersectionAsync`
+  (P166 truthy — a documented, deliberate call distinct from P54's
+  non-truthy rule — + P27/P54), reusing `BuildIntersectionQuery`'s shared
+  plumbing; `WikidataLookupService` gained
+  `LookupAndPersistTrophyCountryAsync`/`LookupAndPersistTrophyClubAsync`,
+  reusing `PersistMatchesAsync`. `ReferenceDataSeeder` gained a `Trophies`
+  array seeding Ballon d'Or (`Q166177`, `IsTeamTrophy=false`) — **this QID
+  was not independently verified against a live Wikidata page this
+  session** (sandbox has no wikidata.org access, same limitation that bit
+  S-036/S-037's guessed club QIDs) — flagged for a human to check before
+  relying on it in production. **Load-bearing consequence, asserted by
+  test, not just documented:** with only this one seeded trophy, every
+  Trophy pairing is infeasible for any realistic grid size, so Trophy is
+  mechanically wired up but structurally never selected in production yet —
+  proven correct via a larger faked trophy pool in `GridGameModuleTests`
+  instead. 42 new REQ108/REQ211-named tests across
+  `GridGameModuleTests.cs`, `WikidataClientTests.cs`,
+  `WikidataLookupServiceTests.cs`, `ReferenceDataSeederTests.cs`; full
+  backend suite (552 tests) passes. Frontend not touched.
+
+- 2026-07-20 — `docs/requirements-document.md` (0.75 → 0.76), `docs/
+  backlog.md` (S-027 "Built as") — REQ-405 implemented (Tier 0, S-027):
+  round/week/month/year leaderboard resolutions, `GET
+  /leagues/global/leaderboard/window/{resolution}`, summing locked
+  `Guess.FinalPoints` for closed rounds whose `EndTime` falls in a
+  calendar-aligned UTC window (round = single most-recently-closed round).
+  New `IRoundRepository.GetClosedIdsWithinWindowAsync` and
+  `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`; no new migration —
+  REQ-408's existing `Round(GameKey, EndTime)` index and `Guess`'s existing
+  `(RoundId, UserId, CellId)` index already cover both new query shapes.
+  18 new REQ405-named tests; full backend suite (510 tests) passes.
+  Frontend landed same session: `LeaderboardScreen.tsx` gained a 4th "Time
+  Windows" scope with round/week/month/year sub-tabs (`design-document.md`
+  SCREEN-03 updated, also backfilling a pre-existing gap where the
+  `live`/`past` scopes were never documented there). 4 new frontend
+  REQ405 tests; full frontend suite (205 tests), `tsc -b`, lint all clean.
+  REQ-405 is now fully implemented, frontend and backend.
+
 - 2026-07-20 — **Doc-sync pass** (this entry and the four below it) —
   `docs/requirements-document.md` (0.74 → 0.75), `docs/architecture-
   document.md` (0.42 → 0.43), `docs/implementation-document.md`

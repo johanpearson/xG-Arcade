@@ -294,6 +294,123 @@ describe('AdminScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('REQ-503: "Remove selected" is disabled when no rows are selected', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([unverifiedRow]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+
+    expect(screen.getByRole('button', { name: 'Remove selected' })).toBeDisabled();
+  });
+
+  it('REQ-503: "Select all" then "Remove selected" calls the remove endpoint with every visible id', async () => {
+    let unverifiedCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) {
+        unverifiedCallCount += 1;
+        return jsonResponse(unverifiedCallCount === 1 ? [unverifiedRow, unverifiedRow2] : []);
+      }
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/player-data/remove')) {
+        return jsonResponse({
+          results: [
+            { playerDataId: unverifiedRow.id, removed: true, failureReason: null },
+            { playerDataId: unverifiedRow2.id, removed: true, failureReason: null },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove selected' }));
+
+    await waitFor(() => {
+      const removeCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/player-data/remove'));
+      expect(removeCall).toBeDefined();
+      const body = JSON.parse((removeCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ playerDataIds: [unverifiedRow.id, unverifiedRow2.id] });
+    });
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+  });
+
+  it('REQ-503: removing a single row via its own checkbox calls the endpoint with just that id', async () => {
+    let unverifiedCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) {
+        unverifiedCallCount += 1;
+        return jsonResponse(unverifiedCallCount === 1 ? [unverifiedRow, unverifiedRow2] : [unverifiedRow2]);
+      }
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/player-data/remove')) {
+        return jsonResponse({
+          results: [{ playerDataId: unverifiedRow.id, removed: true, failureReason: null }],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: /Select Henry/ }));
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove selected' }));
+
+    await waitFor(() => {
+      const removeCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/player-data/remove'));
+      expect(removeCall).toBeDefined();
+      const body = JSON.parse((removeCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ playerDataIds: [unverifiedRow.id] });
+    });
+
+    expect(await screen.findByText('Mbappe · club · PSG · wikidata')).toBeInTheDocument();
+    expect(screen.queryByText('Henry · nationality · France · live_lookup')).not.toBeInTheDocument();
+  });
+
+  it('REQ-503: a partial-failure bulk remove shows which rows succeeded and which failed, distinctly (not as a full success or full failure)', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([unverifiedRow, unverifiedRow2]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/player-data/remove': () =>
+        jsonResponse({
+          results: [
+            { playerDataId: unverifiedRow.id, removed: true, failureReason: null },
+            { playerDataId: unverifiedRow2.id, removed: false, failureReason: 'NotFound' },
+          ],
+        }),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Henry · nationality · France · live_lookup');
+    await screen.findByText('Mbappe · club · PSG · wikidata');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all' }));
+    await user.click(screen.getByRole('button', { name: 'Remove selected' }));
+
+    expect(await screen.findByText('Henry · nationality · France — Removed.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Mbappe · club · PSG — Not removed — this row no longer exists.'),
+    ).toBeInTheDocument();
+  });
+
   it('REQ-505/506: the round-control and user-deletion sections are entirely absent when the active-round probe 404s', async () => {
     stubFetch({
       '/admin/player-data/unverified': () => jsonResponse([]),

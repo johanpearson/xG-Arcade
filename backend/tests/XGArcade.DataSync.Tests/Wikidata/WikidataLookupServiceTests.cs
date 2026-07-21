@@ -22,6 +22,15 @@ public class WikidataLookupServiceTests
     // existing Country x Club role above in a way that could blur which
     // scenario a given test is exercising.
     private static readonly ClubDefinition RealMadrid = new() { Id = Guid.NewGuid(), Name = "Real Madrid", WikidataQid = "Q8682" };
+    // S-031/REQ-108: Ballon d'Or — same QID as ReferenceDataSeeder, NOT
+    // independently verified against a live Wikidata page this session.
+    private static readonly TrophyDefinition BallonDor = new() { Id = Guid.NewGuid(), Name = "Ballon d'Or", WikidataQid = "Q166177" };
+    // REQ-114/ADR-0035: same QID as ReferenceDataSeeder, NOT independently
+    // verified against a live Wikidata page this session.
+    private static readonly CountryDefinition England = new()
+    {
+        Id = Guid.NewGuid(), Name = "England", WikidataQid = "Q21", UsesCountryForSportProperty = true,
+    };
 
     private const string SingleHenryMatchJson = """
         {
@@ -82,6 +91,18 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout);
         return new WikidataLookupService(wikidataClient, _playerStore);
+    }
+
+    // REQ-114/ADR-0035: same as BuildService, but also hands back the
+    // FakeHttpMessageHandler so a test can inspect the actual SPARQL query
+    // sent (handler.LastRequest) — needed to assert which of the two query
+    // paths (P27 vs. P1532) WikidataLookupService dispatched to.
+    private (IWikidataLookupService Service, FakeHttpMessageHandler Handler) BuildServiceWithHandler(string responseJson)
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(responseJson);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
+        var wikidataClient = new WikidataClient(httpClient);
+        return (new WikidataLookupService(wikidataClient, _playerStore), handler);
     }
 
     [Test]
@@ -319,6 +340,75 @@ public class WikidataLookupServiceTests
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
     }
 
+    // ---- LookupAndPersistAsync: national-team query path (REQ-114/ADR-0035) -
+    // England/Scotland/Wales/Northern Ireland — a second query path
+    // (Wikidata P1532, "country for sport"), dispatched from the SAME
+    // LookupAndPersistAsync entry point every other country uses, based
+    // purely on `CountryDefinition.UsesCountryForSportProperty`.
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_SentQuery_UsesP1532NotP27()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistAsync(England, Arsenal, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P1532 wd:Q21"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "a flagged country must query P1532 exclusively — P27 can't distinguish England from the rest of the United Kingdom");
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_OrdinaryCountry_SentQuery_UsesP27NotP1532()
+    {
+        // The existing P27 path must stay completely unaffected by this
+        // feature for every country that doesn't opt in — France has
+        // UsesCountryForSportProperty = false (the default).
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Not.Contain("P1532"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_HitPersistsUnderNationalityAttributeType()
+    {
+        // A national-team value like "England" is just another value in the
+        // same "nationality" AttributeType vocabulary as "United Kingdom" —
+        // not a conceptually different attribute type, and no different
+        // from the P27 path's persistence shape.
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistAsync(England, Arsenal, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "England"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistAsync_NationalTeamCountry_UnresolvedQid_SkipsWikidataAndReturnsEmpty()
+    {
+        // Same REQ-109 "unresolved QID isn't an error" contract applies
+        // regardless of which query path a resolved QID would have used.
+        var unresolvedNationalTeam = new CountryDefinition
+        {
+            Id = Guid.NewGuid(), Name = "Ruritania National Team", WikidataQid = null, UsesCountryForSportProperty = true,
+        };
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistAsync(unresolvedNationalTeam, Arsenal, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
     // ---- LookupAndPersistClubClubAsync (S-030) ------------------------------
     // Mirrors every LookupAndPersistAsync test above — same persistence code
     // path (PersistMatchesAsync), just both attribute type/value pairs are
@@ -459,6 +549,245 @@ public class WikidataLookupServiceTests
 
         IReadOnlyList<Player>? result = null;
         Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync));
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ---- LookupAndPersistTrophyCountryAsync (S-031/REQ-108) ----------------
+    // Mirrors LookupAndPersistAsync's tests above — same persistence code
+    // path (PersistMatchesAsync), just AttributeType "trophy"/"nationality"
+    // instead of "nationality"/"club".
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_HitPersistsPlayersAndAliases()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.FullName, Is.EqualTo("Thierry Henry"));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "Ballon d'Or"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "France"));
+
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
+
+        var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(aliases, Has.Count.EqualTo(1));
+        Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_GuessTimeFallback_PersistsAsVerified()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.GuessTimeFallback);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_ReRunningSameQuery_CreatesZeroDuplicatePlayers()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+
+        var players = await _dbContext.Players.Where(p => p.WikidataQid == "Q1519").ToListAsync();
+        Assert.That(players, Has.Count.EqualTo(1));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == players[0].Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_UnresolvedTrophyQid_SkipsWikidataAndReturnsEmpty()
+    {
+        var unresolvedTrophy = new TrophyDefinition { Id = Guid.NewGuid(), Name = "Mystery Award", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(unresolvedTrophy, France, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_UnresolvedCountryQid_SkipsWikidataAndReturnsEmpty()
+    {
+        var unresolvedCountry = new CountryDefinition { Id = Guid.NewGuid(), Name = "Ruritania", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, unresolvedCountry, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_WhenNoMatch_ReturnsEmptyWithoutThrowing()
+    {
+        var service = BuildService(NoMatchJson);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_WhenWikidataTimesOut_ReturnsEmptyWithoutThrowing()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        IReadOnlyList<Player>? result = null;
+        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync));
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ---- LookupAndPersistTrophyClubAsync (S-031/REQ-108) -------------------
+    // Mirrors LookupAndPersistClubClubAsync's tests above — same persistence
+    // code path, just AttributeType "trophy"/"club".
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_HitPersistsPlayersAndAliases()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.FullName, Is.EqualTo("Thierry Henry"));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "Ballon d'Or"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Real Madrid"));
+
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
+
+        var aliases = await _dbContext.PlayerAliases.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(aliases, Has.Count.EqualTo(1));
+        Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_GuessTimeFallback_PersistsAsVerified()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.GuessTimeFallback);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var rawData = await _dbContext.PlayerData.Where(d => d.PlayerId == player.Id).ToListAsync();
+        Assert.That(rawData, Has.Count.EqualTo(2));
+        Assert.That(rawData, Has.All.Matches<PlayerData>(d => d.Source == "wikidata" && d.Confidence == "verified"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_ReRunningSameQuery_CreatesZeroDuplicatePlayers()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var players = await _dbContext.Players.Where(p => p.WikidataQid == "Q1519").ToListAsync();
+        Assert.That(players, Has.Count.EqualTo(1));
+
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == players[0].Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_UnresolvedTrophyQid_SkipsWikidataAndReturnsEmpty()
+    {
+        var unresolvedTrophy = new TrophyDefinition { Id = Guid.NewGuid(), Name = "Mystery Award", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(unresolvedTrophy, RealMadrid, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_UnresolvedClubQid_SkipsWikidataAndReturnsEmpty()
+    {
+        var unresolvedClub = new ClubDefinition { Id = Guid.NewGuid(), Name = "Ruritania FC", WikidataQid = null };
+        var httpClient = new HttpClient(FakeHttpMessageHandler.ReturningJson(SingleHenryMatchJson))
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient);
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(BallonDor, unresolvedClub, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_WhenNoMatch_ReturnsEmptyWithoutThrowing()
+    {
+        var service = BuildService(NoMatchJson);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Is.Empty);
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_WhenWikidataTimesOut_ReturnsEmptyWithoutThrowing()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        IReadOnlyList<Player>? result = null;
+        Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync));
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));

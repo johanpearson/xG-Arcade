@@ -134,6 +134,13 @@ jobs:
           ASPNETCORE_ENVIRONMENT: "Development"
           ASPNETCORE_URLS: "http://localhost:8080"
           Cors__AllowedOrigins: "http://localhost:5173"
+          # REQ-606's 10/min-per-IP default is sized for real abuse, not for
+          # one Playwright suite's full signup+auto-login traffic (every spec
+          # file, all workers) landing on this one process from the single
+          # runner IP within the same window. Raised here only — every other
+          # environment keeps REQ-606's real 10.
+          RateLimiting__AuthSignupPermitLimit: "1000"
+          RateLimiting__AuthLoginPermitLimit: "1000"
       - name: E2E (Playwright against local stack)
         # playwright.config uses its `webServer` option to boot the Vite dev
         # server on :5173 itself — only the API needs manual starting above.

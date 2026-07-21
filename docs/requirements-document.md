@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.75"
+version: "0.87"
 status: draft
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -218,21 +218,26 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want every grid to be answerable with a real footballer, so
 > the puzzle stays fair and interesting rather than impossible or trivial.
 
-- **Status note (2026-07-12):** Club × Club is implemented, `docs/backlog.md`
-  S-030 — `GridGameModule.GenerateInstanceAsync` now picks between
-  Country × Club and Club × Club per instance (`SelectPairing`): randomly,
-  whenever the seeded reference data can support either (enough countries
-  and clubs for Country × Club, and at least `2 × Size` distinct clubs for
-  Club × Club, since REQ-102 forbids a value appearing on both axes),
-  falling back deterministically to whichever single pairing is feasible
-  when only one is. This was a scope restriction in `MVP-SCOPE.md`, not a
-  limit this REQ ever imposed — `CategoryPairingRules.IsAllowedPairing`
-  already permitted Club × Club before S-030. Trophy pairings are queued as
-  S-031, scoped to Trophy × Country/Trophy × Club only for v1 (a
-  single-trophy pool can't satisfy REQ-102's N-unique-headers rule for
-  Trophy × Trophy, so that
-  pairing is structurally unreachable until more trophies exist, not
-  separately banned).
+- **Status note (2026-07-20):** Club × Club (`docs/backlog.md` S-030) and
+  every Trophy pairing (S-031) are both implemented.
+  `GridGameModule.GenerateInstanceAsync` picks a pairing per instance
+  (`SelectPairing`) uniformly at random among whichever of five candidates —
+  Country × Club, Club × Club, Country × Trophy, Club × Trophy, Trophy ×
+  Trophy — the seeded reference data can support (a same-type pairing needs
+  at least `2 × Size` distinct values, since REQ-102 forbids a value
+  appearing on both axes; a mixed pairing just needs `>= Size` in each
+  pool), falling back deterministically whenever only a subset is feasible.
+  This generalizes S-030's two-way coin flip to an N-way choice. This was a
+  scope restriction in `MVP-SCOPE.md`, not a limit this REQ ever imposed —
+  `CategoryPairingRules.IsAllowedPairing` already permitted every one of
+  these pairings before S-030/S-031 built the selection logic for them.
+  **Load-bearing caveat:** with only one trophy seeded in production
+  (Ballon d'Or, `ReferenceDataSeeder`), `trophyCount(1)` can never clear
+  `Size` for any realistic grid, so every Trophy pairing is structurally
+  infeasible today — Trophy is mechanically wired up but will not actually
+  be selected until more trophies are added as reference data (a data
+  change, not a code change, matching REQ-108's own design intent). See
+  REQ-108's own status note for that requirement's full detail.
 - Given a grid is being generated
 - When row and column categories are assigned
 - Then a Country × Country pairing is never generated (two nationality
@@ -255,16 +260,35 @@ Wikidata-fails/API-Football-fallback branch), API
 > As a player, I want trophies to be a category alongside country and club,
 > so grids have more variety than just nationality/club combinations.
 
-- **Status: Proposed, queued as `docs/backlog.md` S-031 (pulled forward
-  from Tier 1, `MVP-SCOPE.md`, 2026-07-12).** v1 is deliberately narrower
-  than the acceptance criteria below: exactly one trophy, **Ballon d'Or**,
+- **Status: Implemented (Tier 0, S-031, 2026-07-20), narrower than the
+  acceptance criteria below.** `TrophyDefinition` gained a `(Name)` unique
+  index; `ReferenceDataSeeder` seeds exactly one trophy, **Ballon d'Or**,
   an individual award resolvable via Wikidata's `P166` ("award received") —
   the same simple query shape as the existing Country/Club intersection
-  query. Team-competition trophies (World Cup, Champions League, the rest
-  of the example list below) need a structurally different query (squad
-  membership + tournament result, no single property linking a player to
-  "won this tournament") and are explicitly deferred to a follow-up story,
-  not part of S-031.
+  query (`WikidataClient.QueryTrophyCountryIntersectionAsync`/
+  `QueryTrophyClubIntersectionAsync`, `IWikidataLookupService.
+  LookupAndPersistTrophyCountryAsync`/`LookupAndPersistTrophyClubAsync`).
+  `GridGameModule` treats Trophy as a third category type throughout
+  generation, guess-scoring, and REQ-211's guess-time live-lookup fallback
+  (Trophy × Trophy has no dedicated live-lookup method — see REQ-107's own
+  status note, it's unreachable in practice anyway). Team-competition
+  trophies (World Cup, Champions League, the rest of the example list
+  below) need a structurally different query (squad membership + tournament
+  result, no single property linking a player to "won this tournament") and
+  remain deferred to a follow-up story, not part of S-031.
+  **Two caveats, both load-bearing for what actually ships:**
+  (1) **Structurally dormant in production** — `ReferenceDataSeeder` seeds
+  only this one trophy, and `trophyCount(1)` can never clear `Size` for any
+  realistic grid (`GridGameModule.SelectPairing`), so no Trophy pairing can
+  actually be selected yet; this is expected per this REQ's own "a data
+  change, not a code change" design, proven by injecting a larger fake
+  trophy pool in `GridGameModuleTests`, not by anything production data
+  will trigger today. (2) **Ballon d'Or's QID (`Q166177`) was not
+  independently verified against a live Wikidata page this session** — this
+  sandbox cannot reach wikidata.org (same limitation `ReferenceDataSeeder`'s
+  own doc comment already documents for S-036/S-037's guessed club QIDs,
+  4 of which turned out wrong) — a human must check it against the live
+  page before this is relied on in a real deployment.
 - Given the platform's list of recognized trophies (e.g. FIFA World Cup,
   UEFA Champions League, Ballon d'Or, UEFA European Championship, Copa
   América — an initial, extensible list, not hardcoded into game logic)
@@ -492,6 +516,78 @@ the P21 male triple; sent query's date-of-birth cutoff is exactly
 **Test level:** Unit (`WikidataClientTests.cs` query-shape tests — both
 builders' sent SPARQL uses the full `p:P54`/`ps:P54` statement path with
 only `DeprecatedRank` excluded, and never contains truthy `wdt:P54`)
+
+**REQ-114 – National teams as distinct footballing entities**
+> As a player, I want England, Scotland, Wales, and Northern Ireland to be
+> selectable Country categories in their own right, so a grid can test
+> "played for England" specifically rather than only the generic "United
+> Kingdom" citizenship umbrella that flattens all four together.
+
+- **Status: Implemented (Tier 0, 2026-07-21, REQ-114/ADR-0035), pulled
+  forward from Tier 1 per explicit product decision** (`MVP-SCOPE.md`'s own
+  "National teams as distinct footballing entities" trigger). None of the
+  four home nations are sovereign states, so they can't be queried via
+  Wikidata's `P27` ("country of citizenship") the way every other seeded
+  country can — English/Scottish/Welsh/Northern Irish players' `P27` is
+  uniformly United Kingdom (`Q145`, already seeded). `P1532` ("country for
+  sport") is the property that actually means "country represented in
+  international competition." `CountryDefinition` gained a
+  `UsesCountryForSportProperty` flag (default `false`); `ReferenceDataSeeder`
+  seeds England (`Q21`), Scotland (`Q22`), Wales (`Q25`), Northern Ireland
+  (`Q26`) as four *additional* `CountryDefinition` rows (never replacing
+  United Kingdom) with this flag set `true`. `WikidataClient` gained a
+  parallel `QueryNationalTeamClubIntersectionAsync`/
+  `BuildNationalTeamClubIntersectionQuery` (`P1532`, truthy — see that
+  method's own comment for why the truthy shortcut is safe here, unlike
+  `P54`), and `WikidataLookupService.LookupAndPersistAsync` branches on the
+  flag to call it instead of the existing `P27`-based
+  `QueryCountryClubIntersectionAsync` — the only place this decision is
+  made; every caller (`GridGameModule`) is unaware of the distinction.
+  Persists under the same `PlayerAttribute.AttributeType = "nationality"`
+  vocabulary as every other country — "England" is just another value in
+  that vocabulary, same as "United Kingdom" already is, not a new attribute
+  type. See ADR-0035 for the rejected alternative (a separate
+  `NationalTeamDefinition` table/category type) and why a per-row flag on
+  the existing `CountryDefinition` was chosen instead.
+  **QID caveat:** all four QIDs (`Q21`/`Q22`/`Q25`/`Q26`) are
+  training-knowledge values, **not independently verified against live
+  Wikidata pages this session** (same sandbox network-policy block already
+  documented for S-036/S-037/S-031's QIDs) — a human must verify them
+  before this is relied on in a real deployment; `ReferenceDataSeeder`'s
+  idempotent-by-Name upsert will apply any correction on the next seed run.
+- Given `CountryDefinition` rows for England, Scotland, Wales, and Northern
+  Ireland, each with `UsesCountryForSportProperty = true`, seeded alongside
+  (not instead of) the existing United Kingdom row
+- When grid generation picks a Country category candidate, or REQ-211's
+  guess-time fallback re-resolves one, and that candidate is one of the
+  four home nations
+- Then the live Wikidata lookup queries `P1532` ("country for sport")
+  instead of `P27` ("country of citizenship") for that candidate only —
+  every other seeded country's `P27` query path is completely unaffected
+- And a home nation pairs with Club/Trophy category candidates exactly like
+  any other Country row — no special-casing anywhere in `SelectPairing`,
+  `CategoryPairingRules`, or grid-generation's pairing/validation logic
+- And "satisfies this category" for a home-nation value works identically
+  to any other country value: a `PlayerAttribute`/override record of type
+  `nationality` with that specific value (e.g. "England"), read through the
+  exact same `HasEffectiveAttributeAsync` path as "United Kingdom" or any
+  other seeded country
+- And citizenship (`P27`) and country represented in competition (`P1532`)
+  remain two genuinely separate concepts, never merged into one query or
+  one code path — a dual national or naturalized player can differ between
+  the two, and this system must not conflate them
+
+**Test level:** Unit (`WikidataClientTests.cs` — the national-team query
+path sends `P1532`, never `P27`, and shares `P54`'s full-statement-path
+club-membership semantics; `WikidataLookupServiceTests.cs` — `LookupAndPersistAsync`
+dispatches to the right underlying query based on
+`UsesCountryForSportProperty`, and an ordinary country's dispatch is
+unaffected; `GridGameModuleTests.cs` — a flagged country pairs with clubs
+exactly like any other country, and both grid-generation's cache-miss path
+and REQ-211's guess-time fallback thread the flag through to the correct
+dispatch; `ReferenceDataSeederTests.cs` — all four home nations seed with
+the flag `true`, every other country seeds with it `false`, and United
+Kingdom and England coexist as distinct rows)
 
 ---
 
@@ -1039,24 +1135,28 @@ grids don't make guessing trivially easy)
 > player's name to be accepted, so I'm not penalized for not knowing exact
 > diacritics or punctuation.
 
-- **Status: Partially implemented (Tier 0's "simple half" only, S-009, per
-  `MVP-SCOPE.md`).** Built: `PlayerNameNormalizer.Normalize`
+- **Status: Implemented (Tier 0, S-009 + S-065), 2026-07-20.** All
+  acceptance criteria below are now built. `PlayerNameNormalizer.Normalize`
   (`XGArcade.Data`) lowercases, strips diacritics, strips punctuation
   (added in S-009 — this closes a real pre-existing gap left over from
   S-006, which stripped diacritics but not punctuation), and collapses
   whitespace; `Player.NormalizedFullName` is kept in lockstep with
   `FullName` via its setter and backfilled for pre-existing rows
-  (`PlayerNormalizedFullNameBackfiller`); `GridGameModule
-  .ScoreSubmissionAsync` compares the normalized guess directly against
-  `Player.NormalizedFullName` (`IPlayerStoreRepository
-  .GetPlayersByNormalizedFullNameAsync`). **Not built** (deliberately
-  deferred per `MVP-SCOPE.md`'s Tier 0 scoping, not an oversight): matching
-  via a maintained alias/stage-name list (`PlayerAlias` exists as an entity
-  since S-006 but is not queried for guess-time matching at all — only
-  exact `NormalizedFullName` equality is checked), and edit-distance/fuzzy
-  typo tolerance. A guess with a typo or an alias name (e.g. "Kaká" typed
-  as a nickname rather than a spelling variant of the same string) that
-  isn't an exact normalized match to `FullName` is scored incorrect today.
+  (`PlayerNormalizedFullNameBackfiller`). **As of S-065**,
+  `GridGameModule.FindMatchAsync` tries three stages in order, each only
+  reached if the previous produced no candidate fitting both of the cell's
+  categories: exact `Player.NormalizedFullName` match (unchanged),
+  `PlayerAlias.NormalizedAlias` exact match, then a bounded
+  edit-distance/fuzzy pass (`NameEditDistance`, plain Levenshtein) scoped
+  to players already known to satisfy at least one of the cell's two
+  categories — never a full-table scan. The fuzzy tolerance scales with
+  the guessed name's normalized length (0 for <=4 characters, 1 for 5-8,
+  2 for >=9) rather than one fixed threshold, specifically to avoid
+  colliding real short football nicknames (e.g. "Pele"/"Dele" is distance
+  1 between two different real players) while still catching a genuine
+  typo on a longer name. Stays entirely on the correctness-checking side
+  (`PlayerAttribute`/`PlayerAlias`/`Player`, COMP-06) — no new read path
+  into `PlayerNameIndex` (COMP-10), per ADR-0007's boundary rule.
 - Given a submitted guess
 - When it is compared against a candidate player's known name(s)
 - Then comparison is done on a normalized form: lowercased, diacritics
@@ -1076,19 +1176,30 @@ typos, and confirming near-miss strings that should NOT match are rejected)
 > As a player, I want a fair resolution when my guess matches more than one
 > real player, so the cell's categories — not luck — decide correctness.
 
-- **Status: Partially implemented (Tier 0's simplified handling only,
-  S-009, per `MVP-SCOPE.md`).** The "exactly one candidate satisfies both
-  categories → accept automatically" branch is fully built and matches the
-  acceptance criteria below exactly. The "no candidate satisfies both
-  categories → incorrect" branch is also fully built. **Simplified,
-  per `MVP-SCOPE.md`'s explicit Tier 0 scoping:** when more than one
-  candidate satisfies both categories, Tier 0 does not show a
-  disambiguation prompt at all — `GridGameModule.ScoreSubmissionAsync`
-  auto-accepts the lowest-`Id` fitting candidate (the same deterministic
-  pick REQ-204 already specifies for uniqueness grouping) and logs a
-  warning (`ILogger.LogWarning`) so a real occurrence is visible and can
-  trip `MVP-SCOPE.md`'s Tier 1 "build the disambiguation UI" trigger. No
-  player-facing disambiguation prompt/picker UI exists.
+- **Status: Implemented (S-067), 2026-07-21 — pulled forward ahead of
+  `MVP-SCOPE.md`'s original Tier 1 trigger (which had never actually
+  fired; see that file's own updated note).** All three branches below are
+  now built exactly as specified. When more than one candidate satisfies
+  both categories, `GridGameModule` (`AcceptMatchAsync`/
+  `BuildDisambiguationCandidatesAsync`) returns each fitting candidate's
+  name and their *other* known `PlayerAttribute` values (excluding
+  whichever of the cell's own two categories every candidate already
+  satisfies, since repeating those wouldn't distinguish anything) — not
+  birth year, which `Player` has no column for and which REQ-209's own
+  text only offered as an illustrative "e.g." example, not a literal
+  requirement. `GuessSubmissionService.SubmitGuessAsync` returns this
+  disambiguation-needed result *before ever touching the Guess
+  repository* — no row persisted, no attempt consumed — satisfying
+  REQ-210's "part of the same attempt that triggered it, not a separate
+  attempt" clause structurally, not just by convention. `POST
+  /rounds/{roundId}/cells/{cellId}/guesses` gained an optional
+  `chosenPlayerId` request field; the response's `Candidates` field (null
+  on every ordinary scored response) is the frontend's discriminator for
+  when to render `GuessInput`'s new SCREEN-02a picker instead of treating
+  the response as scored. A `chosenPlayerId` is always re-verified
+  server-side against a freshly-recomputed matching set — never trusted
+  blindly — and an invalid/stale one fails closed to an ordinary incorrect
+  guess (which does consume an attempt, since that's a real scored guess).
 - Given a normalized/alias/fuzzy-matched guess resolves to more than one
   distinct player record
 - When those candidates are checked against the cell's row and column
@@ -1737,6 +1848,20 @@ case covers the game-selection step added in S-021)
 **Test level:** Unit, API
 
 **REQ-402 – Create a custom league**
+*(Status: Implemented (S-063), 2026-07-20 — pulled forward ahead of
+`MVP-SCOPE.md`'s original Tier 1 placement; see that file's own updated
+note.)* `POST /leagues` (`LeagueEndpoints`, `Api.Leagues`) →
+`LeagueService.CreateCustomLeagueAsync` (`Core.Leagues`) creates a
+`League(Type="custom")` with a unique 6-character `InviteCode` (887M-symbol
+alphabet, visually-ambiguous characters excluded) and enrolls the creator
+as its first member in the same call. Uniqueness: an in-app pre-check plus
+a DB-level unique index (`IX_Leagues_InviteCode`) as the real race-safety
+net, same pattern as `User.NormalizedDisplayName`'s uniqueness handling.
+**Not built, tracked separately:** REQ-404's full per-custom-league
+leaderboard (this story only lists a member's own custom leagues by
+name/code, no leaderboard rendering) and the per-user league caps
+mentioned in this document (25 created / 100 joined) — neither was
+requested for this story.
 > As a player, I want to create my own league and invite friends, so we can
 > compete in a smaller group.
 
@@ -1748,6 +1873,15 @@ case covers the game-selection step added in S-021)
 **Test level:** Unit, API
 
 **REQ-403 – Join a league via code**
+*(Status: Implemented (S-063), 2026-07-20.)* `POST /leagues/join`
+(`LeagueEndpoints`) → `LeagueService.JoinByInviteCodeAsync` — the code is
+trimmed and upper-cased before lookup (codes are only ever generated
+uppercase, so a lowercase-typed code still resolves). An unrecognized code
+is a 404 with a specific detail message and creates no membership.
+Re-joining a league the caller already belongs to is treated as an
+idempotent success, not an error — this REQ doesn't specify that case, and
+a documented product-shape choice was made rather than leaving it
+undefined.
 > As a player, I want to join a friend league via a code, so I can compete
 > with specific people.
 
@@ -1803,6 +1937,13 @@ case covers the game-selection step added in S-021)
   `GetTotalFinalPointsByUserIdsAsync`, kept as a separate call specifically
   so a member active only in the currently active (unlocked) round is not
   mistaken for never-played. See the bullet below.
+- **Status note (2026-07-20, superseded by REQ-409):** the
+  `SUM(FinalPoints ?? 0)` ranking formula described below no longer
+  reflects production behavior — `GetGlobalLeaderboardAsync` now ranks by
+  REQ-409's median-per-round score (>= 5 qualifying rounds), not the raw
+  sum. This REQ's own text is kept, not rewritten in place, per this
+  document's ID-stability rule; see REQ-409 for the current, actual
+  behavior and full acceptance criteria.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -1823,9 +1964,44 @@ not appear in the ranked list at all; a member with at least one guess,
 locked or still-live, appears ranked normally even if their computed total
 happens to be 0)
 
-**REQ-405 – Leaderboard time-window resolutions** *(Status: Proposed, not yet
-implemented — drafted 2026-07-12, see `docs/backlog.md` S-027. Open design
-questions resolved 2026-07-12 — see below; implementation-ready.)*
+**REQ-405 – Leaderboard time-window resolutions** *(Status: Implemented
+(Tier 0, S-027), 2026-07-20.)*
+- **Status note (S-027):** built as drafted below, plus the resolved design
+  questions. New `GET /leagues/global/leaderboard/window/{resolution}`
+  route (`XGArcade.Api.Leagues.LeaderboardEndpoints`), `{resolution}` parsed
+  case-insensitively into a new `LeaderboardWindowResolution` enum
+  (`Round`/`Week`/`Month`/`Year`) — anything else is a 400 ("Invalid
+  resolution"). Backed by a new
+  `LeaderboardService.GetWindowedLeaderboardAsync`: `Round` reuses the exact
+  REQ-408 single-round path (`IRoundRepository.GetClosedByGameKeyAsync(gameKey,
+  0, 1)` + the existing `IGuessRepository.GetTotalFinalPointsByRoundIdAsync`),
+  always resolved to the single most-recently-closed round, never a
+  caller-chosen one. `Week`/`Month`/`Year` compute a calendar-aligned,
+  half-open `[start, end)` UTC window (ISO week Monday-to-Monday, calendar
+  month from the 1st, calendar year from Jan 1st), fetch that window's closed
+  round ids via a new `IRoundRepository.GetClosedIdsWithinWindowAsync`, and
+  sum `FinalPoints` via a new `IGuessRepository.GetTotalFinalPointsByRoundIdsAsync`
+  (the existing single-round method now delegates to this plural one with a
+  one-element collection, rather than keeping two independent query
+  implementations). Every scope is locked-only by construction — an active
+  round (`ClosedAt == null`) is never even a candidate row, so its guesses
+  can never contribute to any window, matching REQ-401/404's existing rule.
+  A member with zero guesses in the selected window is simply absent from
+  the ranked list (same "must have at least one row here to be ranked at
+  all" pattern as every other scope in this file), not shown with a
+  default-0 total. **Indexing plan (per this REQ's own acceptance
+  criterion):** no new migration was added. The existing
+  `Round(GameKey, EndTime)` composite index (added for REQ-408) already
+  covers the `(gameKey, EndTime range)` filter `GetClosedIdsWithinWindowAsync`
+  needs, and `Guess`'s existing unique index on `(RoundId, UserId, CellId)`
+  already has `RoundId` as its leading column, so a `RoundId IN (...)` filter
+  is already index-covered too — both are documented inline as code comments
+  on the new repository methods rather than re-derived. Frontend (SCREEN-03,
+  same session, follow-up commit): a 4th "Time Windows" scope on
+  `LeaderboardScreen.tsx` with round/week/month/year sub-tabs, same
+  fetch-on-transition pattern as the `live`/`past` scopes, rows always
+  non-provisional (locked totals only). `design-document.md` SCREEN-03
+  updated accordingly.
 > As a player, I want to see the leaderboard filtered to the current round,
 > week, month, or year — not only the all-time total — so I can compare
 > recent performance, not just who has played longest.
@@ -2179,68 +2355,130 @@ pageSize shape; not-found vs. not-closed-yet are distinct, correctly-coded
 responses), UI (round-selection list, then that round's leaderboard, on
 SCREEN-03)
 
-**REQ-409 – Participation-adjusted score for the all-time leaderboard**
-*(Status: Proposed — drafted 2026-07-20. Exploratory product-owner
-request, not a specified decision. See open questions below and §7.)*
-> As a player, I want the all-time leaderboard to reflect how consistently
-> I've played, not only my raw point total, so a player who has entered
-> many rounds isn't ranked behind someone who has only played a small,
-> lucky handful.
+**REQ-409 – Median, participation-gated score for the all-time leaderboard**
+*(Status: Implemented (Tier 0, S-060), 2026-07-20 — decided and built the
+same day. `LeaderboardService.GetGlobalLeaderboardAsync` ranks by the
+median of each player's per-round `SUM(FinalPoints)` totals via a new
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` (joins `Guesses`
+to `Rounds`, filters `ClosedAt != null`), filtered to members with >= 5
+qualifying rounds; ties broken by display name as decided. The REQ-406
+live-round fold was removed from this endpoint entirely, not left dormant
+— folding a still-changing round into a median has no resolved meaning
+(see this REQ's own "no live-round component" bullet); `GetActiveRoundLeaderboardAsync`
+(REQ-407) is untouched. The now-dead `GetTotalFinalPointsByUserIdsAsync`/
+`GetUserIdsWithAnyGuessAsync` repository methods were removed (no other
+callers). See REQ-404's own added status note for what it now describes as
+superseded interim behavior.)*
+> As a player, I want the all-time leaderboard to rank players by how
+> consistently they perform per round, not by a raw cumulative total that
+> only ever grows the more rounds someone plays, and only once they've
+> played enough rounds for that comparison to be meaningful, so a player
+> with a long, consistent history isn't ranked behind someone who has
+> only played a small, lucky handful of rounds.
 
 - **Context:** REQ-401/404's all-time leaderboard ranks by
-  `SUM(FinalPoints ?? 0)` ascending — lowest total wins (ADR-0021, golf-
-  style scoring). Under a pure sum, a player who has participated in only
-  a few rounds needs only a few low (good) totals to sit near the top,
-  while a player who has played many rounds accumulates a larger total
-  simply by having played more often, even if their per-round performance
-  is just as good or better on average — so the raw sum can rank a small,
-  lucky sample ahead of a larger, consistent one. Note the framing: under
-  ADR-0021's lowest-wins model this is *not* "reward high scores for
-  volume" (that would be backwards here, since more play only ever adds
-  more to the total, which is worse) — it's about the current total
-  unfairly disadvantaging a player with a long, consistent participation
-  history relative to one with a short one.
-- **Product owner's own framing (2026-07-20, exploratory, not a spec):**
-  "maybe it should or could show a score based on x points/x amount of
-  grids participation or something." No formula has been decided — what
-  follows is a **candidate starting point for discussion, not a
-  decision.**
-- **Candidate formula (proposal only, to be confirmed):** average points
-  per round participated in — `SUM(FinalPoints) / COUNT(rounds the player
-  participated in)` — still sorted **ascending** (lowest average wins), to
-  stay consistent with ADR-0021's existing direction rather than
-  introducing a second, reversed convention on the same leaderboard.
-- This REQ does **not** specify final acceptance criteria. The formula
-  above, and every question below, needs product-owner confirmation before
-  this can move to an implementation-ready status.
+  `SUM(FinalPoints ?? 0)` ascending (ADR-0021: lowest total wins). Under a
+  pure sum, every closed round a player plays adds strictly more to their
+  total — there is no way a round reduces it — so a player who has played
+  50 rounds necessarily carries more accumulated total than one who has
+  played 2, independent of actual per-round performance. The sum measures
+  volume as much as it measures skill; this REQ replaces it with a measure
+  that doesn't.
+- **Product owner's decision (2026-07-20):** the all-time leaderboard
+  ranks players by their **median per-round score**, not the sum, and a
+  player must have played **at least 5 rounds** before they qualify to
+  appear on the ranked list at all.
+- **Per-round score used for the median:** for each qualifying round (see
+  below), the same per-round total REQ-408 already defines and computes
+  for its closed-round leaderboard — `SUM(FinalPoints)` for that player,
+  that round only. This REQ introduces no new per-round metric; it only
+  changes how those existing per-round totals are combined into a single
+  all-time ranking number.
+- **"Played a round" / qualifying-round definition:** a round counts
+  towards both the 5-round minimum and the median itself if and only if it
+  is **closed** (`Round.ClosedAt` is set, REQ-408) **and** the player has
+  at least one `Guess` row in it — the same "at least one guess in this
+  specific round" participant definition REQ-406/407/408 and ADR-0021's
+  `MaterializeUnansweredCellsAsync` already use. This is a **different**
+  check from the existing `IGuessRepository.GetUserIdsWithAnyGuessAsync`
+  REQ-404 already uses for its zero-guess-ever exclusion — that method
+  answers a yes/no question ("has this user ever submitted any guess, in
+  any round at all, closed or still active") and does not count rounds.
+  REQ-409 needs a per-round, closed-rounds-only count, so it requires a
+  new query (the exact method name/shape is an implementation detail, not
+  part of this REQ), not a reuse of that existing boolean method. An
+  active (unlocked) round is never a qualifying round, matching
+  REQ-401/404/405's existing locked-only rule for all-time computations.
+- **Median definition:** the standard median of the qualifying rounds'
+  per-round totals — the middle value once those totals are sorted
+  ascending, or the arithmetic mean of the two middle values when the
+  qualifying-round count is even. The median is computed over **every**
+  qualifying round the player has ever played, not only their 5 most
+  recent — the 5-round minimum is a qualification floor, not a rolling
+  window.
+- **Scope: this replaces, rather than adds to, REQ-401/404's existing
+  all-time ranking.** The product owner's own framing — making "the
+  all-time leaderboard" fairer — describes a correction to the existing
+  ranking, not a new, separate lens meant to coexist with the old one.
+  Contrast REQ-406/407/408: each of those answers a genuinely different
+  question (live in-progress standing, one specific round, browsing past
+  rounds) that a player might reasonably still want the old total for
+  alongside it. REQ-409 answers the exact same question REQ-401/404's
+  "All-time" scope already answers ("where do I rank overall?"), just with
+  a fairer formula — there is no reason to keep the old, PO-identified-as-
+  unfair sum as a second, coexisting tab. There remains exactly one
+  "All-time" scope on the leaderboard screen (SCREEN-03); once this REQ is
+  implemented, that scope's ranking is the median described here, and the
+  raw-sum formula REQ-404 currently describes is retired for ranking
+  purposes. Per this document's ID-stability rule, REQ-404's own text and
+  status notes are not rewritten in place to reflect this — see REQ-404's
+  own newly added status note, which cross-references this REQ instead of
+  silently going stale.
+- **No live-round component.** Unlike REQ-406's sum-based total, this
+  median ranking does **not** fold in a live contribution from the
+  currently active round. Precedent: REQ-405's round/week/month/year
+  windows already remain locked-only and are explicitly unaffected by
+  REQ-406 ("this REQ does not change REQ-405's... time-window leaderboard,
+  which remains explicitly locked-only") — REQ-409 follows that same
+  precedent rather than inventing a new one. Folding a live, still-
+  changing round into a median (which round would count, and what
+  per-round figure to use for a round still in progress) has no existing
+  analogue in this document and is not resolved by this REQ; a live-
+  updating version of this median, if ever wanted, is a separate future
+  requirement.
+- Given a player has fewer than 5 qualifying rounds (per the definition
+  above)
+- Then that player does not appear on the all-time ranked list at all —
+  the same "absent, not ranked with a default value" exclusion pattern
+  REQ-404's 2026-07-20 zero-guess exclusion already established, extended
+  here from "zero qualifying rounds" to "fewer than 5 qualifying rounds"
+- Given a player has 5 or more qualifying rounds
+- When the all-time leaderboard is requested
+- Then that player's rank is based on the median of their per-round
+  `SUM(FinalPoints)` totals across every qualifying round they have ever
+  played, sorted **ascending** — the lowest median wins (ADR-0021, same
+  direction as every other ranking in this document)
+- And ties (equal median) are broken by display name, ordinal
+  case-insensitive comparison — the same tie-break rule used by every
+  other leaderboard ranking in this document (REQ-404/405/406/407/408)
+- And the currently active (unlocked) round never contributes to the
+  median or to the qualifying-round count, regardless of how many guesses
+  the player has made in it — matching REQ-401/404/405's existing
+  locked-only rule
+- And a player's median is recomputed from the full, current set of their
+  qualifying rounds on every leaderboard read (no stored, precomputed
+  median) — consistent with every other ranking in this document being
+  computed from source rows on read, not maintained as a running/cached
+  value
 
-**Open questions a real decision needs to resolve (not answered by this
-REQ — see also §7):**
-- Does a participation-adjusted score **replace** the existing raw-total
-  ranking (REQ-401/404), or sit alongside it as a second, selectable
-  ranking/tab (similar in spirit to how REQ-405 adds selectable scopes to
-  the same leaderboard screen)?
-- What counts as "participated in a round" for the denominator — reuse the
-  existing participant definition (at least one `Guess` row in a round,
-  the same definition ADR-0021's `MaterializeUnansweredCellsAsync` and
-  REQ-406/407 already use) for consistency, or something narrower/
-  broader? Reusing the existing definition is the obvious default, but
-  this REQ does not decide it.
-- How does this interact with REQ-401/404's 2026-07-20 zero-guess
-  exclusion rule, which already excludes a member with zero guesses ever
-  from the ranked list entirely? Does a participation-adjusted score need
-  that same exclusion (a zero-participation player has an undefined
-  average — divide by zero), or does the averaging formula make a
-  separate exclusion rule moot?
-- Is a minimum-rounds threshold needed before a player is eligible to
-  appear in this ranking at all, to stop a single lucky round from
-  dominating an average-based score? If so, what threshold — and is a
-  player below it excluded from this view entirely, or only shown in the
-  raw-total view?
-
-**Test level:** Not applicable — no acceptance criteria has been
-finalized; testable criteria can only be written once the open questions
-above are resolved.
+**Test level:** Unit (median computed correctly for an odd and an even
+qualifying-round count; a player with exactly 4 qualifying rounds is
+excluded while a player with exactly 5 is included and ranked; a round
+still active never counts toward the 5-round minimum or the median
+regardless of guesses made in it; sort order and tie-break match every
+other leaderboard ranking in this document), API (all-time leaderboard
+endpoint returns the median-based ranking; a below-threshold member is
+absent from the response, not present with a placeholder value)
 
 ---
 
@@ -2356,9 +2594,25 @@ above are resolved.
   unbuilt, out of scope here) — when that exists, it becomes the queue's
   sole source, exactly as ADR-0029 originally anticipated. The
   still-missing "approve"/"remove" actions this REQ's status note flags
-  are partially addressed below — see the 2026-07-20 extension for
-  "approve," including bulk/select-all; "remove" remains unbuilt and out
-  of scope for that extension.
+  are addressed below — see the 2026-07-20 extension for "approve,"
+  including bulk/select-all.
+- **Status note (2026-07-20, "remove" built):** `POST
+  /admin/player-data/remove` (`AdminEndpoints`, Admin policy) closes the
+  last gap — bulk-capable from the start like "approve," hard-deletes the
+  `PlayerData` row (nothing in this codebase holds a foreign key to a
+  specific `PlayerData` row id, so a real delete is safe, matching this
+  REQ's own "remove," not "hide," wording), and does not require the row
+  still be unverified (removal is a general corrective action, not tied to
+  the review queue's current state — a row another admin already approved
+  can still be removed). No new `RemovedByAdminId`/`RemovedAt` columns:
+  once a row is deleted there's nothing left to attach them to, so "logged
+  with admin_id and a timestamp" is satisfied via a structured `ILogger`
+  line at removal time instead, matching this codebase's established
+  preference against a general-purpose audit-log table.
+  `AdminScreen.tsx` gained a "Remove selected" action alongside "Approve
+  selected," same bulk-selection UI. **This REQ's acceptance criteria are
+  now fully met** — approve, correct (via the pre-existing
+  `PlayerOverride` path), and remove are all built.
 - Given data with `confidence = "unverified"`
 - When an admin opens the review view
 - Then the admin can approve (→ `verified`), correct (creates a `PlayerOverride`),
@@ -2567,7 +2821,8 @@ Tier 0, S-026)*
 > As a person, I want to create an account with my email and a password, so
 > I can play and have my scores tracked.
 
-- **Status: Partially implemented (Tier 0, S-004/S-011/S-016/S-017).** The
+- **Status: Implemented (Tier 0, S-004/S-011/S-016/S-017/S-062).** All
+  acceptance criteria are now built. The
   16+ checkbox clause below is built and enforced server-side (`POST
   /auth/signup` rejects the request with 400 before ever calling Supabase
   Auth if the checkbox is false) — see ADR-0013 (backend-mediated
@@ -2593,9 +2848,21 @@ Tier 0, S-026)*
   (`UserRepository.AddAsync` catches the constraint violation and throws
   `DisplayNameAlreadyInUseException`, which the controller maps to the same
   409 rather than letting it surface as a raw 500). The password-policy
-  clause (§5's "Decisions made as sensible technical defaults") and the
-  account-enumeration-safe error message are not yet implemented; Supabase
-  Auth's own error responses are currently passed through as-is. The rest
+  clause (§5's default: minimum 8 characters, no forced complexity) is now
+  enforced server-side (`AuthController.Signup` rejects under-8-character
+  passwords with 400, checked first among the free local checks) and
+  client-side (`AuthScreen.tsx`). **As of S-062**, the account-enumeration-safe
+  error message is also built: every Supabase signup-rejection reason
+  returns the identical generic body ("Check your email to confirm your
+  account, or reset your password if you already have one.") rather than
+  Supabase's own wording — deliberately applied to every rejection reason,
+  not narrowed to the already-registered case, since a differently-worded
+  message only for that one case would itself leak which case occurred;
+  Supabase's real error is logged server-side, never returned to the
+  client. REQ-606's signup/login rate limiting (10 requests/minute per IP,
+  no queueing, ASP.NET Core's built-in `RateLimiting` middleware, 429 on
+  exceeding) was built in the same change — see REQ-606's own status note.
+  The rest
   of this requirement's acceptance criteria are recorded below as the
   full/long-term definition, not a claim of current behavior.
 - Given a person provides an email address and a password meeting the
@@ -2738,6 +3005,25 @@ its own explicit opt-in separate from this one, not be folded into it.
   generated grid), never requiring bulk/speculative data imports
 
 **REQ-606 – Security baseline**
+- **Status note (2026-07-20, S-062): the rate-limiting bullet below is now
+  implemented**, scoped exactly as written — signup/login only, not every
+  endpoint. `[EnableRateLimiting("auth-signup"/"auth-login")]` on
+  `AuthController`'s `Signup`/`Login` actions, two named fixed-window
+  policies registered in `Program.cs` (ASP.NET Core's built-in
+  `Microsoft.AspNetCore.RateLimiting`, no new package): 10 requests/minute
+  per client IP, `QueueLimit = 0` (no queueing — over-limit requests are
+  rejected immediately, not delayed), 429 with a `{title, detail}` body the
+  existing frontend error path already renders without special-casing.
+  Every other REQ-606 bullet was already satisfied before this change.
+- **Status note (2026-07-21): both permit counts are configurable**
+  (`RateLimiting:AuthSignupPermitLimit`/`AuthLoginPermitLimit`, default 10,
+  unchanged), added after the real 10/min production value started
+  rejecting `ci.yml`'s own E2E job — one Playwright suite's full
+  signup+auto-login traffic across every spec file lands on one backend
+  process from the single CI-runner IP within the same window, a
+  fundamentally different shape than the abuse case this REQ targets.
+  `ci.yml`'s E2E step overrides both to 1000 for that job only; every other
+  environment, including local dev, keeps the real 10 default.
 - All traffic between frontend, backend, and database must use HTTPS/TLS;
   no plaintext transport anywhere
 - Password credentials are never stored or logged by the platform's own
@@ -3254,62 +3540,111 @@ a valid stored refresh token but a missing/expired access token stays
 logged in without showing a login prompt; an invalid stored refresh token
 returns to the login screen; logging out clears the stored refresh token)
 
-**REQ-716 – Selectable color themes / dark mode** *(Status: Proposed —
-drafted 2026-07-20, placeholder only. Needs its own design session before
-REQ/ADR-level specification — see `docs/backlog.md`'s note on this exact
-item. Not implementation-ready.)*
+**REQ-716 – Selectable color themes / dark mode** *(Status: Implemented
+(S-064), 2026-07-20 — design pass and implementation both completed the
+same day. A System/Light/Dark radio group on `SettingsScreen.tsx`
+(`frontend/src/lib/theme.ts`'s `useThemePreference`), persisted in
+`localStorage`, applied as a `data-theme` attribute on `<html>` via
+`main.tsx`'s `applyStoredThemePreference()` before the React tree mounts
+(no flash of the wrong theme). Every dark-theme token value in
+`frontend/src/index.css`'s `:root[data-theme='dark']` block is copied
+verbatim from `docs/design-document.md` §2's contrast-verified table (see
+that section for the derivation; ADR-0034 for the mechanism/persistence
+decision). Verified visually via a real Chromium screenshot (light/dark
+side by side, both legible) in addition to the automated suite.
+**Flagged, not silently passed over:** the login/signup submit button's
+text color reuses `--color-surface-card` as its foreground (a
+component-level token-reuse pattern, not one of the tokens the design
+pass's audit table enumerated) — in dark theme this computes to a
+measured 4.64:1 contrast against the green button background, clearing
+the 4.5:1 AA floor but narrowly, and by coincidence rather than by
+deliberate derivation. Worth a closer look if this pattern repeats
+elsewhere or the token values ever shift.)*
 > As a player, I want to choose a different color theme (e.g. dark mode)
 > for the app, so I can use it comfortably in different lighting
 > conditions or to match my own preference.
 
 - **Context:** raised as part of a broader Settings-page expansion
-  request. The request itself is vague as given — it is not yet clear
-  whether "change color themes" means a single light/dark toggle, multiple
-  named themes, or something else; this REQ records that the request
-  exists rather than assuming a specific scope on the product owner's
-  behalf.
-- `docs/design-document.md` §2 defines the current token system as
-  explicitly **light theme only for v1** — every color token (`bg-base`,
-  `surface-card`, `text-primary`, `accent-gold-text`, and the rest of that
-  table) has exactly one value, with several individually verified against
-  WCAG contrast floors for that one light background, documented with
-  dated entries in `docs/CHANGELOG.md`.
-- `docs/backlog.md` already flags this explicitly: "selectable color
-  themes/dark mode ... a reversal of the light-only v1 direction deserves
-  its own design session, not a quick story." This REQ does not override
-  that — it exists only to give the request a stable REQ ID to reference,
-  not to specify it.
+  request.
+- **Status note (2026-07-20 design pass):** every question this REQ
+  previously left open (below) is now decided. `docs/design-document.md`
+  §2 gained a full dark-theme token table — every existing color token
+  that carries real information (`text-primary`, `text-muted`,
+  `surface-card`/`surface-sunken`/`bg-base`, the `accent-green`/
+  `accent-gold`/`accent-red` text/icon pairings) has a contrast-verified
+  dark counterpart; the photo-overlay set (`overlay-scrim`,
+  `accent-green-scrim`, and the `accent-gold`/`surface-card` foreground
+  pairing used on it) needs no theme-specific value at all, since it's
+  calibrated against a photo's own worst-case brightness, not the app's
+  chrome. Layout, spacing, typography, and animation tokens are
+  unaffected — this is a colors-only change.
+- `docs/backlog.md` already flagged this as deserving its own design
+  session rather than a quick story — this status note **is** that
+  session's outcome, not a shortcut around it.
 
-**What a real design pass would need to cover (not resolved here):**
-- Scope of "theme" — a single light/dark toggle vs. multiple named themes
-  vs. something else; the request as given does not distinguish between
-  these.
-- Every existing token in `docs/design-document.md` §2 would need a value
-  per theme. That table today defines one flat value per token with no
-  existing raw/semantic split to build on — adding a second theme means
-  deciding how each token's per-theme value is authored and stored, not
-  just adding a parallel set of hex values ad hoc.
-- Every WCAG contrast ratio verified for the current light theme
-  (`docs/CHANGELOG.md` has several dated entries computing exact ratios
-  for specific tokens, e.g. `accent-gold-text`, `overlay-scrim`) would
-  need to be **re-verified independently for a dark theme**, not assumed
-  to carry over — a value that clears a contrast floor against
-  `#FBFBFA`/`#FFFFFF` has no guaranteed relationship to its contrast
-  against a dark background.
-- A persistence mechanism for the chosen theme — `localStorage`
-  (device-local) vs. a `User`-level stored preference (follows the account
-  across devices) — is an open decision, not something this REQ defaults
-  on.
-- Whether theme selection should also consider the system-level
-  `prefers-color-scheme` preference as a default, separate from an
-  explicit in-app choice.
+**Scope of "theme" (resolved):** three states, not a plain on/off toggle
+— **System** (follows `prefers-color-scheme`, the default for anyone who
+has never touched the setting), **Light**, **Dark** (either pins the
+theme regardless of the OS setting). Not multiple named/branded themes —
+REQ-716's own request text asks for "a different color theme (e.g. dark
+mode)," singular, and `docs/design-document.md` §1's brand direction (real
+football imagery, a quiet neutral shell) doesn't call for more than a
+light/dark pair.
 
-- **Status: Proposed, explicitly not implementation-ready.** No
-  acceptance criteria are written below because none of the above has
-  been decided — writing Given/When/Then criteria now would mean
-  inventing a scope the product owner hasn't confirmed.
+**Mechanism (resolved):** an explicit toggle on `SettingsScreen.tsx`
+(SCREEN-08), not an automatic-`prefers-color-scheme`-only approach with no
+in-app control — see `docs/design-document.md` §2's Dark theme subsection
+for the full reasoning (short version: the request explicitly asks to
+*choose*, not just to have the OS setting respected). The choice persists
+in `localStorage` (a new key, device-local, no `User`-level/account-synced
+row and no new backend endpoint — same reasoning ADR-0033 already used for
+refresh-token storage: match the existing device-local pattern rather than
+add new server-side surface for something this low-stakes at Tier 0).
 
-**Test level:** Not applicable until scoped by a dedicated design session.
+- Given a player has never set a theme preference before
+- When the app loads
+- Then the UI renders using the OS-level `prefers-color-scheme` result
+  (light or dark), re-evaluated live if the OS setting changes mid-session
+  while "System" is selected
+- Given a player opens Settings and selects "Light" or "Dark" explicitly
+- When that choice is made
+- Then the chosen theme applies immediately (no reload required), persists
+  across reloads and new sessions via `localStorage`, and no longer
+  follows the OS setting even if it changes
+- Given a player has previously chosen "Light" or "Dark" explicitly
+- When they select "System" again
+- Then the app reverts to following `prefers-color-scheme` live, and the
+  explicit pin is cleared from `localStorage`
+- Given any of the four load-bearing correctness/state signals this app
+  already never renders as color-only (REQ-204's points/attempt text,
+  REQ-210's attempt count, the correct/incorrect icon-plus-text pairing)
+- When the dark theme is active
+- Then those signals remain text-paired, not color-only, in the dark
+  theme exactly as they already are in light theme — this REQ changes
+  color values only, never removes an existing text pairing
+- Given every text/icon-on-background pairing `docs/design-document.md`
+  §2 has previously verified for the light theme (body text, muted text,
+  the three accent-*-text correctness colors)
+- Then each has an independently-computed WCAG contrast ratio for its dark
+  counterpart, documented in §2's Dark theme subsection — not assumed to
+  carry over from the light-theme derivation
+
+**Design questions this REQ previously left open — resolved 2026-07-20:**
+- Scope of "theme" → **System/Light/Dark**, decided above
+- Per-theme token values and re-verified contrast ratios → done, see
+  `docs/design-document.md` §2's Dark theme subsection
+- Persistence mechanism → **`localStorage`**, device-local, decided above
+- Whether to also consider `prefers-color-scheme` → **yes, as the
+  "System" default**, decided above
+
+**Test level:** Unit/UI (Vitest) once built — the theme resolution logic
+(System resolves to the live OS preference; Light/Dark pin regardless of
+OS preference; the explicit choice persists across a simulated reload via
+`localStorage`); visual/contrast verification is a manual/design-review
+check against the ratios already computed in `docs/design-document.md`
+§2, not an automated test. E2E: not required to gate merge (Playwright
+only runs in CI per this repo's convention), but should get a smoke check
+that switching the toggle actually changes rendered colors, once built.
 
 ---
 
@@ -3416,24 +3751,24 @@ REQ-405's leaderboard time-window questions (the previous entry in this
 section) were resolved 2026-07-12: calendar-aligned windows, UTC, locked
 rounds only. See REQ-405's own status note and `docs/backlog.md` S-027.
 
-Two genuine open questions were added 2026-07-20, both currently recorded
-as `Status: Proposed` REQs rather than decided here:
+REQ-409's participation-adjusted all-time score question was resolved
+2026-07-20: the all-time leaderboard's ranking becomes a median of each
+player's per-round `SUM(FinalPoints)` totals (locked rounds only, no live
+component), gated by a minimum of 5 qualifying rounds to appear ranked at
+all, replacing (not sitting alongside) the existing raw-sum ranking, with
+the same display-name tie-break every other leaderboard ranking in this
+document already uses. See REQ-409's own text for the full decision and
+REQ-404's added status note for the interim state — implementation is a
+separately queued story, not yet built.
 
-- **REQ-409 (participation-adjusted all-time score):** whether the
-  all-time leaderboard should show, instead of or alongside the existing
-  raw `SUM(FinalPoints ?? 0)` total, a participation-adjusted score (a
-  candidate formula — average points per round participated in — is
-  proposed for discussion, not decided). Open: replace vs. second view,
-  the participation definition to use, interaction with REQ-401/404's
-  zero-guess exclusion, and whether a minimum-rounds threshold is needed.
-  No formula, display mode, or threshold has been chosen.
-- **REQ-716 (selectable color themes / dark mode):** whether/how to offer
-  a non-light color theme. `docs/backlog.md` already flags this as
-  deserving its own design session rather than a quick story; this REQ
-  exists only as a placeholder recording the request, not a scoped spec.
-  Open: single toggle vs. multiple themes, per-theme token values and
-  re-verified contrast ratios, persistence mechanism, and whether to
-  honor `prefers-color-scheme`.
+REQ-716's selectable-color-themes/dark-mode question was resolved
+2026-07-20: a System/Light/Dark toggle on `SettingsScreen.tsx`, persisted
+in `localStorage`, with a fully token-valued and contrast-verified dark
+theme in `docs/design-document.md` §2. See REQ-716's own status note and
+that document's Dark theme subsection — implementation not yet queued in
+`docs/backlog.md`.
+
+No open questions remain from 2026-07-20 as of this pass.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:

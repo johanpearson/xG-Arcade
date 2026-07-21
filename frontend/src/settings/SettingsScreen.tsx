@@ -1,7 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, describeError, updateDisplayName } from '../lib/api';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
+import type { ThemePreference } from '../lib/theme';
 import './SettingsScreen.css';
+
+// REQ-716: the toggle's own option list — order matches the three-state
+// spec exactly (System first/default, per ADR-0034).
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemePreference; label: string }> = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
 
 export interface SettingsScreenProps {
   accessToken: string;
@@ -21,6 +30,13 @@ export interface SettingsScreenProps {
   onCancel: () => void;
   onAuthError: () => void;
   onOpenAdmin: () => void;
+  // REQ-716/ADR-0034: the player's own choice (System/Light/Dark) — the
+  // resolved light/dark value itself isn't a prop here, since App.tsx's
+  // useThemePreference already owns applying it to <html>; this component
+  // only needs the preference to know which radio is checked and to hand a
+  // new choice back up.
+  themePreference: ThemePreference;
+  onThemePreferenceChange: (preference: ThemePreference) => void;
 }
 
 const DISPLAY_NAME_MAX_LENGTH = 30;
@@ -51,6 +67,8 @@ export function SettingsScreen({
   onCancel,
   onAuthError,
   onOpenAdmin,
+  themePreference,
+  onThemePreferenceChange,
 }: SettingsScreenProps) {
   const [newDisplayName, setNewDisplayName] = useState(displayName);
   // Tracks whether the person has started editing, so a `displayName` prop
@@ -120,6 +138,29 @@ export function SettingsScreen({
           </button>
         </section>
       )}
+
+      {/* REQ-716/ADR-0034: System/Light/Dark toggle — reuses
+          .settings-screen__section's existing bordered-row treatment (same
+          tokens as the admin-link/display-name rows), no new visual
+          treatment. Placed ahead of the account-identity sections below
+          since it's a device display preference, not an account setting. */}
+      <section className="settings-screen__section settings-screen__section--appearance">
+        <h3 className="settings-screen__section-title">Appearance</h3>
+        <div className="settings-screen__theme-options" role="radiogroup" aria-label="Color theme">
+          {THEME_OPTIONS.map((option) => (
+            <label key={option.value} className="settings-screen__theme-option">
+              <input
+                type="radio"
+                name="theme-preference"
+                value={option.value}
+                checked={themePreference === option.value}
+                onChange={() => onThemePreferenceChange(option.value)}
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+      </section>
 
       <section className="settings-screen__section settings-screen__section--display-name">
         <h3 className="settings-screen__section-title">Display name</h3>

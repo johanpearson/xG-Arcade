@@ -380,6 +380,113 @@ public class AdminEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
     }
 
+    // ---- REQ-503 (2026-07-20 extension): remove action ---------------------
+
+    [Test]
+    public async Task REQ503_RemovePlayerData_SingleRow_DeletesRow()
+    {
+        var playerId = await SeedPlayerAsync();
+        var dataId = await SeedUnverifiedPlayerDataAsync(playerId);
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/remove", new RemovePlayerDataRequest([dataId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<RemovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Results, Has.Count.EqualTo(1));
+        Assert.That(body.Results[0].PlayerDataId, Is.EqualTo(dataId));
+        Assert.That(body.Results[0].Removed, Is.True);
+        Assert.That(body.Results[0].FailureReason, Is.Null);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.PlayerData.AnyAsync(pd => pd.Id == dataId), Is.False);
+    }
+
+    [Test]
+    public async Task REQ503_RemovePlayerData_Bulk_SelectAll_RemovesEveryRow()
+    {
+        var playerId = await SeedPlayerAsync();
+        var firstId = await SeedUnverifiedPlayerDataAsync(playerId);
+        Guid secondId;
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var second = new PlayerData
+            {
+                Id = Guid.NewGuid(), PlayerId = playerId, Field = "nationality", Value = "France",
+                Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
+            };
+            seedDbContext.PlayerData.Add(second);
+            await seedDbContext.SaveChangesAsync();
+            secondId = second.Id;
+        }
+        var client = CreateAdminClient();
+
+        // Simulates a "select all" bulk submission over every row currently
+        // loaded in the review view.
+        var response = await client.PostAsJsonAsync("/admin/player-data/remove", new RemovePlayerDataRequest([firstId, secondId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<RemovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Results, Has.Count.EqualTo(2));
+        Assert.That(body.Results, Has.All.Matches<PlayerDataRemovalResult>(r => r.Removed));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.PlayerData.AnyAsync(pd => pd.Id == firstId || pd.Id == secondId), Is.False);
+    }
+
+    [Test]
+    public async Task REQ503_RemovePlayerData_Bulk_PartialFailure_ReportsWhichRowsSucceededAndWhichFailed()
+    {
+        var playerId = await SeedPlayerAsync();
+        var validId = await SeedUnverifiedPlayerDataAsync(playerId);
+        // Simulates a row already deleted (or never existed) between
+        // selection and submission.
+        var missingId = Guid.NewGuid();
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/remove", new RemovePlayerDataRequest([validId, missingId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "a partial failure must not fail the whole batch as one all-or-nothing unit");
+        var body = await response.Content.ReadFromJsonAsync<RemovePlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        var validResult = body!.Results.Single(r => r.PlayerDataId == validId);
+        var missingResult = body.Results.Single(r => r.PlayerDataId == missingId);
+        Assert.That(validResult.Removed, Is.True);
+        Assert.That(missingResult.Removed, Is.False);
+        Assert.That(missingResult.FailureReason, Is.Not.Null.And.Not.Empty);
+    }
+
+    [Test]
+    public async Task REQ503_RemovePlayerData_ReturnsBadRequest_ForEmptyIdList()
+    {
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/remove", new RemovePlayerDataRequest([]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    }
+
+    [Test]
+    public async Task REQ503_RemovePlayerData_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var playerId = await SeedPlayerAsync();
+        var dataId = await SeedUnverifiedPlayerDataAsync(playerId);
+        var client = CreateAuthenticatedClient(Guid.NewGuid());
+
+        var response = await client.PostAsJsonAsync("/admin/player-data/remove", new RemovePlayerDataRequest([dataId]));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.PlayerData.AnyAsync(pd => pd.Id == dataId), Is.True, "a rejected request must not remove the row");
+    }
+
     // ---- REQ-501: PlayerOverride CRUD --------------------------------------
 
     [Test]

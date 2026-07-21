@@ -8,6 +8,10 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
+    // S-031/REQ-108: PlayerAttribute.AttributeType's vocabulary spells this
+    // one identically to CategoryPairingRules' "trophy" — no mapping needed,
+    // unlike Country/Club.
+    private const string TrophyAttributeType = "trophy";
     private const string WikidataSource = "wikidata";
     // ADR-0032: no code path in this class persists "unverified" anymore —
     // both WikidataLookupOrigin values map to VerifiedConfidence below.
@@ -41,8 +45,21 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
 
-        var matches = await wikidataClient.QueryCountryClubIntersectionAsync(
-            country.WikidataQid, club.WikidataQid, cancellationToken);
+        // REQ-114/ADR-0035: the only place this decision is made — a second
+        // query path (P1532, "country for sport"), not a replacement for
+        // the P27 ("country of citizenship") path every other seeded
+        // country uses. Both branches persist under the exact same
+        // AttributeType/AttributeValue below ("nationality"/country.Name):
+        // a national-team value like "England" is just another value in
+        // that vocabulary, same as "United Kingdom" already is — nothing
+        // downstream of this branch (PersistMatchesAsync, grid generation,
+        // guess-checking) needs to know or care which query path produced
+        // the match.
+        var matches = country.UsesCountryForSportProperty
+            ? await wikidataClient.QueryNationalTeamClubIntersectionAsync(
+                country.WikidataQid, club.WikidataQid, cancellationToken)
+            : await wikidataClient.QueryCountryClubIntersectionAsync(
+                country.WikidataQid, club.WikidataQid, cancellationToken);
 
         return await PersistMatchesAsync(
             matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);
@@ -62,6 +79,38 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
 
         return await PersistMatchesAsync(
             matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, origin, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+        TrophyDefinition trophy,
+        CountryDefinition country,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default)
+    {
+        if (trophy.WikidataQid is null || country.WikidataQid is null)
+            return [];
+
+        var matches = await wikidataClient.QueryTrophyCountryIntersectionAsync(
+            trophy.WikidataQid, country.WikidataQid, cancellationToken);
+
+        return await PersistMatchesAsync(
+            matches, TrophyAttributeType, trophy.Name, NationalityAttributeType, country.Name, origin, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+        TrophyDefinition trophy,
+        ClubDefinition club,
+        WikidataLookupOrigin origin,
+        CancellationToken cancellationToken = default)
+    {
+        if (trophy.WikidataQid is null || club.WikidataQid is null)
+            return [];
+
+        var matches = await wikidataClient.QueryTrophyClubIntersectionAsync(
+            trophy.WikidataQid, club.WikidataQid, cancellationToken);
+
+        return await PersistMatchesAsync(
+            matches, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, origin, cancellationToken);
     }
 
     // Fetched once for the whole batch rather than re-queried per player —
