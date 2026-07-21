@@ -594,6 +594,58 @@ public class AuthEndpointTests
         Assert.That(membership, Is.Not.Null);
     }
 
+    // REQ-717: AuthController.GenerateUniqueGuestDisplayNameAsync retries
+    // Random.Shared.Next(1000, 10000) up to 10 times against
+    // DisplayNameExistsAsync before falling back to a longer, Guid-derived
+    // name — Random.Shared can't be seeded/mocked here, so a single-collision
+    // -then-succeeds attempt can't be pinned to a specific candidate
+    // deterministically (that would need a controllable randomness/name
+    // seam — new shared test infrastructure, flagged separately rather than
+    // built here). Instead, this test makes EVERY one of the 9000 possible
+    // "GuestNNNN" candidates (1000-9999 inclusive, the exact range
+    // GenerateUniqueGuestDisplayNameAsync draws from) already taken —
+    // guaranteeing all 10 retry attempts collide regardless of which values
+    // are drawn — and pins down the resulting fallback: a longer,
+    // Guid-derived name, still unique and within REQ-701's 30-character
+    // bound, rather than an infinite loop or a duplicate row.
+    [Test]
+    public async Task REQ717_Guest_Post_FallsBackToGuidDerivedDisplayName_WhenEveryGuestNNNNCandidateIsAlreadyTaken()
+    {
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var takenNames = new List<User>();
+            for (var candidate = 1000; candidate < 10000; candidate++)
+            {
+                takenNames.Add(new User
+                {
+                    Id = Guid.NewGuid(),
+                    AuthProviderUserId = Guid.NewGuid(),
+                    Email = $"{Guid.NewGuid()}@example.com",
+                    DisplayName = $"Guest{candidate}",
+                    EmailConfirmed = true,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+            dbContext.Users.AddRange(takenNames);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var guest = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.IsGuest);
+        // None of the 9000 "GuestNNNN" candidates were available, so the
+        // Guid-derived fallback must have been used instead of the short
+        // random-4-digit form every other guest in this file gets.
+        Assert.That(guest.DisplayName, Does.StartWith("Guest"));
+        Assert.That(guest.DisplayName, Does.Not.Match(@"^Guest\d{4}$"));
+        Assert.That(guest.DisplayName.Length, Is.LessThanOrEqualTo(30));
+    }
+
     // REQ-717/ADR-0036: a separate, tighter rate-limit policy than
     // auth-signup/auth-login's 10/min (Program.cs's "auth-guest" —
     // 3/min by default, unless RateLimiting:AuthGuestPermitLimit overrides
@@ -1187,6 +1239,36 @@ public class AuthEndpointTests
         Assert.That(guesses.Count(g => g.UserId == otherUser.Id), Is.EqualTo(1));
         Assert.That(guesses.Count(g => g.UserId == null), Is.EqualTo(1));
         Assert.That(guesses.Count(g => g.UserId == deletedUser.Id), Is.EqualTo(0));
+    }
+
+    // REQ-717/ADR-0036: a guest has no password to re-confirm at all — this
+    // self-service deletion flow (built around re-proving a password) simply
+    // doesn't apply to that identity kind (AuthController.DeleteAccount's own
+    // comment). A guest can still be removed via S-026's admin-triggered
+    // path instead (AdminManagementEndpointTests' REQ-506 coverage), which
+    // doesn't go through this re-confirmation step at all.
+    [Test]
+    public async Task REQ717_DeleteAccount_Delete_ReturnsBadRequest_ForGuestAccountWithNoPasswordToConfirm()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("irrelevant-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        // The important assertion: this never even attempts to re-verify a
+        // password a guest doesn't have — the check is rejected before any
+        // call to Supabase, same discipline as every other pre-check in this
+        // controller.
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stillThere = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.IsGuest);
+        Assert.That(stillThere, Is.Not.Null, "the guest row must be untouched by the rejected request");
     }
 
     private static HttpRequestMessage BuildDeleteRequest(string password) =>

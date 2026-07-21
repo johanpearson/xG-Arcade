@@ -542,4 +542,56 @@ public class GuessSubmissionServiceTests
         Assert.That(_gameModule.ScoreSubmissionAsyncCallCount, Is.EqualTo(1),
             "REQ-210's lock/cap checks must run before disambiguation is ever reached, same as any other outcome");
     }
+
+    // ---- REQ-717/ADR-0036: a guest User row participates identically ------
+    // GuessSubmissionService never queries the Users table at all (it only
+    // ever touches Round/Guess, keyed by an opaque UserId) — every test
+    // above already exercises submission/locking with a plain, unlabeled
+    // Guid for UserId, which implicitly covers a guest identity too (there
+    // is no code path here that could tell the difference). This test
+    // instead ties that "zero new code path" design claim (ADR-0036) to an
+    // actual, real Guest User row rather than leaving it to that inference.
+
+    private async Task<Guid> SeedGuestUserAsync()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = $"Guest{Guid.NewGuid():N}"[..12],
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        return user.Id;
+    }
+
+    [Test]
+    public async Task REQ717_SubmitGuess_ForGuestUser_LocksAfterTwoWrongAttempts_IdenticallyToAnyOtherAccount()
+    {
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var guestUserId = await SeedGuestUserAsync();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, guestUserId, cellId, "Wrong Guess 1");
+
+        var result = await service.SubmitGuessAsync(round.Id, guestUserId, cellId, "Wrong Guess 2");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.AttemptCount, Is.EqualTo(2));
+        Assert.That(result.Locked, Is.True, "REQ-210's two-attempt lock applies to a guest identically to any other account");
+        var stored = await _guessRepository.GetAsync(round.Id, guestUserId, cellId);
+        Assert.That(stored!.UserId, Is.EqualTo(guestUserId));
+
+        // A third attempt is rejected the same way REQ-210 rejects it for
+        // any other locked cell — never a guest-specific exemption or extra
+        // leniency.
+        var thirdAttempt = await service.SubmitGuessAsync(round.Id, guestUserId, cellId, "Third Guess");
+        Assert.That(thirdAttempt.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+    }
 }

@@ -487,6 +487,99 @@ public class LeaderboardServiceTests
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
 
+    // The cutoff is strictly-after (GuessRepository
+    // .GetPerRoundFinalPointsByUserIdsAsync's `round.ClosedAt >
+    // user.ClaimedAt`, not `>=`) — a round that closes at the exact same
+    // instant claiming happened must still be excluded, not treated as
+    // "already after." Pins down the precise boundary rather than only the
+    // clearly-before/clearly-after cases the two tests above already cover:
+    // 4 genuinely-qualifying rounds (closed strictly after claiming) plus 1
+    // closed at the exact ClaimedAt instant. If that boundary round wrongly
+    // counted, this member would clear REQ-409's 5-round floor and be
+    // ranked; since it doesn't, only 4 real qualifying rounds exist and the
+    // member stays excluded.
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_RoundClosedExactlyAtClaimedAtInstant_ExcludedNotIncluded()
+    {
+        var claimedAt = DateTime.UtcNow.AddDays(-5);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        for (var i = 0; i < 4; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
+        await SeedLockedGuessAtAsync(you.Id, 999, claimedAt);
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+    }
+
+    // Distinct from OnlyRoundsClosedAfterClaimingCountTowardMedian above
+    // (which seeds exactly 5 post-claim rounds, clearing the floor): here
+    // there are only 3 real post-claim qualifying rounds, so the member must
+    // stay excluded even though 3 pre-claim rounds also exist (6 total
+    // closed rounds — enough to clear REQ-409's 5-round floor if pre-claim
+    // rounds wrongly counted toward it). Pins down that the floor is
+    // computed only from post-claim qualifying rounds, not "enough rounds
+    // exist in total."
+    [Test]
+    public async Task REQ717_GetGlobalLeaderboardAsync_ClaimedAccount_FewerThanFiveQualifyingPostClaimRounds_ExcludedEvenWithPreClaimRoundsPresent()
+    {
+        var claimedAt = DateTime.UtcNow.AddDays(-10);
+        var you = await SeedClaimedMemberAsync("You", claimedAt);
+        for (var i = 0; i < 3; i++)
+            await SeedLockedGuessAtAsync(you.Id, 999, claimedAt.AddDays(-1 - i));
+        for (var i = 0; i < 3; i++)
+            await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
+
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Is.Empty);
+        Assert.That(page.RequestingUserEntry, Is.Null);
+    }
+
+    // ---- REQ-717/ADR-0036: guest participation in round-scoped leaderboards ----
+    // REQ-407/408's own methods never check IsGuest at all (only REQ-409's
+    // GetGlobalLeaderboardAsync/qualifying-rounds query does — see the
+    // exclusion tests above), so every other test in this file already
+    // exercises these two methods with plain, unlabeled Guid-based UserIds,
+    // which implicitly covers a guest identity too (there's no code path
+    // that could tell the difference). These two tests instead name a guest
+    // explicitly, tying that implicit coverage to REQ-717's literal
+    // acceptance criterion ("the guest appears ranked exactly like any other
+    // participant... no new query logic") rather than leaving it to
+    // inference.
+
+    [Test]
+    public async Task REQ717_GetActiveRoundLeaderboardAsync_GuestParticipant_AppearsRankedExactlyLikeAnyOtherParticipant()
+    {
+        var guest = await SeedGuestMemberAsync("GuestPlayer");
+        var cellId = Guid.NewGuid();
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
+        _fakeGameModule.GetCellIdsResult = _ => [cellId];
+        await SeedGuessAsync(round.Id, guest.Id, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
+
+        var page = await _service.GetActiveRoundLeaderboardAsync(guest.Id, round, cursor: 0, pageSize: 50);
+
+        Assert.That(page.Rows, Has.Count.EqualTo(1));
+        Assert.That(page.Rows.Single().DisplayName, Is.EqualTo("GuestPlayer"));
+        Assert.That(page.Rows.Single().IsRequestingUser, Is.True);
+    }
+
+    [Test]
+    public async Task REQ717_GetClosedRoundLeaderboardAsync_GuestParticipant_AppearsRankedExactlyLikeAnyOtherParticipant()
+    {
+        var guest = await SeedGuestMemberAsync("GuestPlayer");
+        var realMember = await SeedMemberAsync("RealPlayer");
+        var round = await SeedRoundAsync(DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1));
+        await SeedGuessAsync(round.Id, guest.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
+        await SeedGuessAsync(round.Id, realMember.Id, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+
+        var result = await _service.GetClosedRoundLeaderboardAsync(round.Id, guest.Id, cursor: 0, pageSize: 50);
+
+        Assert.That(result.Status, Is.EqualTo(ClosedRoundLeaderboardStatus.Found));
+        Assert.That(result.Page!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "GuestPlayer", "RealPlayer" }));
+    }
+
     [Test]
     public async Task REQ607_GetGlobalLeaderboardAsync_PageSizeSmallerThanMembership_CapsResponseAtPageSize()
     {
