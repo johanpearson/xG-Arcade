@@ -389,11 +389,13 @@ is written as something you can actually observe, not a vague feeling:
   2026-07-21 (S-070):** a "Play as guest" entry point on the login/signup
   screen and a "Save your progress" claim section in Settings, both wired
   to the two endpoints above, plus a small header nudge while the session
-  is a guest — see `docs/backlog.md`'s S-070 entry for what was built and
-  a real gap it flagged back (the backend's `MeResponse` has no dedicated
-  `isGuest` field; the frontend derives it from a nullable email instead).
-  REQ-717/ADR-0036's frontend half is therefore complete end-to-end,
-  closing out this Tier 1/2 pull-forward.
+  is a guest — see `docs/backlog.md`'s S-070 entry for what was built. A
+  same-day follow-up (backend `MeResponse.IsGuest` field + a matching
+  frontend switch-over) closed the one gap S-070 flagged back (the
+  frontend originally derived guest status from a nullable email instead
+  of a real field) — see that entry's own addendum. REQ-717/ADR-0036's
+  frontend half is therefore complete end-to-end, closing out this Tier
+  1/2 pull-forward.
 
 ## Tier 2 — already deferred, unchanged
 

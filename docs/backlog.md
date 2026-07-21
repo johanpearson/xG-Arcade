@@ -3561,22 +3561,40 @@ low-effort header banner ("Playing as {name}. Save your progress.") while
 the session is a guest — not mandated by REQ-717, added per this story's
 own judgment call, documented in `design-document.md` (§3/§7) rather than
 left as an unreviewed addition.
-**Real gap found and flagged, not silently worked around:** the backend's
-`MeResponse` DTO (`AuthDtos.cs`) has no dedicated `isGuest` field — S-069
-added `IsGuest` to the `User` entity but never surfaced it on this
-response. The frontend derives guest status as `email === null` instead
-(a correct signal today: `AuthController.Guest` is the only path that ever
-creates a null-`Email` row, and `AuthController.Claim`/`UserRepository.
-ClaimGuestAsync` always set `Email` and clear `IsGuest` together — see the
-comment on `CurrentUser` in `frontend/src/lib/types.ts`), but a real
-`isGuest` boolean on `MeResponse` would be more robust/self-documenting
-than relying on that invariant holding forever. Recommended as a small
-follow-up for `backend-implementer`, not added here (out of this story's
-scope, and not this agent's to add per the xG Arcade/game and
-delivery-agent boundaries).
+**Real gap found and flagged, not silently worked around (closed same day
+— see follow-up below):** the backend's `MeResponse` DTO (`AuthDtos.cs`)
+had no dedicated `isGuest` field — S-069 added `IsGuest` to the `User`
+entity but never surfaced it on this response. The frontend derived guest
+status as `email === null` instead (a correct signal at the time:
+`AuthController.Guest` is the only path that ever creates a null-`Email`
+row, and `AuthController.Claim`/`UserRepository.ClaimGuestAsync` always
+set `Email` and clear `IsGuest` together), but a real `isGuest` boolean on
+`MeResponse` was recommended as more robust/self-documenting than relying
+on that invariant holding forever. Recommended as a small follow-up for
+`backend-implementer`, not added in this story (out of its scope, and not
+this agent's to add per the xG Arcade/game and delivery-agent boundaries).
 *Accept:* Vitest coverage in `AuthScreen.test.tsx` (guest sign-in success/
 failure) and `SettingsScreen.test.tsx` (claim section visibility, REQ-701
 password-policy checks, success/400/401 handling) — exhaustive REQ717-named
 frontend coverage remains `test-writer`'s to add, per this repo's
 delivery-agent split. No Playwright E2E spec added/changed: no existing
 spec asserts on `AuthScreen`/`SettingsScreen` behavior this story alters.
+
+**Follow-up (2026-07-21, same day, REQ-717):** `backend-implementer` added
+`MeResponse.IsGuest` (mirrors `User.IsGuest` directly), and this story's
+own frontend was switched over to it — `CurrentUser.isGuest` in
+`frontend/src/lib/types.ts`, consumed by `App.tsx`/`SettingsScreen.tsx` —
+removing the `email === null` inference entirely. `test-writer` then added
+the remaining REQ717-named coverage this story's *Accept* left open
+(uniqueness-denominator counting, REQ-409's exact-`ClaimedAt` cutoff and
+post-claim-only 5-round floor, explicit REQ-406/407/408 participation,
+guess-attempt-limit parity, `DeleteAccount`'s guest-rejection branch, and
+the header banner's show/hide/disappears-after-claim behavior in
+`App.test.tsx`) across `AuthEndpointTests.cs`, `LeaderboardServiceTests.cs`,
+`RoundCloseServiceScoringTests.cs`, `GuessSubmissionServiceTests.cs`, and
+`App.test.tsx`. A `quality-architect` pass then gave
+`GenerateUniqueGuestDisplayNameAsync` an optional `Random` seam (same
+pattern `GridGameModule` already uses) so the collision-retry branch could
+be tested deterministically, extracted `SupabaseAuthClient`'s duplicated
+error-parsing into one shared helper, and merged a near-duplicate
+guest-guess-seeding test helper into the existing one.

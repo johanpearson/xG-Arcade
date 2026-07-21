@@ -13,6 +13,33 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.93 → 0.94), `MVP-SCOPE.md`,
+  `docs/backlog.md` (S-070 addendum) — doc-sync pass, plus the same-day
+  follow-up work it's reconciling: `backend-implementer` added
+  `MeResponse.IsGuest` (mirrors `User.IsGuest` directly), and a matching
+  frontend commit switched `AuthScreen.tsx`/`SettingsScreen.tsx`/`App.tsx`
+  over to `CurrentUser.isGuest`, removing the `email === null` inference
+  the S-070 entry below had flagged as a gap. `test-writer` then added the
+  remaining REQ717-named coverage S-069/S-070 had left open (28
+  REQ717-named tests total across `AuthEndpointTests.cs`,
+  `UserRepositoryTests.cs`, `LeaderboardServiceTests.cs`,
+  `RoundCloseServiceScoringTests.cs`, `GuessSubmissionServiceTests.cs`, and
+  `App.test.tsx`): a guest's guess counting fully toward a real account's
+  uniqueness denominator, REQ-409's exact-`ClaimedAt` cutoff and
+  post-claim-only 5-round floor, explicit REQ-406/407/408 participation,
+  guess-attempt-limit parity, `DeleteAccount`'s guest-rejection branch, and
+  the header banner's show/hide/disappears-after-claim behavior.
+  `quality-architect` then gave `AuthController.
+  GenerateUniqueGuestDisplayNameAsync` an optional `Random` seam (the same
+  pattern `GridGameModule` already uses) so its collision-retry branch is
+  now deterministically testable, extracted `SupabaseAuthClient`'s
+  duplicated error-parsing into one shared helper, and merged a
+  near-duplicate guest-guess-seeding test helper into the existing one —
+  no behavior change, no new ADR (pure internal refactor). This pass
+  updates the two stale spots this follow-up work left behind: REQ-717's
+  frontend status note (`requirements-document.md`) and `MVP-SCOPE.md`'s
+  "Guest play" bullet both still described the now-closed `isGuest` gap as
+  open. REQ-717/ADR-0036/S-069/S-070.
 - 2026-07-21 — `docs/requirements-document.md` (0.92 → 0.93),
   `docs/design-document.md` (0.43 → 0.44), `MVP-SCOPE.md`,
   `docs/backlog.md` (new S-070) — REQ-717/ADR-0036 guest play **frontend

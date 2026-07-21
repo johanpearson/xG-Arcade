@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.93"
+version: "0.94"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -3835,12 +3835,15 @@ required)**
   guest, calling `POST /auth/claim`. `App.tsx` also added a small header
   banner nudging a guest toward that claim section — a UX addition beyond
   this REQ's own acceptance criteria, documented in `design-document.md`.
-  **Real gap flagged, not silently worked around:** the backend's
-  `MeResponse` DTO has no dedicated `isGuest` field (S-069 never added
-  one) — the frontend derives guest status as `email === null` instead,
-  a correct signal today but a less robust/self-documenting one than a
-  real `isGuest` boolean would be; see `docs/backlog.md`'s S-070 entry for
-  the full reasoning and the recommended backend follow-up.
+  **Gap since closed (2026-07-21 follow-up, same day):** this note
+  originally flagged that the backend's `MeResponse` DTO had no dedicated
+  `isGuest` field, and that the frontend derived guest status as
+  `email === null` instead. A same-day backend follow-up added
+  `MeResponse.IsGuest` (mirroring `User.IsGuest` directly), and a matching
+  frontend follow-up switched `AuthScreen.tsx`/`SettingsScreen.tsx`/
+  `App.tsx` over to that real field, removing the `email === null`
+  inference entirely. See `docs/backlog.md`'s S-070 entry for the
+  full before/after.
 
 **Tier framing:** Tier 1/2 by `MVP-SCOPE.md`'s own classification (a new
 auth flow that touches the account boundary Tier 0 already locked in) —
