@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-21 — `docs/requirements-document.md` (0.94 → 0.95),
+  `docs/design-document.md` (0.44 → 0.45) — bug fix:
+  `ScoringExplainer.tsx`'s card (`ScoringExplainer.css`) had no
+  `max-height`/`overflow-y`, so S-068's content growth (six to nine
+  paragraphs) pushed it past the viewport on short/mobile screens with no
+  way to scroll — reported by a player as breaking the UI. Fixed with
+  `max-height: calc(100vh - var(--space-4) * 2); overflow-y: auto`. Found
+  and fixed the identical gap in `GuessInput.css`'s `.guess-input` card
+  (`max-height: 90vh; overflow-y: auto`), which hosts the SCREEN-02a
+  disambiguation prompt. No other modal/backdrop pattern found in
+  `frontend/src`. No REQ acceptance criteria changed, no ADR needed (pure
+  CSS fix using existing tokens) — documented as an implementation note
+  under REQ-213.
 - 2026-07-21 — `docs/requirements-document.md` (0.93 → 0.94), `MVP-SCOPE.md`,
   `docs/backlog.md` (S-070 addendum) — doc-sync pass, plus the same-day
   follow-up work it's reconciling: `backend-implementer` added

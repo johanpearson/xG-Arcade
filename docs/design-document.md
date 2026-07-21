@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.44"
+version: "0.45"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1395,6 +1395,19 @@ shown in the mock above:
   `requirements-document.md`'s matching REQ-213 acceptance criteria — this
   section states the copy/placement, that doc remains the source of truth
   for which concepts are required.
+
+**Bug fix (2026-07-21, same-day follow-up to S-068):** the content growth
+above (six to nine paragraphs) pushed the card past the viewport height on
+short/mobile screens — neither `.scoring-explainer` nor its backdrop had a
+`max-height`/`overflow-y`, so the excess content overflowed off-screen with
+no way to reach it, reported by a player as breaking the UI. Fixed by
+giving `.scoring-explainer` a bounded `max-height` (accounting for the
+backdrop's own padding) and `overflow-y: auto`, so the whole card — header
+and close button included — scrolls as one block rather than a sticky
+header; simple, not over-engineered, since nothing here demands a pinned
+header. `GuessInput`'s card (SCREEN-02/02a) had the identical gap and was
+fixed the same way for consistency; see `requirements-document.md`'s
+matching REQ-213 note for the exact values.
 
 ### SCREEN-07: Header navigation (mobile menu)
 
