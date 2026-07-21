@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Leagues;
+using XGArcade.Core.Leagues;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 
@@ -146,6 +148,86 @@ public class LeagueEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
+    // REQ-402: characterizes (does not "fix") what a real client actually
+    // receives when LeagueService.CreateCustomLeagueAsync exhausts all 5
+    // invite-code-generation attempts to a collision — the Core-level
+    // equivalent (LeagueServiceTests's
+    // REQ402_CreateCustomLeagueAsync_ThrowsAfterExhaustingRetryAttempts_WhenEveryGeneratedCodeCollides)
+    // proves the service throws a bare InvalidOperationException; this
+    // proves LeagueEndpoints.cs has no catch clause for it and Program.cs
+    // has no global exception-handling middleware, so it currently
+    // surfaces as an unhandled-exception 500 with no problem-details body
+    // — not a deliberate error contract, just today's actual behavior.
+    // IInviteCodeGenerator is swapped for AlwaysCollidingInviteCodeGenerator
+    // (this file, below) via the same services.RemoveAll/AddSingleton
+    // pattern RoundEndpointTests.cs already uses for its own fakes.
+    [Test]
+    public async Task REQ402_PostLeagues_EveryGeneratedInviteCodeCollides_SurfacesAsUnhandled500()
+    {
+        const string collidingCode = "DUP0001";
+        var authProviderUserId = Guid.NewGuid();
+
+        // WithWebHostBuilder builds an entirely separate host/in-memory
+        // database from _factory's own (SetUp's ConfigureServices runs
+        // again, generating a fresh Guid.NewGuid() database name) — so both
+        // the user and the pre-existing colliding League must be seeded
+        // into THIS factory's database, not _factory's, matching how
+        // RoundEndpointTests.cs's own configBoundFactory test seeds via the
+        // derived factory it actually queries against.
+        var collidingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IInviteCodeGenerator>();
+                services.AddSingleton<IInviteCodeGenerator>(new AlwaysCollidingInviteCodeGenerator(collidingCode));
+            });
+        });
+
+        using (var scope = collidingFactory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = $"{authProviderUserId}@example.com",
+                DisplayName = "Alex",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            dbContext.Leagues.Add(new League
+            {
+                Id = Guid.NewGuid(),
+                Name = "Existing League",
+                Type = LeagueTypes.Custom,
+                InviteCode = collidingCode,
+                CreatedByUserId = Guid.NewGuid(),
+            });
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = collidingFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/leagues", new CreateLeagueRequest("Friends League"));
+
+        // Characterizes today's actual behavior: TestServer's in-process
+        // pipeline surfaces the endpoint's unhandled InvalidOperationException
+        // as a bare 500 with no problem-details body, since neither
+        // LeagueEndpoints.cs nor Program.cs catches it. This is not a
+        // deliberate contract — see the test's summary comment above — so
+        // this assertion should be revisited if that ever changes on
+        // purpose.
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+
+        // No membership or league row should be left behind by the failed attempt.
+        using var verifyScope = collidingFactory.Services.CreateScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(
+            await verifyDbContext.Leagues.CountAsync(l => l.Type == LeagueTypes.Custom && l.Name == "Friends League"),
+            Is.EqualTo(0));
+    }
+
     // ---- REQ-403: POST /leagues/join --------------------------------------
 
     [Test]
@@ -249,5 +331,17 @@ public class LeagueEndpointTests
         var response = await client.GetAsync("/leagues/mine");
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // Deliberately always returns the same code, so a caller who has also
+    // seeded a League row with that exact InviteCode can force every one of
+    // LeagueService's MaxInviteCodeAttempts pre-checks to collide — the API-
+    // level equivalent of XGArcade.Core.Tests/Leagues/FakeInviteCodeGenerator,
+    // which isn't referenced directly since XGArcade.Api.Tests doesn't
+    // project-reference XGArcade.Core.Tests (same "define the fake locally"
+    // pattern RoundEndpointTests.cs's own ThrowingRoundGenerationService uses).
+    private sealed class AlwaysCollidingInviteCodeGenerator(string code) : IInviteCodeGenerator
+    {
+        public string Generate() => code;
     }
 }
