@@ -542,7 +542,7 @@ public class AuthEndpointTests
     {
         var client = _factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
@@ -550,6 +550,10 @@ public class AuthEndpointTests
         Assert.That(body!.AccessToken, Is.EqualTo("a-fake-guest-access-token"));
         Assert.That(body.RefreshToken, Is.EqualTo("a-fake-guest-refresh-token"));
         Assert.That(_fakeAuthClient.SignInAnonymouslyCalled, Is.True);
+        // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037:
+        // the Turnstile token is forwarded to Supabase unmodified, never
+        // checked or altered by this backend.
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCalledWithCaptchaToken, Is.EqualTo("a-fake-turnstile-token"));
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -559,6 +563,87 @@ public class AuthEndpointTests
         Assert.That(user.ClaimedAt, Is.Null);
     }
 
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: a
+    // missing Turnstile token must produce a distinct, specific rejection —
+    // never the generic "Guest sign-in failed" this endpoint returns for
+    // its other failure modes — so the frontend can reset the widget and
+    // retry rather than treating it like any other opaque failure. Modeled
+    // here as Supabase itself rejecting the (empty/missing) token — this
+    // backend never verifies the token independently (ADR-0037) — the same
+    // way REQ717_Guest_Post_ReturnsDistinctCaptchaRejection_WhenSupabaseRejectsTheToken
+    // below models an explicitly-invalid one; both go through the same
+    // IsCaptchaRejection signal.
+    [Test]
+    public async Task REQ717_Guest_Post_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing()
+    {
+        _fakeAuthClient.SignInAnonymouslyResult = _ =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        // No CaptchaToken supplied at all — GuestRequest's CaptchaToken
+        // binds to null, forwarded to Supabase unmodified per ADR-0037's
+        // pass-through decision (no local pre-check of the token's presence
+        // in this controller).
+        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        // The important assertion: distinct from the generic "Guest sign-in
+        // failed" title every other Guest failure mode returns.
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Guest sign-in failed"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Users.AnyAsync(), Is.False, "no User row should be created for a rejected guest sign-in");
+    }
+
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: a
+    // present-but-invalid/expired Turnstile token, rejected by Supabase's
+    // own captcha verification, must produce the same distinct rejection as
+    // a missing one above — the frontend reacts identically either way
+    // (reset the widget, get a fresh token, retry).
+    [Test]
+    public async Task REQ717_Guest_Post_ReturnsDistinctCaptchaRejection_WhenSupabaseRejectsTheToken()
+    {
+        _fakeAuthClient.SignInAnonymouslyResult = _ =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha protection: request disallowed (not-a-robot)", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("an-expired-or-invalid-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCalledWithCaptchaToken, Is.EqualTo("an-expired-or-invalid-turnstile-token"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Users.AnyAsync(), Is.False, "no User row should be created for a rejected guest sign-in");
+    }
+
+    // REQ-717/ADR-0036: every other Guest sign-in rejection (i.e. not a
+    // captcha rejection) must still return the pre-existing generic
+    // "Guest sign-in failed" response, unchanged — this ADR-0037 addition
+    // only carves out captcha rejections specifically, it doesn't touch
+    // any other failure mode's response shape.
+    [Test]
+    public async Task REQ717_Guest_Post_ReturnsGenericGuestSignInFailed_ForNonCaptchaRejection()
+    {
+        _fakeAuthClient.SignInAnonymouslyResult = _ =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "Anonymous sign-ins are disabled." };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Guest sign-in failed"));
+    }
+
     // REQ-717: "Guest####-style" default display name, satisfying REQ-701's
     // existing 1-30 character bound.
     [Test]
@@ -566,7 +651,7 @@ public class AuthEndpointTests
     {
         var client = _factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 
         using var scope = _factory.Services.CreateScope();
@@ -584,7 +669,7 @@ public class AuthEndpointTests
     {
         var client = _factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
 
         using var scope = _factory.Services.CreateScope();
@@ -632,7 +717,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         using var assertScope = _factory.Services.CreateScope();
@@ -693,7 +778,7 @@ public class AuthEndpointTests
         }
 
         var client = deterministicFactory.CreateClient();
-        var response = await client.PostAsJsonAsync("/auth/guest", new { });
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         using var assertScope = deterministicFactory.Services.CreateScope();
@@ -727,11 +812,11 @@ public class AuthEndpointTests
         HttpResponseMessage? lastWithinLimitResponse = null;
         for (var i = 0; i < 3; i++)
         {
-            lastWithinLimitResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+            lastWithinLimitResponse = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
         }
         Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.OK), "The 3rd request in the window should still be processed normally.");
 
-        var overLimitResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+        var overLimitResponse = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
 
         Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
         var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
@@ -748,9 +833,9 @@ public class AuthEndpointTests
 
         for (var i = 0; i < 4; i++)
         {
-            await client.PostAsJsonAsync("/auth/guest", new { });
+            await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
         }
-        var guestResponse = await client.PostAsJsonAsync("/auth/guest", new { });
+        var guestResponse = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
         Assert.That(guestResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
 
         var signupResponse = await client.PostAsJsonAsync(
@@ -1410,13 +1495,19 @@ public class AuthEndpointTests
         // set it up.
         public bool SignInAnonymouslyCalled { get; private set; }
 
-        public Func<SupabaseAuthResult> SignInAnonymouslyResult { get; set; } =
-            () => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid(), AccessToken = "a-fake-guest-access-token", RefreshToken = "a-fake-guest-refresh-token" };
+        // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: captures the
+        // token AuthController.Guest forwarded, so a test can assert it was
+        // passed through unmodified.
+        public string? SignInAnonymouslyCalledWithCaptchaToken { get; private set; }
 
-        public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default)
+        public Func<string, SupabaseAuthResult> SignInAnonymouslyResult { get; set; } =
+            _ => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid(), AccessToken = "a-fake-guest-access-token", RefreshToken = "a-fake-guest-refresh-token" };
+
+        public Task<SupabaseAuthResult> SignInAnonymouslyAsync(string captchaToken, CancellationToken cancellationToken = default)
         {
             SignInAnonymouslyCalled = true;
-            return Task.FromResult(SignInAnonymouslyResult());
+            SignInAnonymouslyCalledWithCaptchaToken = captchaToken;
+            return Task.FromResult(SignInAnonymouslyResult(captchaToken));
         }
 
         public string? LinkEmailPasswordCalledWithAccessToken { get; private set; }

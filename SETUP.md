@@ -76,8 +76,10 @@ which is exactly what ADR-0006 needs (dev + prod).
    a live deployment hit it. Turning it on surfaces Supabase's own warning
    recommending a captcha be added — see step 6 below for that.
 6. **Guest-play captcha hardening (Tier 1/2, pulled forward alongside guest
-   play itself — REQ-717, ADR-0036/ADR-0037): skip until guest play's
-   captcha addition is actually being implemented.** Guest account
+   play itself — REQ-717, ADR-0036/ADR-0037): the backend pass-through
+   (`AuthController.Guest`/`SignInAnonymouslyAsync`) is implemented as of
+   2026-07-22 — the frontend's Turnstile widget/token acquisition is not
+   yet built, so complete this step before that lands.** Guest account
    creation (`POST /auth/guest`) uses Supabase's own Anonymous Sign-ins
    feature; enabling that in Supabase's dashboard (Authentication →
    Providers → Anonymous) surfaces its own warning recommending a captcha
@@ -92,7 +94,11 @@ which is exactly what ADR-0006 needs (dev + prod).
    - Save the **site key** — this is public, safe in frontend code, and
      becomes the frontend's `VITE_TURNSTILE_SITE_KEY` build-time
      environment variable (same pattern as `VITE_API_BASE_URL` — see
-     `frontend/src/lib/api.ts`)
+     `frontend/src/lib/api.ts`). For the deployed dev environment, also
+     save it as the `DEV_TURNSTILE_SITE_KEY` GitHub Actions secret —
+     `deploy.yml`'s `deploy-frontend` job feeds it through to the same
+     Vite build the same way `VITE_API_BASE_URL` already is (see
+     `infra/README.md`'s secrets table)
    - Save the **secret key** — this is a true secret, but it is **never**
      configured in this application's backend or its secrets. Paste it
      directly into Supabase's own Auth dashboard settings (Authentication

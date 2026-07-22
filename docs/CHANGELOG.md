@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-22 — `docs/requirements-document.md` (0.96 → 0.97), `SETUP.md`,
+  `infra/README.md`, `.github/workflows/deploy.yml`, `MVP-SCOPE.md` —
+  implemented the
+  backend half of ADR-0037's Cloudflare Turnstile captcha hardening for
+  `POST /auth/guest`: `GuestRequest.CaptchaToken` threaded through
+  `ISupabaseAuthClient.SignInAnonymouslyAsync` to Supabase's
+  `gotrue_meta_security.captcha_token` field, and a new
+  `SupabaseAuthResult.IsCaptchaRejection` signal (parsed from Supabase's
+  `error_code`/message on a failed anonymous sign-in) lets
+  `AuthController.Guest` return a distinct "Captcha verification failed"
+  (400) response instead of the generic "Guest sign-in failed" (500) for a
+  missing/expired/invalid token, per REQ-717's 2026-07-21 acceptance
+  criteria. `requirements-document.md`: noted the backend side as
+  implemented, frontend Turnstile widget/token acquisition still pending.
+  `infra/README.md`/`deploy.yml`: added `DEV_TURNSTILE_SITE_KEY`/
+  `PROD_TURNSTILE_SITE_KEY`, wired into `deploy-frontend`'s
+  `VITE_TURNSTILE_SITE_KEY` the same way `VITE_API_BASE_URL` already is —
+  discovered along the way that `VITE_API_BASE_URL` itself is wired
+  directly in `deploy.yml`'s Oryx build step, not through Bicep (no Bicep
+  module touches frontend build-time config at all), so this follows that
+  actual pattern rather than the Bicep-module assumption in the original
+  task description. `SETUP.md` step 6 updated to reflect the backend
+  pass-through now being built and to name the new deploy-time secret.
+  Not independently verified against a live Supabase project (no network
+  access in this environment) — Supabase's `gotrue_meta_security
+  .captcha_token` request field and its `error_code: "captcha_failed"`
+  response field are both recorded from documentation/training knowledge,
+  not confirmed live; flagged for manual verification, same caveat
+  `SignInAnonymouslyAsync`/`LinkEmailPasswordAsync` already carry from
+  ADR-0036/ADR-0037.
 - 2026-07-21 — `docs/architecture-document.md` (0.47 → 0.48), `SETUP.md` —
   closed two gaps flagged by the ADR-0037/REQ-717 captcha entry directly
   below: added the missing ADR-0037 row to `architecture-document.md` §10's

@@ -395,13 +395,19 @@ is written as something you can actually observe, not a vague feeling:
   frontend originally derived guest status from a nullable email instead
   of a real field) — see that entry's own addendum. REQ-717/ADR-0036's
   frontend half is therefore complete end-to-end, closing out this Tier
-  1/2 pull-forward. **Captcha hardening specified, not yet built
-  (2026-07-21, ADR-0037):** Cloudflare Turnstile added as a second,
-  complementary abuse-prevention layer alongside the existing `auth-guest`
-  rate limit, scoped to `POST /auth/guest` only — see REQ-717's "Bot-check
-  (captcha) for guest creation" addition for the acceptance criteria and
-  `SETUP.md`'s Supabase section (step 5) for the new manual precondition
-  (a Cloudflare Turnstile site, plus enabling Supabase's captcha setting).
+  1/2 pull-forward. **Captcha hardening (2026-07-21, ADR-0037): backend
+  half built 2026-07-22, frontend not yet built.** Cloudflare Turnstile
+  added as a second, complementary abuse-prevention layer alongside the
+  existing `auth-guest` rate limit, scoped to `POST /auth/guest` only — see
+  REQ-717's "Bot-check (captcha) for guest creation" addition for the
+  acceptance criteria and `SETUP.md`'s Supabase section (step 5) for the
+  new manual precondition (a Cloudflare Turnstile site, plus enabling
+  Supabase's captcha setting). `AuthController.Guest`/
+  `SignInAnonymouslyAsync` now thread a `CaptchaToken` through to
+  Supabase's own verification and return a distinct rejection on failure;
+  the frontend's Turnstile widget/token acquisition (obtaining a token
+  before calling `POST /auth/guest`, resetting the widget on the distinct
+  rejection) is the remaining piece before this is complete end-to-end.
 
 ## Tier 2 — already deferred, unchanged
 

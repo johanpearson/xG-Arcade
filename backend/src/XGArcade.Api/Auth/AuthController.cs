@@ -193,17 +193,43 @@ public class AuthController(
     // never called directly from the frontend. Rate-limited by its own,
     // tighter policy (see Program.cs's "auth-guest" — an anonymous sign-in
     // has even less friction than email signup, no address to type at all,
-    // making it a cheaper target for scripted identity creation). No
-    // request body: there's nothing for the caller to supply — REQ-717's
-    // whole point is zero-friction entry.
+    // making it a cheaper target for scripted identity creation).
+    //
+    // Request body (REQ-717's 2026-07-21 "Bot-check (captcha)" addition /
+    // ADR-0037): GuestRequest.CaptchaToken, a Cloudflare Turnstile token the
+    // frontend obtains client-side before ever calling this endpoint —
+    // passed straight through to Supabase's anonymous sign-in call for its
+    // own server-side verification, never checked independently here. This
+    // supersedes REQ-717's original "no request body" design, now that
+    // there's something for the caller to supply.
     [EnableRateLimiting("auth-guest")]
     [HttpPost("guest")]
-    public async Task<IActionResult> Guest(CancellationToken cancellationToken)
+    public async Task<IActionResult> Guest([FromBody] GuestRequest request, CancellationToken cancellationToken)
     {
-        var signInResult = await authClient.SignInAnonymouslyAsync(cancellationToken);
+        var signInResult = await authClient.SignInAnonymouslyAsync(request.CaptchaToken, cancellationToken);
         if (!signInResult.Success || signInResult.AccessToken is null)
         {
             logger.LogWarning("Guest sign-in rejected by Supabase Auth: {ErrorMessage}", signInResult.ErrorMessage);
+
+            // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: a
+            // missing/expired/invalid Turnstile token must produce a
+            // distinct, specific rejection from every other Guest failure
+            // mode below — never this same generic "Guest sign-in failed" —
+            // so the frontend can tell "reset the widget and retry" apart
+            // from any other failure. Distinguished two ways: a different
+            // title (this codebase's existing precedent for a
+            // frontend-string-matched rejection — see DeleteAccount's
+            // "Incorrect password") AND a different status code (400, a
+            // problem with the client-supplied token, vs. the generic
+            // failure's 500 below).
+            if (signInResult.IsCaptchaRejection)
+            {
+                return Problem(
+                    title: "Captcha verification failed",
+                    detail: "Could not verify you're not a bot. Please try again.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
             return Problem(
                 title: "Guest sign-in failed",
                 detail: "Could not start a guest session. Please try again.",

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.96"
+version: "0.97"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-07-22
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -3959,8 +3959,10 @@ decision itself (added in the same session ADR-0036 was drafted).
   by the requirement itself — an implementation/tuning detail, not a
   product decision this requirement needs to make
 
-**Bot-check (captcha) for guest creation (2026-07-21 addition — acceptance
-criteria only, not yet built):** complementary to, not a replacement for,
+**Bot-check (captcha) for guest creation (2026-07-21 addition; backend
+pass-through implemented 2026-07-22 per ADR-0037 — the frontend's Turnstile
+widget/token-acquisition side is not yet built, tracked separately):**
+complementary to, not a replacement for,
 the rate-limiting criteria immediately above — a per-IP rate limit alone is
 weaker against a distributed/multi-IP scripted attacker than a captcha
 check is, which is exactly the abuse pattern Supabase's own dashboard warns

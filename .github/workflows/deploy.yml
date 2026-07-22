@@ -133,3 +133,10 @@ jobs:
           # means the API rejects the frontend — both need this secret set to
           # actually work end-to-end, not just to deploy without erroring.
           VITE_API_BASE_URL: ${{ secrets.DEV_BACKEND_HOSTNAME && format('https://{0}', secrets.DEV_BACKEND_HOSTNAME) || '' }}
+          # REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037:
+          # the Cloudflare Turnstile site key — public/non-secret by design
+          # (same as Supabase's anon key, ADR-0013), baked into the built
+          # bundle the same way VITE_API_BASE_URL above is. Stored as a
+          # GitHub Actions secret purely for convenience/single-source-of-
+          # truth, not because it needs secrecy — see infra/README.md.
+          VITE_TURNSTILE_SITE_KEY: ${{ secrets.DEV_TURNSTILE_SITE_KEY }}

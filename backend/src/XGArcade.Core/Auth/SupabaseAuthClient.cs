@@ -69,8 +69,20 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
     // ships. Reuses PostAuthRequestAsync since the response shape (a normal
     // session: access_token/refresh_token/user) is documented to be the
     // same as a real signup's.
-    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default) =>
-        PostAuthRequestAsync("auth/v1/signup", new { }, cancellationToken);
+    //
+    // captchaToken (REQ-717's 2026-07-21 "Bot-check (captcha)" addition /
+    // ADR-0037): forwarded unmodified as gotrue_meta_security.captcha_token,
+    // the field ADR-0037 records as Supabase Auth's documented mechanism for
+    // native Cloudflare Turnstile verification. Also NOT independently
+    // verified against a live Supabase project from this environment — same
+    // caveat as this method's own pre-existing comment above; ADR-0037
+    // itself flags this field name/shape as recorded from Supabase's
+    // documentation, not confirmed against a live project either.
+    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(string captchaToken, CancellationToken cancellationToken = default) =>
+        PostAuthRequestAsync(
+            "auth/v1/signup",
+            new { gotrue_meta_security = new { captcha_token = captchaToken } },
+            cancellationToken);
 
     // REQ-717/ADR-0036: the claim/upgrade path. PUT auth/v1/user is
     // Supabase's user-update endpoint — passing email/password there is
@@ -104,11 +116,7 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
 
         if (!response.IsSuccessStatusCode)
         {
-            return new SupabaseAuthResult
-            {
-                Success = false,
-                ErrorMessage = await ReadErrorMessageAsync(response, cancellationToken),
-            };
+            return await ReadFailureResultAsync(response, cancellationToken);
         }
 
         // Supabase's user-update endpoint returns the updated user object
@@ -136,11 +144,7 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
 
         if (!response.IsSuccessStatusCode)
         {
-            return new SupabaseAuthResult
-            {
-                Success = false,
-                ErrorMessage = await ReadErrorMessageAsync(response, cancellationToken),
-            };
+            return await ReadFailureResultAsync(response, cancellationToken);
         }
 
         var body = await response.Content.ReadFromJsonAsync<SupabaseSessionResponse>(cancellationToken: cancellationToken);
@@ -166,11 +170,42 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
     // parse the same Supabase error-response shape on a non-success status
     // code, previously duplicated verbatim between the two; extracted so
     // the precedence order (msg/error_description/message/generic fallback)
-    // only ever needs updating in one place.
-    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    // only ever needs updating in one place. Also computes IsCaptchaRejection
+    // (REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037) so
+    // AuthController.Guest can distinguish a captcha-specific rejection from
+    // every other failure without AuthController itself needing to know
+    // anything about Supabase's error-body shape.
+    private static async Task<SupabaseAuthResult> ReadFailureResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var error = await response.Content.ReadFromJsonAsync<SupabaseErrorResponse>(cancellationToken: cancellationToken);
-        return error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.";
+        var message = error?.Msg ?? error?.ErrorDescription ?? error?.Message ?? "Supabase Auth request failed.";
+
+        // NOT independently verified against a live Supabase project from
+        // this environment (no network access here — same caveat
+        // SignInAnonymouslyAsync's own comment already carries, per
+        // ADR-0037). Supabase Auth (GoTrue)'s documented machine-readable
+        // error codes include "captcha_failed" for a rejected/missing/
+        // expired captcha token, carried in an "error_code" field
+        // alongside the existing "msg"/"error_description"/"message"
+        // fields this class already parses — checked first as the more
+        // reliable signal. Falls back to a case-insensitive substring match
+        // on the human-readable message (Supabase's own past wording for
+        // this failure, e.g. "captcha verification process failed" /
+        // "captcha protection: ...", has consistently contained the word
+        // "captcha") in case error_code isn't present on whichever Supabase
+        // Auth version is actually deployed — flagged for manual
+        // verification against a real Supabase project the same way
+        // ADR-0037 already flags the request-side field name/shape.
+        var isCaptchaRejection =
+            string.Equals(error?.ErrorCode, "captcha_failed", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("captcha", StringComparison.OrdinalIgnoreCase);
+
+        return new SupabaseAuthResult
+        {
+            Success = false,
+            ErrorMessage = message,
+            IsCaptchaRejection = isCaptchaRejection,
+        };
     }
 
     private record SupabaseSessionResponse
@@ -204,5 +239,13 @@ public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey se
 
         [JsonPropertyName("message")]
         public string? Message { get; init; }
+
+        // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037:
+        // Supabase Auth (GoTrue)'s documented machine-readable error code
+        // (e.g. "captcha_failed") — NOT independently verified against a
+        // live Supabase project from this environment, see
+        // ReadFailureResultAsync's own comment above for the full caveat.
+        [JsonPropertyName("error_code")]
+        public string? ErrorCode { get; init; }
     }
 }
