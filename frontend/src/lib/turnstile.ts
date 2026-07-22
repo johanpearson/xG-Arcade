@@ -49,6 +49,17 @@ let scriptLoadPromise: Promise<TurnstileApi> | null = null;
 // because none has been rendered yet, or because resetTurnstileWidget below
 // discarded the previous one after a captcha rejection).
 let widgetId: string | null = null;
+// The in-flight getTurnstileToken() call, or null when none is pending.
+// Without this, a second call while one is still awaiting its callback
+// would tear down the first call's widget (see the "one widget at a time"
+// comment below) before Cloudflare ever invokes that widget's
+// callback/error-callback/expired-callback -- leaving the first call's
+// promise permanently unresolved rather than rejected. Deduping to the
+// same in-flight promise (rather than, say, rejecting the second call)
+// means every caller during that window gets the same, eventually-settled
+// result, and is the simplest option that needs no new rejection contract
+// for callers to handle.
+let pendingTokenPromise: Promise<string> | null = null;
 
 // Loads Cloudflare's script exactly once per page load, however many times
 // this module's exports are called -- a second/third call reuses the same
@@ -94,32 +105,52 @@ function getOrCreateContainer(): HTMLElement {
 
 // REQ-717: obtains one Cloudflare Turnstile token before "Play as guest"
 // ever calls POST /auth/guest. Any widget instance left over from a
-// previous call is torn down first (Cloudflare's render() is not documented
-// as safe to call twice into the same container without doing so) and a
-// fresh one is rendered every time -- this makes every call, not only the
-// one after resetTurnstileWidget(), get a genuinely new execution rather
-// than relying on an assumption about how an already-rendered invisible
-// widget behaves on a second callback. Never resolves with a
-// placeholder/empty token; a script load failure or a Turnstile-reported
-// error rejects instead.
-export async function getTurnstileToken(): Promise<string> {
-  const turnstile = await loadTurnstileScript();
-  const container = getOrCreateContainer();
+// previous, already-settled call is torn down first (Cloudflare's render()
+// is not documented as safe to call twice into the same container without
+// doing so) and a fresh one is rendered every time -- this makes every
+// call, not only the one after resetTurnstileWidget(), get a genuinely new
+// execution rather than relying on an assumption about how an
+// already-rendered invisible widget behaves on a second callback. Never
+// resolves with a placeholder/empty token; a script load failure or a
+// Turnstile-reported error rejects instead.
+//
+// Concurrent calls (a caller invoking this again before a previous call has
+// settled) reuse that same in-flight promise instead of racing it: without
+// this guard, the second call's widget teardown above would remove the
+// first call's still-pending widget out from under it, and the first
+// call's promise would never resolve or reject at all (see pendingTokenPromise's
+// own comment).
+export function getTurnstileToken(): Promise<string> {
+  if (pendingTokenPromise) return pendingTokenPromise;
 
-  if (widgetId !== null) {
-    turnstile.remove(widgetId);
-    widgetId = null;
-  }
+  pendingTokenPromise = (async () => {
+    try {
+      const turnstile = await loadTurnstileScript();
+      const container = getOrCreateContainer();
 
-  return new Promise<string>((resolve, reject) => {
-    widgetId = turnstile.render(container, {
-      sitekey: SITE_KEY,
-      size: 'invisible',
-      callback: resolve,
-      'error-callback': () => reject(new Error('Could not verify you are not a bot. Please try again.')),
-      'expired-callback': () => reject(new Error('Verification expired. Please try again.')),
-    });
-  });
+      if (widgetId !== null) {
+        turnstile.remove(widgetId);
+        widgetId = null;
+      }
+
+      return await new Promise<string>((resolve, reject) => {
+        widgetId = turnstile.render(container, {
+          sitekey: SITE_KEY,
+          size: 'invisible',
+          callback: resolve,
+          'error-callback': () => reject(new Error('Could not verify you are not a bot. Please try again.')),
+          'expired-callback': () => reject(new Error('Verification expired. Please try again.')),
+        });
+      });
+    } finally {
+      // Cleared once settled (either way) so the *next*, non-overlapping
+      // call starts a fresh render rather than reusing a resolved/rejected
+      // promise forever.
+      pendingTokenPromise = null;
+    }
+  })();
+
+  return pendingTokenPromise;
 }
 
 // REQ-717's explicit acceptance criterion: on the backend's distinct

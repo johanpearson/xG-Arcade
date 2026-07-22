@@ -159,6 +159,51 @@ describe('turnstile', () => {
     expect(secondContainer).toBe(firstContainer);
   });
 
+  // Regression test (quality-architect): a caller invoking getTurnstileToken()
+  // again before a previous call has settled used to have its widget torn
+  // down mid-flight by the second call's own teardown-then-render logic,
+  // leaving the first call's promise permanently unresolved (never resolved
+  // nor rejected). Both calls must now resolve to the same token, from a
+  // single render().
+  it('dedupes concurrent getTurnstileToken() calls to the same in-flight render, rather than racing them', async () => {
+    const { getTurnstileToken } = await import('./turnstile');
+    const fakeApi = createFakeTurnstileApi();
+    (window as { turnstile?: TurnstileApi }).turnstile = fakeApi;
+
+    const first = getTurnstileToken();
+    const second = getTurnstileToken();
+    await flush();
+
+    expect(fakeApi.render).toHaveBeenCalledTimes(1);
+    expect(fakeApi.remove).not.toHaveBeenCalled();
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][1].callback('shared-token');
+
+    await expect(first).resolves.toBe('shared-token');
+    await expect(second).resolves.toBe('shared-token');
+  });
+
+  // Once the in-flight call above has settled, a later, non-overlapping call
+  // must still get a genuinely fresh widget (the existing "tears down a
+  // previous widget" test covers the sequential case; this confirms
+  // dedup doesn't leak across settled calls).
+  it('renders a fresh widget for a later call once the previous, deduped call has settled', async () => {
+    const { getTurnstileToken } = await import('./turnstile');
+    const fakeApi = createFakeTurnstileApi();
+    (fakeApi.render as ReturnType<typeof vi.fn>).mockReturnValueOnce('widget-1').mockReturnValueOnce('widget-2');
+    (window as { turnstile?: TurnstileApi }).turnstile = fakeApi;
+
+    const first = getTurnstileToken();
+    await flush();
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][1].callback('token-1');
+    await first;
+
+    const second = getTurnstileToken();
+    await flush();
+    expect(fakeApi.render).toHaveBeenCalledTimes(2);
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[1][1].callback('token-2');
+    await expect(second).resolves.toBe('token-2');
+  });
+
   it('rejects if Turnstile itself reports an error via error-callback', async () => {
     const { getTurnstileToken } = await import('./turnstile');
     const fakeApi = createFakeTurnstileApi();
