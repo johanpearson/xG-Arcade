@@ -576,14 +576,17 @@ public class AuthEndpointTests
     [Test]
     public async Task REQ717_Guest_Post_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing()
     {
-        _fakeAuthClient.SignInAnonymouslyResult = _ =>
-            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
         var client = _factory.CreateClient();
 
-        // No CaptchaToken supplied at all — GuestRequest's CaptchaToken
-        // binds to null, forwarded to Supabase unmodified per ADR-0037's
-        // pass-through decision (no local pre-check of the token's presence
-        // in this controller).
+        // No CaptchaToken supplied at all. GuestRequest.CaptchaToken is
+        // nullable specifically so this binds to null rather than tripping
+        // ASP.NET Core's own automatic model validation (which would
+        // otherwise short-circuit with its own generic "One or more
+        // validation errors occurred." response before AuthController.Guest
+        // ever runs — a real regression caught by CI, not a hypothetical).
+        // AuthController.Guest checks for this itself and rejects before
+        // ever calling Supabase — there is nothing to verify with a token
+        // that was never supplied.
         var response = await client.PostAsJsonAsync("/auth/guest", new { });
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
@@ -593,6 +596,7 @@ public class AuthEndpointTests
         // failed" title every other Guest failure mode returns.
         Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
         Assert.That(body.Title, Is.Not.EqualTo("Guest sign-in failed"));
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCallCount, Is.EqualTo(0), "Supabase must never be called when no token was supplied at all");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
