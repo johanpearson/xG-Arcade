@@ -83,16 +83,29 @@ export async function login(email: string, password: string): Promise<LoginRespo
 }
 
 // REQ-717/ADR-0036: provisions a real, auto-enrolled guest User row with no
-// email/password (POST /auth/guest, no request body at all — see
-// AuthController.Guest). Same response shape as login()/signup's follow-up
-// login above (LoginResponse), and the caller stores/treats it identically
-// to any other login from this point on — no separate "guest mode"
-// client-side state (ADR-0036's explicit design goal, mirrored here rather
-// than reinterpreted).
-export async function playAsGuest(): Promise<LoginResponse> {
+// email/password (POST /auth/guest — see AuthController.Guest). Same
+// response shape as login()/signup's follow-up login above (LoginResponse),
+// and the caller stores/treats it identically to any other login from this
+// point on — no separate "guest mode" client-side state (ADR-0036's
+// explicit design goal, mirrored here rather than reinterpreted).
+//
+// REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: this
+// endpoint now requires a `captchaToken` (a Cloudflare Turnstile token the
+// caller obtains client-side via `lib/turnstile.ts`'s `getTurnstileToken()`
+// *before* ever calling this function) — superseding the original
+// no-request-body design. This function forwards the token unmodified; it
+// performs no captcha verification of its own (ADR-0037's "mediate, don't
+// reimplement" boundary — Supabase verifies it against Cloudflare
+// server-side). A captcha-specific rejection comes back as a distinct 400
+// with `title === 'Captcha verification failed'` (vs. the generic 500
+// "Guest sign-in failed" for any other failure) — left to throw as an
+// ApiError like any other failure here; the caller (AuthScreen.tsx)
+// branches on `error.title` to decide whether to reset the Turnstile widget.
+export async function playAsGuest(captchaToken: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/guest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LoginResponse;

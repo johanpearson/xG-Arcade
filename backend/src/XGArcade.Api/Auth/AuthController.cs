@@ -193,17 +193,50 @@ public class AuthController(
     // never called directly from the frontend. Rate-limited by its own,
     // tighter policy (see Program.cs's "auth-guest" — an anonymous sign-in
     // has even less friction than email signup, no address to type at all,
-    // making it a cheaper target for scripted identity creation). No
-    // request body: there's nothing for the caller to supply — REQ-717's
-    // whole point is zero-friction entry.
+    // making it a cheaper target for scripted identity creation).
+    //
+    // Request body (REQ-717's 2026-07-21 "Bot-check (captcha)" addition /
+    // ADR-0037): GuestRequest.CaptchaToken, a Cloudflare Turnstile token the
+    // frontend obtains client-side before ever calling this endpoint —
+    // passed straight through to Supabase's anonymous sign-in call for its
+    // own server-side verification, never checked independently here. This
+    // supersedes REQ-717's original "no request body" design, now that
+    // there's something for the caller to supply.
     [EnableRateLimiting("auth-guest")]
     [HttpPost("guest")]
-    public async Task<IActionResult> Guest(CancellationToken cancellationToken)
+    public async Task<IActionResult> Guest([FromBody] GuestRequest request, CancellationToken cancellationToken)
     {
-        var signInResult = await authClient.SignInAnonymouslyAsync(cancellationToken);
+        // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: a missing
+        // token is treated exactly like an invalid one — the same distinct
+        // rejection, never Supabase's generic failure and never ASP.NET
+        // Core's own automatic-model-validation response (which is why
+        // GuestRequest.CaptchaToken is nullable rather than a plain,
+        // non-nullable string: a non-nullable property would make a
+        // bodyless/field-omitted request short-circuit into ASP.NET's own
+        // "One or more validation errors occurred." before this method ever
+        // runs, defeating this exact requirement). No point calling
+        // Supabase with nothing to verify.
+        if (string.IsNullOrWhiteSpace(request.CaptchaToken))
+        {
+            return CaptchaRejection();
+        }
+
+        var signInResult = await authClient.SignInAnonymouslyAsync(request.CaptchaToken, cancellationToken);
         if (!signInResult.Success || signInResult.AccessToken is null)
         {
             logger.LogWarning("Guest sign-in rejected by Supabase Auth: {ErrorMessage}", signInResult.ErrorMessage);
+
+            // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: an
+            // expired/invalid Turnstile token must produce the same
+            // distinct rejection as a missing one above — never the
+            // generic "Guest sign-in failed" below — so the frontend can
+            // tell "reset the widget and retry" apart from any other
+            // failure.
+            if (signInResult.IsCaptchaRejection)
+            {
+                return CaptchaRejection();
+            }
+
             return Problem(
                 title: "Guest sign-in failed",
                 detail: "Could not start a guest session. Please try again.",
@@ -259,6 +292,16 @@ public class AuthController(
         // (ADR-0033), with no separate "guest mode" client-side branch.
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
     }
+
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: the one, shared
+    // response shape for both the missing-token and rejected-token cases in
+    // Guest above, so the two call sites can never drift into slightly
+    // different title/detail/status values.
+    private ObjectResult CaptchaRejection() =>
+        Problem(
+            title: "Captcha verification failed",
+            detail: "Could not verify you're not a bot. Please try again.",
+            statusCode: StatusCodes.Status400BadRequest);
 
     // REQ-717: Guest####-style default display name, retried on a
     // collision the same way any other conflicting write in this system is

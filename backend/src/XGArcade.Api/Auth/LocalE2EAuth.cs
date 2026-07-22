@@ -93,8 +93,11 @@ public class LocalE2EAuthClient : ISupabaseAuthClient
     // REQ-717/ADR-0036: no real Supabase project exists in this mode — a
     // fresh random identity every call (unlike Authenticate below, there's
     // no email to derive a deterministic id from, which is exactly the
-    // point of an anonymous sign-in).
-    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default)
+    // point of an anonymous sign-in). captchaToken (REQ-717's 2026-07-21
+    // "Bot-check (captcha)" addition) is accepted but unused: there's no
+    // real Supabase Auth here to verify it against, and no Cloudflare
+    // Turnstile call is ever made from this backend either way (ADR-0037).
+    public Task<SupabaseAuthResult> SignInAnonymouslyAsync(string captchaToken, CancellationToken cancellationToken = default)
     {
         var authProviderUserId = Guid.NewGuid();
         return Task.FromResult(new SupabaseAuthResult

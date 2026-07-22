@@ -15,6 +15,29 @@ public record LoginRequest(string Email, string Password);
 
 public record LoginResponse(string AccessToken, string? RefreshToken);
 
+// REQ-717's 2026-07-21 "Bot-check (captcha) for guest creation" addition /
+// ADR-0037: the frontend obtains a Cloudflare Turnstile token client-side
+// (via Turnstile's widget/JS) before ever calling this endpoint, and sends
+// it here. AuthController.Guest passes CaptchaToken through unmodified to
+// Supabase Auth's anonymous sign-in call (gotrue_meta_security.captcha_token)
+// for Supabase's own server-side verification against Cloudflare — this
+// backend never verifies it independently (ADR-0037's "mediate, don't
+// reimplement" decision). Replaces REQ-717's original "no request body"
+// design for this endpoint, now that there's something for the caller to
+// supply.
+// CaptchaToken is nullable (rather than a plain, non-nullable `string`)
+// deliberately: with a non-nullable reference-type property, ASP.NET
+// Core's automatic model validation (Nullable enabled + [ApiController])
+// treats a request body that omits the field as an invalid model and
+// short-circuits with its own generic "One or more validation errors
+// occurred." response *before* AuthController.Guest's own code ever runs
+// — which would silently defeat REQ-717's own acceptance criterion that a
+// missing token gets the same distinct "Captcha verification failed"
+// response as an invalid one. Nullable here means a missing/empty token
+// reaches the controller, which checks for it explicitly and returns that
+// same distinct response itself, never Supabase's.
+public record GuestRequest(string? CaptchaToken);
+
 // IsAdmin (S-026, REQ-504) is what lets the frontend decide whether to
 // render the admin nav entry point at all — computed the same way
 // AdminAuthorizationHandler decides it server-side (Admin:UserIds), never a

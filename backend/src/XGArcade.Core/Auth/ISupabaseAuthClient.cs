@@ -34,7 +34,18 @@ public interface ISupabaseAuthClient
     // anon-keyed HttpClient defaults as SignUpAsync/SignInWithPasswordAsync
     // above, and the same "never throws, Success=false + ErrorMessage on
     // rejection" contract.
-    Task<SupabaseAuthResult> SignInAnonymouslyAsync(CancellationToken cancellationToken = default);
+    //
+    // captchaToken (REQ-717's 2026-07-21 "Bot-check (captcha)" addition /
+    // ADR-0037): passed straight through, unmodified, as
+    // gotrue_meta_security.captcha_token on the same signup call — this
+    // backend performs no independent Cloudflare Turnstile verification of
+    // its own, Supabase's own server-side verification is the only check
+    // (ADR-0037's "mediate, don't reimplement" decision, same boundary as
+    // password credentials). A missing/expired/invalid token is expected to
+    // surface as a distinguishable rejection in the returned
+    // SupabaseAuthResult (see IsCaptchaRejection below), not a special
+    // exception path.
+    Task<SupabaseAuthResult> SignInAnonymouslyAsync(string captchaToken, CancellationToken cancellationToken = default);
 
     // REQ-717/ADR-0036: the claim/upgrade path — adds email+password to an
     // *existing* anonymous identity, converting it in place (Supabase's
@@ -53,4 +64,16 @@ public record SupabaseAuthResult
     public string? AccessToken { get; init; }
     public string? RefreshToken { get; init; }
     public string? ErrorMessage { get; init; }
+
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: set by
+    // SupabaseAuthClient when a failed request's error body indicates the
+    // rejection was specifically a captcha-verification failure (missing,
+    // expired, or otherwise invalid Turnstile token), as opposed to any
+    // other rejection reason. AuthController.Guest uses this to return a
+    // distinct rejection response the frontend can act on (reset the
+    // Turnstile widget and retry) instead of the generic "Guest sign-in
+    // failed" response — REQ-717's own explicit acceptance criterion.
+    // Always false for a Success result and for every other call on this
+    // interface (SignUp/SignInWithPassword/etc. never set it).
+    public bool IsCaptchaRejection { get; init; }
 }

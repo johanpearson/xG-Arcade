@@ -3,6 +3,7 @@ using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.TestSupport;
 
 namespace XGArcade.DataSync.Tests.Wikidata;
 

@@ -3598,3 +3598,63 @@ pattern `GridGameModule` already uses) so the collision-retry branch could
 be tested deterministically, extracted `SupabaseAuthClient`'s duplicated
 error-parsing into one shared helper, and merged a near-duplicate
 guest-guess-seeding test helper into the existing one.
+
+**S-071 · Guest-play captcha hardening (REQ-717's "Bot-check (captcha)"
+addition, ADR-0037)**
+A same-session follow-up to S-069/S-070: Supabase's own dashboard warns
+that enabling Anonymous Sign-ins without a captcha invites abuse, and a
+per-IP rate limit alone (S-069's `auth-guest` policy) is weaker against a
+distributed/multi-IP scripted attacker than a captcha check. This story
+adds Cloudflare Turnstile as a second, complementary layer scoped to
+`POST /auth/guest` only — never `auth-signup`/`auth-login`.
+*Deps:* S-069 (backend guest endpoint this wraps), S-070 (frontend guest
+entry point this instruments).
+**Built as:** Backend — `GuestRequest.CaptchaToken` threaded through
+`ISupabaseAuthClient.SignInAnonymouslyAsync` to Supabase's
+`gotrue_meta_security.captcha_token` field; a new
+`SupabaseAuthResult.IsCaptchaRejection` signal (parsed from Supabase's
+`error_code`/message on a failed anonymous sign-in) lets
+`AuthController.Guest` return a distinct `"Captcha verification failed"`
+(400) instead of the existing generic `"Guest sign-in failed"` (500).
+Frontend — new `frontend/src/lib/turnstile.ts`, a promise-based wrapper
+(`getTurnstileToken()`/`resetTurnstileWidget()`) that lazily loads
+Cloudflare's script once, renders the invisible/managed widget (REQ-717's
+recommended mode), and dedupes concurrent in-flight calls to the same
+promise (race-condition fix from a same-day `quality-architect` pass,
+`6f267a4`) rather than tearing down a still-awaited widget out from under
+itself. `lib/api.ts`'s `playAsGuest()` now sends `{ captchaToken }` as
+`POST /auth/guest`'s body; `AuthScreen.tsx`'s `handlePlayAsGuest` obtains a
+token before ever calling `playAsGuest()`, and resets the widget only when
+the caught error's `title === 'Captcha verification failed'` — any other
+guest-sign-in failure shows the existing generic inline error with no
+widget reset. `infra/README.md`/`deploy.yml` gained
+`DEV_TURNSTILE_SITE_KEY`/`PROD_TURNSTILE_SITE_KEY`, wired into
+`deploy-frontend`'s `VITE_TURNSTILE_SITE_KEY` the same way
+`VITE_API_BASE_URL` already is. `SETUP.md` gained a new step 5 (enabling
+Supabase's Anonymous Sign-ins toggle itself, a pre-existing undocumented
+precondition this story's own doc-sync pass surfaced) and step 6 (the
+Cloudflare Turnstile site + Supabase Auth captcha-settings manual setup).
+No independent verification against a live Supabase project was possible
+(no network access in this environment) — `gotrue_meta_security
+.captcha_token` and its `error_code`/message shape on rejection are
+recorded from documentation/training knowledge, flagged in
+`SupabaseAuthClient`'s doc comments for manual verification before
+production, the same caveat ADR-0036's own calls already carry.
+*Accept:* REQ717-named captcha tests across `AuthEndpointTests.cs` (the
+distinct 400 response, rate-limit rejection short-circuiting before the
+captcha check ever runs, a scope regression proving
+`IsCaptchaRejection` never fires for Login/Signup/Refresh/Claim) and a new
+`SupabaseAuthClientCaptchaTests.cs` (`error_code` vs. message-substring
+captcha-detection paths, against a real `SupabaseAuthClient` and a fake
+HTTP handler — not just the stubbed `ISupabaseAuthClient` the endpoint
+tests use); `turnstile.test.ts` (script-load-once, widget render/teardown,
+reset-forces-fresh-render, concurrent-call deduping, script/Turnstile
+error rejection, all against a fake `window.turnstile`) and
+`AuthScreen.test.tsx`/`App.test.tsx` coverage (token sent in the request
+body, the distinct rejection resets the widget and shows its detail text,
+a generic failure does not reset the widget, a token-acquisition failure
+never calls `POST /auth/guest` at all). 314 frontend tests total as of the
+final commit (`6f267a4`). `quality-architect` passed the diff after the
+one fix listed above (the `getTurnstileToken()` race condition); no
+architecture/component-boundary change beyond ADR-0037's own scope, no new
+ADR needed on top of it.

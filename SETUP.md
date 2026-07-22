@@ -67,6 +67,47 @@ which is exactly what ADR-0006 needs (dev + prod).
      frontend bundle could read it. Also required at startup
      (`Supabase:ServiceRoleKey`, `Program.cs`)
 4. Don't touch Auth/SMTP settings yet — that needs Resend first (step 3)
+5. **Enable Anonymous Sign-ins (required for guest play, REQ-717/ADR-0036):**
+   Authentication → Sign In / Providers → **Anonymous Sign-ins**, turned
+   **on** — off by default on a new Supabase project, and easy to miss
+   since nothing else in this setup flow touches it. Guest play
+   (`POST /auth/guest`) fails outright with "Could not start a guest
+   session" until this is on — a real gap this doc never called out before
+   a live deployment hit it. Turning it on surfaces Supabase's own warning
+   recommending a captcha be added — see step 6 below for that.
+6. **Guest-play captcha hardening (Tier 1/2, pulled forward alongside guest
+   play itself — REQ-717, ADR-0036/ADR-0037): both the backend pass-through
+   (`AuthController.Guest`/`SignInAnonymouslyAsync`) and the frontend's
+   Turnstile widget/token acquisition (`frontend/src/lib/turnstile.ts`,
+   `AuthScreen.tsx`) are implemented as of 2026-07-22 — this step's manual
+   Cloudflare/Supabase dashboard configuration is the only remaining piece,
+   not a precondition to complete before the code lands.** Guest account
+   creation (`POST /auth/guest`) uses Supabase's own Anonymous Sign-ins
+   feature; enabling that in Supabase's dashboard (Authentication →
+   Providers → Anonymous) surfaces its own warning recommending a captcha
+   be enabled to prevent abuse. ADR-0037 answers that with Cloudflare
+   Turnstile:
+   - Sign up at cloudflare.com (free), add a Turnstile **site**
+     (dash.cloudflare.com → Turnstile → Add site) — no domain ownership
+     verification needed to get keys for local/dev use
+   - Choose **invisible/managed mode** when configuring the widget, not
+     the always-visible checkbox mode (see REQ-717's widget UX
+     recommendation)
+   - Save the **site key** — this is public, safe in frontend code, and
+     becomes the frontend's `VITE_TURNSTILE_SITE_KEY` build-time
+     environment variable (same pattern as `VITE_API_BASE_URL` — see
+     `frontend/src/lib/api.ts`). For the deployed dev environment, also
+     save it as the `DEV_TURNSTILE_SITE_KEY` GitHub Actions secret —
+     `deploy.yml`'s `deploy-frontend` job feeds it through to the same
+     Vite build the same way `VITE_API_BASE_URL` already is (see
+     `infra/README.md`'s secrets table)
+   - Save the **secret key** — this is a true secret, but it is **never**
+     configured in this application's backend or its secrets. Paste it
+     directly into Supabase's own Auth dashboard settings (Authentication
+     → Attack Protection / Bot and Abuse Protection, wherever the current
+     Supabase dashboard exposes captcha provider configuration) —
+     Supabase verifies the token against Cloudflare directly, this
+     backend never calls Cloudflare itself (see ADR-0037)
 
 ## 3. Resend (email)
 

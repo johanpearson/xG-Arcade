@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { describeError, login, playAsGuest, signup } from '../lib/api';
+import { ApiError, describeError, login, playAsGuest, signup } from '../lib/api';
+import { getTurnstileToken, resetTurnstileWidget } from '../lib/turnstile';
 import './AuthScreen.css';
 
 export interface AuthScreenProps {
@@ -92,13 +93,29 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   // onAuthenticated callback a normal login/signup uses (App.tsx's
   // handleAuthenticated) — a guest session is stored and treated
   // identically from this point on, no separate "guest mode" path.
+  //
+  // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: a
+  // Cloudflare Turnstile token is obtained first — POST /auth/guest is
+  // never called without first attempting to get one — and sent as the
+  // request body. If the backend's distinct captcha-rejection response
+  // comes back (title === "Captcha verification failed", never the generic
+  // "Guest sign-in failed"), the widget is reset so the *next* click
+  // obtains a genuinely fresh token rather than silently retrying with the
+  // one that was just rejected. Any other failure (including
+  // getTurnstileToken() itself rejecting, e.g. a script load failure) shows
+  // the same generic inline error with no widget reset — there is nothing
+  // to reset in that case.
   async function handlePlayAsGuest() {
     setError(null);
     setGuestSubmitting(true);
     try {
-      const { accessToken, refreshToken } = await playAsGuest();
+      const captchaToken = await getTurnstileToken();
+      const { accessToken, refreshToken } = await playAsGuest(captchaToken);
       onAuthenticated(accessToken, refreshToken);
     } catch (err) {
+      if (err instanceof ApiError && err.title === 'Captcha verification failed') {
+        resetTurnstileWidget();
+      }
       setError(describeError(err));
     } finally {
       setGuestSubmitting(false);

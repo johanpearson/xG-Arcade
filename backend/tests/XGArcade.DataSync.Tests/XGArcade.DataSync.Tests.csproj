@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+    <ProjectReference Include="..\XGArcade.TestSupport\XGArcade.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

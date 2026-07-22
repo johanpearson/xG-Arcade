@@ -32,6 +32,7 @@
          XGArcade.Data directly: real repository/DbContext instances, not
          just the interface types. -->
     <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
+    <ProjectReference Include="..\XGArcade.TestSupport\XGArcade.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>
