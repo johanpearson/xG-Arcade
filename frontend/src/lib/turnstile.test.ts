@@ -131,6 +131,34 @@ describe('turnstile', () => {
     await expect(tokenPromise).rejects.toThrow('Failed to load the Turnstile verification script.');
   });
 
+  // Gap check (test-writer): getOrCreateContainer() looks up the container by
+  // its fixed id before ever creating one -- this asserts that holds across
+  // repeated getTurnstileToken() calls, so a real guest-play retry loop never
+  // leaks a second hidden <div> into the DOM.
+  it('REQ-717: reuses the same container element in the DOM across repeated getTurnstileToken() calls, never leaking a new one', async () => {
+    const { getTurnstileToken } = await import('./turnstile');
+    const fakeApi = createFakeTurnstileApi();
+    (fakeApi.render as ReturnType<typeof vi.fn>).mockReturnValueOnce('widget-1').mockReturnValueOnce('widget-2');
+    (window as { turnstile?: TurnstileApi }).turnstile = fakeApi;
+
+    const first = getTurnstileToken();
+    await flush();
+    const firstContainer = (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][1].callback('token-1');
+    await first;
+
+    expect(document.querySelectorAll('#turnstile-widget-container')).toHaveLength(1);
+
+    const second = getTurnstileToken();
+    await flush();
+    const secondContainer = (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[1][0];
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[1][1].callback('token-2');
+    await second;
+
+    expect(document.querySelectorAll('#turnstile-widget-container')).toHaveLength(1);
+    expect(secondContainer).toBe(firstContainer);
+  });
+
   it('rejects if Turnstile itself reports an error via error-callback', async () => {
     const { getTurnstileToken } = await import('./turnstile');
     const fakeApi = createFakeTurnstileApi();

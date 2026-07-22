@@ -259,6 +259,28 @@ describe('AuthScreen', () => {
     expect(resetTurnstileWidgetMock).not.toHaveBeenCalled();
   });
 
+  // Gap check (test-writer): guestSubmitting is set true before
+  // getTurnstileToken() is ever awaited (AuthScreen.tsx's handlePlayAsGuest),
+  // so the button must already show its loading/disabled state while a
+  // real (potentially slow) script load/token acquisition is still in
+  // flight -- not only once playAsGuest() itself starts. A never-resolving
+  // getTurnstileToken() mock forces the assertion to happen strictly inside
+  // that window.
+  it('REQ-717: disables "Play as guest" and shows a loading label while still awaiting the Turnstile token, before calling POST /auth/guest at all', async () => {
+    getTurnstileTokenMock.mockImplementation(() => new Promise<string>(() => {}));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    expect(await screen.findByRole('button', { name: 'Starting…' })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
   it('REQ-717: shows the server error detail when guest sign-in fails for a non-captcha reason, and does not reset the Turnstile widget', async () => {
     getTurnstileTokenMock.mockResolvedValue('turnstile-token-abc');
     const fetchMock = vi.fn().mockImplementation(() =>

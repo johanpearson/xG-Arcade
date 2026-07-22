@@ -644,6 +644,68 @@ public class AuthEndpointTests
         Assert.That(body!.Title, Is.EqualTo("Guest sign-in failed"));
     }
 
+    // ---- REQ-717/ADR-0037 scope regression: the captcha check is scoped to
+    // POST /auth/guest only — SupabaseAuthResult.IsCaptchaRejection is
+    // computed by SupabaseAuthClient for every call on ISupabaseAuthClient
+    // (see SupabaseAuthClientCaptchaTests.cs in XGArcade.Core.Tests), but
+    // only AuthController.Guest reads it. These tests set the flag `true` on
+    // Login/Signup/Refresh/Claim's own result — which the real
+    // SupabaseAuthClient would never realistically do for these calls' own
+    // failure modes, but a fake can — to prove those four actions ignore it
+    // entirely and keep returning their own pre-existing generic responses,
+    // never a "Captcha verification failed" response leaking out of an
+    // endpoint that was never supposed to have a captcha check at all. ----
+
+    [Test]
+    public async Task REQ717_Login_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericLoginFailedResponse()
+    {
+        _fakeAuthClient.SignInResult = (_, _) =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/login", new LoginRequest("someone@example.com", "the-wrong-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Login failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+    }
+
+    [Test]
+    public async Task REQ717_Signup_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericSignupResponse()
+    {
+        _fakeAuthClient.SignUpResult = (_, _) =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/auth/signup",
+            new SignupRequest("someone@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Signup could not be completed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+    }
+
+    [Test]
+    public async Task REQ717_Refresh_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericRefreshFailedResponse()
+    {
+        _fakeAuthClient.RefreshResult = _ =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha protection: request disallowed", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/refresh", new RefreshRequest("some-refresh-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Refresh failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+    }
+
     // REQ-717: "Guest####-style" default display name, satisfying REQ-701's
     // existing 1-30 character bound.
     [Test]
@@ -824,6 +886,44 @@ public class AuthEndpointTests
         Assert.That(body!.Title, Is.EqualTo("Too many attempts"));
     }
 
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: the
+    // rate limit (REQ-717/ADR-0036) and the captcha check are two
+    // independent failure modes that must stay distinguishable — this test
+    // is the important one for that guarantee. Every request here supplies
+    // the same token the default FakeSupabaseAuthClient.SignInAnonymouslyResult
+    // treats as valid (i.e. a request that would succeed, captcha-wise, if it
+    // ever reached the controller), so if the 4th (over-limit) request
+    // somehow reached AuthController.Guest's captcha branch it would return
+    // 200, never a "Captcha verification failed" 400 either way — the only
+    // way this test can observe the *rate-limit's own* 429 is if
+    // Program.cs's "auth-guest" rate-limiter middleware (registered ahead of
+    // routing/MapControllers — see Program.cs's app.UseRateLimiter() call)
+    // rejects the request before the controller action, and therefore this
+    // fake's SignInAnonymouslyAsync, ever runs at all.
+    [Test]
+    public async Task REQ717_Guest_Post_RateLimitRejection_HappensBeforeCaptchaCheck_AndNeverCallsSupabase()
+    {
+        var client = _factory.CreateClient();
+
+        for (var i = 0; i < 3; i++)
+        {
+            await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-valid-looking-turnstile-token"));
+        }
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCallCount, Is.EqualTo(3));
+
+        var overLimitResponse = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-valid-looking-turnstile-token"));
+
+        Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
+        var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Too many attempts"));
+        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+        // The important assertion: Supabase (this fake) was never called for
+        // the 4th, over-limit request — the rate limiter rejected it before
+        // the controller's captcha-handling code ever ran.
+        Assert.That(_fakeAuthClient.SignInAnonymouslyCallCount, Is.EqualTo(3), "Supabase must never be called for a rate-limited request");
+    }
+
     // The important assertion: auth-guest is a separate counter from
     // auth-signup/auth-login — exhausting one never blocks the others.
     [Test]
@@ -945,6 +1045,38 @@ public class AuthEndpointTests
         var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("anyone@example.com", "a-reasonable-password", "a-reasonable-password"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+    }
+
+    // REQ-717/ADR-0037: the captcha check is explicitly scoped to guest
+    // *creation* (POST /auth/guest) only — this ADR's own "For AI agents"
+    // section calls out that extending it to another endpoint would be a
+    // scope change needing its own product decision. ClaimAccountRequest
+    // (AuthDtos.cs) carries no CaptchaToken field at all, so this is true by
+    // construction, not just by absence of a check in AuthController.Claim —
+    // this test documents that intentionally, and doubles as the same
+    // IsCaptchaRejection-ignored regression as the Login/Signup/Refresh
+    // tests above, for the one remaining unauthenticated-session call
+    // (LinkEmailPasswordAsync) that also flows through
+    // SupabaseAuthClient.ReadFailureResultAsync's shared IsCaptchaRejection
+    // computation.
+    [Test]
+    public async Task REQ717_Claim_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericClaimFailedResponse()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+        _fakeAuthClient.LinkEmailPasswordResult = (_, _, _) =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("claim-captcha-flag@example.com", "a-reasonable-password", "a-reasonable-password"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Claim could not be completed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
     }
 
     // REQ-717: seeds a guest User row directly (IsGuest = true, no email) —
@@ -1495,6 +1627,15 @@ public class AuthEndpointTests
         // set it up.
         public bool SignInAnonymouslyCalled { get; private set; }
 
+        // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: how many times
+        // this was actually invoked -- used by
+        // REQ717_Guest_Post_RateLimitRejection_HappensBeforeCaptchaCheck_AndNeverCallsSupabase
+        // to prove a rate-limited request never reaches this fake at all
+        // (Program.cs's rate-limiter middleware runs ahead of
+        // AuthController.Guest's action, not just ahead of its captcha
+        // branch specifically).
+        public int SignInAnonymouslyCallCount { get; private set; }
+
         // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: captures the
         // token AuthController.Guest forwarded, so a test can assert it was
         // passed through unmodified.
@@ -1506,6 +1647,7 @@ public class AuthEndpointTests
         public Task<SupabaseAuthResult> SignInAnonymouslyAsync(string captchaToken, CancellationToken cancellationToken = default)
         {
             SignInAnonymouslyCalled = true;
+            SignInAnonymouslyCallCount++;
             SignInAnonymouslyCalledWithCaptchaToken = captchaToken;
             return Task.FromResult(SignInAnonymouslyResult(captchaToken));
         }
