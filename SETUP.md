@@ -76,10 +76,12 @@ which is exactly what ADR-0006 needs (dev + prod).
    a live deployment hit it. Turning it on surfaces Supabase's own warning
    recommending a captcha be added — see step 6 below for that.
 6. **Guest-play captcha hardening (Tier 1/2, pulled forward alongside guest
-   play itself — REQ-717, ADR-0036/ADR-0037): the backend pass-through
-   (`AuthController.Guest`/`SignInAnonymouslyAsync`) is implemented as of
-   2026-07-22 — the frontend's Turnstile widget/token acquisition is not
-   yet built, so complete this step before that lands.** Guest account
+   play itself — REQ-717, ADR-0036/ADR-0037): both the backend pass-through
+   (`AuthController.Guest`/`SignInAnonymouslyAsync`) and the frontend's
+   Turnstile widget/token acquisition (`frontend/src/lib/turnstile.ts`,
+   `AuthScreen.tsx`) are implemented as of 2026-07-22 — this step's manual
+   Cloudflare/Supabase dashboard configuration is the only remaining piece,
+   not a precondition to complete before the code lands.** Guest account
    creation (`POST /auth/guest`) uses Supabase's own Anonymous Sign-ins
    feature; enabling that in Supabase's dashboard (Authentication →
    Providers → Anonymous) surfaces its own warning recommending a captcha

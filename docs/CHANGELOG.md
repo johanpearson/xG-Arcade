@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-22 — `SETUP.md`, `MVP-SCOPE.md`, `docs/backlog.md` (new S-071
+  entry) — final doc-consolidation pass for REQ-717's captcha hardening
+  (ADR-0037) now that both backend and frontend halves are merged and
+  quality-gated on `claude/orchestrate-grid-leaderboard-ux-wh2876`.
+  `SETUP.md` step 6 no longer says the frontend Turnstile widget/token
+  acquisition "is not yet built, so complete this step before that lands"
+  — it's built (`frontend/src/lib/turnstile.ts`, `AuthScreen.tsx`,
+  `a89fc53`/`6f267a4`), so the step's only remaining piece is the manual
+  Cloudflare/Supabase dashboard configuration, not a precondition to code
+  landing. `MVP-SCOPE.md`'s captcha bullet referenced "`SETUP.md`'s
+  Supabase section (step 5)" for the Turnstile/captcha-setup instructions
+  — that content is actually step 6 (step 5 is the unrelated Anonymous
+  Sign-ins toggle, added in a same-day follow-up after the captcha step
+  was originally drafted as step 5); corrected in both places it appeared.
+  `docs/backlog.md` had no story entry at all for the captcha work despite
+  three implementation commits (backend `e957029`, frontend `a89fc53`,
+  test coverage `5d101f2`) plus a quality-review fix (`6f267a4`) — added
+  **S-071** following the S-069/S-070 shape (Accept/Deps/Built as).
+  Verified `docs/requirements-document.md`'s REQ-717 captcha status notes,
+  `docs/architecture-document.md`'s ADR-0037 table row, and the existing
+  CHANGELOG entries below already describe the final shipped,
+  end-to-end-complete state accurately (each below is a point-in-time
+  record and later entries explicitly close the gaps earlier ones flagged
+  — no edit needed). Confirmed the 314-frontend-test total cited in the
+  new S-071 entry against a live `npx vitest run` (20 files, 314 passed).
+  REQ-717/ADR-0037.
 - 2026-07-22 — `docs/requirements-document.md` (0.97 → 0.98) — implemented
   the frontend half of ADR-0037's Cloudflare Turnstile captcha hardening for
   "Play as guest" (REQ-717's 2026-07-21 "Bot-check (captcha)" addition, the

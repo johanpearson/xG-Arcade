@@ -401,7 +401,7 @@ is written as something you can actually observe, not a vague feeling:
   alongside the existing `auth-guest` rate limit, scoped to
   `POST /auth/guest` only — see REQ-717's "Bot-check (captcha) for guest
   creation" addition for the acceptance criteria and `SETUP.md`'s Supabase
-  section (step 5) for the manual precondition (a Cloudflare Turnstile
+  section (step 6) for the manual precondition (a Cloudflare Turnstile
   site, plus enabling Supabase's captcha setting — still required before
   any of this functions against a live project, not yet set up in this
   sandbox). `AuthController.Guest`/`SignInAnonymouslyAsync` thread a
@@ -411,7 +411,7 @@ is written as something you can actually observe, not a vague feeling:
   (now sending `{ captchaToken }` as its body), and resets the widget only
   on that distinct rejection, never on any other guest-sign-in failure.
   REQ-717/ADR-0037 is therefore complete end-to-end pending the manual
-  Cloudflare/Supabase dashboard setup `SETUP.md` step 5 describes.
+  Cloudflare/Supabase dashboard setup `SETUP.md` step 6 describes.
 
 ## Tier 2 — already deferred, unchanged
 
