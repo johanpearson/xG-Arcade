@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.98"
+version: "0.99"
 status: draft
 last_updated: 2026-07-22
 owner: Johan
@@ -2580,7 +2580,7 @@ superseded interim behavior.)*
   part of this REQ), not a reuse of that existing boolean method. An
   active (unlocked) round is never a qualifying round, matching
   REQ-401/404/405's existing locked-only rule for all-time computations.
-- **Cross-reference (2026-07-21, REQ-717, not yet built):** two narrowings
+- **Cross-reference (2026-07-21, REQ-717 — built 2026-07-22):** two narrowings
   to this REQ's qualifying-rounds query are specified by REQ-717, not
   here, since both are guest-play-specific — this REQ's own text is
   otherwise unchanged. (1) A guest identity's rounds never count as
