@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using XGArcade.DataSync.Wikidata;
+using XGArcade.TestSupport;
 
 namespace XGArcade.DataSync.Tests.Wikidata;
 

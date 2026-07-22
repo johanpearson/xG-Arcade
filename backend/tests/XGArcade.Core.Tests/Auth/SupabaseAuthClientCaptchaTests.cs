@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using XGArcade.Core.Auth;
+using XGArcade.TestSupport;
 
 namespace XGArcade.Core.Tests.Auth;
 
