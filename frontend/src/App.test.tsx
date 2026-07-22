@@ -3,6 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 
+// REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: no live
+// Cloudflare site key exists in this sandbox — AuthScreen.tsx's "Play as
+// guest" now obtains a Turnstile token before calling POST /auth/guest, so
+// every test below that clicks that button needs this mocked, the same way
+// AuthScreen.test.tsx mocks it directly. This file only exercises the
+// resulting guest-banner/claim behavior, not the token-acquisition/reset
+// mechanics themselves (covered in AuthScreen.test.tsx/turnstile.test.ts).
+vi.mock('./lib/turnstile', () => ({
+  getTurnstileToken: () => Promise.resolve('turnstile-token-stub'),
+  resetTurnstileWidget: () => {},
+}));
+
 // These must stay in sync with App.tsx's own (unexported) constants — there
 // is no shared module to import them from, same trade-off every other
 // "localStorage key" test in a codebase like this accepts.

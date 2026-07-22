@@ -3,6 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthScreen } from './AuthScreen';
 
+// REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: no live
+// Cloudflare site key exists in this sandbox, so the token-acquisition step
+// is mocked wholesale here rather than attempting to load the real script —
+// these tests assert the rest of the flow (token sent in the request body,
+// distinct-rejection handling resets the widget, generic rejections don't).
+const getTurnstileTokenMock = vi.fn();
+const resetTurnstileWidgetMock = vi.fn();
+vi.mock('../lib/turnstile', () => ({
+  getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
+  resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+}));
+
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve({
     ok: status >= 200 && status < 300,
@@ -14,6 +26,8 @@ function jsonResponse(body: unknown, status = 200) {
 describe('AuthScreen', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    getTurnstileTokenMock.mockReset();
+    resetTurnstileWidgetMock.mockReset();
   });
 
   it('REQ-701: blocks signup client-side when the age checkbox is unchecked, without calling the API', async () => {
@@ -218,7 +232,8 @@ describe('AuthScreen', () => {
   });
 
   // REQ-717/ADR-0036: the guest entry point.
-  it('REQ-717: clicking "Play as guest" calls POST /auth/guest with no body, and routes through onAuthenticated exactly like a normal login', async () => {
+  it('REQ-717/ADR-0037: clicking "Play as guest" obtains a Turnstile token first, sends it as the request body, and routes through onAuthenticated exactly like a normal login', async () => {
+    getTurnstileTokenMock.mockResolvedValue('turnstile-token-abc');
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (String(url).endsWith('/auth/guest')) {
         return jsonResponse({ accessToken: 'guest-token', refreshToken: 'guest-refresh' });
@@ -233,13 +248,19 @@ describe('AuthScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Play as guest' }));
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('guest-token', 'guest-refresh'));
+    expect(getTurnstileTokenMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/auth/guest'),
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ captchaToken: 'turnstile-token-abc' }),
+      }),
     );
+    expect(resetTurnstileWidgetMock).not.toHaveBeenCalled();
   });
 
-  it('REQ-717: shows the server error detail when guest sign-in fails, rather than a generic message', async () => {
+  it('REQ-717: shows the server error detail when guest sign-in fails for a non-captcha reason, and does not reset the Turnstile widget', async () => {
+    getTurnstileTokenMock.mockResolvedValue('turnstile-token-abc');
     const fetchMock = vi.fn().mockImplementation(() =>
       jsonResponse(
         { title: 'Guest sign-in failed', detail: 'Could not start a guest session. Please try again.' },
@@ -257,5 +278,56 @@ describe('AuthScreen', () => {
       await screen.findByText('Could not start a guest session. Please try again.'),
     ).toBeInTheDocument();
     expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(resetTurnstileWidgetMock).not.toHaveBeenCalled();
+  });
+
+  // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: the
+  // backend's distinct captcha-rejection response (400, title "Captcha
+  // verification failed") must reset the widget rather than being treated
+  // like any other guest-sign-in failure — this is the behavior that
+  // actually distinguishes the two failure modes, so it's the one worth a
+  // dedicated test here even though exhaustive REQ-717 coverage is
+  // test-writer's job next.
+  it('REQ-717/ADR-0037: resets the Turnstile widget on the distinct captcha-rejection response, and shows its detail text', async () => {
+    getTurnstileTokenMock.mockResolvedValue('turnstile-token-abc');
+    const fetchMock = vi.fn().mockImplementation(() =>
+      jsonResponse(
+        {
+          title: 'Captcha verification failed',
+          detail: "Could not verify you're not a bot. Please try again.",
+        },
+        400,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    expect(
+      await screen.findByText("Could not verify you're not a bot. Please try again."),
+    ).toBeInTheDocument();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(resetTurnstileWidgetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-717/ADR-0037: never calls POST /auth/guest at all if obtaining a Turnstile token fails', async () => {
+    getTurnstileTokenMock.mockRejectedValue(new Error('Failed to load the Turnstile verification script.'));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    expect(
+      await screen.findByText('Failed to load the Turnstile verification script.'),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onAuthenticated).not.toHaveBeenCalled();
+    expect(resetTurnstileWidgetMock).not.toHaveBeenCalled();
   });
 });

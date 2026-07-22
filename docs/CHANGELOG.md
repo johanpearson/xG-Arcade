@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-22 — `docs/requirements-document.md` (0.97 → 0.98) — implemented
+  the frontend half of ADR-0037's Cloudflare Turnstile captcha hardening for
+  "Play as guest" (REQ-717's 2026-07-21 "Bot-check (captcha)" addition, the
+  gap the previous entry below flagged as pending). New
+  `frontend/src/lib/turnstile.ts`: a small, promise-based wrapper
+  (`getTurnstileToken()`/`resetTurnstileWidget()`) that lazily loads
+  Cloudflare's script once, renders the invisible/managed widget (REQ-717's
+  recommended mode), and tears down/re-renders the widget on every call so
+  a fresh token is always obtained — never a placeholder or reused token.
+  `frontend/src/lib/api.ts`'s `playAsGuest()` now takes a `captchaToken`
+  parameter and sends it as `POST /auth/guest`'s JSON body
+  (`{ captchaToken }`), fixing the expected fallout the prior backend
+  commit (e957029) flagged: the endpoint now requires a body and would
+  otherwise auto-reject every guest sign-in. `AuthScreen.tsx`'s
+  `handlePlayAsGuest` calls `getTurnstileToken()` before ever calling
+  `playAsGuest()`, and — the REQ's explicit acceptance criterion — calls
+  `resetTurnstileWidget()` only when the caught error is an `ApiError` with
+  `title === 'Captcha verification failed'` (the backend's distinct
+  captcha-rejection response), never on any other guest-sign-in failure.
+  Tests: `frontend/src/lib/turnstile.test.ts` (script-load-once, widget
+  render/teardown, reset-forces-fresh-render, script/Turnstile error
+  rejection — all against a fake `window.turnstile`, no live Cloudflare
+  site key exists in this sandbox) and new/updated cases in
+  `frontend/src/auth/AuthScreen.test.tsx` (token sent in the request body;
+  the distinct captcha rejection resets the widget and shows its detail
+  text; a generic guest-sign-in failure does not reset the widget; a
+  `getTurnstileToken()` failure never calls `POST /auth/guest` at all).
+  `frontend/src/App.test.tsx` needed `./lib/turnstile` mocked at the top of
+  the file too, since its existing guest-banner tests click "Play as
+  guest" and would otherwise hang waiting on a real (untestable) Cloudflare
+  script load. No `docs/design-document.md` change: invisible/managed mode
+  renders no visible UI in the common case, so no new color/font/animation
+  token was needed (checked per this task's own instruction) — if
+  Cloudflare's own interactive-challenge fallback ever fires, that's
+  Cloudflare's UI, not this app's, and stays unthemed.
 - 2026-07-22 — `docs/requirements-document.md` (0.96 → 0.97), `SETUP.md`,
   `infra/README.md`, `.github/workflows/deploy.yml`, `MVP-SCOPE.md` —
   implemented the

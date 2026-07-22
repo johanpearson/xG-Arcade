@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.97"
+version: "0.98"
 status: draft
 last_updated: 2026-07-22
 owner: Johan
@@ -3960,9 +3960,16 @@ decision itself (added in the same session ADR-0036 was drafted).
   product decision this requirement needs to make
 
 **Bot-check (captcha) for guest creation (2026-07-21 addition; backend
-pass-through implemented 2026-07-22 per ADR-0037 — the frontend's Turnstile
-widget/token-acquisition side is not yet built, tracked separately):**
-complementary to, not a replacement for,
+pass-through implemented 2026-07-22 per ADR-0037; frontend Turnstile
+widget/token-acquisition implemented 2026-07-22, same day):**
+`frontend/src/lib/turnstile.ts` loads Cloudflare's script once and exposes
+`getTurnstileToken()`/`resetTurnstileWidget()`; `AuthScreen.tsx`'s "Play as
+guest" calls `getTurnstileToken()` before ever calling `playAsGuest()`
+(`lib/api.ts`, now `POST`ing `{ captchaToken }` as its request body), and
+branches on the backend's distinct `"Captcha verification failed"`
+`ApiError.title` to call `resetTurnstileWidget()` — any other guest-sign-in
+failure shows the same generic inline error as before, with no widget
+reset. Complementary to, not a replacement for,
 the rate-limiting criteria immediately above — a per-IP rate limit alone is
 weaker against a distributed/multi-IP scripted attacker than a captcha
 check is, which is exactly the abuse pattern Supabase's own dashboard warns
