@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.94"
+version: "0.95"
 status: draft
 last_updated: 2026-07-21
 owner: Johan
@@ -1506,6 +1506,23 @@ reveals a name)
   8 new tests across `LeaderboardScreen.test.tsx` and `GridScreen.test.tsx`
   (288 total frontend tests); `quality-architect` passed the diff with one
   trivial comment fix, no design/architecture changes required.
+- **Bug fix (2026-07-21, same-day follow-up):** the content growth from six
+  to nine paragraphs above (S-068) pushed `ScoringExplainer.tsx`'s card past
+  the viewport height on short/mobile screens, and neither
+  `.scoring-explainer` nor its `.scoring-explainer-backdrop` had any
+  `max-height`/`overflow-y`, so the excess content overflowed off-screen
+  with no way to scroll to it or to the close button — reported directly by
+  a player as "fills entire screen and it's not possible to scroll so it
+  breaks the UI." Fixed in `ScoringExplainer.css` by giving `.scoring-
+  explainer` `max-height: calc(100vh - var(--space-4) * 2)` (accounting for
+  the backdrop's own `--space-4` padding) and `overflow-y: auto`, so the
+  whole card — header and close button included — scrolls as one block
+  instead of clipping. The same missing bound was found and fixed the same
+  way in `GuessInput.css`'s `.guess-input` card (`max-height: 90vh;
+  overflow-y: auto` — that backdrop has no padding of its own, hence the
+  plain `vh` bound rather than a `--space-4` subtraction), which hosts the
+  SCREEN-02a disambiguation prompt and had the identical gap; no other
+  modal/backdrop pattern exists elsewhere in `frontend/src`.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")

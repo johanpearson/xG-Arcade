@@ -51,6 +51,26 @@ describe('GuessInput', () => {
     expect(screen.getByText('Arsenal')).toBeInTheDocument();
   });
 
+  // Regression test for the same "fills entire screen and it's not possible
+  // to scroll" bug reported against ScoringExplainer.tsx — this card had the
+  // identical gap (no max-height/overflow-y), which matters most for
+  // SCREEN-02a's disambiguation prompt: a submitted name matching many real
+  // candidates could otherwise push the card, and its Confirm button, past
+  // the viewport with no way to scroll to it.
+  it('REQ-201: the card has a bounded max-height and overflow-y: auto, so content that exceeds the viewport scrolls within the card instead of overflowing off-screen', () => {
+    stubNoSuggestions();
+    const { container } = render(
+      <GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    const card = container.querySelector('.guess-input') as HTMLElement;
+    const style = getComputedStyle(card);
+
+    expect(style.overflowY).toBe('auto');
+    expect(style.maxHeight).not.toBe('');
+    expect(style.maxHeight).not.toBe('none');
+  });
+
   it('REQ-210: shows no attempt count line for an untried cell', () => {
     stubNoSuggestions();
     render(<GuessInput cell={makeCell()} accessToken="token" onSubmit={vi.fn()} onResolveDisambiguation={vi.fn()} onClose={vi.fn()} />);

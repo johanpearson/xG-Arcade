@@ -11,6 +11,14 @@
 .guess-input {
   width: 100%;
   max-width: 480px;
+  /* Bounded the same way ScoringExplainer.css's card is: the disambiguation
+     prompt (SCREEN-02a) can list an arbitrary number of candidates, and
+     without this the card could exceed the viewport with no way to scroll
+     to its Confirm button. The backdrop here has no padding of its own
+     (flush bottom sheet on mobile), so this uses a plain vh bound rather
+     than subtracting a padding token. */
+  max-height: 90vh;
+  overflow-y: auto;
   background: var(--color-surface-card);
   border: 1px solid var(--color-border-hairline);
   border-radius: 12px 12px 0 0;
