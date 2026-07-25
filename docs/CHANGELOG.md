@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/requirements-document.md` (REQ-719, new),
+  `docs/design-document.md` (0.48 → 0.49) — added REQ-719: an
+  unauthenticated splash/landing screen shown before `AuthScreen` on
+  every unauthenticated render (first visit, reload, or return from
+  logout/account-deletion/a failed silent refresh) — no persisted
+  "seen it" flag, so it's never skipped after the first time. Built as
+  `frontend/src/splash/SplashScreen.tsx`, token-only styling (no new
+  color/typeface/animation, no logo/brand-mark image — that's tracked
+  separately), single CTA into the existing login/signup form. Does not
+  change REQ-303/S-021's post-login → game-select routing.
+  `docs/design-document.md` gets a new §7 open-item entry flagging
+  `SplashScreen` alongside `AuthScreen`/`GameSelectScreen` as another
+  built-but-unspec'd screen. `architecture-reviewer`: pass, no ADR (pure
+  frontend render-state addition, no new component boundary or data
+  flow). `quality-architect`: pass; one stale comment in `App.tsx`
+  fixed to say "splash screen" instead of "AuthScreen" post-deletion;
+  an unrelated pre-existing flaky test (`AdminScreen.test.tsx` REQ-507)
+  noted in `NOTES.md`, not fixed as part of this change.
 - 2026-07-25 — `CLAUDE.md`, `README.md`, `TODO.md`,
   `docs/architecture-document.md`, `docs/design-document.md`,
   `docs/implementation-document.md`, `docs/requirements-document.md`,

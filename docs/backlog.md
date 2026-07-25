@@ -3788,3 +3788,51 @@ and its own judgment-call list (its first draft referenced this story as
 found no blocking issues; no new ADR was written — this reuses ADR-0038's
 existing mandate and REQ-507/508's own already-accepted scope, not a new
 structural decision.
+
+**S-074 · Pre-login splash/landing screen (REQ-719)**
+Direct product request (2026-07-25): the app landed straight on the
+login/signup form for an unauthenticated visitor, with no landing page
+at all — the product owner wanted something shown first, with an
+explicit action into login, not the form itself as the first thing
+anyone sees. Routed through `requirements-writer` first since no REQ
+existed for this behavior.
+*Deps:* none new — reads only the existing `accessToken` state and
+`AuthScreen`/`handleLogout` already in `frontend/src/App.tsx`.
+*Accept:* REQ719-named tests: an unauthenticated render (first visit,
+reload, or a return from logout/account-deletion/a failed silent
+refresh) shows the splash screen, not `AuthScreen`, every time — no
+persisted "already seen it" flag; a single, unambiguous CTA on the
+splash screen reaches `AuthScreen`; a successful login/signup from there
+still lands on the game-selection screen exactly as REQ-303/S-021
+already defines, unchanged.
+**Built as:** new `frontend/src/splash/SplashScreen.tsx` (+`.css`,
+`.test.tsx`) — an `<h1>` for "xG Arcade", a one-line tagline, and a
+single primary button ("Log in or sign up"), styled entirely from
+existing `docs/design-document.md` §2 tokens; no new color/typeface/
+animation, and deliberately no logo/brand-mark image (out of scope for
+this REQ, tracked as separate design work). `App.tsx` gained a new
+`showAuthScreen` boolean (starts `false` every mount, reset to `false`
+by `handleLogout` — which is also what account-deletion and a failed/
+absent silent-refresh outcome funnel through — so all three land back
+on the splash screen, never straight to `AuthScreen`) gating which of
+`SplashScreen`/`AuthScreen` renders when there's no `accessToken`.
+`data-testid="splash-screen"` was added since the header already renders
+its own "xG Arcade" `<h1>` whenever unauthenticated, making a plain
+role/name query for the splash screen's heading ambiguous. Existing E2E
+helpers in `header-nav.spec.ts`/`play-grid.spec.ts` that assumed a fresh
+`page.goto('/')` landed directly on `AuthScreen` were updated to click
+through the new CTA first; a new `frontend/tests/e2e/splash-screen.spec.ts`
+covers the full journey (splash → CTA → signup → logout → back to splash
+→ log back in). `docs/design-document.md` flags `SplashScreen` alongside
+`AuthScreen`/`GameSelectScreen` as another built-but-unspec'd screen (§7),
+version 0.48 → 0.49. `architecture-reviewer`: pass, no ADR (pure frontend
+render-state addition, no new component boundary or data flow).
+`quality-architect`: pass — one stale comment in `App.tsx` (still said
+"lands back on AuthScreen" after an account deletion) fixed to reference
+the splash screen instead; an unrelated pre-existing flaky test
+(`AdminScreen.test.tsx`'s REQ-507 case, order-dependent under a full
+`npm run test` run) noted in `NOTES.md` rather than fixed here, since it
+isn't a regression from this change. 341 Vitest tests pass, `tsc -b` and
+`oxlint` clean; Playwright E2E not run in this sandbox (no `dotnet` to
+build/run the backend the E2E tests require) — CI-only, per existing
+project convention.

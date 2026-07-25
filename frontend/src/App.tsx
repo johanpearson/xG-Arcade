@@ -301,7 +301,7 @@ function App() {
             // link onward to 'admin'. onAccountDeleted/onAuthError route
             // through the same handleLogout() as before (REQ-710: no
             // account left to show anything else on, so deletion signs out
-            // and lands back on AuthScreen).
+            // and lands back on the splash screen, not AuthScreen (REQ-719)).
             <SettingsScreen
               accessToken={accessToken}
               isAdmin={currentUser?.isAdmin ?? false}
