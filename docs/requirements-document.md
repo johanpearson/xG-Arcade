@@ -4354,10 +4354,12 @@ purges any account satisfying either one.
   `handleLogout` now also fires a best-effort, non-blocking `POST
   /auth/logout` (new `lib/api.ts` `logout()`) — never awaited in the local
   clear-and-reset path, so REQ-715's instant logout UX is unaffected.
-  **Not independently run against a live Postgres/`dotnet test`** in the
-  build environment (no `dotnet` SDK available) — hand-traced against
-  REQ-718's own acceptance criteria instead; `test-writer` covers this with
-  real NUnit/API coverage separately.
+  Real NUnit/API coverage has been added (`AuthEndpointTests.cs`,
+  `GuessEndpointTests.cs`, `InternalGuestCleanupEndpointTests.cs`,
+  `UserRepositoryTests.cs`) but **not independently run against a live
+  Postgres/`dotnet test`** in this build environment (no `dotnet` SDK
+  available) — both the implementation and the tests were hand-traced
+  against REQ-718's own acceptance criteria instead; confirm in CI.
 
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other

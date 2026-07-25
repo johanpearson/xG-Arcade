@@ -32,10 +32,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `handleLogout` so REQ-715's instant local logout is unaffected. Updated
   the privacy policy draft (`docs/legal/privacy-policy-draft.md`) to
   disclose the new `LastActiveAt` tracking and the automatic guest-account
-  removal rules, per CLAUDE.md's legal-drafts rule. Not run against a real
-  `dotnet test`/`dotnet build` in this session — no `.NET` SDK available in
-  the sandbox; hand-traced against REQ-718's own acceptance criteria.
-  `test-writer` to add real NUnit/API/E2E coverage separately. REQ/ADR
+  removal rules, per CLAUDE.md's legal-drafts rule. Added NUnit/API test
+  coverage (`AuthEndpointTests.cs`, `GuessEndpointTests.cs`,
+  `InternalGuestCleanupEndpointTests.cs`, `UserRepositoryTests.cs`)
+  covering REQ-718's own Unit/API/Integration test-level note, including
+  the exactly-30-days/exactly-7-days boundary cases and claimed-account
+  exclusion. Neither the implementation nor the tests were run against a
+  real `dotnet test`/`dotnet build` in this session — no `.NET` SDK
+  available in the sandbox; both were hand-traced against REQ-718's own
+  acceptance criteria instead and need confirming in CI. REQ/ADR
   refs: REQ-718, REQ-710, REQ-715, REQ-201, ADR-0038, ADR-0036, ADR-0022.
 - 2026-07-25 — `docs/requirements-document.md`, `docs/decisions/0038-guest-account-cleanup.md`
   — added REQ-718 (guest account lifecycle cleanup: delete at logout,
