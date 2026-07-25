@@ -18,7 +18,12 @@ export interface SplashScreenProps {
 // logo/brand-mark artwork out, to be handled separately.
 export function SplashScreen({ onGetStarted }: SplashScreenProps) {
   return (
-    <div className="splash-screen">
+    // data-testid: App.tsx's header also renders an "xG Arcade" heading
+    // whenever this screen is showing (it does for AuthScreen too), so a
+    // plain role/name query for this screen's own heading is ambiguous —
+    // same reasoning HeaderNav's own `header-nav-toggle` testid comment
+    // gives for sidestepping a similar query quirk.
+    <div className="splash-screen" data-testid="splash-screen">
       <div className="splash-screen__content">
         <h1 className="splash-screen__title">xG Arcade</h1>
         <p className="splash-screen__tagline">

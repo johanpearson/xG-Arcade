@@ -70,6 +70,10 @@ function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Respon
 }
 
 async function logIn(user: ReturnType<typeof userEvent.setup>) {
+  // REQ-719: a fresh, unauthenticated render now shows the splash screen
+  // first — its call-to-action is what reveals AuthScreen's actual
+  // login/signup form used below.
+  await user.click(await screen.findByRole('button', { name: 'Log in or sign up' }))
   await user.type(screen.getByLabelText('Email'), 'player@example.com')
   await user.type(screen.getByLabelText('Password'), 'password123')
   await user.click(screen.getByRole('button', { name: 'Log in' }))
@@ -260,7 +264,7 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-710: a successful deletion returns to the logged-out AuthScreen and clears the stored access token', async () => {
+  it('REQ-710/REQ-719: a successful deletion returns to the splash screen (not directly to AuthScreen) and clears the stored access token', async () => {
     stubAuthenticatedFetch({ '/auth/account': () => jsonResponse(null, 204) })
     const user = userEvent.setup()
 
@@ -273,7 +277,8 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     await user.type(screen.getByLabelText('Current password'), 'correct-password')
     await user.click(screen.getByRole('button', { name: 'Delete my account permanently' }))
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument()
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument()
     expect(window.localStorage.getItem('xg-arcade-access-token')).toBeNull()
   })
 })

@@ -26,6 +26,9 @@ async function signUpNewPlayer(page: Page): Promise<void> {
   // this signup form ever submits (see turnstile-stub.ts).
   await stubTurnstile(page)
   await page.goto('/')
+  // REQ-719: a fresh, unauthenticated visit now lands on the splash screen
+  // first, not AuthScreen directly — its call-to-action is the way in.
+  await page.getByRole('button', { name: 'Log in or sign up' }).click()
   await page.getByRole('tab', { name: 'Sign up' }).click()
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password', { exact: true }).fill('password123')

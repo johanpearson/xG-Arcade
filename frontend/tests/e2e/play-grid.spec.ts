@@ -184,6 +184,9 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // this signup form ever submits (see turnstile-stub.ts).
     await stubTurnstile(page)
     await page.goto('/')
+    // REQ-719: a fresh, unauthenticated visit now lands on the splash screen
+    // first, not AuthScreen directly — its call-to-action is the way in.
+    await page.getByRole('button', { name: 'Log in or sign up' }).click()
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
     await page.getByLabel('Password', { exact: true }).fill('password123')
@@ -478,6 +481,8 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // goto, same as signUpNewPlayer above (see turnstile-stub.ts).
     await stubTurnstile(page)
     await page.goto('/')
+    // REQ-719: splash screen first, same as signUpNewPlayer above.
+    await page.getByRole('button', { name: 'Log in or sign up' }).click()
     await page.getByLabel('Email').fill(playerAEmail)
     await page.getByLabel('Password').fill('password123')
     await page.getByRole('button', { name: 'Log in' }).click()

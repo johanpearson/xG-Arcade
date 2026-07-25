@@ -45,6 +45,14 @@ const meResponse = {
   isAdmin: false,
 };
 
+// REQ-719: every test in this file that needs to reach AuthScreen's actual
+// form now has to get there via the splash screen's own call-to-action
+// first — App.tsx no longer renders AuthScreen directly the moment there's
+// no accessToken. Centralized here rather than repeated per test.
+async function goToAuthScreen(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole('button', { name: 'Log in or sign up' }));
+}
+
 // REQ-715 (ADR-0033): App.tsx is the only place the refresh-token flow
 // lives, so this is its dedicated suite — every other screen's own
 // test file (GridScreen.test.tsx, LeaderboardScreen.test.tsx, etc.) mounts
@@ -125,7 +133,7 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
     expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBe('refresh-abc');
   });
 
-  it('an invalid/expired/revoked stored refresh token fails the silent refresh and falls through to the existing login screen — clearing both stored tokens, never retrying indefinitely', async () => {
+  it('an invalid/expired/revoked stored refresh token fails the silent refresh and falls through to the splash screen (REQ-719), not directly to AuthScreen — clearing both stored tokens, never retrying indefinitely', async () => {
     window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'expired-token');
     window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, 'dead-refresh');
 
@@ -145,7 +153,9 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
+    // REQ-719: the splash screen, not AuthScreen directly.
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument();
     expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull();
 
@@ -153,6 +163,11 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
     // single failed session-restore.
     const refreshCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/auth/refresh'));
     expect(refreshCalls).toHaveLength(1);
+
+    // AuthScreen is still reachable from here via the splash screen's CTA.
+    const user = userEvent.setup();
+    await goToAuthScreen(user);
+    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
   });
 
   it('logging in stores both the access token and the refresh token', async () => {
@@ -167,6 +182,7 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
     const user = userEvent.setup();
 
     render(<App />);
+    await goToAuthScreen(user);
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Log in' }));
@@ -194,12 +210,20 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Log out' }));
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
+    // REQ-719: logout returns to the splash screen, not directly to
+    // AuthScreen — the same single unauthenticated entry point a
+    // first-time visitor sees.
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument();
     expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull();
+
+    // And AuthScreen is still reachable from there, not a dead end.
+    await goToAuthScreen(user);
+    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
   });
 
-  it('deleting the account (Settings → Delete my account permanently) clears both the access token and the refresh token', async () => {
+  it('deleting the account (Settings → Delete my account permanently) clears both the access token and the refresh token, and returns to the splash screen (REQ-719), not directly to AuthScreen', async () => {
     window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
     window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, 'refresh-abc');
 
@@ -222,7 +246,9 @@ describe('App (REQ-715: persistent login via refresh token)', () => {
     await user.type(screen.getByLabelText('Current password'), 'correct-password');
     await user.click(screen.getByRole('button', { name: 'Delete my account permanently' }));
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
+    // REQ-719: back to the splash screen, not directly to AuthScreen.
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument();
     expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull();
   });
@@ -262,6 +288,7 @@ describe('App (REQ-717: guest banner)', () => {
     const user = userEvent.setup();
 
     render(<App />);
+    await goToAuthScreen(user);
     await user.click(screen.getByRole('button', { name: 'Play as guest' }));
 
     expect(await screen.findByText('Playing as Guest8317.')).toBeInTheDocument();
@@ -280,6 +307,7 @@ describe('App (REQ-717: guest banner)', () => {
     const user = userEvent.setup();
 
     render(<App />);
+    await goToAuthScreen(user);
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Log in' }));
@@ -311,6 +339,7 @@ describe('App (REQ-717: guest banner)', () => {
     const user = userEvent.setup();
 
     render(<App />);
+    await goToAuthScreen(user);
     await user.click(screen.getByRole('button', { name: 'Play as guest' }));
     expect(await screen.findByText('Playing as Guest8317.')).toBeInTheDocument();
 
@@ -326,5 +355,52 @@ describe('App (REQ-717: guest banner)', () => {
     // also disappears once currentUser.isGuest flips to false — same
     // App-level state flowing through onAccountClaimed.
     expect(screen.queryByText('Save your progress')).not.toBeInTheDocument();
+  });
+});
+
+// REQ-719: the unauthenticated splash/landing screen shown before
+// AuthScreen. The individual logout/account-deletion/failed-refresh
+// "returns to splash, not AuthScreen" assertions live alongside their own
+// existing tests above (REQ-715 describe block); this block covers the
+// splash screen's own two remaining "Test level" claims — that it renders
+// instead of AuthScreen with no session at all, and that its
+// call-to-action actually reaches AuthScreen.
+describe('App (REQ-719: unauthenticated splash screen)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it('REQ-719: renders the splash screen, not AuthScreen, when there is no session at all', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log in or sign up' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Sign up' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-719: activating the splash screen\'s call-to-action navigates to AuthScreen', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+
+    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Sign up' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Log in or sign up' })).not.toBeInTheDocument();
   });
 });

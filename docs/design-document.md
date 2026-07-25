@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.48"
+version: "0.49"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -2027,6 +2027,22 @@ Unchanged from v0.1:
   select from — but once a second game exists this screen stops being
   trivial and needs a real spec (multi-tile layout, empty/loading states,
   copy) rather than staying an unreviewed de facto one.
+- **No SCREEN-xx spec exists for the unauthenticated splash/landing screen
+  either** (`frontend/src/splash/SplashScreen.tsx`, added for REQ-719).
+  Same gap and same reasoning as SCREEN-00/the game-selection screen above:
+  kept deliberately minimal (an `<h1>` for "xG Arcade", a one-line tagline,
+  and a single tokens-only primary button, no wireframe/copy/state review)
+  rather than left unbuilt while a real spec was drafted. No new tokens —
+  the title uses the existing `--font-display` family (sized larger than
+  `app__title`'s 22px header treatment, since this is the screen's own
+  hero) and `--color-text-primary`; the tagline uses `--color-text-muted`;
+  the CTA button reuses `auth-screen__submit`'s exact token pairing
+  (`--color-accent-green-text` fill, `--color-surface-card` label). No
+  animation was added (REQ-719 doesn't call for one, and the badge-dock
+  reveal remains the app's only deliberate bold motion moment). Needs a
+  real SCREEN-xx entry (wireframe, copy review, any state beyond the single
+  at-rest one it has today) rather than staying an unreviewed de facto
+  spec, same as the other two gaps above.
 - **§2 has no numeric spacing scale.** SCREEN-01/01a/02's implementation
   (S-010) used an unreviewed 4px-based scale (4/8/12/16/24/32/48) for
   padding/gaps in the absence of one, rather than one-off values per
