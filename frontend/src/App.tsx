@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AdminScreen } from './admin/AdminScreen';
-import { ApiError, fetchMe, refreshAccessToken } from './lib/api';
+import { ApiError, fetchMe, logout, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
 import { GameSelectScreen } from './games/GameSelectScreen';
@@ -100,13 +100,31 @@ function App() {
   // onAccountDeleted below) clears the refresh token too, not only the
   // access token — a stale refresh token must never outlive an explicit
   // logout.
+  //
+  // REQ-718/ADR-0038: also fires a best-effort POST /auth/logout so an
+  // unclaimed guest account gets deleted server-side. Deliberately not
+  // awaited — the local clear-and-reset below (REQ-715's existing, instant
+  // logout UX for every account, guest or not) must never be delayed or
+  // blocked by that network call being slow or failing; any failure is
+  // caught and logged rather than surfaced, since rule 3's 7-day inactivity
+  // purge independently catches this account if the call never completes.
+  // The token is captured before state is cleared since accessToken becomes
+  // null immediately below.
   const handleLogout = useCallback(() => {
+    const tokenToLogOut = accessToken;
+
     window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setAccessToken(null);
     setCurrentUser(null);
     setScreen('game-select');
-  }, []);
+
+    if (tokenToLogOut) {
+      logout(tokenToLogOut).catch((error: unknown) => {
+        console.error('Best-effort backend logout call failed:', error);
+      });
+    }
+  }, [accessToken]);
 
   // REQ-715/ADR-0033: the one place a stored refresh token is exchanged for
   // a new access token — mediated through POST /auth/refresh exactly like

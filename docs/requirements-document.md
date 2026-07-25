@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.02"
+version: "1.03"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -4330,6 +4330,34 @@ guest identity can persist even if it stays "active" indefinitely. A guest
 that stops playing after a single session is caught by rule 3 well before
 rule 2 would ever apply. A single cleanup run checks both conditions and
 purges any account satisfying either one.
+
+- **Status: Implemented (Tier 0, `docs/backlog.md` S-072, 2026-07-25).**
+  `User.LastActiveAt` (non-nullable `DateTime`, migration
+  `20260725120000_AddUserLastActiveAt`) is set at account creation
+  (Signup/Guest) and updated by `IUserRepository.UpdateLastActiveAtAsync`
+  (Login, a submitted guess in `GuessEndpoints`) or folded into
+  `ClaimGuestAsync`'s existing write (Claim) — no `IsGuest` branch in any of
+  those four paths. `POST /auth/logout` (new, `[Authorize]`) implements
+  rule 1: for an unclaimed guest, calls the same
+  `IAccountDeletionService.DeleteAccountAsync` REQ-710 already uses, then
+  always responds `204` regardless of outcome (best-effort, per this
+  requirement's own clause). `POST /internal/purge-guest-accounts` (new,
+  bearer-token-gated like `/internal/generate-round`) implements rules 2
+  and 3 via two new `IUserRepository` queries
+  (`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`),
+  deduping a row matching both before deleting, run daily by a new
+  `purge-guest-accounts.yml` GitHub Actions workflow (07:00 UTC, offset
+  from `generate-round.yml`'s 06:00). The bearer-token constant-time-compare
+  check itself was extracted from `InternalRoundEndpoints` into a shared
+  `XGArcade.Api.Internal.InternalJobAuthorization` helper so this second
+  `/internal/*` endpoint doesn't hand-duplicate it. Frontend: `App.tsx`'s
+  `handleLogout` now also fires a best-effort, non-blocking `POST
+  /auth/logout` (new `lib/api.ts` `logout()`) — never awaited in the local
+  clear-and-reset path, so REQ-715's instant logout UX is unaffected.
+  **Not independently run against a live Postgres/`dotnet test`** in the
+  build environment (no `dotnet` SDK available) — hand-traced against
+  REQ-718's own acceptance criteria instead; `test-writer` covers this with
+  real NUnit/API coverage separately.
 
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other

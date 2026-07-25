@@ -763,6 +763,9 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
+// REQ-718/ADR-0038: the scheduled-purge half of guest account cleanup, same
+// bearer-token /internal/* pattern as MapInternalRoundEndpoints above.
+app.MapInternalGuestCleanupEndpoints();
 app.MapRoundEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();

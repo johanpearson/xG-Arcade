@@ -409,6 +409,23 @@ export async function deleteAccount(
   if (!response.ok) await throwApiError(response);
 }
 
+// REQ-718/ADR-0038: the first backend logout call this app has ever made —
+// deletes the caller's account only if it's an unclaimed guest, a no-op for
+// every other account (mirrors REQ-715's existing frontend-only logout
+// behavior for those). App.tsx's handleLogout treats this as fire-and-forget
+// best-effort: never awaited in a way that would delay or block the
+// existing instant local logout (clearing localStorage), and any failure
+// here is caught and logged rather than surfaced to the person logging
+// out — rule 3's 7-day inactivity purge (ADR-0038) is the safety net if
+// this call never completes.
+export async function logout(accessToken: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
 // REQ-504: nothing calls this before S-026 — it's the only source of
 // `isAdmin`, used solely to decide whether to show the admin nav entry
 // point (App.tsx). A 401 here means the token itself is dead, same meaning

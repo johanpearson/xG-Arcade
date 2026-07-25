@@ -76,7 +76,25 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
         // Tier 0: Supabase's confirm-email requirement is off — see
         // MVP-SCOPE.md and AuthController.Signup's identical assignment.
         user.EmailConfirmed = true;
+        // REQ-718/ADR-0038: claiming is one of the four activity-tracking
+        // events — folded into this same load-then-save rather than a
+        // second UpdateLastActiveAtAsync round trip.
+        user.LastActiveAt = DateTime.UtcNow;
 
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return user;
+    }
+
+    // REQ-718/ADR-0038: Login/GuessEndpoints' shared write path — see this
+    // method's own doc comment on IUserRepository for why Signup/Guest/Claim
+    // don't call this separately.
+    public async Task<User?> UpdateLastActiveAtAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+        if (user is null)
+            return null;
+
+        user.LastActiveAt = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return user;
     }
@@ -96,6 +114,20 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
         return await dbContext.Users.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Email != null && u.Email.ToLower() == normalized, cancellationToken);
     }
+
+    // REQ-718/ADR-0038 rule 2's own selection query — see IUserRepository's
+    // doc comment for the exact condition this mirrors.
+    public async Task<IReadOnlyList<User>> GetUnclaimedGuestsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking()
+            .Where(u => u.IsGuest && u.ClaimedAt == null && u.CreatedAt < cutoff)
+            .ToListAsync(cancellationToken);
+
+    // REQ-718/ADR-0038 rule 3's own selection query — see IUserRepository's
+    // doc comment for the exact condition this mirrors.
+    public async Task<IReadOnlyList<User>> GetInactiveGuestsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking()
+            .Where(u => u.IsGuest && u.LastActiveAt < cutoff)
+            .ToListAsync(cancellationToken);
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
