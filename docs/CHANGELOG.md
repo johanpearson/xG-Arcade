@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `frontend/src/App.tsx`, `frontend/src/nav/HeaderNav.tsx`
+  (+`.css`/`.test.tsx`), `frontend/src/App.test.tsx`,
+  `frontend/tests/unit/App.test.tsx`, `frontend/tests/unit/setup.ts`,
+  `frontend/tests/e2e/header-nav.spec.ts`,
+  `frontend/tests/e2e/url-routing.spec.ts` (new),
+  `docs/design-document.md` (SCREEN-07 rewritten for the new nested
+  "Games" disclosure and a pre-existing "Leagues" nav-entry doc gap
+  fixed in the same edit, 0.49 → 0.50) — REQ-720/REQ-721 implemented
+  by `ui-implementer`, per ADR-0039. `architecture-reviewer`: pass, no
+  drift, ADR-0039 fully complied with (no router dependency, no
+  popstate/hashchange listener). `quality-architect`: pass; one
+  medium finding (REQ-721's `grid`/`leaderboard`/`admin` hashes have no
+  test assertion, only `game-select`/`settings`/`leagues` do) routed to
+  `test-writer`.
 - 2026-07-25 — `docs/decisions/0039-hash-based-hand-rolled-client-routing.md`
   (new), `docs/architecture-document.md` (§10 ADR table, 0.52 → 0.53) —
   ADR-0039: hash-based URLs (`#/grid`), hand-rolled (no `react-router`),
