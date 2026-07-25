@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/requirements-document.md`, `docs/decisions/0038-guest-account-cleanup.md`
+  — added REQ-718 (guest account lifecycle cleanup: delete at logout,
+  30-day unclaimed purge, 7-day inactive purge), bundling all three
+  related behaviors into one REQ per REQ-717's own precedent for a single
+  guest-identity-lifecycle requirement. Added ADR-0038 to record the three
+  structural decisions this required: a new `User.LastActiveAt` field
+  updated only on login/guest-creation/claim/guess-submission (never on
+  every request, and never branching on `IsGuest`); reuse of REQ-710's
+  existing `IAccountDeletionService` anonymize-and-keep mechanism for all
+  three cleanup paths rather than a second deletion code path (a guest's
+  `Guess` rows have the identical "other players' uniqueness/leaderboard
+  denominators" corruption risk REQ-710 already solved for); and a
+  best-effort logout-triggered deletion backed by the 7-day purge as a
+  safety net, following the existing `generate-round.yml`/
+  `/internal/generate-round` scheduled-job pattern (ADR-0022/ADR-0027) for
+  the two time-boxed purges. Flagged, not resolved here: this REQ implies
+  a schema change and new endpoints/cron workflow (`architecture-document.md`/
+  `implementation-document.md` updates), and a new backend logout call
+  where none currently exists (REQ-715's logout is client-side only
+  today) — left for `doc-sync`/implementation work, not made here. No
+  entry added to §7 — all three open questions the task raised were
+  resolved as technical defaults with existing precedent to follow, not
+  genuine open product decisions. REQ/ADR refs: REQ-718, REQ-710, REQ-717,
+  REQ-201, REQ-204, REQ-409, REQ-715, ADR-0036, ADR-0038, ADR-0022,
+  ADR-0027.
 - 2026-07-25 — `infra/README.md`, `NOTES.md` — investigated a live report
   that sign-in became slow after the Cloudflare Turnstile captcha rollout
   (ADR-0037). Measured real cold-vs-warm latency against the deployed dev
