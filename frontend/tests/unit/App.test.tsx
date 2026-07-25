@@ -11,9 +11,15 @@ import App from '../../src/App'
 // frontend/src/auth/AuthScreen.test.tsx already uses.
 const getTurnstileTokenMock = vi.fn()
 const resetTurnstileWidgetMock = vi.fn()
+// Sign-in latency fix (2026-07-25): AuthScreen.tsx/DeleteAccountScreen.tsx
+// now also call preloadTurnstileScript() from a mount-only effect -- stubbed
+// here as a no-op so mounting either component under test doesn't throw on
+// an undefined import from this wholesale module mock.
+const preloadTurnstileScriptMock = vi.fn()
 vi.mock('../../src/lib/turnstile', () => ({
   getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
   resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+  preloadTurnstileScript: (...args: unknown[]) => preloadTurnstileScriptMock(...args),
 }))
 
 function jsonResponse(body: unknown, status = 200) {
@@ -87,6 +93,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
     getTurnstileTokenMock.mockReset()
     resetTurnstileWidgetMock.mockReset()
+    preloadTurnstileScriptMock.mockReset()
   })
 
   it('shows the API health status once the health check resolves', async () => {

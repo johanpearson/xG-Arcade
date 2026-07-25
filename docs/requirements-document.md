@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.04"
+version: "1.05"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -4338,18 +4338,35 @@ the other two identity endpoints:**
   token before allowing another attempt on that same form — never a
   silent retry re-using the same rejected or expired token
 
-**Widget UX recommendation:** Turnstile's invisible/managed mode (no
-visible checkbox interaction required unless Cloudflare's own risk scoring
-escalates to an interactive challenge) is recommended over the always-shown
-checkbox widget — consistent with "Play as guest" being a zero-friction
-entry point by design (this REQ's own user story above); an always-visible
+**Widget UX recommendation (superseded 2026-07-25 — see below):**
+Turnstile's invisible/managed mode (no visible checkbox interaction
+required unless Cloudflare's own risk scoring escalates to an interactive
+challenge) was originally recommended over the always-shown checkbox
+widget — consistent with "Play as guest" being a zero-friction entry
+point by design (this REQ's own user story above); an always-visible
 checkbox would reintroduce, for the overwhelming majority of legitimate
 players, exactly the friction guest play exists to remove. The same
-default is recommended for signup and login (2026-07-25 addition) for
+default was recommended for signup and login (2026-07-25 addition) for
 consistency and the same minimal-friction reasoning, even though those two
 flows already involve more friction than guest play (an email/password
-form to fill in either way) — this is a recommendation, not a hard
+form to fill in either way) — this was a recommendation, not a hard
 acceptance criterion, exactly as it was for guest above.
+
+**Widget UX recommendation, corrected (2026-07-25, sign-in latency
+investigation — ADR-0037's third amendment):** reversed to an
+**always-visible checkbox** (`size: 'normal'`) on all four call sites
+(guest, signup, login, account-deletion re-confirmation), decided
+directly by the product owner after a live investigation
+(NOTES.md/infra/README.md's 2026-07-25 entries) found the invisible
+widget gave no feedback at all while verifying — reported as
+indistinguishable from the app being stuck — and that an invisible-type
+Turnstile site has no interactive fallback if Cloudflare's risk scoring
+is ever unsure, unlike a visible checkbox. Still a recommendation on the
+widget's visual mode, not a hard acceptance criterion about *whether* a
+token is required (that remains the acceptance criteria above, unchanged)
+— but this project's own frontend (`frontend/src/lib/turnstile.ts`) now
+implements the visible-checkbox version, not the invisible one this
+section originally described.
 
 **External precondition (not application behavior — recorded here for
 traceability; full steps belong in `SETUP.md`):** a Cloudflare Turnstile
@@ -4407,7 +4424,8 @@ Cloudflare, the same way automated tests avoid live third-party calls
 elsewhere in this system), Manual (spot-check that a claimed account's
 guess history and league memberships survive the conversion unchanged;
 the "Play as guest", account-creation, and log-in flows end-to-end with
-the invisible/managed widget against a real Cloudflare Turnstile site)
+the always-visible checkbox widget against a real Cloudflare Turnstile
+site — see this REQ's corrected Widget UX recommendation above)
 
 **REQ-718 – Guest account lifecycle cleanup (logout deletion, unclaimed
 purge, inactive purge)**
@@ -4677,7 +4695,11 @@ were all decided directly by the product owner or follow established
 precedent (ADR-0013's mediation boundary), and are recorded in REQ-717's
 acceptance criteria and ADR-0037, not left open here. **Note the "scope
 (guest creation only)" line above is superseded** — see the 2026-07-25
-entry immediately below.
+entry immediately below. **Note the "widget mode (invisible/managed,
+recommended)" line above is also superseded** — a later 2026-07-25
+sign-in-latency investigation reversed this to an always-visible
+checkbox (ADR-0037's third amendment; see this REQ's own corrected
+Widget UX recommendation above).
 
 REQ-717's 2026-07-25 scope-correction addition ("captcha now applies to
 `POST /auth/guest`, `POST /auth/signup`, and `POST /auth/login`") likewise

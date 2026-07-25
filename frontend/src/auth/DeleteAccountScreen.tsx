@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, deleteAccount, describeError } from '../lib/api';
-import { getTurnstileToken, resetTurnstileWidget } from '../lib/turnstile';
+import { getTurnstileToken, preloadTurnstileScript, resetTurnstileWidget } from '../lib/turnstile';
 import './DeleteAccountScreen.css';
 
 export interface DeleteAccountScreenProps {
@@ -21,6 +21,14 @@ export interface DeleteAccountScreenProps {
 // inline like a wrong password, but also resets the Turnstile widget so
 // the next attempt gets a fresh token, same as AuthScreen.tsx's
 // handlePlayAsGuest.
+//
+// Sign-in/latency fix (2026-07-25, ADR-0037's third amendment): the widget
+// is now a real, visible checkbox rendered inline into this screen's own
+// `turnstileContainerRef` container (see the render below), not an
+// invisible widget hidden in a shared body-level div — and the script
+// download itself starts on mount (`preloadTurnstileScript`), well before
+// the person re-types their password, rather than only starting once they
+// submit.
 export function DeleteAccountScreen({
   accessToken,
   onAccountDeleted,
@@ -30,13 +38,18 @@ export function DeleteAccountScreen({
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const turnstileContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    preloadTurnstileScript();
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const captchaToken = await getTurnstileToken();
+      const captchaToken = await getTurnstileToken(turnstileContainerRef.current!);
       await deleteAccount(accessToken, password, captchaToken);
       onAccountDeleted();
     } catch (err) {
@@ -77,6 +90,11 @@ export function DeleteAccountScreen({
             {error}
           </p>
         )}
+
+        {/* Empty until submit — getTurnstileToken() renders the real,
+            visible checkbox into this container only then, never before
+            (see this file's top-of-file comment). */}
+        <div className="delete-account-screen__turnstile" ref={turnstileContainerRef} />
 
         <div className="delete-account-screen__actions">
           <button

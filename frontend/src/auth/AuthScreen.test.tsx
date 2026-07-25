@@ -10,9 +10,15 @@ import { AuthScreen } from './AuthScreen';
 // distinct-rejection handling resets the widget, generic rejections don't).
 const getTurnstileTokenMock = vi.fn();
 const resetTurnstileWidgetMock = vi.fn();
+// Sign-in latency fix (2026-07-25): AuthScreen.tsx now also calls
+// preloadTurnstileScript() from a mount-only effect -- stubbed here as a
+// no-op so mounting the component under test doesn't throw on an
+// undefined import from this wholesale module mock.
+const preloadTurnstileScriptMock = vi.fn();
 vi.mock('../lib/turnstile', () => ({
   getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
   resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+  preloadTurnstileScript: (...args: unknown[]) => preloadTurnstileScriptMock(...args),
 }));
 
 function jsonResponse(body: unknown, status = 200) {
@@ -28,6 +34,16 @@ describe('AuthScreen', () => {
     vi.unstubAllGlobals();
     getTurnstileTokenMock.mockReset();
     resetTurnstileWidgetMock.mockReset();
+    preloadTurnstileScriptMock.mockReset();
+  });
+
+  // Sign-in latency fix (2026-07-25): the whole point of preloading is that
+  // it happens before any button click, not in response to one.
+  it('preloads the Turnstile script on mount, before any submit/guest click', () => {
+    render(<AuthScreen onAuthenticated={vi.fn()} />);
+
+    expect(preloadTurnstileScriptMock).toHaveBeenCalledTimes(1);
+    expect(getTurnstileTokenMock).not.toHaveBeenCalled();
   });
 
   it('REQ-701: blocks signup client-side when the age checkbox is unchecked, without calling the API', async () => {
@@ -528,6 +544,46 @@ describe('AuthScreen', () => {
     // short-circuits before the follow-up login's own getTurnstileToken()
     // call.
     expect(getTurnstileTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Sign-in latency fix (2026-07-25): the signup flow's second, follow-up-
+  // login getTurnstileToken() call now shows an explicit status line while
+  // it's in flight -- this is the "don't leave the second visible-checkbox
+  // render looking glitchy/unexplained" requirement, asserted directly.
+  it('REQ-701: shows "Verifying again to log you in…" only during signup\'s second, follow-up-login Turnstile render', async () => {
+    let resolveSecondToken: (token: string) => void = () => {};
+    getTurnstileTokenMock
+      .mockResolvedValueOnce('turnstile-token-signup')
+      .mockImplementationOnce(() => new Promise<string>((resolve) => (resolveSecondToken = resolve)));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith('/auth/signup')) {
+        return jsonResponse({ id: 'user-1', email: 'player@example.com', displayName: 'Player One' }, 201);
+      }
+      if (String(url).endsWith('/auth/login')) {
+        return jsonResponse({ accessToken: 'token-abc', refreshToken: null });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+
+    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.type(screen.getByLabelText('Confirm password'), 'password123');
+    await user.type(screen.getByLabelText('Display name'), 'Player One');
+    await user.click(screen.getByLabelText(/at least 16/));
+
+    expect(screen.queryByText('Verifying again to log you in…')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(await screen.findByText('Verifying again to log you in…')).toBeInTheDocument();
+
+    resolveSecondToken('turnstile-token-followup-login');
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc', null));
+    expect(screen.queryByText('Verifying again to log you in…')).not.toBeInTheDocument();
   });
 
   // Same negative case as the login one above, signup side: an ordinary
