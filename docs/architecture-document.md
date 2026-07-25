@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.51"
+version: "0.52"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
   - "An architecture decision is made — also add an ADR under docs/decisions/"
 ---
 
-# Architecture Document – xG Arcade (working title)
+# Architecture Document – xG Arcade
 
 Version 0.43 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`

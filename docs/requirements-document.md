@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.05"
+version: "1.06"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -16,15 +16,13 @@ update_when:
   - "A requirement is descoped or moved to a later phase"
 ---
 
-# Requirements Document – xG Arcade (working title)
+# Requirements Document – xG Arcade
 
 Version 0.75 · 2026-07-20
 
-> **Naming note:** "xG Arcade" is a placeholder for the overall product name
-> (users, leagues, rounds, scoring — everything shared across games).
-> **xG Grid** is the name of the first game built on the xG Arcade, not the
-> platform itself. When a real platform name is chosen, this is a
-> find-and-replace of the word "xG Arcade" — the structure below does not change.
+> **Naming note:** "xG Arcade" is the overall product name (users, leagues,
+> rounds, scoring — everything shared across games). **xG Grid** is the
+> name of the first game built on the xG Arcade, not the platform itself.
 
 ## 0. xG Arcade vs. game
 

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.47"
+version: "0.48"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -17,7 +17,7 @@ update_when:
   - "A component's states or copy change in a way that affects other screens"
 ---
 
-# UX & Design Document – xG Arcade (working title)
+# UX & Design Document – xG Arcade
 
 Version 0.40 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`

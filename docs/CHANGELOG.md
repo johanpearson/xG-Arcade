@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `CLAUDE.md`, `README.md`, `TODO.md`,
+  `docs/architecture-document.md`, `docs/design-document.md`,
+  `docs/implementation-document.md`, `docs/requirements-document.md`,
+  `mockups/design-mockups.html` — product decision: "xG Arcade" is the
+  final product name, not a placeholder. Removed "(working title —
+  placeholder name, find-and-replace when a real name is chosen)" and
+  equivalent naming-note wording from all doc titles/naming notes; no code
+  changes needed since "xG Arcade" was already used throughout the
+  codebase (localStorage keys, UI title, etc.). No REQ/ADR affected — this
+  is editorial, not a behavior or structural change.
 - 2026-07-25 — `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`
   (third amendment), `docs/requirements-document.md`, `SETUP.md`,
   `NOTES.md` — follow-up to the sign-in latency investigation
