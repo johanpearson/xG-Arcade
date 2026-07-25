@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.07"
+version: "1.08"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -1929,6 +1929,16 @@ real-browser rendering)
   game-selection landing screen (S-021), leaving only "Leaderboard" and
   "Log out" in the header at every viewport width; this endpoint's own
   contract is unchanged
+- **Status note (2026-07-25, superseded in part by REQ-720):** the S-029
+  bullet immediately above reflected a premise — that xG Arcade would host
+  exactly one game, permanently — that the product owner has since
+  reversed (more games are planned). REQ-720 deliberately reintroduces a
+  "Games" nav entry on that corrected premise; see REQ-720 for what it does
+  and why this is a documented supersession, not a silent contradiction of
+  the bullet above. The other half of that bullet — the "xG Arcade" title
+  routing to this game-selection landing screen — is unchanged and still
+  accurate; REQ-720 adds a second, different affordance alongside it rather
+  than replacing it.
 - **(2026-07-21 addition — acceptance criteria only, not yet built.)**
   `docs/design-document.md`'s SCREEN-01 mock has always shown a round
   end-time indicator in the header (`Round #14 ⏱ 1d 4h`, next to the `(ⓘ)`
@@ -4642,6 +4652,181 @@ in remains reachable — never a dead end)
 
 ---
 
+**REQ-720 – Header nav gains a "Games" entry listing available games
+(supersedes S-029's nav simplification)**
+> As a player, I want a "Games" entry in the header nav that lists every
+> game xG Arcade currently hosts, so I can jump directly to a specific game
+> from anywhere in the app, now that the platform is expected to host more
+> than one.
+
+- **Context — a deliberate reversal, not a silent contradiction:** S-029
+  (`docs/backlog.md`) removed a "Games"/"Grid" nav pair specifically
+  because, with exactly one game in existence, it duplicated the existing
+  game-selection landing screen (`GameSelectScreen`, REQ-303/S-021)
+  reachable via the "xG Arcade" header title — see REQ-303's own S-029
+  bullet and its new status note. That removal's premise was "xG Arcade
+  will only ever host one game." The product owner has since said more
+  games are planned, so that premise no longer holds; this requirement
+  reintroduces a "Games" nav entry on the corrected premise, not as a
+  silent contradiction of S-029's earlier call.
+- Given a logged-in player, when the header nav renders (REQ-712's
+  collapsed mobile menu, once opened, or the flat row at/above its
+  breakpoint)
+- Then it contains one entry labeled "Games," alongside the existing
+  "Leaderboard," "Leagues," "Settings," and "Log out" entries
+- Given the "Games" entry, when a player activates it (click/tap, or
+  Enter/Space while it has focus)
+- Then it toggles open/closed a list containing one entry per game xG
+  Arcade currently hosts (Tier 0: exactly one, "xG Grid") — the same
+  accessible-disclosure pattern REQ-712's own toggle already establishes (a
+  real, focusable, keyboard-operable control exposing `aria-expanded`
+  reflecting its open/closed state)
+- And activating "Games" itself never navigates anywhere — it is a
+  disclosure control only, not a link; it only shows/hides the per-game
+  list
+- Given the per-game list is open, when a player selects "xG Grid"
+- Then they are taken to that game's current screen — the same
+  destination and behavior `GameSelectScreen`'s own "xG Grid" tile already
+  triggers, unchanged — and the per-game list closes (and, on a narrow
+  viewport, REQ-712's outer nav menu closes with it, matching how every
+  other nav entry already behaves)
+- Given a game's own screen is currently showing, when the header nav
+  renders
+- Then that game's entry inside the "Games" list carries
+  `aria-current="page"`, the same convention "Leaderboard," "Leagues," and
+  "Settings" already use for their own current-screen state
+- Given the "xG Arcade" header title, when a player clicks/taps it
+- Then it continues to navigate to `GameSelectScreen` (REQ-303) exactly as
+  before, unchanged by this requirement — **both affordances are kept
+  deliberately, not left as an unexplained duplicate:** "Games" is a
+  quick-jump shortcut reachable from anywhere in the app (including from
+  inside another screen entirely, e.g. while looking at the leaderboard),
+  while the title remains the route to the full landing/picker screen
+  shown immediately after login (REQ-303/S-021) — a distinct screen with
+  room to grow (e.g. richer per-game presentation later) that a flat nav
+  list entry doesn't have room for
+- Given the viewport is below REQ-712's mobile breakpoint and its outer nav
+  menu is open, when "Games" is expanded inside that menu
+- Then REQ-712's own toggle, breakpoint, and "the header nav row never
+  wraps onto a second line or causes horizontal overflow" guarantee are
+  unaffected by this nested disclosure
+- Given the viewport is at or above REQ-712's mobile breakpoint, when
+  "Games" is expanded as part of the flat row
+- Then the row itself still does not wrap or overflow — the same guarantee
+  REQ-712 already requires, now also holding for this expandable entry
+- Given exactly one game exists (Tier 0's actual state), when "Games" is
+  expanded
+- Then it lists exactly that one entry — this requirement ships now, ahead
+  of a second game actually existing, since anticipating growth is the
+  entire point of the product owner's request; it is not deferred until a
+  second game is added
+
+**Test level:** UI (component: "Games" toggles independently of REQ-712's
+outer toggle and never itself triggers navigation; `aria-expanded`/
+`aria-current` correctness; selecting "xG Grid" navigates to the grid
+screen and closes both the per-game list and, where applicable, the outer
+menu), E2E (Playwright: nav → Games → xG Grid reaches the grid screen; the
+"xG Arcade" title still reaches `GameSelectScreen` unchanged; a narrow
+viewport check confirms the nested disclosure doesn't reintroduce
+wrapping/overflow)
+
+**Flag for `architecture-reviewer`:** whether "Games" as a non-navigating,
+nested disclosure control (a toggle within REQ-712's own toggle, on mobile)
+needs its own ADR or an amendment to ADR-0030 — ADR-0030 covered the outer
+mobile collapse and the Settings consolidation, but not a second,
+independently-expandable entry nested inside it. Not decided here; this is
+a structural nav-pattern call, not a requirements-level detail.
+
+---
+
+**REQ-721 – Current screen reflected in the URL; a page reload restores it**
+> As a player, I want the browser's URL to reflect whichever screen I'm
+> currently on, so that reloading the page (or sharing/bookmarking a URL)
+> returns me to that screen instead of always bouncing back to the
+> game-selection landing screen.
+
+- **Context:** today `frontend/src/App.tsx`'s `Screen` union
+  (`'game-select' | 'grid' | 'leaderboard' | 'leagues' | 'settings' |
+  'admin'`) is pure React state — there is no router, the browser URL never
+  changes as a player navigates, and a reload always resets to
+  `'game-select'` (or, if unauthenticated, the splash/auth screens,
+  REQ-719). This requirement specifies observable behavior only; it
+  deliberately does not mandate hash-based vs. path-based URLs, or any
+  specific routing library — see the "needs an ADR" note below.
+- Given a logged-in player moves between screens (game-select, grid,
+  leaderboard, leagues, settings, and, for an admin, admin) using the
+  header nav or any other in-app navigation control
+- When a screen change occurs
+- Then the browser's URL changes to a value distinct to that screen — no
+  two of the screens above ever share the same URL, and returning to the
+  same screen later always produces the same URL for it
+- Given a player is on an authenticated screen whose URL reflects it, and
+  their stored session is still valid at the time
+- When they reload the page
+- Then they are returned to the same screen the URL denotes, rather than
+  being unconditionally reset to the game-selection screen
+- Given a player's stored session is invalid, expired, or absent at the
+  moment the app finishes determining this (REQ-719's own definition of
+  "unauthenticated")
+- When a page load or reload happens, regardless of what screen the URL in
+  the address bar denoted
+- Then the unauthenticated splash screen (REQ-719) is shown — a requested
+  URL never bypasses the authentication gate or skips straight to an
+  authenticated screen, or to `AuthScreen` itself
+- Given a player actively completes login or signup (submits valid
+  credentials — not merely reloading with an already-valid stored session)
+- When authentication succeeds
+- Then they land on the game-selection screen exactly as REQ-303/S-021
+  already requires, regardless of whatever URL was present beforehand —
+  this requirement changes what a page load/reload of an *already
+  established* session restores; it does not change what a fresh
+  login/signup action itself does
+- Given this requirement is implemented
+- Then browser back/forward button behavior is explicitly out of scope —
+  no guarantee is made about which screen, if any, is shown after a
+  back/forward navigation; that is left for a future requirement if real
+  use shows it is needed, not assumed for free as a side effect of
+  URL-per-screen support
+
+**Judgement call, recorded here (how URL restoration interacts with
+REQ-303 and REQ-719), per this document's own practice of resolving this
+kind of question rather than leaving it open:** URL-restored state applies
+only to a page load/reload of an *already-authenticated, already-valid*
+session — it never bypasses REQ-719's splash-then-auth gate for a visitor
+who isn't authenticated, and it never changes what happens the moment a
+login/signup action itself succeeds (still always game-select, per
+REQ-303/S-021, unchanged). Reasoning: REQ-303's "always lands on
+game-select" rule is about the event of *just having authenticated*, not
+about every subsequent render of an already-open session — a reload of a
+session that was already past that point isn't a new login, so restoring
+the actual screen the player was on is the more useful behavior and does
+not contradict what REQ-303 actually requires. REQ-719's splash gate, by
+contrast, is a security/consistency boundary on the *unauthenticated* side
+and must not have a URL-shaped bypass — an authenticated-only screen must
+never partially render, or be inferred as "intended," just because a URL
+asked for it while no valid session exists.
+
+**Test level:** E2E (Playwright: navigating through several screens
+changes the URL each time; reloading on each authenticated screen with a
+valid session restores that same screen; reloading while logged out shows
+the splash screen regardless of what URL was requested; completing a fresh
+login always lands on game-select regardless of the URL present
+immediately before submitting the form); UI (unit: a reload with no valid
+token renders the splash/auth flow, never an authenticated screen,
+regardless of any stored/URL screen indicator)
+
+**Needs an ADR:** this is the first router/URL-state mechanism in the
+frontend (`frontend/src/App.tsx` currently has no router at all) — a
+genuine "could reasonably have gone another way" structural decision (hash
+vs. path-based URLs, which library if any, how it composes with the
+existing `screen` state and REQ-719's splash gating — the product owner
+explicitly asked whether `/` or `#` should be used) per `CLAUDE.md`'s ADR
+guidance. Flagged for `architecture-reviewer`/the implementer to write
+before or alongside implementation — not decided here, since a
+requirements document specifies WHAT and HOW TO VERIFY, not HOW TO BUILD.
+
+---
+
 ### 4.11 Operational resilience
 
 **REQ-901 – Database backups**
@@ -4723,6 +4908,14 @@ shows the default is wrong.
   every fresh load (e.g. `screen` defaults to `'game-select'` on mount
   rather than restoring the last-viewed screen). Revisit if real use shows
   a frequent visitor finds the extra click annoying.
+  **Status note (2026-07-25, REQ-721):** the parenthetical rationale above
+  — "screen defaults to `'game-select'` on mount rather than restoring the
+  last-viewed screen" — describes the pre-REQ-721 app only. Once REQ-721
+  ships, a reload of an *authenticated* session restores the last-viewed
+  screen via the URL instead. This bullet's own subject (the splash screen
+  always showing for an *unauthenticated* load, no persisted flag) is
+  unchanged and still accurate — only the supporting analogy is now
+  out of date.
 
 ## 6. Product decisions (resolved 2026-07-05)
 
