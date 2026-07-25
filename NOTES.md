@@ -904,3 +904,33 @@ place. Regression tests:
 `PlayerPhotoBackfillServiceTests.REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
 and the all-malformed edge case,
 `REQ214_BackfillAsync_EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.
+
+### 2026-07-25 — Supabase's "Enable Captcha Protection" toggle is project-wide, not per-endpoint — it broke real-user login/signup, not just `/auth/guest`
+Reported live: a registered user's login started failing with `captcha
+protection: request disallowed (no captcha_token found)`, and new signups
+started returning the generic "Check your email to confirm your account,
+or reset your password if you already have one." message (that message is
+`AuthController.Signup`'s deliberate, REQ-701 account-enumeration-safe
+fallback for *any* Supabase signup rejection, not a real email-confirmation
+feature — it fires for this too). Root cause: ADR-0037 designed Turnstile
+captcha as scoped to `POST /auth/guest` only, and `AuthController.Login`/
+`Signup` were built assuming Supabase's captcha requirement would only
+apply to the anonymous-sign-in call `SignInAnonymouslyAsync` makes
+(`SignInWithPasswordAsync`/`SignUpAsync` in `SupabaseAuthClient.cs` never
+send a `captcha_token` at all). That assumption was wrong: Supabase's
+dashboard "Enable Captcha Protection" setting is a single project-wide
+toggle covering every `gotrue` endpoint that can create or authenticate an
+identity (`signup`, `token?grant_type=password`, `recover`, ...), not
+scoped to whichever flow you had in mind when you turned it on. The
+moment someone completed `SETUP.md` step 6 (turning the toggle on for
+guest-creation bot protection) against a real Supabase project, it started
+rejecting every password-based login and signup too, since those code
+paths have no token to send. Same root cause explains both user-visible
+symptoms — the misleading signup message wasn't a new feature, it's the
+existing anti-enumeration fallback firing for a captcha rejection instead
+of a real duplicate-email case. This was flagged as an "unverified against
+a live Supabase project" assumption in the original ADR-0037/CHANGELOG
+entries (no network access in that sandbox) — now confirmed live and
+wrong. Fix needs Turnstile wired into Login and Signup too (not just
+Guest), or the captcha toggle turned back off until that's done — tracked
+as a separate session, not fixed in this note-taking pass.
