@@ -378,14 +378,33 @@ export async function fetchPlayerAutocomplete(
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
 // before deleting anything — a wrong password throws (401, title "Incorrect
 // password") rather than resolving. Success is 204 No Content, nothing to parse.
-export async function deleteAccount(accessToken: string, password: string): Promise<void> {
+//
+// REQ-710's 2026-07-25 addition / ADR-0037's second amendment: this
+// re-verification call is the same `SignInWithPasswordAsync` call `login`
+// above uses, so it now requires a `captchaToken` too — a Cloudflare
+// Turnstile token the caller obtains client-side via `lib/turnstile.ts`'s
+// `getTurnstileToken()` *before* ever calling this function. This function
+// forwards the token unmodified; it performs no captcha verification of its
+// own (same "mediate, don't reimplement" boundary as login/signup/
+// playAsGuest — Supabase verifies it against Cloudflare server-side). A
+// captcha-specific rejection comes back as the same distinct 400 with
+// `title === 'Captcha verification failed'` used by every other call site —
+// checked server-side before the password check, so it can never collide
+// with the 401 "Incorrect password" response above — left to throw as an
+// ApiError like any other failure here; the caller (DeleteAccountScreen.tsx)
+// branches on `error.title` to decide whether to reset the Turnstile widget.
+export async function deleteAccount(
+  accessToken: string,
+  password: string,
+  captchaToken: string,
+): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/auth/account`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
 }
