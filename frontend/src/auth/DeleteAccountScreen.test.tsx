@@ -10,9 +10,15 @@ import { DeleteAccountScreen } from './DeleteAccountScreen';
 // already uses for its own Turnstile mock.
 const getTurnstileTokenMock = vi.fn();
 const resetTurnstileWidgetMock = vi.fn();
+// Sign-in latency fix (2026-07-25): DeleteAccountScreen.tsx now also calls
+// preloadTurnstileScript() from a mount-only effect -- stubbed here as a
+// no-op so mounting the component under test doesn't throw on an
+// undefined import from this wholesale module mock.
+const preloadTurnstileScriptMock = vi.fn();
 vi.mock('../lib/turnstile', () => ({
   getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
   resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+  preloadTurnstileScript: (...args: unknown[]) => preloadTurnstileScriptMock(...args),
 }));
 
 function jsonResponse(body: unknown, status = 200) {
@@ -42,6 +48,25 @@ describe('DeleteAccountScreen', () => {
     vi.unstubAllGlobals();
     getTurnstileTokenMock.mockReset();
     resetTurnstileWidgetMock.mockReset();
+    preloadTurnstileScriptMock.mockReset();
+  });
+
+  // Sign-in latency fix (2026-07-25): the whole point of preloading is that
+  // it happens before any submit click.
+  it('preloads the Turnstile script on mount, before the form is submitted', () => {
+    vi.stubGlobal('fetch', vi.fn());
+
+    render(
+      <DeleteAccountScreen
+        accessToken="token"
+        onAccountDeleted={vi.fn()}
+        onCancel={vi.fn()}
+        onAuthError={vi.fn()}
+      />,
+    );
+
+    expect(preloadTurnstileScriptMock).toHaveBeenCalledTimes(1);
+    expect(getTurnstileTokenMock).not.toHaveBeenCalled();
   });
 
   it('REQ-710: shows the irreversibility warning as an alert', () => {

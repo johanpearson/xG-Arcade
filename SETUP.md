@@ -108,9 +108,24 @@ which is exactly what ADR-0006 needs (dev + prod).
    - Sign up at cloudflare.com (free), add a Turnstile **site**
      (dash.cloudflare.com → Turnstile → Add site) — no domain ownership
      verification needed to get keys for local/dev use
-   - Choose **invisible/managed mode** when configuring the widget, not
-     the always-visible checkbox mode (see REQ-717's widget UX
-     recommendation)
+   - Choose **Managed mode** when configuring the widget (Cloudflare's
+     dashboard widget-mode options are Managed/Non-Interactive/Invisible —
+     this is a property of the Turnstile *site* itself, set here, not
+     something the frontend code can override afterward). **Corrected
+     2026-07-25 (ADR-0037's third amendment, sign-in latency
+     investigation):** this step originally said "invisible/managed mode,"
+     matching REQ-717's original widget UX recommendation — that
+     recommendation is now reversed to an always-visible checkbox
+     (`size: 'normal'` in `frontend/src/lib/turnstile.ts`), so the site
+     itself must be Managed (or Non-Interactive), never **Invisible** — a
+     site configured as Invisible cannot show a widget at all regardless
+     of what the frontend code requests, since that's enforced
+     server-side by Cloudflare, not by the client's `size` parameter. **If
+     an existing dev/prod Turnstile site was created under the original
+     instruction and picked Invisible specifically**, go back into
+     dash.cloudflare.com → Turnstile → that site's settings and switch its
+     widget mode to Managed — the code change alone will not make a
+     checkbox appear on an Invisible-type site.
    - Save the **site key** — this is public, safe in frontend code, and
      becomes the frontend's `VITE_TURNSTILE_SITE_KEY` build-time
      environment variable (same pattern as `VITE_API_BASE_URL` — see

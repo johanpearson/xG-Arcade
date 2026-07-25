@@ -27,6 +27,57 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-25 — Sign-in latency follow-up: live evidence pointed at the client-side Turnstile step, not backend/cold start
+
+Follow-up to the entry immediately below. The product owner manually
+tested login repeatedly, back-to-back, and consistently saw an 8-12s
+spinner right after clicking Login, every time — not a pattern that
+fits "only the first request after idle is slow." They shared a real
+Azure Container App log from one such attempt:
+
+```
+17:51:51.279 — POST https://<project>.supabase.co/auth/v1/token?* (start)
+17:51:52.204 — response after 924.3ms — 200
+17:51:52.236 → 17:51:52.362 — three fast EF Core queries (~125ms total):
+  Login's own GetByAuthProviderUserIdAsync + UpdateLastActiveAtAsync
+  (REQ-718, merged same day), likely immediately followed by the
+  frontend's own GET /auth/me
+17:51:52.362 → 17:51:58.189 — a 5.83s gap with ZERO server-side activity
+  logged (no DB query, no outbound HTTP call), then one more identical
+  user-lookup query
+```
+
+So the actual login request was fast end-to-end (~1.1s server-side, not
+a multi-second cold call) — the felt delay had to be sitting somewhere
+the backend logs can't see. Confirmed with the product owner that the
+8-12s is the spinner between clicking Login and getting *any* result
+back (not a slow page-load after a fast login) — which places nearly all
+of it before `POST /auth/login` is even sent. `getTurnstileToken()`
+(`frontend/src/lib/turnstile.ts`) only runs inside the submit handler,
+never preloaded, so the whole chain (Cloudflare script download if
+uncached, widget render, verification round-trip) was fully serialized
+in front of the request. Device was normal mobile Chrome over home WiFi,
+no reported ad-blocker/VPN, ruling out the most common "Turnstile is
+blocked/slowed by a privacy tool" explanation.
+
+Fix (see `infra/README.md`, `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`'s
+third amendment, and `docs/CHANGELOG.md` for the full write-up): preload
+just the Turnstile *script* on screen mount (not the widget/token — those
+still wait for submit, since a token is single-use and expires quickly),
+and switch from invisible/managed mode to an always-visible checkbox —
+the product owner's own call, since an invisible widget both hides that
+anything is happening and can't fall back to an interactive challenge if
+Cloudflare's risk scoring is ever unsure, which may itself have
+contributed to the stuck-feeling attempts. **Also worth remembering:**
+this is only a real fix if the Cloudflare Turnstile site itself is
+configured as Managed/Non-Interactive mode in the dashboard — a site
+created as Invisible mode cannot show a widget at all no matter what the
+frontend's `size` parameter requests, since that's Cloudflare's own
+server-side enforcement, not something client code can override. Check
+this on any already-existing dev/prod Turnstile site before assuming the
+code change alone fixed the visibility (see `SETUP.md` step 6's
+correction).
+
 ### 2026-07-25 — Sign-in latency measured: cold start and captcha are additive, separate costs
 
 Live report: sign-in feels slow, reportedly since the Cloudflare Turnstile

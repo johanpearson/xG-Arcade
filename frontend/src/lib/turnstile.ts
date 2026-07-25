@@ -1,17 +1,39 @@
 // REQ-717's 2026-07-21 "Bot-check (captcha) for guest creation" addition /
-// ADR-0037: a small, promise-based wrapper around Cloudflare Turnstile's
-// client-side widget/JS so AuthScreen.tsx never juggles the script tag or
-// the imperative `window.turnstile` API directly, and so this module can be
-// mocked wholesale in tests rather than requiring a live Cloudflare site
-// (untestable in this sandbox -- see this module's own test file).
+// ADR-0037 (amended 2026-07-25, sign-in latency investigation): a small,
+// promise-based wrapper around Cloudflare Turnstile's client-side widget/JS
+// so callers never juggle the script tag or the imperative `window.turnstile`
+// API directly, and so this module can be mocked wholesale in tests rather
+// than requiring a live Cloudflare site (untestable in this sandbox -- see
+// this module's own test file).
 //
-// Widget mode: invisible/managed, per REQ-717's explicit widget UX
-// recommendation -- renders no visible UI in the common case, matching
-// "Play as guest"'s zero-friction intent. If Cloudflare's own risk scoring
-// ever escalates to an interactive challenge, that challenge is Cloudflare's
-// own overlay/UI, not this app's -- nothing here themes it, and
-// docs/design-document.md §2 needs no new token for it (checked per this
-// task's own instruction before writing this file).
+// Widget mode: **always-visible checkbox (`size: 'normal'`), not
+// invisible/managed.** This reverses ADR-0037's original invisible-mode
+// recommendation -- a deliberate product decision, not a bug fix. Two real
+// reasons: (a) an invisible widget renders nothing at all while it's
+// verifying, which reads as the app being stuck/broken rather than
+// "checking something," directly implicated in the 2026-07-25 sign-in
+// latency investigation (see NOTES.md/infra/README.md); (b) a genuinely
+// *invisible*-type Turnstile site cannot fall back to an interactive
+// challenge if Cloudflare's risk scoring is unsure -- it just fails, with no
+// escape hatch for the person -- whereas a visible checkbox lets an
+// ambiguous case resolve with one tap. The stale "renders no visible UI"
+// framing that used to live here described invisible mode; it no longer
+// applies now that every render is a real, visible checkbox.
+//
+// Script preload vs. widget render/token mint are two genuinely different
+// operations here, not the same step split in two for no reason:
+// `preloadTurnstileScript()` only starts the `<script>` download (safe to
+// call as early as component-mount, since it mints no token and renders no
+// widget), while `getTurnstileToken()` still does the actual widget
+// render + token mint, only ever at submit time. Turnstile tokens are
+// single-use and expire quickly against Supabase's own verification (see
+// AuthScreen.tsx's signup-then-auto-login comment for the concrete case this
+// already forced a design around) -- minting one before the person has
+// finished the form risks it going stale by submit time, surfacing as a
+// confusing captcha rejection. Preloading only the script avoids that risk
+// entirely while still moving the slow part (downloading
+// challenges.cloudflare.com/turnstile/v0/api.js, if not already cached) out
+// of the serial critical path in front of the actual submit.
 //
 // The site key is public and safe in frontend code -- same
 // `import.meta.env.VITE_*` convention `frontend/src/lib/api.ts` already uses
@@ -22,7 +44,6 @@
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? '';
 
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
-const CONTAINER_ID = 'turnstile-widget-container';
 
 interface TurnstileRenderOptions {
   sitekey: string;
@@ -61,14 +82,22 @@ let widgetId: string | null = null;
 // for callers to handle.
 let pendingTokenPromise: Promise<string> | null = null;
 
-// Loads Cloudflare's script exactly once per page load, however many times
-// this module's exports are called -- a second/third call reuses the same
-// in-flight or already-resolved promise rather than injecting a second
-// <script> tag.
+// Loads Cloudflare's script once per page load *while it keeps succeeding*
+// -- a second/third call while a load is in flight or already resolved
+// reuses that same promise rather than injecting a second <script> tag. A
+// failed load does NOT stay cached, though (see the .catch below this
+// promise is assigned through): with `preloadTurnstileScript()` now firing
+// unattended on every screen mount, caching a rejection forever would let
+// one transient failure (a flaky network at mount time, a security
+// extension blocking the very first request) silently disable every
+// captcha-gated action for the rest of that page's lifetime, with no
+// recovery short of a full reload -- caught in quality-architect's gate
+// review on this file's first version, which cached the rejection
+// indefinitely.
 function loadTurnstileScript(): Promise<TurnstileApi> {
   if (scriptLoadPromise) return scriptLoadPromise;
 
-  scriptLoadPromise = new Promise((resolve, reject) => {
+  const promise: Promise<TurnstileApi> = new Promise((resolve, reject) => {
     if (window.turnstile) {
       resolve(window.turnstile);
       return;
@@ -85,34 +114,60 @@ function loadTurnstileScript(): Promise<TurnstileApi> {
     document.head.appendChild(script);
   });
 
+  // Clears the cache back to null on rejection -- guarded by the identity
+  // check so a retry that's already replaced this promise (started by a
+  // second caller after the first rejection already cleared it) never gets
+  // clobbered back to null by this same, now-stale .catch running late. The
+  // check must compare against `cached` (the promise actually stored in
+  // `scriptLoadPromise`), not the inner `promise` above -- `cached` is what
+  // `scriptLoadPromise` is ever assigned, so that's the only object identity
+  // that can ever match it.
+  const cached: Promise<TurnstileApi> = promise.catch((error: unknown) => {
+    if (scriptLoadPromise === cached) scriptLoadPromise = null;
+    throw error;
+  });
+  scriptLoadPromise = cached;
+
   return scriptLoadPromise;
 }
 
-function getOrCreateContainer(): HTMLElement {
-  let container = document.getElementById(CONTAINER_ID);
-  if (!container) {
-    container = document.createElement('div');
-    container.id = CONTAINER_ID;
-    // Invisible/managed mode renders nothing visible here in the common
-    // case -- hidden defensively in case Cloudflare ever leaves an empty
-    // frame behind; the fallback interactive challenge (if it ever fires)
-    // is Cloudflare's own overlay, unaffected by this container's display.
-    container.style.display = 'none';
-    document.body.appendChild(container);
-  }
-  return container;
+// Sign-in latency fix (2026-07-25): starts the Cloudflare script download in
+// the background as early as a screen mounts (AuthScreen.tsx/
+// DeleteAccountScreen.tsx call this from a mount-only `useEffect`), well
+// before the person has clicked anything. Deliberately does NOT render a
+// widget or mint a token -- see this file's top-of-file comment for why that
+// has to stay deferred to getTurnstileToken() at submit time. Failures are
+// swallowed here on purpose: a preload is a pure optimization with nothing
+// useful for its caller to do with a rejection at mount time. This is safe
+// specifically because `loadTurnstileScript` no longer caches a rejection
+// forever (see its own comment) -- a later, real getTurnstileToken() call
+// gets a genuinely fresh attempt (a new <script> tag, a new network
+// request), not a replay of this same failed one.
+export function preloadTurnstileScript(): void {
+  loadTurnstileScript().catch(() => {
+    // Intentionally ignored -- see comment above.
+  });
 }
 
-// REQ-717: obtains one Cloudflare Turnstile token before "Play as guest"
-// ever calls POST /auth/guest. Any widget instance left over from a
-// previous, already-settled call is torn down first (Cloudflare's render()
-// is not documented as safe to call twice into the same container without
-// doing so) and a fresh one is rendered every time -- this makes every
-// call, not only the one after resetTurnstileWidget(), get a genuinely new
-// execution rather than relying on an assumption about how an
-// already-rendered invisible widget behaves on a second callback. Never
-// resolves with a placeholder/empty token; a script load failure or a
-// Turnstile-reported error rejects instead.
+// REQ-717: obtains one Cloudflare Turnstile token before a guarded action
+// (login, signup, guest sign-in, account deletion) sends its request. Always
+// renders into the `container` the caller supplies -- callers own where that
+// container sits in their own screen's layout (visual placement, spacing)
+// since this module has no opinion on any one screen's layout, only on the
+// widget's behavior. This replaced an earlier version that silently owned a
+// single hidden `<div>` appended to `document.body` for invisible-mode
+// rendering; that's no longer viable now that the widget is a real, visible
+// checkbox the person needs to see and tap in the right place on whichever
+// screen invoked it.
+//
+// Any widget instance left over from a previous, already-settled call is
+// torn down first (Cloudflare's render() is not documented as safe to call
+// twice into the same container without doing so) and a fresh one is
+// rendered every time -- this makes every call, not only the one after
+// resetTurnstileWidget(), get a genuinely new execution rather than relying
+// on an assumption about how an already-rendered widget behaves on a second
+// callback. Never resolves with a placeholder/empty token; a script load
+// failure or a Turnstile-reported error rejects instead.
 //
 // Concurrent calls (a caller invoking this again before a previous call has
 // settled) reuse that same in-flight promise instead of racing it: without
@@ -120,13 +175,12 @@ function getOrCreateContainer(): HTMLElement {
 // first call's still-pending widget out from under it, and the first
 // call's promise would never resolve or reject at all (see pendingTokenPromise's
 // own comment).
-export function getTurnstileToken(): Promise<string> {
+export function getTurnstileToken(container: HTMLElement): Promise<string> {
   if (pendingTokenPromise) return pendingTokenPromise;
 
   pendingTokenPromise = (async () => {
     try {
       const turnstile = await loadTurnstileScript();
-      const container = getOrCreateContainer();
 
       if (widgetId !== null) {
         turnstile.remove(widgetId);
@@ -136,7 +190,7 @@ export function getTurnstileToken(): Promise<string> {
       return await new Promise<string>((resolve, reject) => {
         widgetId = turnstile.render(container, {
           sitekey: SITE_KEY,
-          size: 'invisible',
+          size: 'normal',
           callback: resolve,
           'error-callback': () => reject(new Error('Could not verify you are not a bot. Please try again.')),
           'expired-callback': () => reject(new Error('Verification expired. Please try again.')),

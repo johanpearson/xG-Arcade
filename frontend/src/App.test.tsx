@@ -13,6 +13,9 @@ import App from './App';
 vi.mock('./lib/turnstile', () => ({
   getTurnstileToken: () => Promise.resolve('turnstile-token-stub'),
   resetTurnstileWidget: () => {},
+  // Sign-in latency fix (2026-07-25): AuthScreen.tsx/DeleteAccountScreen.tsx
+  // now also call preloadTurnstileScript() from a mount-only effect.
+  preloadTurnstileScript: () => {},
 }));
 
 // These must stay in sync with App.tsx's own (unexported) constants — there

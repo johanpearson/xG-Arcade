@@ -14,6 +14,19 @@
   — the only new wrinkle is UX shape (a re-confirmation inside an
   already-authenticated flow, not a fresh login/signup form), covered in
   Decision below.
+- **Amended:** 2026-07-25 (third amendment, sign-in latency investigation)
+  — **reverses this ADR's own Widget UX recommendation.** Turnstile now
+  renders as an always-visible checkbox (`size: 'normal'`) on all four call
+  sites, not invisible/managed mode. See the updated Widget UX
+  sub-section under Decision and "For AI agents" below for why (a live
+  latency investigation, NOTES.md/infra/README.md 2026-07-25, found the
+  invisible widget renders no feedback at all while verifying — read as
+  stuck rather than working — and that invisible-mode Turnstile sites
+  cannot fall back to an interactive challenge if Cloudflare's risk
+  scoring is unsure, unlike Managed/visible mode). This is a genuine
+  reversal, decided directly by the product owner, not a bug fix layered
+  on top of the original recommendation — do not treat the original
+  invisible/managed guidance below as still current.
 - **Related requirements:** REQ-717 (guest play — 2026-07-21 "Bot-check
   (captcha) for guest creation" addition, 2026-07-25 scope-correction
   addition), REQ-701 (create account with email and password — 2026-07-25
@@ -160,16 +173,41 @@ Concretely, this decision has three parts:
    codebase's configuration surface at all, because this backend never
    calls Cloudflare directly.
 
-**Widget UX:** Turnstile's invisible/managed mode is recommended over the
+**Widget UX (superseded 2026-07-25, third amendment — kept here as
+historical record of the original reasoning, not current guidance):**
+Turnstile's invisible/managed mode was originally recommended over the
 always-visible checkbox widget (REQ-717's own newly-added acceptance
-criteria states this as a recommendation with reasoning — zero-friction
+criteria stated this as a recommendation with reasoning — zero-friction
 intent of "Play as guest," minimal visual footprint, an interactive
 challenge shown only if Cloudflare's own risk scoring escalates to one).
-The same recommendation now extends to the account-deletion password
+The same recommendation was extended to the account-deletion password
 re-confirmation step too (REQ-710's 2026-07-25 addition), for the same
 minimal-friction reasoning, even though — like signup/login — that step
 already involves more inherent friction than guest play (a password field
 either way).
+
+**Widget UX (current, 2026-07-25 third amendment):** Turnstile now
+renders as an **always-visible checkbox** (`size: 'normal'`) on all four
+call sites — `frontend/src/lib/turnstile.ts`'s `getTurnstileToken()` no
+longer requests invisible mode. This reverses the recommendation above,
+decided directly by the product owner after a live sign-in-latency
+investigation (see NOTES.md/infra/README.md's 2026-07-25 entries) found
+two real problems with the invisible widget, not just a preference: (1)
+an invisible widget shows nothing at all while it verifies, which a real
+user reported as indistinguishable from the app being stuck; (2) a
+genuinely *invisible*-type Turnstile site cannot fall back to an
+interactive challenge if Cloudflare's own risk scoring is unsure — it
+just fails, with no way for the person to resolve it — whereas a visible
+checkbox can resolve an ambiguous case with one tap. Each call site now
+owns its own inline container in its own screen's layout
+(`AuthScreen.tsx` has two — one shared by login/signup, one for "Play as
+guest" — and `DeleteAccountScreen.tsx` has its own), rather than
+`turnstile.ts` owning a single hidden `document.body`-level div. Signup's
+existing second, follow-up-login `getTurnstileToken()` call (needed
+because a token is single-use, see Decision above) now shows an explicit
+"Verifying again to log you in…" status line for its duration, since a
+second visible checkbox appearing right after the first one is completed
+needs an explanation it didn't need when both renders were invisible.
 
 **Failure mode:** a missing/expired/invalid token must map to a distinct,
 specific rejection on each of the four call sites — not the existing
@@ -202,7 +240,7 @@ addition (signup, login), and now also in REQ-710's 2026-07-25 addition
 
 | Option | Pros | Cons | Why not chosen |
 |---|---|---|---|
-| **Cloudflare Turnstile** (chosen) | Free with no meaningful volume cap at this project's scale; invisible/managed mode is minimally intrusive to real players; Supabase Auth has first-class native support (`gotrue_meta_security.captcha_token`), so no custom verification client is needed in this backend | Adds an external dependency (Cloudflare) and a manual one-time dashboard setup step (site creation) before guest play (originally) — and now signup/login (2026-07-25) and account-deletion password re-confirmation (2026-07-25, second amendment) too — can function with captcha enabled | Best fit for the stated goal (harden identity creation/authentication/re-confirmation against scripted abuse — originally scoped to guest creation, widened 2026-07-25 to signup/login once Supabase's project-wide toggle behavior was confirmed, then widened again the same day to account-deletion's password re-confirmation once the identical gap was found there) at the lowest integration cost, per the product owner's direct comparison against hCaptcha |
+| **Cloudflare Turnstile** (chosen) | Free with no meaningful volume cap at this project's scale; supports both invisible/managed and always-visible checkbox modes, so widget UX can be tuned to product needs without switching provider (see the 2026-07-25 third amendment for why this project ended up choosing visible mode); Supabase Auth has first-class native support (`gotrue_meta_security.captcha_token`), so no custom verification client is needed in this backend | Adds an external dependency (Cloudflare) and a manual one-time dashboard setup step (site creation) before guest play (originally) — and now signup/login (2026-07-25) and account-deletion password re-confirmation (2026-07-25, second amendment) too — can function with captcha enabled | Best fit for the stated goal (harden identity creation/authentication/re-confirmation against scripted abuse — originally scoped to guest creation, widened 2026-07-25 to signup/login once Supabase's project-wide toggle behavior was confirmed, then widened again the same day to account-deletion's password re-confirmation once the identical gap was found there) at the lowest integration cost, per the product owner's direct comparison against hCaptcha |
 | hCaptcha | Also free tier, also natively supported by Supabase's same `captcha_token` mechanism | More visible/interactive by reputation for the free tier; no material capability advantage over Turnstile for this use case | Turnstile does the same job with less friction for real players, at the same integration cost |
 | A custom/self-built bot-check (e.g. a honeypot field, a timing heuristic) | No external dependency at all | Meaningfully weaker against a real scripted/distributed attacker — exactly the gap this ADR exists to close; would need ongoing tuning as attackers adapt, with no vendor doing that work | Reinventing a weaker version of a problem Cloudflare and Supabase already solve well together |
 | Frontend verifies the Turnstile token directly against Cloudflare's siteverify API itself (no backend involvement) | Removes one hop | Directly contradicts ADR-0013's already-settled backend-mediation precedent — a client-side-only check is bypassable and untestable at the API level, the same objection ADR-0013 already raised against frontend-direct signup/login | Supabase's native support makes backend pass-through free to wire in anyway — no reason to reintroduce a client-side-only gate |
@@ -364,3 +402,20 @@ this amendment corrects that too. If a future task seems to call for
 scoping captcha to a subset of these four call sites, that is itself a new
 product decision needing its own REQ/ADR update, not something to infer
 from this file's edit history.
+
+**Amended again (2026-07-25, third amendment) — the Widget UX
+recommendation is reversed, not extended.** Turnstile is now an
+always-visible checkbox (`size: 'normal'`) on all four call sites, never
+invisible/managed mode — see Decision's updated Widget UX sub-section
+above for the full reasoning (a live latency investigation found the
+invisible widget both hides the fact that verification is happening at
+all, and has no interactive fallback if Cloudflare's risk scoring is
+unsure). If you find code or a comment anywhere still asserting
+`size: 'invisible'`/no-visible-UI is the current design, that's stale —
+fix it to match this amendment rather than assuming the invisible-mode
+text elsewhere in this ADR is still authoritative. Do not revert to
+invisible mode "to reduce friction" without the product owner explicitly
+deciding that again — this reversal was a deliberate, informed trade
+(a small amount of visible friction on every attempt, in exchange for
+transparency and an escape hatch on ambiguous risk scoring), not an
+oversight to quietly correct back.

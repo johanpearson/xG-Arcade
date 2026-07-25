@@ -13,6 +13,91 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`
+  (third amendment), `docs/requirements-document.md`, `SETUP.md`,
+  `NOTES.md` — follow-up to the sign-in latency investigation
+  (`infra/README.md`'s "Sign-in latency" section, this same day): live
+  evidence (an Azure Container App log the product owner shared, showing
+  a real login completing server-side in ~1.1s) plus their own repeated
+  testing (consistent 8-12s spinners, back-to-back, felt immediately
+  after clicking Login, not improving with repetition) pointed away from
+  backend/Supabase latency and at the client-side Cloudflare Turnstile
+  step instead — `getTurnstileToken()` only ran after the click, so the
+  whole chain (script download if uncached, widget render, verification)
+  was serialized in front of the actual request. Two fixes shipped in the
+  same PR (`frontend/src/lib/turnstile.ts`, `AuthScreen.tsx`,
+  `DeleteAccountScreen.tsx`, `ui-implementer`): (1) preload the Turnstile
+  *script* on screen mount via new `preloadTurnstileScript()`, never the
+  widget render or token mint (tokens expire quickly and are single-use,
+  so minting one before the form is filled in risks a stale-token
+  rejection — only the script download moves earlier); (2) switched the
+  widget from invisible/managed mode to an **always-visible checkbox**
+  (`size: 'normal'`), a deliberate product-owner decision, not a bug fix —
+  reverses ADR-0037's original Widget UX recommendation, recorded as that
+  ADR's third amendment, since an invisible widget shows nothing while
+  verifying (read as the app being stuck) and a genuinely invisible-type
+  Turnstile site has no interactive fallback if Cloudflare's risk scoring
+  is unsure, unlike a visible checkbox. `getTurnstileToken()`'s signature
+  changed to take a caller-supplied container element (no longer a single
+  hidden `document.body` div `turnstile.ts` owned itself), since a visible
+  checkbox needs to render inline in the right spot on whichever screen
+  invoked it — `AuthScreen.tsx` now has two containers (login/signup
+  share one, "Play as guest" has its own) and `DeleteAccountScreen.tsx`
+  has one. Signup's existing second, follow-up-login token call (needed
+  because tokens are single-use) now shows an explicit "Verifying again
+  to log you in…" status line, since a second visible checkbox appearing
+  right after the first is completed needs an explanation it didn't need
+  when both renders were invisible. `docs/requirements-document.md`'s
+  REQ-717 Widget UX recommendation section and its 2026-07-21
+  open-questions log entry corrected to match (marked superseded in
+  place, not renumbered/deprecated — this was always documented as a
+  recommendation, never a hard acceptance criterion, so no REQ acceptance
+  criteria actually changed). `SETUP.md` step 6 corrected: the Cloudflare
+  dashboard's widget-mode setting (Managed/Non-Interactive/Invisible) is
+  a property of the Turnstile *site itself*, not something the frontend's
+  `size` parameter can override after the fact — so an existing dev/prod
+  site created under the old "invisible/managed" instruction that
+  actually picked Invisible needs its mode switched to Managed in
+  Cloudflare's dashboard directly, or the code change alone won't surface
+  a checkbox. `docs/architecture-document.md`'s ADR-0037 summary row
+  needed no change (already scope-level, doesn't describe widget mode).
+  `docs/design-document.md` (0.46 → 0.47) gained matching status notes on
+  the still-unspecced login/signup screen (§7) and SCREEN-05 (account
+  deletion), following the same pattern already used there for "Play as
+  guest"/the guest banner — flagged by `architecture-reviewer`'s gate
+  review as a real, if low-priority, documentation-completeness gap since
+  this addition (unlike the earlier invisible-mode captcha ones) has an
+  actual visible footprint on the rendered screen. `NOTES.md` gained a
+  matching entry with the log-evidence timeline. No new ADR: reused
+  ADR-0037's established in-place-amendment pattern (this is its third
+  same-general-topic amendment, following the two 2026-07-25 scope
+  amendments already there) rather than a new ADR number, since the core
+  wiring decision (provider, mediation-through-Supabase, secret-key
+  boundary) is unchanged — only the widget's visual mode reversed.
+  **`quality-architect`'s gate review on this change (same day) found a
+  real reliability gap, fixed in the same PR:** `loadTurnstileScript()`
+  cached a script-load rejection forever, never clearing it — harmless
+  while only `getTurnstileToken()` called it (a failure only ever hit in
+  direct response to a user's own submit), but now that
+  `preloadTurnstileScript()` fires unattended on every screen mount, one
+  transient failure at mount time (a flaky network, a security extension
+  blocking the first request) would have silently disabled every
+  login/signup/guest/delete attempt for the rest of that page's lifetime,
+  recoverable only by a full reload. Fixed by clearing the cache back to
+  `null` on rejection (guarded by an object-identity check so a
+  since-replaced cache entry can't be clobbered by a stale, late-running
+  `.catch`) so a later call gets a genuinely fresh script attempt. The
+  review also caught a new test whose name/comment claimed a retry
+  already happened when neither the code nor the test itself actually
+  demonstrated that — rewritten to test the real (now-fixed) behavior
+  instead, plus a matching test for the same gap reached via
+  `getTurnstileToken()` directly rather than `preloadTurnstileScript()`.
+  Also added container-identity assertions to `AuthScreen.test.tsx`
+  (`getTurnstileToken` now takes a caller-supplied container, and the
+  form/guest actions each use their own — nothing previously asserted
+  the *correct* one was passed, so a copy-paste mix-up between them would
+  have compiled and passed every existing test while rendering the wrong
+  screen's checkbox in the wrong place).
 - 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/implementation-document.md`, `docs/backlog.md`,
   `docs/design-document.md` — doc-sync pass (`doc-sync`) for the backend

@@ -52,6 +52,24 @@
   margin: 0;
 }
 
+/* Sign-in latency fix (2026-07-25, ADR-0037 amendment): container Cloudflare
+   Turnstile's checkbox widget renders into at submit time -- see
+   AuthScreen.css's identical `.auth-screen__turnstile` for the same
+   reasoning (tokens only, no ad-hoc spacing values; the widget's own iframe
+   content is Cloudflare's, not ours to theme). */
+.delete-account-screen__turnstile {
+  display: flex;
+  justify-content: center;
+}
+
+.delete-account-screen__turnstile:empty {
+  margin: 0;
+}
+
+.delete-account-screen__turnstile:not(:empty) {
+  margin: var(--space-1) 0;
+}
+
 .delete-account-screen__actions {
   display: flex;
   gap: var(--space-2);
