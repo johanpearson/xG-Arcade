@@ -13,6 +13,12 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `frontend/src/App.test.tsx` — `test-writer` closed a gap
+  quality-architect found in the REQ-720/REQ-721 review: `grid`/
+  `leaderboard`/`admin` hashes had no navigate-sets-hash or
+  reload-restores-screen assertion (only `game-select`/`settings`/
+  `leagues` did). All six `Screen` values now have both. 353 → 359
+  Vitest tests.
 - 2026-07-25 — `frontend/src/App.tsx`, `frontend/src/nav/HeaderNav.tsx`
   (+`.css`/`.test.tsx`), `frontend/src/App.test.tsx`,
   `frontend/tests/unit/App.test.tsx`, `frontend/tests/unit/setup.ts`,
