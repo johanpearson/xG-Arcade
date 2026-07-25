@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.00"
+version: "1.01"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -3068,16 +3068,14 @@ Tier 0, S-026)*
   or denying whether an account exists for that address (avoids account
   enumeration)
 
-**Captcha requirement for signup and login (2026-07-25 addition — not yet
-built as of this addition; see ADR-0037's amendment and REQ-717's matching
+**Captcha requirement for signup and login (2026-07-25 addition — now
+built, same day; see ADR-0037's amendment and REQ-717's matching
 scope-correction addition for the full mechanism):**
 
-- Given Supabase's captcha protection is enabled (a project-wide dashboard
-  setting — see REQ-717's 2026-07-25 addition for why it cannot be
-  enabled for one auth flow alone)
-- When a person submits account creation (this REQ) or logs in with email
-  and password (no dedicated REQ of its own yet; recorded here since this
-  is where email/password authentication's rules already live)
+- Given the account-creation form (this REQ) or the log-in form (no
+  dedicated REQ of its own yet; recorded here since this is where
+  email/password authentication's rules already live)
+- When a person submits either one
 - Then a valid Cloudflare Turnstile token, obtained by the frontend before
   the respective endpoint is called, is required before Supabase Auth is
   called — mirroring REQ-717's guest-flow captcha mechanism exactly, not a
@@ -3088,10 +3086,19 @@ scope-correction addition for the full mechanism):**
   swallowed by this REQ's own account-enumeration-safe generic fallback
   message above (that message stays exactly as specified for every other
   signup-rejection reason; only a captcha rejection is carved out from it)
-- And this requirement holds regardless of whether Supabase's captcha
-  protection setting happens to be enabled at a given moment — when it is
-  disabled, no token is required and neither endpoint's other acceptance
-  criteria change
+- **Correction (verified against the shipped code, 2026-07-25):** an
+  earlier version of this bullet stated the requirement "holds regardless
+  of whether Supabase's captcha protection setting happens to be enabled
+  ... when it is disabled, no token is required." That was never accurate
+  and has been corrected here: this backend has no way to observe
+  Supabase's project-wide "Enable Captcha Protection" dashboard toggle at
+  request time, so `AuthController.Signup`/`AuthController.Login` require
+  a non-empty token unconditionally, on every request, regardless of that
+  toggle's state — there is no code path where a missing token is
+  accepted. Supabase's own toggle is what determines whether the token is
+  actually *verified* against Cloudflare on Supabase's side; this
+  backend's own requirement that a token be present at all is not gated on
+  it.
 
 **Test level:** Unit, API
 
@@ -3513,12 +3520,10 @@ password confirmation step, the anonymization behavior, or its tests —
 changes here, only how a player navigates to it.
 
 **Captcha requirement for the password re-confirmation step (2026-07-25
-addition — not yet built as of this addition; see ADR-0037's second
-amendment for the full mechanism and why this fourth call site exists):**
+addition — now built, same day; see ADR-0037's second amendment for the
+full mechanism and why this fourth call site exists):**
 
-- Given Supabase's captcha protection is enabled (a project-wide dashboard
-  setting — see REQ-717's 2026-07-25 addition for why it cannot be enabled
-  for one auth flow alone)
+- Given the password re-confirmation field on `DeleteAccountScreen`
 - When a logged-in user submits their current password to confirm account
   deletion (this REQ's existing confirmation step, `DeleteAccountScreen`'s
   password field)
@@ -3543,10 +3548,15 @@ amendment for the full mechanism and why this fourth call site exists):**
   user out instead, per this REQ's S-039 "Built as" note above); a captcha
   rejection must be distinguishable from both of those existing outcomes,
   not merged into either
-- And this requirement holds regardless of whether Supabase's captcha
-  protection setting happens to be enabled at a given moment — when it is
-  disabled, no token is required and none of this REQ's other acceptance
-  criteria change
+- **Correction (verified against the shipped code, 2026-07-25):** an
+  earlier version of this bullet stated the requirement "holds regardless
+  of whether Supabase's captcha protection setting happens to be enabled
+  ... when it is disabled, no token is required." That was never accurate
+  and has been corrected here — see REQ-701's matching correction for the
+  full explanation, which applies identically: this backend has no way to
+  observe Supabase's dashboard toggle at request time, so
+  `AuthController.DeleteAccount` requires a non-empty token
+  unconditionally, on every request
 
 **Test level:** Unit (anonymization logic specifically — verify no
 reversible link remains), API (a missing/invalid Turnstile token on

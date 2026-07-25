@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.65"
+version: "0.66"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-07-25
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -264,7 +264,15 @@ misconfigured per-endpoint. See ADR-0006.
                                    cases, S-021) also live here since App.tsx
                                    itself isn't under a feature folder. Newer
                                    component tests live under /src (see above)
-    /e2e                        -> Playwright (full user flows)
+    /e2e                        -> Playwright (full user flows). turnstile-stub.ts
+                                   (added 2026-07-25, ADR-0037's signup/login
+                                   widening) stubs window.turnstile via
+                                   page.addInitScript() so specs that only need
+                                   an authenticated session aren't blocked by a
+                                   captcha widget that can't mint a real token
+                                   in CI (no VITE_TURNSTILE_SITE_KEY there) —
+                                   it does not itself test captcha
+                                   accept/reject behavior
 
 /infra
   /github-workflows             -> ci.yml, sync-players.yml, generate-round.yml
