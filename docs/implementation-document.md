@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.67"
+version: "0.68"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -548,13 +548,18 @@ public class User
     public string NormalizedDisplayName { get; private set; }
     public bool EmailConfirmed { get; set; }       // mirrors Supabase Auth's confirmed state; see REQ-702
     // Added S-069 (REQ-717/ADR-0036): true only for a row created via
-    // POST /auth/guest. Consulted in exactly one place outside AuthController
-    // itself — REQ-409's qualifying-rounds query — never branched on
-    // anywhere else (REQ-201-210/204/406/407/408 are unmodified).
+    // POST /auth/guest. Never branched on inside REQ-201-210/204/406/
+    // 407/408's own logic (ADR-0036's "For AI agents" instruction) —
+    // consulted only by REQ-409's qualifying-rounds query, S-072's two
+    // purge-selection queries (GetUnclaimedGuestsOlderThanAsync/
+    // GetInactiveGuestsOlderThanAsync), and S-073's admin-facing
+    // CountGuestsAsync/GetAllGuestIdsAsync (REQ-507/508).
     public bool IsGuest { get; set; }
     // Added S-069 (REQ-717/ADR-0036): set once, the moment a guest claims a
     // real account (POST /auth/claim) — null until then. REQ-409's
-    // qualifying-rounds query excludes any round closed before this instant.
+    // qualifying-rounds query excludes any round closed before this instant;
+    // S-073's CountClaimedGuestsAsync (REQ-507) also reads it directly, to
+    // report a live "claimed guest" count.
     public DateTime? ClaimedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     // Added S-072 (REQ-718/ADR-0038): non-nullable, initialized to CreatedAt

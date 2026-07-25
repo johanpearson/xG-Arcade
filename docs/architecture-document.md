@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.50"
+version: "0.51"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -388,6 +388,29 @@ fifth caller, never a second implementation. The existing
 (`InternalRoundEndpoints.IsAuthorized`) was extracted into a shared
 `XGArcade.Api.Internal.InternalJobAuthorization` helper so this second
 bearer-token-gated `/internal/*` endpoint doesn't hand-duplicate it.
+
+**COMP-01 status (S-073, 2026-07-25, REQ-507/508):** a new
+`XGArcade.Api.Admin.AdminAccountsEndpoints` (`GET
+/admin/accounts/metrics`, `GET /admin/accounts/guests/count`, `POST
+/admin/accounts/guests/clear`) adds four new read-only `IUserRepository`
+methods — `CountUsersAsync`, `CountGuestsAsync`, `CountClaimedGuestsAsync`,
+`GetAllGuestIdsAsync` — all reached the same way every other
+`IUserRepository` caller is, no new data-access path. Unlike
+`AdminManagementEndpoints` (REQ-505/506, S-026), this file is registered
+unconditionally, including Production — see the file's own doc comment
+and each REQ's "Scope note"/environment acceptance criterion for why: both
+REQs act on real account data as their stated purpose, not on seeded/test
+data. `GetAllGuestIdsAsync` is a deliberately separate, unfiltered query
+from S-072's `GetUnclaimedGuestsOlderThanAsync`/
+`GetInactiveGuestsOlderThanAsync` above — REQ-508's own scope note
+requires no age/inactivity filter, so it is not built by relaxing those
+two queries. The bulk "clear" action is a further caller of
+`IAccountDeletionService.DeleteAccountAsync` (§6.8) — the same
+anonymize-and-keep mechanism REQ-710/REQ-506/REQ-718 already use, no new
+deletion implementation. `AccountDeletionService` gained a public
+`UserNotFoundErrorMessage` const (no behavior change) so this new caller
+can distinguish a "no longer exists" outcome from any other failure
+without a second existence check.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -1102,6 +1125,17 @@ everything below that point is identical, unchanged, and not duplicated.
 `IAccountDeletionService` call — `AuthController.Logout` and
 `InternalGuestCleanupEndpoints`'s scheduled job (see §6.10) — a fourth and
 fifth *caller*, not a second/third/fourth *implementation*.
+
+**S-073 addition (REQ-508):** a sixth entry point joins the same call —
+`Admin → Web Frontend (admin view) → Backend API: POST
+/admin/accounts/guests/clear` (`XGArcade.Api.Admin.AdminAccountsEndpoints`,
+registered unconditionally including Production, unlike
+`AdminManagementEndpoints` above) — which selects every currently-matching
+guest id via a new, unfiltered `IUserRepository.GetAllGuestIdsAsync` (not
+REQ-718's age-filtered queries — see the COMP-01 status note above for why)
+and then joins this diagram at the same `IAccountDeletionService` call
+every other entry point uses; everything below that point is identical,
+unchanged, and not duplicated.
 
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 

@@ -3724,3 +3724,67 @@ Given/When/Then and against every existing call site the new
 introduced. `test-writer` to add the REQ718-named unit/API/integration
 coverage listed under *Accept* above in a follow-up pass; `architecture-
 reviewer`/`quality-architect` review still pending as of this entry.
+
+**S-073 · Admin guest/user metrics view; admin bulk force-clear guest
+accounts (REQ-507/508)**
+No pre-written story text exists for this one — unlike most entries above,
+REQ-507 and REQ-508 were scoped and implemented directly in the same
+session, and this entry is being added retroactively (by `doc-sync`) to
+give them a backlog story the way every other implemented REQ has one.
+REQ-507 (live admin-facing counts: total users, current guests, claimed
+guests) and REQ-508 (an immediate, admin-triggered bulk delete of every
+current guest account, with a dry-run count and a two-step confirm) were
+both drafted and implemented together, and both explicitly reuse
+`IAccountDeletionService` per ADR-0038's mandate that "any future admin
+path" delete a guest account only through that service — no second
+deletion path was written.
+*Deps:* S-025 (`IAccountDeletionService`), S-026 (`AdminManagementEndpoints`
+precedent this new file deliberately does *not* share environment-gating
+with — see "Built as" below), S-069/S-070 (`IsGuest`/`ClaimedAt`), S-072
+(`LastActiveAt`/the age-filtered purge queries this story's new query
+deliberately does not reuse).
+*Accept:* REQ507-named tests: the metrics endpoint returns a live
+(non-cached) total user count, current guest count, and claimed-guest
+count that always agree with the `IsGuest`/`ClaimedAt` invariant; a
+non-admin caller gets 403. REQ508-named tests: the dry-run count endpoint
+returns the exact current `IsGuest = true` count; the clear action deletes
+every currently-matching guest via `IAccountDeletionService`, leaves
+claimed accounts untouched, reports a per-account
+Succeeded/NotFound/Failed outcome rather than one all-or-nothing result,
+and remains reachable in a Production-configured test host (unlike
+REQ-505/506); a non-admin caller gets 403 for both endpoints.
+**Built as:** new `XGArcade.Api.Admin.AdminAccountsEndpoints`
+(`GET /admin/accounts/metrics`, `GET /admin/accounts/guests/count`,
+`POST /admin/accounts/guests/clear`), Admin policy, registered
+unconditionally in `Program.cs` — including Production — unlike the
+non-Production-only `AdminManagementEndpoints` (REQ-505/506, S-026), since
+both REQs' own scope notes are explicit these act on real account data as
+their stated purpose. Four new `IUserRepository` methods
+(`CountUsersAsync`/`CountGuestsAsync`/`CountClaimedGuestsAsync`/
+`GetAllGuestIdsAsync`), each a single query, no in-memory materialization.
+`GetAllGuestIdsAsync` is a deliberately new, unfiltered query rather than a
+relaxed form of S-072's `GetUnclaimedGuestsOlderThanAsync`/
+`GetInactiveGuestsOlderThanAsync` — REQ-508 explicitly applies no age/
+inactivity filter. The bulk clear endpoint calls
+`IAccountDeletionService.DeleteAccountAsync` once per selected guest id
+(sequentially, not `Task.WhenAll`, since all three metrics queries and the
+delete loop share one request-scoped `DbContext`, and EF Core doesn't
+support concurrent use of one context instance); a new
+`AccountDeletionService.UserNotFoundErrorMessage` const (extracted, no
+behavior change) lets the endpoint tell "no longer exists" apart from any
+other failure without a second existence check, and a `Failed` outcome is
+logged with the target user id. Backend tests:
+`backend/tests/XGArcade.Data.Tests/UserRepositoryTests.cs` (extended) and
+new `backend/tests/XGArcade.Api.Tests/AdminAccountsEndpointTests.cs` — not
+independently run against a live `dotnet test` in this build environment
+(no .NET SDK available); hand-traced against REQ-507/508's own
+Given/When/Then instead. Frontend (`AccountMetricsSection`/
+`GuestClearSection` in `AdminScreen.tsx`, SCREEN-04) was built in the same
+session by `ui-implementer` and is not re-described here — see
+`docs/design-document.md`'s SCREEN-04 "Accounts / guest-clear" subsection
+and its own judgment-call list (its first draft referenced this story as
+"S-076" by mistake; corrected to S-073 in this same doc-sync pass).
+`architecture-reviewer`/`quality-architect` already reviewed this diff and
+found no blocking issues; no new ADR was written — this reuses ADR-0038's
+existing mandate and REQ-507/508's own already-accepted scope, not a new
+structural decision.

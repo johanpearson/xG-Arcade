@@ -771,6 +771,10 @@ app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapLeagueEndpoints();
 app.MapAdminEndpoints();
+// REQ-507/508: guest/user metrics + bulk guest force-clear, registered
+// unconditionally (including Production) — see that file's own doc comment
+// for why these are kept separate from MapAdminManagementEndpoints below.
+app.MapAdminAccountsEndpoints();
 // S-026: REQ-505/506, non-Production only — see that file's own doc comment
 // for why these are kept separate from MapAdminEndpoints above.
 app.MapAdminManagementEndpoints();

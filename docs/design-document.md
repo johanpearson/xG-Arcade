@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.45"
+version: "0.46"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-07-25
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1221,6 +1221,93 @@ generic error; a successful deletion clears the field and shows a brief
 "Deleted." confirmation. This reuses REQ-710's existing anonymization
 behavior under an admin-triggered path — a second trigger for that one
 behavior, not a second, independently-designed deletion flow.
+
+**Accounts / guest-clear (REQ-507/508, added 2026-07-25) — always rendered,
+no `ASPNETCORE_ENVIRONMENT` gate, unlike round control/user deletion above:**
+these two REQs are explicitly visible in every environment including
+Production (see each REQ's own "Scope note"), so — unlike round control and
+user deletion — this pair is **not** nested inside the same
+`activeRound !== null` visibility gate; it renders and fetches
+unconditionally, right after the unverified-data section above.
+
+```
+┌─────────────────────────────────────────────┐
+│ Accounts                                       │
+├─────────────────────────────────────────────┤
+│ Total users        Current guests   Claimed   │
+│      42                    7         guests    │
+│                                          3      │
+└─────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────┐
+│ Guest accounts                                 │
+├─────────────────────────────────────────────┤
+│ Deletes every current guest account            │
+│ immediately — a manual remedy you can use any  │
+│ time, separate from the scheduled automatic    │
+│ purge.                                          │
+│                                                 │
+│ [ Force clear guests ]                          │
+│   (click) → fetches the dry-run count, then:   │
+│   [Yes, delete all N guest accounts] [Cancel]  │
+└─────────────────────────────────────────────┘
+```
+
+Judgment calls made without an existing spec to follow (`ui-implementer`,
+S-073 — corrected from an earlier "S-076" reference here, which didn't
+match any actual backlog story), recorded here per this repo's own
+discipline rather than left as an unreviewed implementation-only detail:
+
+- **A genuinely new component, not a reuse:** the metrics readout has no
+  existing row/list class that fits a label+value pair, so it's a new
+  `.admin-screen__metrics`/`.admin-screen__metric` pairing (tokens only —
+  `--space-*` for gaps, `--color-text-muted`/`--color-text-primary` for
+  label/value). The numeral value reuses the shared `.mono-figure` utility
+  (`index.css`) for the mono-face/tabular-figures rule (§2's "any number
+  meant to be compared at a glance"), and reuses `.admin-screen__title`'s
+  existing 18px size rather than inventing a new one (§7 already flags this
+  document has no formal type scale — this follows the existing
+  reuse-what's-already-used convention rather than compounding that gap).
+- **Two sections, not one:** "Accounts" (REQ-507, read-only) and "Guest
+  accounts" (REQ-508, the destructive bulk action) are two separate
+  `admin-screen__section` cards, matching this screen's existing
+  one-card-per-REQ convention (unverified data / round control / user
+  deletion are likewise separate cards) rather than merging a read-only
+  view and a destructive action into one box.
+- **Confirm-step copy strengthened per REQ-508's explicit acceptance
+  criterion:** clicking "Force clear guests" fetches the dry-run count
+  first, then reveals "Yes, delete all N guest accounts" / "Cancel" — a
+  stronger two-step confirm than "Yes, end round now"/"Yes, delete this
+  user permanently" specifically because the count is embedded in the
+  confirm button's own label, not shown only as separate nearby text.
+- **Zero-count special case (a judgment call, not in REQ-508's acceptance
+  criteria):** if the dry-run count is 0, the UI shows "No guest accounts to
+  clear right now." (the same muted/empty-state styling as "No unverified
+  data to review.") instead of a confirm prompt reading "Yes, delete all 0
+  guest accounts," which would be an odd, actionable-looking control for an
+  action that would do nothing.
+- **Per-account outcome list reuses the exact pattern REQ-503's bulk
+  approve/remove already established** (`admin-screen__list`,
+  `admin-screen__approval-result`/`--failed`, a "Dismiss" button) — one line
+  per account (`{userId} — {outcome text}`), with `Succeeded` → "Cleared.",
+  `NotFound` → "Not cleared — this account no longer exists.", and `Failed`
+  → the server's own `errorMessage` folded into the sentence ("Not cleared —
+  {message}."), never a raw enum value or a bare "failed." No player-facing
+  display name exists for a guest account to show instead of its raw
+  `userId` (guest accounts have no email; `displayName` exists but wasn't
+  worth a second server round-trip for this admin-only, low-frequency
+  action) — flagged here rather than silently treated as sufficient forever.
+- **A successful clear refreshes the "Accounts" metrics readout** (the same
+  `refreshMetrics` the "Accounts" section's own load uses) so the guest
+  count visibly drops without a manual page reload.
+- **403 handling deliberately differs from round control/user deletion's
+  own 404-as-hidden probe:** a 403 from `GET /admin/accounts/metrics` hides
+  both cards (not just "Accounts") rather than flipping the whole page to
+  access-denied — REQ-501/502/503's unverified-data fetch already owns that
+  page-level decision, and a non-admin token would already have 403'd there
+  first in practice; this is defensive, not the primary access-control path.
+  A 401 still escalates via the same `onAuthError` callback every other
+  admin action in this file uses.
 
 ### SCREEN-05: Delete account
 

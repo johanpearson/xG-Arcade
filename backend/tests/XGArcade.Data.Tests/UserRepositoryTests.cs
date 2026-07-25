@@ -565,4 +565,149 @@ public class UserRepositoryTests
 
         Assert.That(result, Is.Empty);
     }
+
+    // ---- REQ-507/REQ-508: admin accounts metrics + bulk guest force-clear ----
+
+    // Shared seed for the four count/id-selection queries below: two current
+    // guests, one account that originated as a guest and has since been
+    // claimed (IsGuest = false, ClaimedAt set), and one account that was
+    // never a guest at all (IsGuest = false, ClaimedAt null) — the exact
+    // four-shape mix CountUsersAsync/CountGuestsAsync/CountClaimedGuestsAsync/
+    // GetAllGuestIdsAsync must each tell apart correctly.
+    private async Task<(User GuestOne, User GuestTwo, User Claimed, User Regular)> SeedMixedAccountsAsync()
+    {
+        var guestOne = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest7001",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = DateTime.UtcNow,
+        };
+        var guestTwo = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest7002",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = DateTime.UtcNow,
+        };
+        var claimed = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "claimed-guest@example.com",
+            DisplayName = "Claimed Guest",
+            EmailConfirmed = true,
+            IsGuest = false,
+            ClaimedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+        };
+        var regular = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "regular@example.com",
+            DisplayName = "Regular Player",
+            EmailConfirmed = true,
+            IsGuest = false,
+            ClaimedAt = null,
+            CreatedAt = DateTime.UtcNow.AddDays(-2),
+        };
+
+        _dbContext.Users.AddRange(guestOne, guestTwo, claimed, regular);
+        await _dbContext.SaveChangesAsync();
+
+        return (guestOne, guestTwo, claimed, regular);
+    }
+
+    // REQ-507: "total user count" is every User row, regardless of
+    // IsGuest/ClaimedAt.
+    [Test]
+    public async Task REQ507_CountUsersAsync_ReturnsCountOfEveryUserRow_RegardlessOfGuestOrClaimedState()
+    {
+        await SeedMixedAccountsAsync();
+
+        var count = await _repository.CountUsersAsync();
+
+        Assert.That(count, Is.EqualTo(4));
+    }
+
+    [Test]
+    public async Task REQ507_CountUsersAsync_ReturnsZero_WhenNoUsersExist()
+    {
+        var count = await _repository.CountUsersAsync();
+
+        Assert.That(count, Is.EqualTo(0));
+    }
+
+    // REQ-507/REQ-508: the shared unconditional "current guest" count —
+    // IsGuest = true, no age/inactivity filter (deliberately not built from
+    // GetUnclaimedGuestsOlderThanAsync/GetInactiveGuestsOlderThanAsync above).
+    [Test]
+    public async Task REQ507_CountGuestsAsync_ReturnsCountOfCurrentIsGuestTrueRowsOnly()
+    {
+        await SeedMixedAccountsAsync();
+
+        var count = await _repository.CountGuestsAsync();
+
+        Assert.That(count, Is.EqualTo(2), "only guestOne/guestTwo have IsGuest = true; the claimed and regular accounts do not");
+    }
+
+    [Test]
+    public async Task REQ507_CountGuestsAsync_ReturnsZero_WhenNoCurrentGuestsExist()
+    {
+        var count = await _repository.CountGuestsAsync();
+
+        Assert.That(count, Is.EqualTo(0));
+    }
+
+    // REQ-507: "claimed guest count" — accounts that originated as a guest
+    // and have since been claimed (ClaimedAt IS NOT NULL), per REQ-717.
+    [Test]
+    public async Task REQ507_CountClaimedGuestsAsync_ReturnsCountOfRowsWithClaimedAtSet()
+    {
+        await SeedMixedAccountsAsync();
+
+        var count = await _repository.CountClaimedGuestsAsync();
+
+        Assert.That(count, Is.EqualTo(1), "only the claimed account has ClaimedAt set; a current guest and a never-guest regular account do not");
+    }
+
+    [Test]
+    public async Task REQ507_CountClaimedGuestsAsync_ReturnsZero_WhenNoAccountHasBeenClaimed()
+    {
+        var count = await _repository.CountClaimedGuestsAsync();
+
+        Assert.That(count, Is.EqualTo(0));
+    }
+
+    // REQ-508: the bulk force-clear action's own selection query — every
+    // current guest, unconditionally, excluding claimed and never-guest
+    // accounts.
+    [Test]
+    public async Task REQ508_GetAllGuestIdsAsync_ReturnsOnlyCurrentGuestIds_ExcludingClaimedAndRegularAccounts()
+    {
+        var (guestOne, guestTwo, claimed, regular) = await SeedMixedAccountsAsync();
+
+        var ids = await _repository.GetAllGuestIdsAsync();
+
+        Assert.That(ids, Is.EquivalentTo(new[] { guestOne.Id, guestTwo.Id }));
+        Assert.That(ids, Does.Not.Contain(claimed.Id), "a claimed account must never be selected for bulk force-clear");
+        Assert.That(ids, Does.Not.Contain(regular.Id), "an account that was never a guest must never be selected for bulk force-clear");
+    }
+
+    [Test]
+    public async Task REQ508_GetAllGuestIdsAsync_ReturnsEmptyList_WhenNoGuestsExist()
+    {
+        var ids = await _repository.GetAllGuestIdsAsync();
+
+        Assert.That(ids, Is.Empty);
+    }
 }

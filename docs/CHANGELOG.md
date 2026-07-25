@@ -15,6 +15,68 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 - 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/implementation-document.md`, `docs/backlog.md`,
+  `docs/design-document.md` — doc-sync pass (`doc-sync`) for the backend
+  half of REQ-507 (admin guest/user metrics view) and REQ-508 (admin bulk
+  force-clear guest accounts), both implemented this session: new
+  `XGArcade.Api.Admin.AdminAccountsEndpoints` (`GET /admin/accounts/metrics`,
+  `GET /admin/accounts/guests/count`, `POST /admin/accounts/guests/clear`,
+  registered unconditionally including Production, Admin policy) and four
+  new `IUserRepository` methods (`CountUsersAsync`/`CountGuestsAsync`/
+  `CountClaimedGuestsAsync`/`GetAllGuestIdsAsync`); the bulk-clear action
+  reuses `IAccountDeletionService.DeleteAccountAsync` per ADR-0038's mandate
+  (a new `AccountDeletionService.UserNotFoundErrorMessage` const, no
+  behavior change, lets it classify per-account outcomes). Added
+  `**Status: Implemented**` markers and "Built as (S-073)" notes to both
+  REQs (neither had one), and corrected the REQ-508 "Relationship to
+  REQ-718" section, which still described REQ-718 as drafted/not-yet-
+  implemented even though it shipped earlier this same session (S-072) —
+  also resolved the "shared selection-logic building block" question that
+  section had left open (the two REQs ended up with deliberately separate
+  filtered-vs-unfiltered queries, not a shared one). Added matching
+  `architecture-document.md` COMP-01 status note (S-073) and a §6.8 "S-073
+  addition" entry (a sixth `IAccountDeletionService` caller). Corrected two
+  now-stale literal claims in `implementation-document.md`'s `User` entity
+  comments (`IsGuest`/`ClaimedAt` "consulted in exactly one place" no longer
+  held once S-072's purge queries and now S-073's admin queries also read
+  them). Added backlog entry S-073 (no prior story text existed — these
+  REQs were scoped directly, not from a pre-written story — noted
+  explicitly in the entry). Fixed a stray "S-076" story reference in
+  `design-document.md`'s SCREEN-04 subsection (added by the earlier
+  `ui-implementer` frontend pass) to the correct S-073; did not duplicate
+  that pass's own CHANGELOG entry below. Reviewed `docs/legal/*.md`
+  independently and concluded no update is needed — REQ-507 surfaces only
+  aggregate counts of already-collected fields and REQ-508 triggers the
+  same anonymize-and-keep deletion mechanism the privacy policy already
+  discloses for guest accounts (REQ-718), just on demand instead of on a
+  schedule; no new data collected, retained differently, or shared with a
+  new party. No new ADR: `architecture-reviewer` had already concluded this
+  reuses ADR-0038's existing mandate and REQ-507/508's own already-accepted
+  environment/authorization scope rather than a new structural decision —
+  confirmed independently.
+
+- 2026-07-25 — `docs/design-document.md` — added SCREEN-04's "Accounts /
+  guest-clear (REQ-507/508)" subsection (`ui-implementer`): frontend for the
+  admin guest/user metrics view (REQ-507) and bulk force-clear-guests action
+  (REQ-508), against `backend/src/XGArcade.Api/Admin/AdminAccountsEndpoints.cs`
+  (already landed this session, commit d207a74). Implemented
+  `AccountMetricsSection`/`GuestClearSection` in
+  `frontend/src/admin/AdminScreen.tsx` — deliberately rendered unconditionally
+  (not nested inside the existing `activeRound !== null` Non-Production-only
+  gate that round control/user deletion share), since both REQs are
+  Production-visible. New `fetchAdminAccountMetrics`/`fetchGuestAccountCount`/
+  `clearGuestAccounts` in `frontend/src/lib/api.ts`, matching types in
+  `frontend/src/lib/types.ts`. New tokens-only `.admin-screen__metrics`/
+  `.admin-screen__metric*` CSS (no new colors/fonts). Judgment calls made
+  without prior spec (two sections not one, zero-dry-run-count special case,
+  403-hides-section-not-page handling, raw `userId` in the outcome list) are
+  recorded in the design doc itself rather than left implementation-only.
+  8 new Vitest cases added to `frontend/src/admin/AdminScreen.test.tsx`
+  (330 total passing); `tsc -b` and `oxlint` clean. Requirements/architecture
+  docs already carry REQ-507/508 from an earlier iteration this same
+  session and were not touched here.
+
+- 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/implementation-document.md`, `docs/backlog.md`,
   `docs/legal/privacy-policy-draft.md` — implemented REQ-718/ADR-0038 (S-072):
   `User.LastActiveAt` (migration `20260725120000_AddUserLastActiveAt`,
   non-nullable, initialized from `CreatedAt`), updated unconditionally on
