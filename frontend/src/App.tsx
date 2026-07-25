@@ -38,12 +38,50 @@ const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 // tracked follow-up work).
 type Screen = 'game-select' | 'grid' | 'leaderboard' | 'leagues' | 'settings' | 'admin';
 
+// REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
+// that ADR for why (hash not path, no router library, no popstate/
+// hashchange listener; back/forward is explicitly out of scope). This is
+// the entire mechanism: one lookup table, read once on mount below, written
+// at every navigateTo() call site.
+const SCREEN_HASHES: Record<Screen, string> = {
+  'game-select': '#/game-select',
+  grid: '#/grid',
+  leaderboard: '#/leaderboard',
+  leagues: '#/leagues',
+  settings: '#/settings',
+  admin: '#/admin',
+};
+
+const HASH_TO_SCREEN: Partial<Record<string, Screen>> = Object.fromEntries(
+  Object.entries(SCREEN_HASHES).map(([screenName, hash]) => [hash, screenName as Screen]),
+);
+
+function screenForHash(hash: string): Screen | null {
+  return HASH_TO_SCREEN[hash] ?? null;
+}
+
 function App() {
   const [health, setHealth] = useState<HealthState>({ phase: 'loading' });
   const [accessToken, setAccessToken] = useState<string | null>(() =>
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
-  const [screen, setScreen] = useState<Screen>('game-select');
+  const [screen, setScreen] = useState<Screen>(() => {
+    // REQ-721/ADR-0039: URL restoration applies only to a reload of an
+    // already-authenticated, already-valid session — never to an
+    // unauthenticated visitor (must never bypass REQ-719's splash gate) and
+    // never to a fresh login/signup (handleAuthenticated below always
+    // navigates to 'game-select' unconditionally, regardless of the hash).
+    // A stored access token at mount is the same "authenticated" signal the
+    // rest of this component already renders on optimistically, with no
+    // separate loading state — if that token later turns out to be
+    // invalid, the existing 401/silent-refresh-failure path calls
+    // handleLogout(), which resets both `screen` and the hash regardless of
+    // what was read here, so an authenticated screen restored from a stale
+    // URL can never outlive that check.
+    const hasStoredAccessToken = Boolean(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY));
+    if (!hasStoredAccessToken) return 'game-select';
+    return screenForHash(window.location.hash) ?? 'game-select';
+  });
   // REQ-719: the unauthenticated splash/landing screen is what renders
   // whenever there's no accessToken, until this flips true — starts false
   // on every mount (no persisted "already seen it" flag, deliberately —
@@ -66,6 +104,24 @@ function App() {
   // the same value before this component ever mounted, so this isn't the
   // first paint of the theme — it's what keeps it in sync after that.
   const { preference: themePreference, setPreference: setThemePreference } = useThemePreference();
+
+  // REQ-721/ADR-0039: keeps location.hash matching `screen` from the very
+  // first render, not only from the next explicit navigateTo() call —
+  // covers both "no hash was present" and "the hash present didn't map to
+  // a real Screen" (the initializer above already fell back to
+  // 'game-select' in both cases). Deliberately mount-only (empty dep
+  // array): `screen`'s value here is whatever the lazy initializer already
+  // computed once at mount, and every later change already goes through
+  // navigateTo, which writes the hash itself. Gated the same way the
+  // initializer is — never runs for an unauthenticated visitor, so it can
+  // never write an authenticated screen's hash while the splash screen (not
+  // part of the Screen/SCREEN_HASHES mapping) is what's actually showing.
+  useEffect(() => {
+    if (window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)) {
+      window.location.hash = SCREEN_HASHES[screen];
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +148,17 @@ function App() {
     }
   }, [])
 
+  // REQ-721/ADR-0039: the one place `screen` state and `location.hash`
+  // change together — every in-app navigation below calls this instead of
+  // setScreen directly. handleLogout is the deliberate exception: it clears
+  // the hash rather than writing 'game-select's, since the screen shown
+  // right after logout is the splash screen, not game-select (see its own
+  // comment).
+  function navigateTo(next: Screen) {
+    setScreen(next);
+    window.location.hash = SCREEN_HASHES[next];
+  }
+
   // REQ-715: refreshToken may be null (Supabase can decline to issue one) —
   // that's a real, valid case, not an error; a null just means there's
   // nothing to persist for silent recovery later.
@@ -103,7 +170,10 @@ function App() {
       window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     }
     setAccessToken(token);
-    setScreen('game-select');
+    // REQ-303/S-021, unchanged by REQ-721: a fresh login/signup always
+    // lands on game-select, regardless of whatever hash was present
+    // beforehand.
+    navigateTo('game-select');
   }
 
   // REQ-715: logout (and, via the same handler, DeleteAccountScreen's
@@ -134,6 +204,12 @@ function App() {
     // failed/absent silent-refresh outcome (the effect below) both funnel
     // through, so this one reset covers all three cases REQ-719 requires.
     setShowAuthScreen(false);
+    // REQ-721/ADR-0039: clear the hash rather than writing 'game-select's —
+    // the screen actually shown next is the splash screen (not part of the
+    // Screen/SCREEN_HASHES mapping at all), so a lingering authenticated
+    // screen's hash would otherwise misdescribe what's on screen and could
+    // be misread as a valid restore target on a later, separate load.
+    window.location.hash = '';
 
     if (tokenToLogOut) {
       logout(tokenToLogOut).catch((error: unknown) => {
@@ -227,35 +303,41 @@ function App() {
   return (
     <div className="app">
       <header className="app__header">
-        {/* xG Arcade is the landing page (S-021's game-select screen) — the
-            title itself is the way back to it, so a separate "Games" nav
-            link isn't needed alongside it (and "Grid" isn't either: picking
-            a game from that landing page is how a player gets there). Fewer
-            nav items also means the header no longer wraps onto a second
-            line on a narrow phone. */}
+        {/* REQ-720: "xG Arcade" continues to route to the full
+            landing/picker screen (GameSelectScreen) exactly as before —
+            kept deliberately alongside the header nav's new "Games"
+            quick-jump entry below, not replaced by it (see that
+            requirement's own explicit non-duplication note: this title is
+            the room-to-grow landing screen, "Games" is a same-place
+            shortcut). */}
         {accessToken ? (
-          <button type="button" className="app__title app__title--link" onClick={() => setScreen('game-select')}>
+          <button type="button" className="app__title app__title--link" onClick={() => navigateTo('game-select')}>
             xG Arcade
           </button>
         ) : (
           <h1 className="app__title">xG Arcade</h1>
         )}
-        {/* REQ-712/REQ-713: the header's only nav surface — collapses behind
-            a single toggle below the mobile breakpoint (HeaderNav.css),
-            renders as the same horizontal row as before at/above it.
-            "Settings" (REQ-713) replaces the previously separate "Delete
-            account" and admin-only "Admin" top-level links; the admin gate
-            itself now lives in SettingsScreen, not here — currentUser?.isAdmin
-            is passed straight through, same source of truth REQ-504 already
-            used. */}
+        {/* REQ-712/REQ-713/REQ-720: the header's only nav surface —
+            collapses behind a single toggle below the mobile breakpoint
+            (HeaderNav.css), renders as the same horizontal row as before
+            at/above it. "Settings" (REQ-713) replaces the previously
+            separate "Delete account" and admin-only "Admin" top-level
+            links; the admin gate itself now lives in SettingsScreen, not
+            here — currentUser?.isAdmin is passed straight through, same
+            source of truth REQ-504 already used. "Games" (REQ-720) is a
+            non-navigating disclosure listing xG Grid (Tier 0's only game);
+            isGridCurrent drives its own entry's aria-current the same way
+            the other three flags already do. */}
         {accessToken && (
           <HeaderNav
             isLeaderboardCurrent={screen === 'leaderboard'}
             isLeaguesCurrent={screen === 'leagues'}
             isSettingsCurrent={screen === 'settings'}
-            onSelectLeaderboard={() => setScreen('leaderboard')}
-            onSelectLeagues={() => setScreen('leagues')}
-            onSelectSettings={() => setScreen('settings')}
+            isGridCurrent={screen === 'grid'}
+            onSelectLeaderboard={() => navigateTo('leaderboard')}
+            onSelectLeagues={() => navigateTo('leagues')}
+            onSelectSettings={() => navigateTo('settings')}
+            onSelectGrid={() => navigateTo('grid')}
             onLogout={handleLogout}
           />
         )}
@@ -273,7 +355,7 @@ function App() {
           <button
             type="button"
             className="app__guest-banner-action"
-            onClick={() => setScreen('settings')}
+            onClick={() => navigateTo('settings')}
           >
             Save your progress
           </button>
@@ -286,7 +368,7 @@ function App() {
             // Tier 0 has exactly one game, so any selection routes to
             // 'grid' — the gameKey argument goes unused until a second
             // game module exists to switch on it.
-            <GameSelectScreen onSelectGame={() => setScreen('grid')} />
+            <GameSelectScreen onSelectGame={() => navigateTo('grid')} />
           ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'leaderboard' ? (
@@ -317,9 +399,9 @@ function App() {
               // already the server's own confirmed new state.
               onAccountClaimed={(user) => setCurrentUser(user)}
               onAccountDeleted={handleLogout}
-              onCancel={() => setScreen('game-select')}
+              onCancel={() => navigateTo('game-select')}
               onAuthError={handleLogout}
-              onOpenAdmin={() => setScreen('admin')}
+              onOpenAdmin={() => navigateTo('admin')}
               themePreference={themePreference}
               onThemePreferenceChange={setThemePreference}
             />

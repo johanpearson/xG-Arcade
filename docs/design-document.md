@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.49"
+version: "0.50"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -1513,7 +1513,10 @@ matching REQ-213 note for the exact values.
 ┌──────────────────────────────┐
 │ xG Arcade            [☰ Menu]│
 ├──────────────────────────────┤
+│ Games ▾                       │
+│   xG Grid                     │
 │ Leaderboard                   │
+│ Leagues                        │
 │ Settings                      │
 │ Log out                       │
 └──────────────────────────────┘
@@ -1539,9 +1542,49 @@ per this doc's own rule against adding a second bold motion moment without
 it being specified here first, and there was no reason to specify one for
 a plain menu reveal.
 
-Nav entries in the revealed list: "Leaderboard," "Settings" (SCREEN-08,
-REQ-713), and "Log out" — see SCREEN-08 for what replaced the previous
-standalone "Delete account" and "Admin" links.
+Nav entries in the revealed list: "Games" (see below), "Leaderboard,"
+"Leagues" (REQ-402/403 — this list itself was out of date until this pass:
+it had been added to the real nav without a matching update here, since
+fixed alongside the "Games" entry below), "Settings" (SCREEN-08, REQ-713),
+and "Log out" — see SCREEN-08 for what replaced the previous standalone
+"Delete account" and "Admin" links.
+
+**Added 2026-07-25, REQ-720 (reverses S-029's earlier removal of a
+"Games"/"Grid" nav pair — see that requirement's own "deliberate reversal,
+not a silent contradiction" note): the "Games" entry.** A second,
+independently-expandable disclosure *nested inside* the list above —
+same accessible-disclosure pattern as the outer toggle (a real `<button>`
+exposing its own `aria-expanded`), but activating it never navigates
+anywhere; it only shows/hides a per-game list, Tier 0's being exactly one
+entry ("xG Grid"). Selecting "xG Grid" navigates to the grid screen (the
+same destination `GameSelectScreen`'s own "xG Grid" tile already triggers)
+and closes both this nested list and the outer mobile menu, matching how
+every other nav entry already closes the menu on selection. While the grid
+screen is showing, "xG Grid" inside this list carries `aria-current="page"`
+— the same convention "Leaderboard," "Leagues," and "Settings" already use.
+
+This is deliberately a *different* kind of disclosure than the outer
+toggle: the outer toggle only exists below the mobile breakpoint (the flat
+row at/above it needs no collapsing), while "Games" is collapsed by
+default *at every viewport* — it's a permanent accordion-style entry
+within the nav, not a responsive affordance. At/above the breakpoint it
+sits inline in the flat row and reveals a small anchored flyout beneath
+itself on activation (never adding height to the row, so it can never be
+what causes the row to wrap); below the breakpoint, nested inside the
+already-vertical mobile dropdown, it reveals as an indented block in the
+same vertical flow instead of a floating flyout (avoiding an overlapping
+flyout-within-a-dropdown). Both treatments use only existing surface/
+border/spacing tokens — no new color or motion (same "no new motion" rule
+as the outer toggle above). Closing the outer mobile menu also collapses
+"Games" back to closed, so it never reopens already-expanded the next
+time the menu itself is reopened.
+
+The "xG Arcade" header title (outside this nav entirely) is unaffected and
+keeps navigating to `GameSelectScreen` exactly as before — REQ-720 keeps
+both affordances deliberately: "Games" is a quick-jump shortcut reachable
+from anywhere (including from inside another screen, e.g. the
+leaderboard), while the title remains the route to the full landing/picker
+screen shown right after login.
 
 ### SCREEN-08: Settings
 

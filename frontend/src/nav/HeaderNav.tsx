@@ -5,9 +5,16 @@ export interface HeaderNavProps {
   isLeaderboardCurrent: boolean;
   isLeaguesCurrent: boolean;
   isSettingsCurrent: boolean;
+  // REQ-720: whether xG Grid's own screen is currently showing — Tier 0's
+  // only game, so this is the only per-game aria-current flag today; a
+  // second game would add its own alongside it, not replace this one.
+  isGridCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
   onSelectSettings: () => void;
+  // REQ-720: selecting "xG Grid" from the "Games" list — same destination
+  // GameSelectScreen's own "xG Grid" tile already triggers.
+  onSelectGrid: () => void;
   onLogout: () => void;
 }
 
@@ -28,16 +35,38 @@ export function HeaderNav({
   isLeaderboardCurrent,
   isLeaguesCurrent,
   isSettingsCurrent,
+  isGridCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectSettings,
+  onSelectGrid,
   onLogout,
 }: HeaderNavProps) {
   const [open, setOpen] = useState(false);
+  // REQ-720: independent of `open` above — a nested disclosure within the
+  // outer one on mobile, but its own separate toggle at/above the
+  // breakpoint too (see design-document.md's updated SCREEN-07). Reset to
+  // closed whenever the outer menu is closed (toggleOuter below) or when
+  // any entry is selected (selectAndClose), so it never lingers open the
+  // next time either menu is reopened.
+  const [gamesOpen, setGamesOpen] = useState(false);
 
   function selectAndClose(action: () => void) {
     setOpen(false);
+    setGamesOpen(false);
     action();
+  }
+
+  function toggleOuter() {
+    setOpen((current) => {
+      const next = !current;
+      if (!next) setGamesOpen(false);
+      return next;
+    });
+  }
+
+  function toggleGames() {
+    setGamesOpen((current) => !current);
   }
 
   return (
@@ -53,7 +82,7 @@ export function HeaderNav({
         className="header-nav__toggle"
         aria-expanded={open}
         aria-controls="header-nav-menu"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOuter}
         data-testid="header-nav-toggle"
       >
         <span aria-hidden="true" className="header-nav__toggle-icon">
@@ -65,6 +94,42 @@ export function HeaderNav({
         id="header-nav-menu"
         className={`header-nav__menu${open ? ' header-nav__menu--open' : ''}`}
       >
+        {/* REQ-720: a disclosure control, not a link — activating it never
+            navigates, it only shows/hides the per-game list below. Same
+            accessible-disclosure pattern as the outer toggle above
+            (aria-expanded, a real focusable <button>). Nested inside the
+            outer mobile menu but rendered identically at/above the
+            breakpoint too, since the flat row there is just this same
+            `header-nav__menu` markup made visible by CSS. */}
+        <div className="header-nav__games">
+          <button
+            type="button"
+            className="header-nav__link header-nav__games-toggle"
+            aria-expanded={gamesOpen}
+            aria-controls="header-nav-games-list"
+            onClick={toggleGames}
+            data-testid="header-nav-games-toggle"
+          >
+            Games
+          </button>
+          <div
+            id="header-nav-games-list"
+            className={`header-nav__games-list${gamesOpen ? ' header-nav__games-list--open' : ''}`}
+          >
+            {/* Tier 0 has exactly one game — see requirements-document.md
+                REQ-720's own "exactly one game exists" acceptance
+                criterion; a second game module adds a second entry here,
+                not a restructuring of this list. */}
+            <button
+              type="button"
+              className="header-nav__link header-nav__games-item"
+              aria-current={isGridCurrent ? 'page' : undefined}
+              onClick={() => selectAndClose(onSelectGrid)}
+            >
+              xG Grid
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           className="header-nav__link"

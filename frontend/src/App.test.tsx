@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -402,5 +402,189 @@ describe('App (REQ-719: unauthenticated splash screen)', () => {
     expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Sign up' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Log in or sign up' })).not.toBeInTheDocument();
+  });
+});
+
+// REQ-720: the header nav's "Games" entry, wired into the real app —
+// HeaderNav.test.tsx already covers the component's own toggle/aria/
+// non-navigating behavior in isolation; this covers it reaching the actual
+// grid screen and the "xG Arcade" title still working unchanged alongside
+// it.
+describe('App (REQ-720: "Games" nav entry)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  function stubFetchForGrid() {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/rounds/current')) return jsonResponse(null);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('REQ-720: Games → xG Grid reaches the grid screen, and the "xG Arcade" title still reaches GameSelectScreen unchanged', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForGrid());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // Scoped to the nav: GameSelectScreen's own "xG Grid" tile also renders
+    // "xG Grid" text while game-select is showing, so an unscoped query here
+    // would match two elements.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Grid' }));
+
+    expect(await screen.findByText('No round to play right now')).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
+
+    // REQ-720: the title is unchanged — still routes back to
+    // GameSelectScreen from anywhere, including from inside the grid
+    // screen this "Games" shortcut just reached.
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(await screen.findByText('Choose a game')).toBeInTheDocument();
+  });
+
+  it('REQ-720: the "xG Grid" entry gets aria-current="page" while the grid screen is showing', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    vi.stubGlobal('fetch', stubFetchForGrid());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // Scoped to the nav: GameSelectScreen's own "xG Grid" tile also renders
+    // "xG Grid" text while game-select is showing, so an unscoped query here
+    // would match two elements.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    expect(within(nav).getByRole('button', { name: 'xG Grid' })).not.toHaveAttribute('aria-current');
+
+    await user.click(within(nav).getByRole('button', { name: 'xG Grid' }));
+    await screen.findByText('No round to play right now');
+
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    expect(within(nav).getByRole('button', { name: 'xG Grid' })).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+// REQ-721/ADR-0039: hash-based URL-per-screen support. E2E
+// (tests/e2e/url-routing.spec.ts) covers the full real-browser reload
+// round trip; this covers the ordering constraints that must hold
+// regardless of browser behavior — a fresh login always lands on
+// game-select ignoring any prior hash, and a reload with no valid session
+// never restores an authenticated screen from the URL.
+describe('App (REQ-721: URL reflects current screen)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+    window.location.hash = '';
+  });
+
+  it('REQ-721: navigating via the header nav updates location.hash to match the screen shown', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+    expect(window.location.hash).toBe('#/game-select');
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(window.location.hash).toBe('#/settings');
+
+    await user.click(screen.getByRole('button', { name: 'xG Arcade' }));
+    expect(window.location.hash).toBe('#/game-select');
+  });
+
+  it('REQ-721: reloading (remounting) with a valid stored session restores the screen the hash denotes, not the game-select default', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/settings';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
+  });
+
+  it('REQ-721: reloading (remounting) with no valid session shows the splash screen regardless of the hash present', async () => {
+    window.location.hash = '#/settings';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-721: a fresh login always lands on game-select regardless of whatever hash was present before submitting', async () => {
+    window.location.hash = '#/settings';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/login')) return jsonResponse({ accessToken: 'token-abc', refreshToken: 'refresh-abc' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+    expect(window.location.hash).toBe('#/game-select');
+  });
+
+  it('REQ-721: logging out clears the hash so a stale authenticated-screen hash never lingers', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/settings';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
   });
 });

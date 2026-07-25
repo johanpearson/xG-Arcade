@@ -158,6 +158,60 @@ test.describe('REQ-712: header nav collapses behind a menu toggle below the mobi
   })
 })
 
+// REQ-720: the header nav's "Games" entry — a disclosure listing xG Grid
+// (Tier 0's only game) — reaches the grid screen, and the "xG Arcade" title
+// still reaches GameSelectScreen unchanged alongside it. HeaderNav.test.tsx
+// already covers the component's own aria-expanded/aria-current/
+// non-navigating behavior in isolation (jsdom); this is the real-browser
+// half: the actual navigation destination, and that the nested disclosure
+// doesn't reintroduce the header-row wrapping/overflow REQ-712 already
+// guards against at a real narrow viewport.
+test.describe('REQ-720: header nav "Games" entry', () => {
+  test('REQ-720: nav → Games → xG Grid reaches the grid screen; the "xG Arcade" title still reaches GameSelectScreen unchanged', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT)
+    await signUpNewPlayer(page)
+
+    const nav = page.getByRole('navigation')
+    await nav.getByRole('button', { name: 'Games' }).click()
+    await nav.getByRole('button', { name: 'xG Grid' }).click()
+
+    // GET /rounds/current has no active round to seed against in this
+    // spec (no round-seeding here, unlike play-grid.spec.ts) — the "empty"
+    // state is still proof the grid screen itself was reached.
+    await expect(page.getByText('No round to play right now')).toBeVisible()
+    await expect(page.getByText('Choose a game')).not.toBeVisible()
+
+    // REQ-720: both affordances kept deliberately — the title still routes
+    // back to the full landing/picker screen from inside the grid screen
+    // "Games" just reached.
+    await page.getByRole('button', { name: 'xG Arcade' }).click()
+    await expect(page.getByText('Choose a game')).toBeVisible()
+  })
+
+  test('REQ-720: below 480px, expanding "Games" inside the outer nav menu never reintroduces header wrapping/overflow', async ({
+    page,
+  }) => {
+    await page.setViewportSize(NARROW_VIEWPORT)
+    await signUpNewPlayer(page)
+
+    const toggle = page.getByTestId('header-nav-toggle')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const gamesToggle = page.getByTestId('header-nav-games-toggle')
+    await expect(gamesToggle).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+
+    await gamesToggle.click()
+    await expect(gamesToggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('button', { name: 'xG Grid' })).toBeVisible()
+
+    await expectNoHorizontalOverflow(page)
+  })
+})
+
 // REQ-402/403: create a custom league and join one via its real invite code
 // — the API-level equivalent (backend/tests/XGArcade.Api.Tests/
 // LeagueEndpointTests.cs) already covers request validation/response shape;
