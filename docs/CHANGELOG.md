@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/decisions/0039-hash-based-hand-rolled-client-routing.md`
+  (new), `docs/architecture-document.md` (§10 ADR table, 0.52 → 0.53) —
+  ADR-0039: hash-based URLs (`#/grid`), hand-rolled (no `react-router`),
+  for REQ-721's URL-reflected navigation. Chosen over path-based routing
+  because the frontend's Azure Static Web App host has no
+  `staticwebapp.config.json`/SPA-fallback configured, and Playwright E2E
+  runs against the Vite dev server (which has its own fallback baked in)
+  so a path-based bug would only surface against the real deployed host —
+  a known recurring failure class for this project (region restriction,
+  `GHCR_TOKEN` expiry, Npgsql format, per `infra/README.md`/`NOTES.md`).
+  Hand-rolled chosen over `react-router` since REQ-721 explicitly excludes
+  browser back/forward (the library's main value-add) and `Screen` is a
+  flat 6-value union with no nesting/params. Also fixed a pre-existing gap
+  in the same table: ADR-0038 (guest account cleanup, added 2026-07-25 in
+  an earlier session) was missing its row entirely.
+- 2026-07-25 — `docs/requirements-document.md` (REQ-720, REQ-721, new) —
+  REQ-720: header nav gains a "Games" disclosure listing available games,
+  a documented deliberate reversal of S-029's nav simplification now that
+  a second game is actually planned. REQ-721: current screen reflected in
+  the URL so a reload restores it; implementation left to ADR-0039;
+  browser back/forward explicitly out of scope; resolves how URL
+  restoration interacts with REQ-303 (post-login always lands on
+  game-select, unchanged) and REQ-719 (splash gate never bypassed by a
+  URL). Frontmatter version 1.07 → 1.08.
 - 2026-07-25 — `docs/requirements-document.md` (REQ-719, new),
   `docs/design-document.md` (0.48 → 0.49) — added REQ-719: an
   unauthenticated splash/landing screen shown before `AuthScreen` on
