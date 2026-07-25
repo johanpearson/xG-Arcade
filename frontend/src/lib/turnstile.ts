@@ -82,14 +82,22 @@ let widgetId: string | null = null;
 // for callers to handle.
 let pendingTokenPromise: Promise<string> | null = null;
 
-// Loads Cloudflare's script exactly once per page load, however many times
-// this module's exports are called -- a second/third call reuses the same
-// in-flight or already-resolved promise rather than injecting a second
-// <script> tag.
+// Loads Cloudflare's script once per page load *while it keeps succeeding*
+// -- a second/third call while a load is in flight or already resolved
+// reuses that same promise rather than injecting a second <script> tag. A
+// failed load does NOT stay cached, though (see the .catch below this
+// promise is assigned through): with `preloadTurnstileScript()` now firing
+// unattended on every screen mount, caching a rejection forever would let
+// one transient failure (a flaky network at mount time, a security
+// extension blocking the very first request) silently disable every
+// captcha-gated action for the rest of that page's lifetime, with no
+// recovery short of a full reload -- caught in quality-architect's gate
+// review on this file's first version, which cached the rejection
+// indefinitely.
 function loadTurnstileScript(): Promise<TurnstileApi> {
   if (scriptLoadPromise) return scriptLoadPromise;
 
-  scriptLoadPromise = new Promise((resolve, reject) => {
+  const promise: Promise<TurnstileApi> = new Promise((resolve, reject) => {
     if (window.turnstile) {
       resolve(window.turnstile);
       return;
@@ -106,6 +114,20 @@ function loadTurnstileScript(): Promise<TurnstileApi> {
     document.head.appendChild(script);
   });
 
+  // Clears the cache back to null on rejection -- guarded by the identity
+  // check so a retry that's already replaced this promise (started by a
+  // second caller after the first rejection already cleared it) never gets
+  // clobbered back to null by this same, now-stale .catch running late. The
+  // check must compare against `cached` (the promise actually stored in
+  // `scriptLoadPromise`), not the inner `promise` above -- `cached` is what
+  // `scriptLoadPromise` is ever assigned, so that's the only object identity
+  // that can ever match it.
+  const cached: Promise<TurnstileApi> = promise.catch((error: unknown) => {
+    if (scriptLoadPromise === cached) scriptLoadPromise = null;
+    throw error;
+  });
+  scriptLoadPromise = cached;
+
   return scriptLoadPromise;
 }
 
@@ -115,12 +137,12 @@ function loadTurnstileScript(): Promise<TurnstileApi> {
 // before the person has clicked anything. Deliberately does NOT render a
 // widget or mint a token -- see this file's top-of-file comment for why that
 // has to stay deferred to getTurnstileToken() at submit time. Failures are
-// swallowed here on purpose: a preload is a pure optimization, and
-// `loadTurnstileScript`'s cached `scriptLoadPromise` means a later
-// getTurnstileToken() call awaits this exact same promise anyway (rejected
-// or not) and surfaces that rejection itself at the moment it actually
-// matters -- there is nothing useful for a caller of preload to do with the
-// same rejection twice.
+// swallowed here on purpose: a preload is a pure optimization with nothing
+// useful for its caller to do with a rejection at mount time. This is safe
+// specifically because `loadTurnstileScript` no longer caches a rejection
+// forever (see its own comment) -- a later, real getTurnstileToken() call
+// gets a genuinely fresh attempt (a new <script> tag, a new network
+// request), not a replay of this same failed one.
 export function preloadTurnstileScript(): void {
   loadTurnstileScript().catch(() => {
     // Intentionally ignored -- see comment above.

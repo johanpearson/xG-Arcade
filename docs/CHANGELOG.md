@@ -74,6 +74,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   amendments already there) rather than a new ADR number, since the core
   wiring decision (provider, mediation-through-Supabase, secret-key
   boundary) is unchanged — only the widget's visual mode reversed.
+  **`quality-architect`'s gate review on this change (same day) found a
+  real reliability gap, fixed in the same PR:** `loadTurnstileScript()`
+  cached a script-load rejection forever, never clearing it — harmless
+  while only `getTurnstileToken()` called it (a failure only ever hit in
+  direct response to a user's own submit), but now that
+  `preloadTurnstileScript()` fires unattended on every screen mount, one
+  transient failure at mount time (a flaky network, a security extension
+  blocking the first request) would have silently disabled every
+  login/signup/guest/delete attempt for the rest of that page's lifetime,
+  recoverable only by a full reload. Fixed by clearing the cache back to
+  `null` on rejection (guarded by an object-identity check so a
+  since-replaced cache entry can't be clobbered by a stale, late-running
+  `.catch`) so a later call gets a genuinely fresh script attempt. The
+  review also caught a new test whose name/comment claimed a retry
+  already happened when neither the code nor the test itself actually
+  demonstrated that — rewritten to test the real (now-fixed) behavior
+  instead, plus a matching test for the same gap reached via
+  `getTurnstileToken()` directly rather than `preloadTurnstileScript()`.
+  Also added container-identity assertions to `AuthScreen.test.tsx`
+  (`getTurnstileToken` now takes a caller-supplied container, and the
+  form/guest actions each use their own — nothing previously asserted
+  the *correct* one was passed, so a copy-paste mix-up between them would
+  have compiled and passed every existing test while rendering the wrong
+  screen's checkbox in the wrong place).
 - 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/implementation-document.md`, `docs/backlog.md`,
   `docs/design-document.md` — doc-sync pass (`doc-sync`) for the backend

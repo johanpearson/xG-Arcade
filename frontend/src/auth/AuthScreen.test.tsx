@@ -260,11 +260,19 @@ describe('AuthScreen', () => {
     const user = userEvent.setup();
     const onAuthenticated = vi.fn();
 
-    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    const { container: rootEl } = render(<AuthScreen onAuthenticated={onAuthenticated} />);
     await user.click(screen.getByRole('button', { name: 'Play as guest' }));
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('guest-token', 'guest-refresh'));
     expect(getTurnstileTokenMock).toHaveBeenCalledTimes(1);
+    // quality-architect's gate review: assert the guest action's own
+    // container was passed, distinct from the login/signup form's
+    // container (they share a className) -- would catch a copy-paste
+    // mistake (e.g. handlePlayAsGuest accidentally using the form's ref)
+    // that every other assertion here would otherwise miss.
+    const guestContainer = rootEl.querySelector('.auth-screen__guest + .auth-screen__turnstile');
+    expect(guestContainer).not.toBeNull();
+    expect(getTurnstileTokenMock).toHaveBeenCalledWith(guestContainer);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/auth/guest'),
       expect.objectContaining({
@@ -380,13 +388,22 @@ describe('AuthScreen', () => {
     const user = userEvent.setup();
     const onAuthenticated = vi.fn();
 
-    render(<AuthScreen onAuthenticated={onAuthenticated} />);
+    const { container: rootEl } = render(<AuthScreen onAuthenticated={onAuthenticated} />);
     await user.type(screen.getByLabelText('Email'), 'player@example.com');
     await user.type(screen.getByLabelText('Password'), 'password123');
     await user.click(screen.getByRole('button', { name: 'Log in' }));
 
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith('token-abc', null));
     expect(getTurnstileTokenMock).toHaveBeenCalledTimes(1);
+    // quality-architect's gate review: getTurnstileToken()'s whole signature
+    // change is "caller supplies which container to render into" -- assert
+    // the form's own container (inside <form>) was passed, not the separate
+    // "Play as guest" container below it, so a copy-paste mistake between
+    // the two (they share a className) would fail this test even though it
+    // compiles and every other assertion here would still pass.
+    const formContainer = rootEl.querySelector('form .auth-screen__turnstile');
+    expect(formContainer).not.toBeNull();
+    expect(getTurnstileTokenMock).toHaveBeenCalledWith(formContainer);
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/auth/login'),
       expect.objectContaining({

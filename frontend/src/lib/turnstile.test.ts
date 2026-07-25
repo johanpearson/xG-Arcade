@@ -261,15 +261,70 @@ describe('turnstile', () => {
       await expect(tokenPromise).resolves.toBe('token-1');
     });
 
-    it('does not surface a script-load failure to any caller -- getTurnstileToken() retries and surfaces it there instead', async () => {
-      const { preloadTurnstileScript } = await import('./turnstile');
+    // quality-architect's gate review on this file's first version found the
+    // stale name/comment here claimed "getTurnstileToken() retries" without
+    // actually testing it, and without it being true yet -- loadTurnstileScript
+    // used to cache a rejection forever, so a preload failure would have
+    // permanently broken every later getTurnstileToken() call too. Fixed in
+    // turnstile.ts (a rejection now clears the cache) and this test now
+    // proves the real, corrected behavior: a later call gets a genuinely
+    // fresh attempt (a second <script> tag, a new network request), not a
+    // replay of the same failed one.
+    it('a preload failure does not poison a later getTurnstileToken() call -- it gets a fresh script attempt, not the same rejection replayed', async () => {
+      const { preloadTurnstileScript, getTurnstileToken } = await import('./turnstile');
       const appendChildSpy = vi.spyOn(document.head, 'appendChild');
+      const fakeApi = createFakeTurnstileApi();
 
       // Should not throw or produce an unhandled rejection.
       preloadTurnstileScript();
-      const scriptEl = appendChildSpy.mock.calls[0]?.[0] as HTMLScriptElement;
-      scriptEl.onerror?.(new Event('error'));
+      const firstScriptEl = appendChildSpy.mock.calls[0]?.[0] as HTMLScriptElement;
+      firstScriptEl.onerror?.(new Event('error'));
       await flush();
+
+      const tokenPromise = getTurnstileToken(container);
+      await flush();
+
+      // A genuinely fresh attempt means a *second* <script> element, not a
+      // reuse of the first (failed) one's cached promise.
+      expect(appendChildSpy).toHaveBeenCalledTimes(2);
+      const secondScriptEl = appendChildSpy.mock.calls[1]?.[0] as HTMLScriptElement;
+      expect(secondScriptEl).not.toBe(firstScriptEl);
+
+      (window as { turnstile?: TurnstileApi }).turnstile = fakeApi;
+      secondScriptEl.onload?.(new Event('load'));
+      await flush();
+
+      (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][1].callback('token-after-retry');
+      await expect(tokenPromise).resolves.toBe('token-after-retry');
     });
+  });
+
+  // quality-architect's gate review flagged this as the same underlying gap
+  // as the preload test above, just reached via getTurnstileToken() itself
+  // rather than preloadTurnstileScript() -- a script-load failure must not
+  // permanently disable every later attempt on the same page.
+  it('a getTurnstileToken() script-load failure does not poison a later getTurnstileToken() call', async () => {
+    const { getTurnstileToken } = await import('./turnstile');
+    const appendChildSpy = vi.spyOn(document.head, 'appendChild');
+    const fakeApi = createFakeTurnstileApi();
+
+    const first = getTurnstileToken(container);
+    const firstScriptEl = appendChildSpy.mock.calls[0]?.[0] as HTMLScriptElement;
+    firstScriptEl.onerror?.(new Event('error'));
+    await expect(first).rejects.toThrow('Failed to load the Turnstile verification script.');
+
+    const second = getTurnstileToken(container);
+    await flush();
+
+    expect(appendChildSpy).toHaveBeenCalledTimes(2);
+    const secondScriptEl = appendChildSpy.mock.calls[1]?.[0] as HTMLScriptElement;
+    expect(secondScriptEl).not.toBe(firstScriptEl);
+
+    (window as { turnstile?: TurnstileApi }).turnstile = fakeApi;
+    secondScriptEl.onload?.(new Event('load'));
+    await flush();
+
+    (fakeApi.render as ReturnType<typeof vi.fn>).mock.calls[0][1].callback('token-after-retry');
+    await expect(second).resolves.toBe('token-after-retry');
   });
 });
