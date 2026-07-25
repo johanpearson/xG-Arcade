@@ -580,4 +580,67 @@ public class GuessEndpointTests
         Assert.That(stored.AttemptCount, Is.EqualTo(1));
         Assert.That(stored.IsCorrect, Is.False);
     }
+
+    // ---- REQ-718/ADR-0038: a submitted guess is one of the four
+    // LastActiveAt activity-tracking events, updated unconditionally
+    // regardless of scoring outcome (see GuessEndpoints' own comment). ----
+
+    [Test]
+    public async Task REQ718_Guess_Post_UpdatesSubmittingUsersLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var seededUser = await seedDbContext.Users.SingleAsync(u => u.Id == userId);
+            seededUser.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await seedDbContext.SaveChangesAsync();
+        }
+        var (roundId, cellId, correctAnswer) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(correctAnswer));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    // Even a rejected/incorrect guess still means the account genuinely
+    // engaged with an active round — LastActiveAt updates unconditionally,
+    // before the eventual scoring outcome is even known.
+    [Test]
+    public async Task REQ718_Guess_Post_UpdatesLastActiveAt_EvenForAnIncorrectGuess()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var seededUser = await seedDbContext.Users.SingleAsync(u => u.Id == userId);
+            seededUser.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await seedDbContext.SaveChangesAsync();
+        }
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Definitely Not The Answer"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
 }

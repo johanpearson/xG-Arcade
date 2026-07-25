@@ -296,4 +296,273 @@ public class UserRepositoryTests
 
         Assert.That(updated, Is.Null);
     }
+
+    // ---- REQ-718/ADR-0038: activity tracking + the purge job's two selection queries ----
+
+    // ClaimGuestAsync is one of REQ-718's four activity-tracking events —
+    // folded into this same load-then-save rather than a second
+    // UpdateLastActiveAtAsync round trip (see IUserRepository's own doc
+    // comment on ClaimGuestAsync).
+    [Test]
+    public async Task REQ718_ClaimGuestAsync_StampsLastActiveAtToNow()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest1234",
+            EmailConfirmed = false,
+            IsGuest = true,
+            CreatedAt = DateTime.UtcNow.AddDays(-1),
+            LastActiveAt = DateTime.UtcNow.AddDays(-1),
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var before = DateTime.UtcNow;
+        var updated = await _repository.ClaimGuestAsync(user.Id, "claimed@example.com");
+        var after = DateTime.UtcNow;
+
+        Assert.That(updated, Is.Not.Null);
+        Assert.That(updated!.LastActiveAt, Is.InRange(before, after));
+    }
+
+    [Test]
+    public async Task REQ718_UpdateLastActiveAtAsync_SetsLastActiveAtToNow_ForExistingUser()
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "owner@example.com",
+            DisplayName = "Test Player",
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow.AddDays(-10),
+            LastActiveAt = DateTime.UtcNow.AddDays(-10),
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        var before = DateTime.UtcNow;
+        var updated = await _repository.UpdateLastActiveAtAsync(user.Id);
+        var after = DateTime.UtcNow;
+
+        Assert.That(updated, Is.Not.Null);
+        Assert.That(updated!.LastActiveAt, Is.InRange(before, after));
+
+        var reloaded = await _repository.GetByIdAsync(user.Id);
+        Assert.That(reloaded!.LastActiveAt, Is.InRange(before, after));
+    }
+
+    [Test]
+    public async Task REQ718_UpdateLastActiveAtAsync_ReturnsNull_ForUnknownUserId()
+    {
+        var updated = await _repository.UpdateLastActiveAtAsync(Guid.NewGuid());
+
+        Assert.That(updated, Is.Null);
+    }
+
+    // Rule 2 (30-day unclaimed purge): IsGuest AND ClaimedAt IS NULL AND
+    // CreatedAt < cutoff.
+    [Test]
+    public async Task REQ718_GetUnclaimedGuestsOlderThanAsync_ReturnsUnclaimedGuest_WhenCreatedBeforeCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest1111",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff.AddDays(-1),
+            LastActiveAt = cutoff.AddDays(-1),
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetUnclaimedGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result.Select(u => u.Id), Is.EquivalentTo(new[] { guest.Id }));
+    }
+
+    // Boundary: exactly at the cutoff must NOT be treated as "more than 30
+    // days" — the query uses a strict `<`.
+    [Test]
+    public async Task REQ718_GetUnclaimedGuestsOlderThanAsync_ExcludesUnclaimedGuest_WhenCreatedExactlyAtCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest2222",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff,
+            LastActiveAt = cutoff,
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetUnclaimedGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ718_GetUnclaimedGuestsOlderThanAsync_ExcludesUnclaimedGuest_WhenCreatedAfterCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest3333",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff.AddDays(1),
+            LastActiveAt = cutoff.AddDays(1),
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetUnclaimedGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // REQ-718's own scope note: a claimed account is never purged by rule 2
+    // no matter how old CreatedAt is.
+    [Test]
+    public async Task REQ718_GetUnclaimedGuestsOlderThanAsync_ExcludesClaimedAccount_RegardlessOfAge()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var claimed = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "claimed@example.com",
+            DisplayName = "Claimed Player",
+            EmailConfirmed = true,
+            IsGuest = false,
+            ClaimedAt = cutoff.AddDays(-40),
+            CreatedAt = cutoff.AddDays(-100),
+            LastActiveAt = cutoff.AddDays(-100),
+        };
+        _dbContext.Users.Add(claimed);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetUnclaimedGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // Rule 3 (7-day inactivity purge): IsGuest AND LastActiveAt < cutoff —
+    // deliberately no ClaimedAt condition (claiming already clears IsGuest).
+    [Test]
+    public async Task REQ718_GetInactiveGuestsOlderThanAsync_ReturnsGuest_WhenLastActiveAtBeforeCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest4444",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff.AddDays(-1),
+            LastActiveAt = cutoff.AddDays(-1),
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetInactiveGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result.Select(u => u.Id), Is.EquivalentTo(new[] { guest.Id }));
+    }
+
+    [Test]
+    public async Task REQ718_GetInactiveGuestsOlderThanAsync_ExcludesGuest_WhenLastActiveAtExactlyAtCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest5555",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff,
+            LastActiveAt = cutoff,
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetInactiveGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ718_GetInactiveGuestsOlderThanAsync_ExcludesGuest_WhenLastActiveAtAfterCutoff()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var guest = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = null,
+            DisplayName = "Guest6666",
+            EmailConfirmed = false,
+            IsGuest = true,
+            ClaimedAt = null,
+            CreatedAt = cutoff.AddDays(1),
+            LastActiveAt = cutoff.AddDays(1),
+        };
+        _dbContext.Users.Add(guest);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetInactiveGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // A claimed account must never appear here regardless of how old/stale
+    // LastActiveAt later becomes — claiming already cleared IsGuest, which
+    // is the only condition this query checks alongside LastActiveAt.
+    [Test]
+    public async Task REQ718_GetInactiveGuestsOlderThanAsync_ExcludesClaimedAccount_RegardlessOfLastActiveAtAge()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var claimed = new User
+        {
+            Id = Guid.NewGuid(),
+            AuthProviderUserId = Guid.NewGuid(),
+            Email = "claimed-2@example.com",
+            DisplayName = "Claimed Player 2",
+            EmailConfirmed = true,
+            IsGuest = false,
+            ClaimedAt = cutoff.AddDays(-1),
+            CreatedAt = cutoff.AddDays(-50),
+            LastActiveAt = cutoff.AddDays(-50),
+        };
+        _dbContext.Users.Add(claimed);
+        await _dbContext.SaveChangesAsync();
+
+        var result = await _repository.GetInactiveGuestsOlderThanAsync(cutoff);
+
+        Assert.That(result, Is.Empty);
+    }
 }
