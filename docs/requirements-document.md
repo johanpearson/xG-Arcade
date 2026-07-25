@@ -3512,9 +3512,52 @@ account fields live there). Nothing about the deletion flow itself — the
 password confirmation step, the anonymization behavior, or its tests —
 changes here, only how a player navigates to it.
 
+**Captcha requirement for the password re-confirmation step (2026-07-25
+addition — not yet built as of this addition; see ADR-0037's second
+amendment for the full mechanism and why this fourth call site exists):**
+
+- Given Supabase's captcha protection is enabled (a project-wide dashboard
+  setting — see REQ-717's 2026-07-25 addition for why it cannot be enabled
+  for one auth flow alone)
+- When a logged-in user submits their current password to confirm account
+  deletion (this REQ's existing confirmation step, `DeleteAccountScreen`'s
+  password field)
+- Then a valid Cloudflare Turnstile token, obtained by the frontend before
+  `DELETE /auth/account` is called, is required before the password
+  re-verification call (`ISupabaseAuthClient.SignInWithPasswordAsync`, the
+  same call `Login` uses) is made — mirroring REQ-717's guest-flow captcha
+  mechanism exactly, the same mechanism REQ-701's 2026-07-25 addition
+  already applies to signup and login; see REQ-717 for the full
+  Given/When/Then and ADR-0037 for the wiring, not re-derived here
+- And a missing, expired, or invalid token produces a distinct rejection
+  the frontend can act on, so it can reset the Turnstile widget and obtain
+  a fresh token before allowing another attempt — never a silent retry
+  re-using the same rejected or expired token
+- And this distinct captcha-rejection response's title (e.g. `"Captcha
+  verification failed"`, the same title the guest/signup/login flows
+  already use per REQ-717/REQ-701) **must not collide with
+  `DeleteAccountScreen.tsx`'s existing string-match on the `"Incorrect
+  password"` response title** — that existing match is what the screen
+  uses to distinguish a wrong password (shown as an inline error, nothing
+  deleted) from a 401 caused by an expired/invalid JWT (which signs the
+  user out instead, per this REQ's S-039 "Built as" note above); a captcha
+  rejection must be distinguishable from both of those existing outcomes,
+  not merged into either
+- And this requirement holds regardless of whether Supabase's captcha
+  protection setting happens to be enabled at a given moment — when it is
+  disabled, no token is required and none of this REQ's other acceptance
+  criteria change
+
 **Test level:** Unit (anonymization logic specifically — verify no
-reversible link remains), API, UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
-`frontend/tests/unit/App.test.tsx`)
+reversible link remains), API (a missing/invalid Turnstile token on
+`DELETE /auth/account` produces a distinct captcha-rejection response,
+distinguishable from both the wrong-password and JWT-expiry 401 outcomes —
+exercised with Cloudflare's documented always-pass/always-fail test site
+keys, not a live network call, the same way REQ-717's own captcha tests
+avoid live third-party calls), UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
+`frontend/tests/unit/App.test.tsx` — including a case confirming the
+captcha-rejection title does not trigger the screen's existing
+"Incorrect password" inline-error branch or its JWT-expiry logout branch)
 
 **REQ-711 – Data export**
 > As a user, I want to export my data, so I have a copy and can verify what
@@ -4018,8 +4061,18 @@ creation alone. Enabling it (per `SETUP.md` step 6) to satisfy this REQ's
 own acceptance criteria below silently broke real password-based login
 and signup, since neither endpoint sent a captcha token at all.
 
-Captcha now applies to all three identity endpoints: `POST /auth/guest`,
-`POST /auth/signup`, and `POST /auth/login`. Each requires a valid
+Captcha now applies to every identity-creating/authenticating endpoint
+this backend exposes: `POST /auth/guest`, `POST /auth/signup`, and
+`POST /auth/login` — that is this REQ's own scope, described below. (A
+separate, fourth call site, `DELETE /auth/account`'s password
+re-confirmation step, gained the identical captcha requirement per
+REQ-710's 2026-07-25 addition — it is not itself an identity-creating/
+authenticating endpoint, so its acceptance criteria live there rather than
+being duplicated here. This paragraph deliberately does not pin an exact
+count going forward — see ADR-0037 for the authoritative, maintained list
+of every call site this captcha check currently covers, so a future
+additional call site doesn't require the same repeated correction here.)
+Each of the three endpoints in this REQ's own scope requires a valid
 Turnstile token before the endpoint calls Supabase Auth at all, and each
 returns the same kind of distinct, specific rejection (e.g. a
 `"Captcha verification failed"`-style response, distinguishable from that
@@ -4038,7 +4091,8 @@ distinguished from `POST /auth/guest`'s pre-existing generic
 correction — captcha and rate limiting remain independent, additive
 layers on every endpoint they both apply to, per this REQ's "Rate limiting
 for guest creation" acceptance criteria above. See REQ-701 for signup's
-own acceptance-criteria line recording this, and ADR-0037 for the amended
+own acceptance-criteria line recording this, REQ-710 for the fourth
+(account-deletion re-confirmation) call site, and ADR-0037 for the amended
 wiring decision.
 
 - Given the "Play as guest" entry point
