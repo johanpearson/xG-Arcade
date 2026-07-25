@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { stubTurnstile } from './turnstile-stub'
 
 // Matches the pattern already established for the backend base URL (see
 // app-loads.spec.ts's use of the frontend's own VITE_API_BASE_URL indirectly
@@ -178,6 +179,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const email = `test-${tag}@test.invalid`
 
+    // REQ-717/ADR-0037 follow-up: handleSubmit calls the real
+    // getTurnstileToken() unconditionally -- stub window.turnstile before
+    // this signup form ever submits (see turnstile-stub.ts).
+    await stubTurnstile(page)
     await page.goto('/')
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
@@ -468,6 +473,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
 
     // View the leaderboard as Player A, through the real UI (not the API) —
     // this is the one part of the scenario SCREEN-03 itself needs to prove.
+    // REQ-717/ADR-0037 follow-up: this login form also drives handleSubmit's
+    // real getTurnstileToken() call -- stub window.turnstile before this
+    // goto, same as signUpNewPlayer above (see turnstile-stub.ts).
+    await stubTurnstile(page)
     await page.goto('/')
     await page.getByLabel('Email').fill(playerAEmail)
     await page.getByLabel('Password').fill('password123')
