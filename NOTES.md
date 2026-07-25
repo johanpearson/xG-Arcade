@@ -27,6 +27,17 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-25 — `AdminScreen.test.tsx`'s REQ-507 test is flaky under a full `npm run test` run
+
+Found while quality-gating REQ-719 (unrelated diff). Failed 1 of 3 full-suite
+runs (`Unable to find an element with the text: Total users` — the metrics
+fetch hadn't resolved before the assertion) but passed 29/29 every time when
+run in isolation (`npx vitest run src/admin/AdminScreen.test.tsx`). Smells
+like a missing `await`/`findBy*` vs `getBy*` race, or cross-test fetch-mock/
+timer leakage from another suite. Not a regression from any recent change —
+worth a real look next time someone's in `AdminScreen.test.tsx`, rather than
+re-discovering it from a random CI flake later.
+
 ### 2026-07-25 — Sign-in latency follow-up: live evidence pointed at the client-side Turnstile step, not backend/cold start
 
 Follow-up to the entry immediately below. The product owner manually

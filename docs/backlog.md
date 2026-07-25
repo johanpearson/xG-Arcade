@@ -3788,3 +3788,107 @@ and its own judgment-call list (its first draft referenced this story as
 found no blocking issues; no new ADR was written — this reuses ADR-0038's
 existing mandate and REQ-507/508's own already-accepted scope, not a new
 structural decision.
+
+**S-074 · Pre-login splash/landing screen (REQ-719)**
+Direct product request (2026-07-25): the app landed straight on the
+login/signup form for an unauthenticated visitor, with no landing page
+at all — the product owner wanted something shown first, with an
+explicit action into login, not the form itself as the first thing
+anyone sees. Routed through `requirements-writer` first since no REQ
+existed for this behavior.
+*Deps:* none new — reads only the existing `accessToken` state and
+`AuthScreen`/`handleLogout` already in `frontend/src/App.tsx`.
+*Accept:* REQ719-named tests: an unauthenticated render (first visit,
+reload, or a return from logout/account-deletion/a failed silent
+refresh) shows the splash screen, not `AuthScreen`, every time — no
+persisted "already seen it" flag; a single, unambiguous CTA on the
+splash screen reaches `AuthScreen`; a successful login/signup from there
+still lands on the game-selection screen exactly as REQ-303/S-021
+already defines, unchanged.
+**Built as:** new `frontend/src/splash/SplashScreen.tsx` (+`.css`,
+`.test.tsx`) — an `<h1>` for "xG Arcade", a one-line tagline, and a
+single primary button ("Log in or sign up"), styled entirely from
+existing `docs/design-document.md` §2 tokens; no new color/typeface/
+animation, and deliberately no logo/brand-mark image (out of scope for
+this REQ, tracked as separate design work). `App.tsx` gained a new
+`showAuthScreen` boolean (starts `false` every mount, reset to `false`
+by `handleLogout` — which is also what account-deletion and a failed/
+absent silent-refresh outcome funnel through — so all three land back
+on the splash screen, never straight to `AuthScreen`) gating which of
+`SplashScreen`/`AuthScreen` renders when there's no `accessToken`.
+`data-testid="splash-screen"` was added since the header already renders
+its own "xG Arcade" `<h1>` whenever unauthenticated, making a plain
+role/name query for the splash screen's heading ambiguous. Existing E2E
+helpers in `header-nav.spec.ts`/`play-grid.spec.ts` that assumed a fresh
+`page.goto('/')` landed directly on `AuthScreen` were updated to click
+through the new CTA first; a new `frontend/tests/e2e/splash-screen.spec.ts`
+covers the full journey (splash → CTA → signup → logout → back to splash
+→ log back in). `docs/design-document.md` flags `SplashScreen` alongside
+`AuthScreen`/`GameSelectScreen` as another built-but-unspec'd screen (§7),
+version 0.48 → 0.49. `architecture-reviewer`: pass, no ADR (pure frontend
+render-state addition, no new component boundary or data flow).
+`quality-architect`: pass — one stale comment in `App.tsx` (still said
+"lands back on AuthScreen" after an account deletion) fixed to reference
+the splash screen instead; an unrelated pre-existing flaky test
+(`AdminScreen.test.tsx`'s REQ-507 case, order-dependent under a full
+`npm run test` run) noted in `NOTES.md` rather than fixed here, since it
+isn't a regression from this change. 341 Vitest tests pass, `tsc -b` and
+`oxlint` clean; Playwright E2E not run in this sandbox (no `dotnet` to
+build/run the backend the E2E tests require) — CI-only, per existing
+project convention.
+
+**S-075 · "Games" nav entry and URL-reflected navigation (REQ-720/721,
+ADR-0039)**
+Direct product request (2026-07-25): the product owner said more games
+are coming soon and wanted a "Games" entry in the header nav listing them
+(anticipating growth beyond xG Grid), and separately asked whether the
+current screen could be reflected in the URL (`/` or `#`) so a refresh
+doesn't always bounce back to the landing screen. Routed through
+`requirements-writer` first since neither REQ existed; REQ-721's
+implementation approach (hash vs. path, library vs. hand-rolled) was
+routed through `architecture-reviewer` for a recommendation, then
+recorded as ADR-0039 before implementation started.
+*Deps:* REQ-719/S-074 (the splash screen REQ-721 must never let a URL
+bypass), REQ-303/S-021 (post-login game-select landing, unchanged), S-029
+(the nav simplification REQ-720 deliberately reverses), ADR-0030/REQ-712
+(mobile hamburger collapse REQ-720's nested disclosure must not regress).
+*Accept:* REQ720-named tests: "Games" toggles independently of REQ-712's
+outer toggle and never itself navigates; selecting "xG Grid" reaches the
+grid screen and closes both menus; `aria-current` while the grid screen is
+showing; the "xG Arcade" title still reaches `GameSelectScreen` unchanged;
+no nav-row wrap/overflow regression at any viewport. REQ721-named tests:
+every one of the six `Screen` values gets a distinct, reload-restorable
+hash; an unauthenticated reload always shows the splash screen regardless
+of what URL was requested; a fresh login/signup always lands on
+game-select regardless of the URL present beforehand; no browser
+back/forward guarantee is made (explicitly out of scope).
+**Built as:** `frontend/src/nav/HeaderNav.tsx`/`.css` gained a nested,
+independently-toggled "Games" disclosure (its own `aria-expanded`/
+`gamesOpen` state, cascading closed when the outer mobile menu closes)
+listing "xG Grid"; `App.tsx` passes through `isGridCurrent`/`onSelectGrid`.
+`App.tsx` gained `SCREEN_HASHES`/`HASH_TO_SCREEN`/`screenForHash()` (a
+`Screen`-to-hash lookup table and its inverse) and a `navigateTo()` helper
+now used at every navigation call site instead of raw `setScreen`; the
+initial `screen` state reads `location.hash` only when an access token is
+already present at mount (never for an unauthenticated visitor, so
+REQ-719's splash gate can't be bypassed by a URL); `handleAuthenticated`
+still calls `navigateTo('game-select')` unconditionally (REQ-303
+unchanged); `handleLogout` clears `location.hash` rather than writing one.
+No `react-router`, no `popstate`/`hashchange` listener — exactly ADR-0039's
+hash-based, hand-rolled decision, chosen over path-based URLs because the
+frontend's Azure Static Web App host has no SPA-fallback configured today
+(and Playwright E2E, which runs against the Vite dev server, would never
+have caught that gap), and over a routing library because REQ-721
+explicitly excludes browser back/forward — the library's main value-add —
+against a flat 6-value `Screen` union with no nesting or params.
+`docs/design-document.md`'s SCREEN-07 was rewritten for the new nested
+disclosure (also fixing a pre-existing gap where the "Leagues" nav entry
+had never been documented there), version 0.49 → 0.50.
+`architecture-reviewer`: pass, no drift, full ADR-0039 compliance
+confirmed (no router dependency added, no `popstate`/`hashchange`
+listener). `quality-architect`: pass; one medium finding (REQ-721's
+`grid`/`leaderboard`/`admin` hashes had no test assertion) closed by
+`test-writer` in a follow-up pass (353 → 359 Vitest tests). `tsc -b` and
+`oxlint` clean throughout; Playwright E2E not run in this sandbox (no
+`dotnet` available to run the backend the E2E tests require) — CI-only,
+consistent with prior sessions.

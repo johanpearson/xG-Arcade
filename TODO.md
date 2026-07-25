@@ -8,8 +8,8 @@ as items complete or new ones surface; don't let it silently go stale.
 
 ## Before writing any code (MVP-scoped)
 
-- [ ] Pick a real name (currently "xG Arcade" is confirmed — if this
-  changes again, it's a clean find-and-replace per the ADR-0003 boundary design)
+- [x] Pick a real name — "xG Arcade" is final (if this ever changes, it's
+  a clean find-and-replace per the ADR-0003 boundary design)
 - [ ] Create accounts: GitHub repo, **one** Azure subscription (`xg-arcade-dev-rg`),
   **one** Supabase project (this is "dev," Tier 0's only environment).
   **Not needed yet for MVP:** API-Football (Tier 1

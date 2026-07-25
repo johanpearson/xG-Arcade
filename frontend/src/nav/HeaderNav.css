@@ -53,6 +53,43 @@
   font-weight: 600;
 }
 
+/* REQ-720: the "Games" entry is itself a disclosure, nested inside
+   .header-nav__menu (the outer flat row at/above the breakpoint, the
+   revealed dropdown below it). At/above the breakpoint it sits inline in
+   that row exactly like any other .header-nav__link, with its own
+   dropdown-style reveal beneath it — it never grows the row's own height
+   or wraps it, since the revealed list is `position: absolute`. Below the
+   breakpoint it's simply another row inside the already-vertical
+   `.header-nav__menu--open` stack. */
+.header-nav__games {
+  position: relative;
+  display: flex;
+}
+
+.header-nav__games-list {
+  display: none;
+}
+
+/* Absolute by default (the flat, at/above-breakpoint row): a small flyout
+   anchored under the "Games" toggle, so an open games list never adds
+   height to the row itself and can never be what causes it to wrap. The
+   mobile media query below overrides this to a plain stacked block, since
+   there it's already inside REQ-712's own vertical dropdown. */
+.header-nav__games-list--open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  min-width: 140px;
+  padding: var(--space-1);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  z-index: 10;
+}
+
 .header-nav__logout {
   min-height: var(--touch-target-min);
   min-width: 44px;
@@ -101,6 +138,18 @@
   .header-nav__menu--open .header-nav__logout {
     width: 100%;
     text-align: left;
+    border: none;
+  }
+
+  /* REQ-720: inside the already-vertical mobile dropdown, the nested
+     "Games" list stacks in normal flow (indented under its own toggle)
+     rather than floating as an absolute flyout over the other entries —
+     the absolute-flyout treatment above is a desktop-row-only concern. */
+  .header-nav__menu--open .header-nav__games-list--open {
+    position: static;
+    min-width: 0;
+    padding: 0 0 0 var(--space-3);
+    background: none;
     border: none;
   }
 }

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.68"
+version: "0.69"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -17,15 +17,16 @@ update_when:
   - "Test strategy or tooling changes"
 ---
 
-# Implementation Document – xG Arcade (working title)
+# Implementation Document – xG Arcade
 
 Version 0.60 · 2026-07-20
 References: `requirements-document.md`, `architecture-document.md`
 
-> **Naming note:** "xG Arcade" is a placeholder for the overall product name.
-> xG Grid is the first game hosted on it — see `requirements-document.md`
-> §0. The root solution/repo is named after the xG Arcade; xG Grid lives
-> in its own `XGArcade.Games.XGGrid` project, not the root namespace.
+> **Naming note:** "xG Arcade" is the overall product name (users, leagues,
+> rounds, scoring — everything shared across games). xG Grid is the first
+> game hosted on it — see `requirements-document.md` §0. The root
+> solution/repo is named after the xG Arcade; xG Grid lives in its own
+> `XGArcade.Games.XGGrid` project, not the root namespace.
 
 > **For AI agents:** this document defines HOW the system in
 > `architecture-document.md` is concretely built (languages, frameworks, data

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.47"
+version: "0.50"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -17,7 +17,7 @@ update_when:
   - "A component's states or copy change in a way that affects other screens"
 ---
 
-# UX & Design Document – xG Arcade (working title)
+# UX & Design Document – xG Arcade
 
 Version 0.40 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
@@ -1513,7 +1513,10 @@ matching REQ-213 note for the exact values.
 ┌──────────────────────────────┐
 │ xG Arcade            [☰ Menu]│
 ├──────────────────────────────┤
+│ Games ▾                       │
+│   xG Grid                     │
 │ Leaderboard                   │
+│ Leagues                        │
 │ Settings                      │
 │ Log out                       │
 └──────────────────────────────┘
@@ -1539,9 +1542,49 @@ per this doc's own rule against adding a second bold motion moment without
 it being specified here first, and there was no reason to specify one for
 a plain menu reveal.
 
-Nav entries in the revealed list: "Leaderboard," "Settings" (SCREEN-08,
-REQ-713), and "Log out" — see SCREEN-08 for what replaced the previous
-standalone "Delete account" and "Admin" links.
+Nav entries in the revealed list: "Games" (see below), "Leaderboard,"
+"Leagues" (REQ-402/403 — this list itself was out of date until this pass:
+it had been added to the real nav without a matching update here, since
+fixed alongside the "Games" entry below), "Settings" (SCREEN-08, REQ-713),
+and "Log out" — see SCREEN-08 for what replaced the previous standalone
+"Delete account" and "Admin" links.
+
+**Added 2026-07-25, REQ-720 (reverses S-029's earlier removal of a
+"Games"/"Grid" nav pair — see that requirement's own "deliberate reversal,
+not a silent contradiction" note): the "Games" entry.** A second,
+independently-expandable disclosure *nested inside* the list above —
+same accessible-disclosure pattern as the outer toggle (a real `<button>`
+exposing its own `aria-expanded`), but activating it never navigates
+anywhere; it only shows/hides a per-game list, Tier 0's being exactly one
+entry ("xG Grid"). Selecting "xG Grid" navigates to the grid screen (the
+same destination `GameSelectScreen`'s own "xG Grid" tile already triggers)
+and closes both this nested list and the outer mobile menu, matching how
+every other nav entry already closes the menu on selection. While the grid
+screen is showing, "xG Grid" inside this list carries `aria-current="page"`
+— the same convention "Leaderboard," "Leagues," and "Settings" already use.
+
+This is deliberately a *different* kind of disclosure than the outer
+toggle: the outer toggle only exists below the mobile breakpoint (the flat
+row at/above it needs no collapsing), while "Games" is collapsed by
+default *at every viewport* — it's a permanent accordion-style entry
+within the nav, not a responsive affordance. At/above the breakpoint it
+sits inline in the flat row and reveals a small anchored flyout beneath
+itself on activation (never adding height to the row, so it can never be
+what causes the row to wrap); below the breakpoint, nested inside the
+already-vertical mobile dropdown, it reveals as an indented block in the
+same vertical flow instead of a floating flyout (avoiding an overlapping
+flyout-within-a-dropdown). Both treatments use only existing surface/
+border/spacing tokens — no new color or motion (same "no new motion" rule
+as the outer toggle above). Closing the outer mobile menu also collapses
+"Games" back to closed, so it never reopens already-expanded the next
+time the menu itself is reopened.
+
+The "xG Arcade" header title (outside this nav entirely) is unaffected and
+keeps navigating to `GameSelectScreen` exactly as before — REQ-720 keeps
+both affordances deliberately: "Games" is a quick-jump shortcut reachable
+from anywhere (including from inside another screen, e.g. the
+leaderboard), while the title remains the route to the full landing/picker
+screen shown right after login.
 
 ### SCREEN-08: Settings
 
@@ -2027,6 +2070,22 @@ Unchanged from v0.1:
   select from — but once a second game exists this screen stops being
   trivial and needs a real spec (multi-tile layout, empty/loading states,
   copy) rather than staying an unreviewed de facto one.
+- **No SCREEN-xx spec exists for the unauthenticated splash/landing screen
+  either** (`frontend/src/splash/SplashScreen.tsx`, added for REQ-719).
+  Same gap and same reasoning as SCREEN-00/the game-selection screen above:
+  kept deliberately minimal (an `<h1>` for "xG Arcade", a one-line tagline,
+  and a single tokens-only primary button, no wireframe/copy/state review)
+  rather than left unbuilt while a real spec was drafted. No new tokens —
+  the title uses the existing `--font-display` family (sized larger than
+  `app__title`'s 22px header treatment, since this is the screen's own
+  hero) and `--color-text-primary`; the tagline uses `--color-text-muted`;
+  the CTA button reuses `auth-screen__submit`'s exact token pairing
+  (`--color-accent-green-text` fill, `--color-surface-card` label). No
+  animation was added (REQ-719 doesn't call for one, and the badge-dock
+  reveal remains the app's only deliberate bold motion moment). Needs a
+  real SCREEN-xx entry (wireframe, copy review, any state beyond the single
+  at-rest one it has today) rather than staying an unreviewed de facto
+  spec, same as the other two gaps above.
 - **§2 has no numeric spacing scale.** SCREEN-01/01a/02's implementation
   (S-010) used an unreviewed 4px-based scale (4/8/12/16/24/32/48) for
   padding/gaps in the absence of one, rather than one-off values per

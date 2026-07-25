@@ -13,6 +13,78 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `frontend/src/App.test.tsx` — `test-writer` closed a gap
+  quality-architect found in the REQ-720/REQ-721 review: `grid`/
+  `leaderboard`/`admin` hashes had no navigate-sets-hash or
+  reload-restores-screen assertion (only `game-select`/`settings`/
+  `leagues` did). All six `Screen` values now have both. 353 → 359
+  Vitest tests.
+- 2026-07-25 — `frontend/src/App.tsx`, `frontend/src/nav/HeaderNav.tsx`
+  (+`.css`/`.test.tsx`), `frontend/src/App.test.tsx`,
+  `frontend/tests/unit/App.test.tsx`, `frontend/tests/unit/setup.ts`,
+  `frontend/tests/e2e/header-nav.spec.ts`,
+  `frontend/tests/e2e/url-routing.spec.ts` (new),
+  `docs/design-document.md` (SCREEN-07 rewritten for the new nested
+  "Games" disclosure and a pre-existing "Leagues" nav-entry doc gap
+  fixed in the same edit, 0.49 → 0.50) — REQ-720/REQ-721 implemented
+  by `ui-implementer`, per ADR-0039. `architecture-reviewer`: pass, no
+  drift, ADR-0039 fully complied with (no router dependency, no
+  popstate/hashchange listener). `quality-architect`: pass; one
+  medium finding (REQ-721's `grid`/`leaderboard`/`admin` hashes have no
+  test assertion, only `game-select`/`settings`/`leagues` do) routed to
+  `test-writer`.
+- 2026-07-25 — `docs/decisions/0039-hash-based-hand-rolled-client-routing.md`
+  (new), `docs/architecture-document.md` (§10 ADR table, 0.52 → 0.53) —
+  ADR-0039: hash-based URLs (`#/grid`), hand-rolled (no `react-router`),
+  for REQ-721's URL-reflected navigation. Chosen over path-based routing
+  because the frontend's Azure Static Web App host has no
+  `staticwebapp.config.json`/SPA-fallback configured, and Playwright E2E
+  runs against the Vite dev server (which has its own fallback baked in)
+  so a path-based bug would only surface against the real deployed host —
+  a known recurring failure class for this project (region restriction,
+  `GHCR_TOKEN` expiry, Npgsql format, per `infra/README.md`/`NOTES.md`).
+  Hand-rolled chosen over `react-router` since REQ-721 explicitly excludes
+  browser back/forward (the library's main value-add) and `Screen` is a
+  flat 6-value union with no nesting/params. Also fixed a pre-existing gap
+  in the same table: ADR-0038 (guest account cleanup, added 2026-07-25 in
+  an earlier session) was missing its row entirely.
+- 2026-07-25 — `docs/requirements-document.md` (REQ-720, REQ-721, new) —
+  REQ-720: header nav gains a "Games" disclosure listing available games,
+  a documented deliberate reversal of S-029's nav simplification now that
+  a second game is actually planned. REQ-721: current screen reflected in
+  the URL so a reload restores it; implementation left to ADR-0039;
+  browser back/forward explicitly out of scope; resolves how URL
+  restoration interacts with REQ-303 (post-login always lands on
+  game-select, unchanged) and REQ-719 (splash gate never bypassed by a
+  URL). Frontmatter version 1.07 → 1.08.
+- 2026-07-25 — `docs/requirements-document.md` (REQ-719, new),
+  `docs/design-document.md` (0.48 → 0.49) — added REQ-719: an
+  unauthenticated splash/landing screen shown before `AuthScreen` on
+  every unauthenticated render (first visit, reload, or return from
+  logout/account-deletion/a failed silent refresh) — no persisted
+  "seen it" flag, so it's never skipped after the first time. Built as
+  `frontend/src/splash/SplashScreen.tsx`, token-only styling (no new
+  color/typeface/animation, no logo/brand-mark image — that's tracked
+  separately), single CTA into the existing login/signup form. Does not
+  change REQ-303/S-021's post-login → game-select routing.
+  `docs/design-document.md` gets a new §7 open-item entry flagging
+  `SplashScreen` alongside `AuthScreen`/`GameSelectScreen` as another
+  built-but-unspec'd screen. `architecture-reviewer`: pass, no ADR (pure
+  frontend render-state addition, no new component boundary or data
+  flow). `quality-architect`: pass; one stale comment in `App.tsx`
+  fixed to say "splash screen" instead of "AuthScreen" post-deletion;
+  an unrelated pre-existing flaky test (`AdminScreen.test.tsx` REQ-507)
+  noted in `NOTES.md`, not fixed as part of this change.
+- 2026-07-25 — `CLAUDE.md`, `README.md`, `TODO.md`,
+  `docs/architecture-document.md`, `docs/design-document.md`,
+  `docs/implementation-document.md`, `docs/requirements-document.md`,
+  `mockups/design-mockups.html` — product decision: "xG Arcade" is the
+  final product name, not a placeholder. Removed "(working title —
+  placeholder name, find-and-replace when a real name is chosen)" and
+  equivalent naming-note wording from all doc titles/naming notes; no code
+  changes needed since "xG Arcade" was already used throughout the
+  codebase (localStorage keys, UI title, etc.). No REQ/ADR affected — this
+  is editorial, not a behavior or structural change.
 - 2026-07-25 — `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`
   (third amendment), `docs/requirements-document.md`, `SETUP.md`,
   `NOTES.md` — follow-up to the sign-in latency investigation

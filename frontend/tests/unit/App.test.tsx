@@ -70,6 +70,10 @@ function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Respon
 }
 
 async function logIn(user: ReturnType<typeof userEvent.setup>) {
+  // REQ-719: a fresh, unauthenticated render now shows the splash screen
+  // first — its call-to-action is what reveals AuthScreen's actual
+  // login/signup form used below.
+  await user.click(await screen.findByRole('button', { name: 'Log in or sign up' }))
   await user.type(screen.getByLabelText('Email'), 'player@example.com')
   await user.type(screen.getByLabelText('Password'), 'password123')
   await user.click(screen.getByRole('button', { name: 'Log in' }))
@@ -159,7 +163,13 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-303: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen — nav no longer has separate "Games"/"Grid" links', async () => {
+  // REQ-720 (2026-07-25) reverses S-029's "no separate Games/Grid nav
+  // entry" call now that a second game is planned — see that
+  // requirement's own "deliberate reversal, not a silent contradiction"
+  // note. This test's title/body previously asserted the opposite; kept
+  // in the same place (still exercises the title returning to
+  // game-selection) with its outdated assertion replaced.
+  it('REQ-303/REQ-720: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen, unchanged alongside the header nav\'s new "Games" entry', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -171,8 +181,12 @@ describe('App game-selection routing', () => {
       expect(screen.getByText('No round to play right now')).toBeInTheDocument(),
     )
 
-    expect(screen.queryByRole('button', { name: 'Games' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Grid' })).not.toBeInTheDocument()
+    // REQ-720: "Games" is now a real, reachable disclosure entry (not
+    // removed as S-029 previously had it) — selecting "xG Grid" from it
+    // reaches the same grid screen the title/GameSelectScreen tile already
+    // do.
+    await user.click(screen.getByRole('button', { name: 'Games' }))
+    expect(screen.getByRole('button', { name: 'xG Grid' })).toHaveAttribute('aria-current', 'page')
 
     await user.click(screen.getByRole('button', { name: 'xG Arcade' }))
 
@@ -180,7 +194,7 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  it('REQ-303/REQ-712/REQ-713: the nav offers Leaderboard, Settings, and Log out once authenticated', async () => {
+  it('REQ-303/REQ-712/REQ-713/REQ-720: the nav offers Games, Leaderboard, Settings, and Log out once authenticated', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -188,6 +202,7 @@ describe('App game-selection routing', () => {
     await logIn(user)
     await screen.findByText('Choose a game')
 
+    expect(screen.getByRole('button', { name: 'Games' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Leaderboard' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument()
@@ -260,7 +275,7 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-710: a successful deletion returns to the logged-out AuthScreen and clears the stored access token', async () => {
+  it('REQ-710/REQ-719: a successful deletion returns to the splash screen (not directly to AuthScreen) and clears the stored access token', async () => {
     stubAuthenticatedFetch({ '/auth/account': () => jsonResponse(null, 204) })
     const user = userEvent.setup()
 
@@ -273,7 +288,8 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     await user.type(screen.getByLabelText('Current password'), 'correct-password')
     await user.click(screen.getByRole('button', { name: 'Delete my account permanently' }))
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument()
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument()
     expect(window.localStorage.getItem('xg-arcade-access-token')).toBeNull()
   })
 })

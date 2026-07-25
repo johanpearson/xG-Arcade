@@ -6,8 +6,7 @@ what to do before and after each unit of work.
 
 ## Project summary
 
-**xG Arcade** (working title — placeholder name, find-and-replace when a real
-name is chosen): a multi-game platform owning user accounts, leagues, the
+**xG Arcade**: a multi-game platform owning user accounts, leagues, the
 round scheduling engine, and the scoring/uniqueness engine. It has no
 football-specific logic itself.
 

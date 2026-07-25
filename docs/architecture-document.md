@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.51"
+version: "0.53"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -18,7 +18,7 @@ update_when:
   - "An architecture decision is made — also add an ADR under docs/decisions/"
 ---
 
-# Architecture Document – xG Arcade (working title)
+# Architecture Document – xG Arcade
 
 Version 0.43 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
@@ -1293,6 +1293,8 @@ new ADR that references the old one.
 | ADR-0035 | National teams (P1532) are a per-row flag on `CountryDefinition`, not a separate category type | Accepted |
 | ADR-0036 | Guest play is a real `User` row via backend-mediated Supabase Anonymous Sign-ins (`User.IsGuest` flag), not a client-local scheme | Accepted |
 | ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation, signup, login, and account-deletion password re-confirmation against scripted abuse (widened twice from guest-only on 2026-07-25, after Supabase's "Enable Captcha Protection" toggle proved project-wide rather than per-endpoint) | Accepted |
+| ADR-0038 | Guest account cleanup reuses `IAccountDeletionService`; activity tracked via a new `User.LastActiveAt`, updated only on genuine engagement | Accepted |
+| ADR-0039 | Hash-based, hand-rolled client-side routing for URL-reflected navigation (REQ-721) — no `react-router`, no server-side SPA-fallback dependency | Accepted |
 
 ## 11. Glossary
 
