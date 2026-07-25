@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.02"
+version: "1.03"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -2991,6 +2991,142 @@ Tier 0, S-026)*
   action is registered at all, same fail-closed pattern as REQ-505
 
 **Test level:** API, UI
+
+**REQ-507 – Admin guest/user metrics view**
+> As an admin, I want a live count of how many accounts exist and how many
+> of those are guests, so I can gauge guest-play adoption and how many
+> guest accounts are accumulating, without having to query the database
+> directly.
+
+- **Scope note (why this is not gated like REQ-505/506):** REQ-505/506 are
+  restricted to non-Production because their entire stated rationale is
+  managing seeded/test data ("so I don't have to wait for real time to
+  pass," "clean up seeded/test accounts") — neither has any legitimate use
+  against real Production data. This REQ is different: it is a read-only
+  view of real account counts, and knowing how many real users vs. guest
+  accounts exist in the actual running system is itself the point, not a
+  side effect of test-data management. It is therefore visible to any
+  authenticated admin in every environment, including Production, gated
+  only by the existing "Admin" authorization policy (`Admin__UserIds`) —
+  the same policy every other admin action in this document already
+  requires, not a weaker one, and not an environment check.
+- Given the admin is authenticated (`Admin__UserIds`) and opens the admin
+  screen's metrics view (REQ-504)
+- When the view loads
+- Then it displays, as a live count as of the time of the request (not a
+  cached/stale snapshot): total user count (every `User` row, regardless
+  of `IsGuest`/`ClaimedAt`), current guest count (`IsGuest = true`), and
+  claimed-guest count (`ClaimedAt IS NOT NULL` — accounts that originated
+  as a guest and have since been claimed into a real account, per
+  REQ-717)
+- And "current guest count" is the same as "unclaimed guest count" by
+  construction — `IsGuest` and `ClaimedAt` can never disagree (claiming
+  clears `IsGuest` and stamps `ClaimedAt` atomically, REQ-717/ADR-0036) —
+  this view labels the count "current guests" rather than requiring an
+  admin to know that invariant to interpret it correctly
+- Given a non-admin user reaches this view directly
+- Then they receive the same 403 defense-in-depth REQ-504's other
+  sections already apply
+- **Out of scope:** "rounds played" or any other Round/Guess-derived
+  count. This view's purpose is account-shape visibility (how many
+  accounts exist, how many are guests, how many converted) — round/
+  participation counts are a different data domain, already surfaced
+  elsewhere (leaderboards, round history), and adding them here would
+  blur this view's scope without a stated need.
+
+**Test level:** API, UI
+
+**REQ-508 – Admin force-clear guest accounts (bulk)**
+> As an admin, I want to immediately delete every current guest account on
+> demand, so I can clear accumulated guest accounts right now — before
+> REQ-718's scheduled purge exists or runs, as a manual remedy if it ever
+> fails, or to quickly reset seeded guest test data in a non-Production
+> environment — without waiting on either of REQ-718's time-boxed rules.
+
+- **Mechanism (binding, per ADR-0038):** deletes each matching account by
+  calling `IAccountDeletionService.DeleteAccountAsync` once per account —
+  the exact same anonymize-and-keep-`Guess`-rows mechanism REQ-710,
+  REQ-506, and REQ-718 all use. This REQ introduces no second/raw
+  bulk-delete code path, per ADR-0038's explicit instruction that "any
+  future admin path" delete a guest account only through this service.
+- **Selection mechanism vs. REQ-506 (deliberate, not an oversight):** this
+  is a new capability, not an extended form of REQ-506's `DELETE
+  /admin/users?email=`. REQ-506 identifies one already-known account by
+  email; this REQ selects an unbounded set of accounts by a filter
+  (`IsGuest = true`) with no identifier supplied at all — a fundamentally
+  different selection shape, not an extra query parameter on the same
+  endpoint. A new read path (list ids where `IsGuest = true`) and a new
+  bulk-delete action are required.
+- **Scope: every current guest, unconditionally — no age or inactivity
+  filter.** This action deletes every account with `IsGuest = true` at
+  the moment it runs, full stop. It does not filter by how long an
+  account has been unclaimed (REQ-718 rule 2's 30-day threshold) or how
+  long it has been inactive (REQ-718 rule 3's 7-day threshold, via
+  `LastActiveAt`) — those graduated, automatic thresholds belong to
+  REQ-718's scheduled job. This action's purpose is different: an
+  immediate, deliberate, admin-triggered full sweep, not a gentler/
+  filtered variant of REQ-718's rules. A claimed account (`IsGuest =
+  false`) is never eligible, automatically, purely because selection is
+  exclusively on `IsGuest = true` — no separate exemption logic is
+  needed or added.
+- **No "currently active" exemption.** A guest account created moments
+  ago, or one with a live/active login session right now, is deleted
+  exactly the same as any other matching account — this action does not
+  attempt to detect or special-case "recently active" guests. The
+  pre-confirmation count (below) is this action's intended safeguard
+  against unintended blast radius, not an automatic scope carve-out.
+- Given an admin is authenticated (`Admin__UserIds`)
+- When the admin initiates this action
+- Then the exact count of accounts currently matching `IsGuest = true` is
+  shown before anything is deleted (a dry-run count, not an estimate)
+- And a second, explicit confirmation step is required before the
+  deletion actually fires — at least as strong as REQ-506's existing
+  two-step "Yes, delete permanently" / "Cancel" client-side confirm,
+  extended to show the count from the previous step so the admin
+  confirms a known, specific number of accounts, not an open-ended action
+- Given the admin confirms
+- Then every account matching `IsGuest = true` at that moment (which may
+  differ slightly from the count shown if a guest account was created or
+  claimed in between — this action is not required to re-verify the
+  count is unchanged before executing) is deleted via
+  `IAccountDeletionService.DeleteAccountAsync`
+- And the action reports a per-account outcome (succeeded / not found /
+  failed) rather than a single all-or-nothing result — the same
+  reporting discipline REQ-503's bulk "approve" action already
+  establishes for this document's other bulk admin actions
+- Given `ASPNETCORE_ENVIRONMENT == Production`
+- Then this action remains available, unlike REQ-505/506 — bulk-clearing
+  guest accounts is a legitimate operational action against real account
+  data (not a test-data-management action with no Production use case),
+  and is gated by the existing "Admin" authorization policy in every
+  environment exactly as REQ-507's metrics view is, not by an environment
+  check
+- Given a non-admin user
+- When they attempt to reach or call this action directly
+- Then they receive a 403, matching every other admin action in this
+  document
+
+**Relationship to REQ-718:** REQ-718 (drafted, Accepted via ADR-0038, not
+yet implemented) will eventually purge unclaimed guests automatically
+after 30 days and inactive guests automatically after 7 days, via a
+scheduled job. This REQ is the human-triggered, immediate equivalent —
+useful before REQ-718 exists, and afterward as a manual remedy if the
+scheduled job fails or an immediate sweep is otherwise needed. Both
+REQ-718's eventual scheduled job and this REQ need a "select guest ids
+matching a filter, then delete each via `IAccountDeletionService`"
+building block; whichever lands second should reuse the first's
+selection logic rather than writing an independent query — the exact
+shape of that shared piece (a repository method, a small internal
+service) is an `architecture-document.md`/`implementation-document.md`
+concern, not fixed here. Note this is also the scenario ADR-0038's own
+alternatives table already anticipated ("can be introduced later if a
+third caller ever needs shared guest-selection logic") — this REQ is
+that third caller.
+
+**Test level:** API, UI (count preview, two-step confirm, per-account
+outcome reporting), Integration (seeded unclaimed/claimed/mixed guest
+rows — confirms only `IsGuest = true` accounts are deleted and claimed
+accounts are untouched)
 
 ---
 
