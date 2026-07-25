@@ -1,9 +1,15 @@
-# ADR-0037: Cloudflare Turnstile as the captcha layer for guest creation, wired through Supabase's native captcha-token verification
+# ADR-0037: Cloudflare Turnstile as the captcha layer for guest creation, signup, and login, wired through Supabase's native captcha-token verification
 
 - **Status:** Accepted
 - **Date:** 2026-07-21
+- **Amended:** 2026-07-25 — scope widened from guest creation only to also
+  cover signup and login; see Context and "For AI agents" below. Core
+  wiring decisions (provider, mediation-through-Supabase, secret-key
+  boundary) are unchanged by this amendment.
 - **Related requirements:** REQ-717 (guest play — 2026-07-21 "Bot-check
-  (captcha) for guest creation" addition), REQ-606 (security baseline /
+  (captcha) for guest creation" addition, 2026-07-25 scope-correction
+  addition), REQ-701 (create account with email and password — 2026-07-25
+  addition covering signup and login captcha), REQ-606 (security baseline /
   rate limiting, unaffected — see Context)
 - **Related components:** COMP-01 (Core.Users)
 
@@ -41,16 +47,43 @@ itself is expected to close; implementing them is `backend-implementer`/
 `ui-implementer` work following this decision and REQ-717's newly-added
 acceptance criteria.
 
+**2026-07-25 addendum — scope was wrong, now corrected:** this ADR
+originally scoped Turnstile to `POST /auth/guest` only, on the assumption
+that Supabase's "Enable Captcha Protection" setting could be applied to
+one flow at a time. That assumption was never verified against a real
+Supabase project (the original drafting sandbox had no network access,
+and the "For AI agents" section below said so explicitly at the time).
+It is now confirmed wrong: per `NOTES.md`'s 2026-07-25 entry, Supabase's
+dashboard "Enable Captcha Protection" toggle is a single project-wide
+setting covering every `gotrue` endpoint that can create or authenticate
+an identity (`signup`, `token?grant_type=password`, `recover`, ...), not
+one this project can enable for guest creation alone. The live symptom:
+turning it on for guest-creation bot protection (per `SETUP.md` step 6)
+broke real password-based login and signup outright, since
+`SupabaseAuthClient.SignInWithPasswordAsync`/`SignUpAsync` had no
+`captcha_token` to send — and `AuthController.Signup`'s REQ-701
+account-enumeration-safe generic fallback message was masking the captcha
+rejection as an ordinary signup failure. This ADR's Decision below is
+amended accordingly: Turnstile now covers all three endpoints. The
+underlying wiring decision (mediate through Supabase, never verify
+independently, secret key never enters this backend) does not change —
+only which endpoints send a token.
+
 ## Decision
 
 **Cloudflare Turnstile**, wired through Supabase Auth's own native
 captcha-token support rather than any custom verification code in this
-backend. Supabase's `/auth/v1/signup` endpoint (which
-`SignInAnonymouslyAsync` already calls for the no-password anonymous case)
-accepts an optional `gotrue_meta_security.captcha_token` field and
-verifies it server-side against the configured captcha provider —
-Supabase already speaks Turnstile natively, so no new outbound HTTP call
-to Cloudflare is written in this codebase at all.
+backend, **covering all three identity-creating/authenticating endpoints
+this backend exposes: `POST /auth/guest`, `POST /auth/signup`, and
+`POST /auth/login`** (amended 2026-07-25 — originally scoped to
+`POST /auth/guest` only; see Context addendum above for why that scope was
+wrong). Supabase's `/auth/v1/signup` and `/auth/v1/token?grant_type=password`
+endpoints (which `SignInAnonymouslyAsync`/`SignUpAsync`/
+`SignInWithPasswordAsync` respectively call) each accept an optional
+`gotrue_meta_security.captcha_token` field and verify it server-side
+against the configured captcha provider — Supabase already speaks
+Turnstile natively for all of them, so no new outbound HTTP call to
+Cloudflare is written in this codebase at all, for any of the three flows.
 
 Concretely, this decision has three parts:
 
@@ -59,16 +92,21 @@ Concretely, this decision has three parts:
    table below — free with no meaningful volume cap for this project's
    scale, less visible/annoying to real players, and a simpler two-key
    integration that Supabase already supports as a first-class option.
+   This applies identically to all three endpoints — there is no
+   per-endpoint provider choice to make.
 2. **Wiring: token flows frontend → backend → Supabase, verified by
    Supabase against Cloudflare — never verified by this backend directly.**
-   The frontend's "Play as guest" flow obtains a Turnstile token via
-   Cloudflare's client-side widget/JS, sends it to `POST /auth/guest`,
-   and the backend passes it through unmodified as
-   `gotrue_meta_security.captcha_token` on the existing
-   `SignInAnonymouslyAsync` call. This is the same "mediate, don't
-   reimplement" boundary ADR-0013 already drew for signup/login password
-   handling: Supabase owns the actual verification, this backend is a
-   pass-through, never a second, independent Turnstile-verification client.
+   Each of the three frontend flows ("Play as guest", account creation,
+   log in) obtains a Turnstile token via Cloudflare's client-side
+   widget/JS, sends it to its respective endpoint (`POST /auth/guest`,
+   `POST /auth/signup`, `POST /auth/login`), and the backend passes it
+   through unmodified as `gotrue_meta_security.captcha_token` on the
+   existing `SignInAnonymouslyAsync`/`SignUpAsync`/
+   `SignInWithPasswordAsync` call respectively. This is the same
+   "mediate, don't reimplement" boundary ADR-0013 already drew for
+   signup/login password handling: Supabase owns the actual verification,
+   this backend is a pass-through, never a second, independent
+   Turnstile-verification client — for any of the three flows.
 3. **Configuration split, following existing precedent:** the Turnstile
    **site key** is public (safe in frontend code, like Supabase's own anon
    key per ADR-0013) and belongs in the frontend as a new Vite environment
@@ -90,20 +128,26 @@ intent of "Play as guest," minimal visual footprint, an interactive
 challenge shown only if Cloudflare's own risk scoring escalates to one).
 
 **Failure mode:** a missing/expired/invalid token must map to a distinct,
-specific rejection from `POST /auth/guest` — not the existing generic
-`"Guest sign-in failed"` `Problem` response `AuthController.Guest`
-currently returns for its other failure modes — so the frontend can reset
-the widget and retry rather than treating a captcha failure like any other
-opaque error. The exact response shape (e.g. a distinguishing error code
-or title) is left to implementation, but it must be distinguishable by the
-frontend; this is stated as a hard acceptance criterion in REQ-717's
-2026-07-21 addition, not left vague.
+specific rejection on each of the three endpoints — not the existing
+generic `"Guest sign-in failed"` `Problem` response `AuthController.Guest`
+returns for its other failure modes, and not `AuthController.Signup`'s
+REQ-701 account-enumeration-safe generic fallback message (which the
+2026-07-25 addendum above confirms was incorrectly swallowing a captcha
+rejection as an ordinary signup failure), and not whatever generic
+response `AuthController.Login` returns for other failures either — so the
+frontend can reset the widget and retry rather than treating a captcha
+failure like any other opaque error, on any of the three flows. The exact
+response shape (e.g. a distinguishing error code or title) is left to
+implementation, but it must be distinguishable by the frontend on each
+endpoint; this is stated as a hard acceptance criterion in REQ-717's
+2026-07-21 addition (guest) and its 2026-07-25 scope-correction addition
+(signup, login) — not left vague.
 
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
 |---|---|---|---|
-| **Cloudflare Turnstile** (chosen) | Free with no meaningful volume cap at this project's scale; invisible/managed mode is minimally intrusive to real players; Supabase Auth has first-class native support (`gotrue_meta_security.captcha_token`), so no custom verification client is needed in this backend | Adds an external dependency (Cloudflare) and a manual one-time dashboard setup step (site creation) before guest play can function with captcha enabled | Best fit for the stated goal (harden guest creation specifically) at the lowest integration cost, per the product owner's direct comparison against hCaptcha |
+| **Cloudflare Turnstile** (chosen) | Free with no meaningful volume cap at this project's scale; invisible/managed mode is minimally intrusive to real players; Supabase Auth has first-class native support (`gotrue_meta_security.captcha_token`), so no custom verification client is needed in this backend | Adds an external dependency (Cloudflare) and a manual one-time dashboard setup step (site creation) before guest play (originally) — and now signup/login too (2026-07-25) — can function with captcha enabled | Best fit for the stated goal (harden identity creation/authentication against scripted abuse — originally scoped to guest creation, widened 2026-07-25 to signup/login once Supabase's project-wide toggle behavior was confirmed) at the lowest integration cost, per the product owner's direct comparison against hCaptcha |
 | hCaptcha | Also free tier, also natively supported by Supabase's same `captcha_token` mechanism | More visible/interactive by reputation for the free tier; no material capability advantage over Turnstile for this use case | Turnstile does the same job with less friction for real players, at the same integration cost |
 | A custom/self-built bot-check (e.g. a honeypot field, a timing heuristic) | No external dependency at all | Meaningfully weaker against a real scripted/distributed attacker — exactly the gap this ADR exists to close; would need ongoing tuning as attackers adapt, with no vendor doing that work | Reinventing a weaker version of a problem Cloudflare and Supabase already solve well together |
 | Frontend verifies the Turnstile token directly against Cloudflare's siteverify API itself (no backend involvement) | Removes one hop | Directly contradicts ADR-0013's already-settled backend-mediation precedent — a client-side-only check is bypassable and untestable at the API level, the same objection ADR-0013 already raised against frontend-direct signup/login | Supabase's native support makes backend pass-through free to wire in anyway — no reason to reintroduce a client-side-only gate |
@@ -133,11 +177,36 @@ frontend; this is stated as a hard acceptance criterion in REQ-717's
   distinguishable outcomes (captcha rejection vs. every other failure) —
   a real, if small, code change to `AuthController.Guest`'s existing error
   handling, not purely additive.
+- Negative / trade-off accepted (added 2026-07-25): the same split now
+  also applies to `AuthController.Signup` and `AuthController.Login` —
+  `Signup`'s existing REQ-701 account-enumeration-safe generic fallback
+  message must stop catching a captcha rejection indiscriminately (it
+  needs a distinguishable captcha-rejection outcome carved out first,
+  before the remaining generic fallback applies to every other rejection
+  reason exactly as REQ-701 already specifies), and `Login` needs the
+  same distinct captcha-rejection outcome added alongside whatever generic
+  failure response it already returns. Real, if small, code changes to
+  both, not purely additive — and not yet built as of this amendment.
 - Follow-up: implementing this requires threading a `captchaToken`
   parameter through `ISupabaseAuthClient.SignInAnonymouslyAsync` and a
   request body on `POST /auth/guest` (currently parameterless per
   REQ-717's original "no request body" design) — a small, real contract
   change to an already-shipped endpoint, not a net-new one.
+- Follow-up (added 2026-07-25): the same threading is needed for
+  `ISupabaseAuthClient.SignUpAsync`/`SignInWithPasswordAsync` (a new
+  `captchaToken` parameter each) and for `POST /auth/signup`/
+  `POST /auth/login`'s request bodies (both already take a body, so this
+  is an additive field on each, not a "parameterless to parameterized"
+  change like the guest endpoint needed) — not yet built as of this
+  amendment; scoped for `backend-implementer` following this ADR and
+  REQ-717's/REQ-701's updated acceptance criteria.
+- Follow-up (added 2026-07-25): `SETUP.md` step 6 (or wherever the
+  Supabase "Enable Captcha Protection" toggle is documented) needs its
+  own wording corrected — it currently reads as if enabling the toggle
+  only affects guest creation, which is what led to this bug being
+  discovered live rather than caught in setup. Flagged here for
+  `doc-sync`/a follow-up session; not applied by this ADR amendment
+  itself.
 - Follow-up: `SETUP.md` needs a new step (alongside wherever the Supabase
   Anonymous Sign-ins toggle itself should already be documented, per
   ADR-0036) covering: create a Cloudflare Turnstile site (free), save the
@@ -157,13 +226,16 @@ frontend; this is stated as a hard acceptance criterion in REQ-717's
 
 ## For AI agents
 
-`POST /auth/guest` must keep passing its captcha token straight through to
-Supabase's `gotrue_meta_security.captcha_token` field — never add a
-second, independent call to Cloudflare's `siteverify` API in this backend.
-If you find yourself writing an HTTP client for Cloudflare's API directly,
-stop: that's a sign you're duplicating verification Supabase already does
-natively, the same class of mistake ADR-0007 already rejected once for
-autocomplete vs. correctness-checking.
+`POST /auth/guest`, `POST /auth/signup`, and `POST /auth/login` must each
+keep passing their captcha token straight through to Supabase's
+`gotrue_meta_security.captcha_token` field on the corresponding
+`SignInAnonymouslyAsync`/`SignUpAsync`/`SignInWithPasswordAsync` call —
+never add a second, independent call to Cloudflare's `siteverify` API in
+this backend, for any of the three. If you find yourself writing an HTTP
+client for Cloudflare's API directly, stop: that's a sign you're
+duplicating verification Supabase already does natively, the same class
+of mistake ADR-0007 already rejected once for autocomplete vs.
+correctness-checking.
 
 The Turnstile secret key must never be added to this application's own
 configuration (no `Turnstile:SecretKey` in `appsettings`/Container App
@@ -171,9 +243,17 @@ secrets/etc.) — it belongs solely in Supabase's own Auth dashboard
 settings, which is the only place that ever calls Cloudflare to verify it.
 If a task seems to require this backend holding that secret, stop and
 flag it — that would mean this backend is calling Cloudflare directly,
-which contradicts this ADR's whole point.
+which contradicts this ADR's whole point. This applies identically to
+all three endpoints — there is no per-endpoint secret-key exception.
 
-This captcha check is scoped to `POST /auth/guest` only. Do not add a
-Turnstile check to `/auth/signup` or `/auth/login` as a side effect of
-implementing this — that would be a scope change needing its own product
-decision and its own REQ/ADR update, not a natural extension of this one.
+**Amended 2026-07-25 — the previous scope limit here was wrong and has
+been reversed.** This captcha check now covers all three of
+`POST /auth/guest`, `POST /auth/signup`, and `POST /auth/login` — see the
+Context addendum and amended Decision section above for why (Supabase's
+"Enable Captcha Protection" toggle is project-wide, not per-endpoint;
+enabling it for guest creation alone silently broke real login/signup).
+Do not re-narrow this back to guest-only "to match the original design" —
+that original design is the thing this amendment corrects. If a future
+task seems to call for scoping captcha to a subset of these three
+endpoints again, that is itself a new product decision needing its own
+REQ/ADR update, not something to infer from this file's edit history.
