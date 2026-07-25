@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.01"
+version: "1.02"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -4236,6 +4236,112 @@ elsewhere in this system), Manual (spot-check that a claimed account's
 guess history and league memberships survive the conversion unchanged;
 the "Play as guest", account-creation, and log-in flows end-to-end with
 the invisible/managed widget against a real Cloudflare Turnstile site)
+
+**REQ-718 – Guest account lifecycle cleanup (logout deletion, unclaimed
+purge, inactive purge)**
+> As the platform operator, I want unclaimed and inactive guest accounts
+> (REQ-717) removed automatically, so guest play doesn't leave an
+> unbounded, ever-growing set of throwaway accounts behind with no
+> corresponding real person.
+
+**Scope note:** this requirement only ever removes an account with
+`User.IsGuest = true` at the moment a rule below fires. Claiming a guest
+account (`POST /auth/claim`, REQ-717) clears `IsGuest` to `false` at the
+moment of claiming (ADR-0036) — from that point on the account is a real
+account and is never eligible for any of the three rules below, regardless
+of how old `CreatedAt` or `ClaimedAt` is. This requirement introduces no
+new automatic deletion of any kind for non-guest accounts — those remain
+governed solely by REQ-710 (an explicit, user- or admin-initiated
+deletion).
+
+**Mechanism note:** all three rules below remove a qualifying account
+through the exact same anonymize-and-keep-`Guess`-rows mechanism REQ-710
+already defines (sever the `Guess.UserId` link rather than deleting the
+row, remove `LeagueMembership` rows, delete the local `User` row, then
+delete the Supabase Auth identity) — not a second, guest-specific deletion
+path. A guest's `Guess` rows carry the exact same "other players'
+historical uniqueness (REQ-204) and leaderboard totals (REQ-409) depend on
+the total guess count staying intact" property REQ-710 already established
+for real accounts (REQ-717/ADR-0036 already makes a guest's guesses count
+normally toward both), so hard-deleting them here would corrupt those same
+denominators identically. See ADR-0038 for this decision in full.
+
+**1. Deletion at logout:**
+- Given a guest account (`IsGuest = true`) that has never been claimed
+- When that guest logs out of the application
+- Then the backend deletes that account via the mechanism above, as part
+  of handling the logout
+- Given the same account has since been claimed (`IsGuest = false`) before
+  logging out
+- Then logging out deletes nothing — it behaves exactly as any other
+  account's logout already does (REQ-715)
+- And this is a best-effort deletion: it depends on a client-initiated
+  logout call actually reaching the backend and completing, so a browser
+  closing before that call completes, or the call itself failing, does not
+  leave the account permanently un-purged — rule 3 below (the 7-day
+  inactivity purge) independently catches any guest account not removed at
+  logout, so correctness never depends on the logout call always
+  succeeding
+
+**2. Unclaimed-guest purge (30 days):**
+- Given a guest account where `IsGuest = true AND ClaimedAt IS NULL`, and
+  more than 30 days have passed since `CreatedAt`
+- When the scheduled cleanup job runs
+- Then that account is deleted via the mechanism above
+- And a guest account that was claimed at any point (`ClaimedAt` set,
+  `IsGuest = false`) is never purged by this rule, no matter how long ago
+  it was created or claimed
+
+**3. Inactive-guest purge (7 days):**
+- Given a guest account where `IsGuest = true`, and more than 7 days have
+  passed since `User.LastActiveAt` (the new tracked field defined below)
+- When the scheduled cleanup job runs
+- Then that account is deleted via the mechanism above
+- And because claiming an account clears `IsGuest`, a claimed account is
+  never subject to this rule from the moment it is claimed onward,
+  regardless of how inactive it later becomes — this requirement adds no
+  inactivity-based purge for real (non-guest) accounts
+
+**Activity tracking (new field):**
+- Given any account, guest or not
+- When that account is created, logs in (`POST /auth/login`), is
+  provisioned as a guest (`POST /auth/guest`), claims a guest account
+  (`POST /auth/claim`), or submits a guess (REQ-201)
+- Then `User.LastActiveAt` is set to the current time — initialized to
+  `CreatedAt` at account creation, so a brand-new account's first 7-day
+  window is measured from creation, never left undefined
+- And no other request (e.g. viewing a leaderboard, fetching the current
+  grid without guessing) updates `LastActiveAt` — the signal this field
+  exists to capture is genuine play, not passive viewing, and updating it
+  on every read request would add write volume with no benefit to either
+  purge rule above
+- And this field is tracked for every account, not only guests — a single,
+  unconditional write path with no `IsGuest` branch in the login/guess/
+  claim code that updates it; only rule 3's purge job filters by `IsGuest`
+  when deciding what to act on, the same "guest flag consulted in exactly
+  one place" discipline REQ-409's exclusion already established for a
+  different field (ADR-0036)
+
+**Interaction between rules 2 and 3:** these are not redundant. A guest
+that keeps playing every few days without ever claiming is never caught by
+rule 3 (its `LastActiveAt` keeps refreshing) but is still caught by rule 2
+once 30 days have passed since creation — bounding how long an unclaimed
+guest identity can persist even if it stays "active" indefinitely. A guest
+that stops playing after a single session is caught by rule 3 well before
+rule 2 would ever apply. A single cleanup run checks both conditions and
+purges any account satisfying either one.
+
+**Test level:** Unit (`LastActiveAt` is set on account creation and
+updated on login/guest-creation/claim/guess-submission and on no other
+request; the 30-day-unclaimed and 7-day-inactive queries each select
+exactly the rows the definitions above require, including the boundary
+case of a claimed account with `IsGuest = false` regardless of age), API
+(logging out an unclaimed guest deletes the account — a subsequent request
+with that account's token is rejected; logging out a claimed account
+deletes nothing), Integration (the scheduled cleanup job run end to end
+against seeded unclaimed/inactive/claimed/active guest rows purges only
+the accounts the rules above require, reusing `IAccountDeletionService` —
+no second deletion code path)
 
 ---
 
