@@ -206,7 +206,13 @@ test.describe('REQ-720: header nav "Games" entry', () => {
 
     await gamesToggle.click()
     await expect(gamesToggle).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.getByRole('button', { name: 'xG Grid' })).toBeVisible()
+    // Scoped to the nav's own games list: signUpNewPlayer leaves the player
+    // on the game-select screen, which already renders its own "xG Grid"
+    // tile in <main> — an unscoped getByRole would match both and fail with
+    // a strict-mode violation.
+    await expect(
+      page.locator('#header-nav-games-list').getByRole('button', { name: 'xG Grid' }),
+    ).toBeVisible()
 
     await expectNoHorizontalOverflow(page)
   })
@@ -297,12 +303,10 @@ test.describe('REQ-716: dark mode toggle', () => {
       .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
       .toBe('dark')
 
-    // App.tsx's `screen` state resets to its 'game-select' default on
-    // reload even though the session (access token in localStorage)
-    // itself survived — navigate back to Settings to flip the preference
-    // back to Light.
-    await expect(page.getByText('Choose a game')).toBeVisible()
-    await page.getByRole('button', { name: 'Settings' }).click()
+    // REQ-721: the URL (#/settings) restores the same screen on reload
+    // now, rather than always resetting to game-select — still on
+    // Settings already, so flip the preference back to Light directly.
+    await expect(page.getByRole('radiogroup', { name: 'Color theme' })).toBeVisible()
     await page.getByRole('radio', { name: 'Light' }).check()
     await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked()
     await expect
