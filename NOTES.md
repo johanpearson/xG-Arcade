@@ -27,6 +27,43 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-25 — Sign-in latency measured: cold start and captcha are additive, separate costs
+
+Live report: sign-in feels slow, reportedly since the Cloudflare Turnstile
+captcha rollout (ADR-0037). Rather than guess, measured real timing
+against the deployed dev Container App via a temporary `workflow_dispatch`
+diagnostic workflow (added, dispatched, then deleted — see
+`infra/README.md`'s new "Sign-in latency" section for the numbers in
+full and the resulting decision). This sandbox can't reach
+`*.azurecontainerapps.io` directly (same proxy restriction as
+`wikidata.org` elsewhere in this file), so the probe had to run from a
+real GitHub Actions runner instead — and a brand-new `workflow_dispatch`
+workflow can't be triggered via the API/UI until it exists on the
+**default branch**, not just a feature branch (a genuine GitHub
+limitation, not a permissions issue) — worth remembering next time a
+diagnostic-only workflow is needed for a similar investigation.
+
+Headline numbers: cold `/health` (first hit after ~22 idle minutes) took
+9.93s, of which only 0.13s was the TCP connect — almost all of it was
+Container Apps standing a replica up (`minReplicas: 0`, pre-existing
+since ADR-0004/S-001, not caused by captcha). Warm `/health` settled at
+~0.35s. The first `/auth/login` on an already-warm backend cost 1.97s —
+about 1.6s more than warm baseline, the one-time cost of the backend's
+first Supabase call (which now also asks Supabase to verify the captcha
+token against Cloudflare) — dropping to ~0.45s on the next two attempts.
+**Conclusion: cold start was always the bigger single cost and predates
+captcha; captcha added a real but smaller tax on top, concentrated on the
+first sign-in after any idle period** (both the measured
+backend→Supabase→Cloudflare cost above, and an unmeasured-here but
+structurally real frontend cost — `getTurnstileToken()`
+(`frontend/src/lib/turnstile.ts`) makes the browser await a Cloudflare
+token *before* `POST /auth/login` is ever sent, a genuinely new serial
+delay stacked in front of everything else). Decision: keep
+`minReplicas: 0` (this project is free-tier-only by explicit constraint;
+raising it to 1 would cost ~$10-12/month) and document the trade-off
+instead — see `infra/README.md`. Revisit if/when a real "prod"
+environment exists and this stops being a solo-testing inconvenience.
+
 ### 2026-07-21 — Supabase Anonymous Sign-ins / user-update API shapes unverified (S-069, REQ-717)
 `SupabaseAuthClient.SignInAnonymouslyAsync` (`POST auth/v1/signup` with no
 email/password) and `LinkEmailPasswordAsync` (`PUT auth/v1/user`,

@@ -299,6 +299,83 @@ than relying on the sync job to do it implicitly.
 Numbers above will drift over time — re-verify against each provider's
 pricing page before relying on them for a real cost decision.
 
+## Sign-in latency: cold start + captcha (investigated 2026-07-25)
+
+A live report ("sign-in became slow after the captcha rollout") was
+investigated against the actual deployed dev environment rather than
+guessed at. Real timings, gathered via a one-off `workflow_dispatch`
+diagnostic workflow run from a GitHub Actions runner (this repo's own
+sandbox environments can't reach `*.azurecontainerapps.io` directly — same
+proxy restriction NOTES.md already documents for `wikidata.org`):
+
+| Probe | Result |
+|---|---|
+| `GET /health`, first request after ~22 minutes of no traffic | `200`, **9.93s** total — but only **0.13s** to establish the TCP connection. Almost the entire 9.8s was the Container App standing up a replica before it could answer at all: the textbook Consumption-plan (`minReplicas: 0`) scale-to-zero cold start. |
+| `GET /health` ×3, immediately after (warm) | `200`, **~0.35–0.36s** each, consistently. No Supabase call on this route at all. |
+| `POST /auth/login` ×3, same already-warm backend (wrong password + invalid captcha token, so Supabase genuinely runs its captcha check before rejecting) | attempt 1: **1.97s**; attempts 2–3: **~0.43–0.47s** |
+
+**Two distinct, additive causes, not one:**
+
+1. **Container Apps cold start (`minReplicas: 0`)** — up to ~10 seconds on
+   the very first request after the app scales to zero from inactivity.
+   This has existed since S-001/ADR-0004; it isn't new, and it isn't
+   specific to sign-in — any first request (health check, grid load,
+   anything) pays it.
+2. **Captcha's added external hop, layered on top** — two separate
+   sub-costs, both genuinely new since ADR-0037:
+   - *Backend → Supabase → Cloudflare, cold*: the very first
+     Supabase-mediated auth call after a cold start pays a one-time
+     ~1.6s premium over a plain warm request (establishing the outbound
+     connection from the Container App to Supabase, and Supabase's own
+     call out to Cloudflare to verify the token) — measured above as the
+     gap between the first login attempt (1.97s) and the warm baseline
+     (~0.35s). Once warm, this drops to roughly +0.1s per login, not
+     seconds.
+   - *Frontend → Cloudflare, before the login request is even sent*: not
+     measured by this backend-only probe, but structurally real —
+     `getTurnstileToken()` (`frontend/src/lib/turnstile.ts`) loads
+     Cloudflare's script and awaits a token *before* `POST /auth/login`
+     is ever called, adding a further serial delay in front of everything
+     above. Turnstile runs in invisible/managed mode (ADR-0037's
+     recommendation, confirmed in code), so this is normally a modest,
+     largely-fixed cost — but it can grow unpredictably if Cloudflare's
+     risk scoring ever escalates to a visible interactive challenge,
+     which waits on the person, not the network.
+
+**Worst case (cold container + first-ever Supabase/captcha call + a
+non-trivial Turnstile round trip) can plausibly exceed 10-12 seconds.**
+Warm-container sign-in (the common case once the app has recent traffic)
+costs roughly the captcha layer's steady-state overhead — well under a
+second in this measurement — on top of whatever the pre-existing
+non-captcha login already cost. Cold start was always the larger single
+contributor; captcha added a real, smaller, but not negligible tax on top
+of it, concentrated most heavily on exactly the first sign-in after any
+idle period.
+
+**Decision: documented here, `minReplicas` left at 0.** Raising
+`minReplicas` to 1 would eliminate the Container Apps cold start entirely
+(see the cost table above) but moves the app outside the Consumption
+free grant — roughly $10–12/month for one always-on replica. Given this
+project's explicit free-tier-only constraint, that trade is not taken.
+This is an accepted, known trade-off for Tier 0 (a dev/testing
+environment with no real users yet, per `MVP-SCOPE.md`), not a bug —
+revisit once/if a real "prod" environment is created (`MVP-SCOPE.md`'s
+own trigger for that) and real users' experience of a cold first
+sign-in becomes a genuine product cost rather than a solo-testing
+inconvenience.
+
+**A free-tier-compatible mitigation exists if this becomes worth doing
+later, worth naming rather than silently building:** a scheduled
+keep-alive ping frequent enough to prevent scale-to-zero during expected
+testing hours would trade GitHub Actions minutes (free on this public
+repo) for fewer cold starts — but pinging often enough to *always* stay
+warm is not meaningfully different from `minReplicas: 1` in resource
+terms (it would push Container Apps usage toward the same free-grant
+ceiling the table above warns about), so it only stays genuinely free if
+scoped to specific hours, not run continuously. Not implemented here —
+flagged as a real option, not adopted, since narrowing it to "expected
+hours" is a product judgment call, not an infrastructure one.
+
 ## Swapping hosting later
 
 Per ADR-0004, the backend has no Container-Apps-specific code — it's a
