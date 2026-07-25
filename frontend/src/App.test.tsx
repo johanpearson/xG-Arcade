@@ -482,9 +482,10 @@ describe('App (REQ-720: "Games" nav entry)', () => {
 // never restores an authenticated screen from the URL.
 describe('App (REQ-721: URL reflects current screen)', () => {
   afterEach(() => {
+    // location.hash itself is reset globally (tests/unit/setup.ts) since
+    // jsdom's window persists across tests within a file.
     vi.unstubAllGlobals();
     window.localStorage.clear();
-    window.location.hash = '';
   });
 
   it('REQ-721: navigating via the header nav updates location.hash to match the screen shown', async () => {
@@ -586,5 +587,154 @@ describe('App (REQ-721: URL reflects current screen)', () => {
 
     expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
     expect(window.location.hash).toBe('');
+  });
+
+  // Quality-architect (2026-07-25) flagged that only game-select, settings,
+  // and leagues (the latter in tests/e2e/url-routing.spec.ts) were ever
+  // actually asserted against SCREEN_HASHES, despite REQ-721 requiring all
+  // six Screen values to get a distinct URL with working reload-restore.
+  // The six tests below close that gap for the remaining three
+  // (grid/leaderboard/admin) as unit/component tests here rather than new
+  // E2E — reaching AdminScreen only needs an admin `meResponse` and the
+  // existing `navigateTo('admin')` path already exercised elsewhere in this
+  // file, not a real backend admin fixture.
+  it('REQ-721: navigating to the grid screen updates location.hash to #/grid', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/rounds/current')) return jsonResponse(null);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    // "xG Grid" also appears as GameSelectScreen's own tile while
+    // game-select is showing, so this is scoped to the nav, matching
+    // REQ-720's own test above.
+    const nav = screen.getByRole('navigation');
+    await user.click(within(nav).getByRole('button', { name: 'Games' }));
+    await user.click(within(nav).getByRole('button', { name: 'xG Grid' }));
+
+    await screen.findByText('No round to play right now');
+    expect(window.location.hash).toBe('#/grid');
+  });
+
+  it('REQ-721: navigating to the leaderboard screen updates location.hash to #/leaderboard', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/leagues/global/leaderboard')) {
+        return jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Leaderboard' }));
+
+    expect(await screen.findByRole('heading', { name: 'Global leaderboard' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/leaderboard');
+  });
+
+  it('REQ-721: navigating to the admin screen (as an admin user) updates location.hash to #/admin', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const adminMeResponse = { ...meResponse, isAdmin: true };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(adminMeResponse);
+      if (url.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (url.includes('/admin/rounds/xg-grid/active')) return jsonResponse(null);
+      // /admin/accounts/metrics is fetched by AdminScreen's own
+      // AccountMetricsSection on mount but isn't needed to reach the
+      // "Admin" heading below — left unmocked deliberately, the same way
+      // AdminScreen.test.tsx's simplest render test does, since that
+      // component's own try/catch contains the resulting rejection.
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await user.click(screen.getByRole('button', { name: 'Admin' }));
+
+    expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/admin');
+  });
+
+  it('REQ-721: reloading (remounting) with location.hash already #/grid and a valid stored session restores the grid screen', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/grid';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/rounds/current')) return jsonResponse(null);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText('No round to play right now')).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
+  });
+
+  it('REQ-721: reloading (remounting) with location.hash already #/leaderboard and a valid stored session restores the leaderboard screen', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/leaderboard';
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/leagues/global/leaderboard')) {
+        return jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Global leaderboard' })).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
+  });
+
+  it('REQ-721: reloading (remounting) with location.hash already #/admin, a valid stored session, and an admin user restores the admin screen', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    window.location.hash = '#/admin';
+    const adminMeResponse = { ...meResponse, isAdmin: true };
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(adminMeResponse);
+      if (url.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (url.includes('/admin/rounds/xg-grid/active')) return jsonResponse(null);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
   });
 });
