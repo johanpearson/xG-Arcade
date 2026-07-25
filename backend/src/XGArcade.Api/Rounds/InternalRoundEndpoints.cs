@@ -1,6 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using XGArcade.Api.Grid;
+using XGArcade.Api.Internal;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data.Entities;
@@ -30,7 +29,7 @@ public static class InternalRoundEndpoints
             double? roundDurationHours,
             CancellationToken cancellationToken) =>
         {
-            if (!IsAuthorized(httpContext.Request, configuration))
+            if (!InternalJobAuthorization.IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
 
             // Optional per-call override (e.g. generate-round.yml's
@@ -232,26 +231,6 @@ public static class InternalRoundEndpoints
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
-    }
-
-    private static bool IsAuthorized(HttpRequest request, IConfiguration configuration)
-    {
-        var expectedToken = configuration["Internal:JobToken"];
-        if (string.IsNullOrEmpty(expectedToken))
-            return false;
-
-        if (!request.Headers.TryGetValue("Authorization", out var authHeader))
-            return false;
-
-        var expectedBytes = Encoding.UTF8.GetBytes($"Bearer {expectedToken}");
-        var actualBytes = Encoding.UTF8.GetBytes(authHeader.ToString());
-
-        // FixedTimeEquals rejects a length mismatch immediately on its own —
-        // this token authorizes a real write action, so constant-time
-        // comparison is used rather than a plain ==, not for any extra
-        // protection the explicit length check below would add.
-        return expectedBytes.Length == actualBytes.Length
-            && CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
     }
 }
 

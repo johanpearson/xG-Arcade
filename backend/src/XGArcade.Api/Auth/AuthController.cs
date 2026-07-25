@@ -156,6 +156,10 @@ public class AuthController(
         User user;
         try
         {
+            // REQ-718/ADR-0038: captured once so CreatedAt/LastActiveAt agree
+            // exactly at account creation rather than two independent
+            // DateTime.UtcNow calls that could differ by microseconds.
+            var now = DateTime.UtcNow;
             user = await userRepository.AddAsync(new User
             {
                 Id = Guid.NewGuid(),
@@ -165,7 +169,10 @@ public class AuthController(
                 Email = request.Email,
                 DisplayName = displayName,
                 EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                // REQ-718: a brand-new account's first 7-day inactivity
+                // window is measured from creation, never left undefined.
+                LastActiveAt = now,
             }, cancellationToken);
         }
         catch (DisplayNameAlreadyInUseException ex)
@@ -236,6 +243,19 @@ public class AuthController(
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
+        // REQ-718/ADR-0038: a successful login is one of the four
+        // activity-tracking events — resolved by AuthProviderUserId (Login
+        // has no other identifier for the local row yet) the same way every
+        // other authenticated endpoint here resolves it from a JWT claim.
+        // Best-effort: a user row somehow not existing yet (there is no
+        // known path to this today) doesn't fail an otherwise-successful
+        // login over a bookkeeping field.
+        var loggedInUser = await userRepository.GetByAuthProviderUserIdAsync(signInResult.AuthProviderUserId!.Value, cancellationToken);
+        if (loggedInUser is not null)
+        {
+            await userRepository.UpdateLastActiveAtAsync(loggedInUser.Id, cancellationToken);
+        }
+
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
     }
 
@@ -300,6 +320,11 @@ public class AuthController(
         User user;
         try
         {
+            // REQ-718/ADR-0038: same "captured once" reasoning as Signup
+            // above — a guest's own creation is also one of the four
+            // activity-tracking events, and its first 7-day inactivity
+            // window starts here.
+            var now = DateTime.UtcNow;
             user = await userRepository.AddAsync(new User
             {
                 Id = Guid.NewGuid(),
@@ -316,7 +341,8 @@ public class AuthController(
                 // rather than one that matters operationally yet.
                 EmailConfirmed = false,
                 IsGuest = true,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                LastActiveAt = now,
             }, cancellationToken);
         }
         catch (DisplayNameAlreadyInUseException ex)
@@ -575,6 +601,55 @@ public class AuthController(
 
         var isAdmin = AdminAuthorizationHandler.IsAdminUserId(configuration, authProviderUserId.Value);
         return Ok(new MeResponse(updated.Id, updated.Email, updated.DisplayName, updated.EmailConfirmed, isAdmin, updated.IsGuest));
+    }
+
+    // REQ-718/ADR-0038 rule 1: the first backend logout call this system has
+    // ever had — REQ-715's own status note records that logout was, until
+    // now, entirely client-side (App.tsx's handleLogout just clears
+    // localStorage). This endpoint adds exactly one behavior on top of that:
+    // for an unclaimed guest (IsGuest && ClaimedAt is null), delete the
+    // account via the same IAccountDeletionService.DeleteAccountAsync path
+    // REQ-710's self-service DeleteAccount above and the scheduled purge job
+    // (InternalGuestCleanupEndpoints) both use — never a second deletion
+    // path. For a claimed or non-guest account this does nothing, same as
+    // REQ-715's existing behavior for those.
+    //
+    // Deliberately best-effort (REQ-718's own "Given ... And this is a
+    // best-effort deletion" clause): always responds 204 regardless of
+    // deletion outcome, logging a failure server-side rather than surfacing
+    // it — the frontend's own local logout (clearing localStorage) must
+    // never be blocked or delayed by this call succeeding or failing, and
+    // rule 3's 7-day inactivity purge independently catches any account this
+    // call fails to remove.
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+            return Unauthorized();
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            // Nothing to clean up — same best-effort, no-error-surfacing
+            // contract as every other outcome of this endpoint.
+            return NoContent();
+        }
+
+        if (user.IsGuest && user.ClaimedAt is null)
+        {
+            var result = await accountDeletionService.DeleteAccountAsync(user.Id, cancellationToken);
+            if (!result.Success)
+            {
+                // Logged, not surfaced (REQ-718 rule 1's best-effort clause)
+                // — rule 3's scheduled inactivity purge independently catches
+                // this account once its LastActiveAt is old enough.
+                logger.LogError("Best-effort guest deletion at logout failed for user {UserId}: {ErrorMessage}", user.Id, result.ErrorMessage);
+            }
+        }
+
+        return NoContent();
     }
 
     // Shared by Claim above — the raw bearer token this request itself

@@ -3658,3 +3658,69 @@ final commit (`6f267a4`). `quality-architect` passed the diff after the
 one fix listed above (the `getTurnstileToken()` race condition); no
 architecture/component-boundary change beyond ADR-0037's own scope, no new
 ADR needed on top of it.
+
+**S-072 · Guest account lifecycle cleanup (REQ-718, ADR-0038)**
+REQ-718/ADR-0038 were drafted the same session (2026-07-25); this story is
+the implementation both describe: delete an unclaimed guest at logout,
+purge unclaimed guests after 30 days, purge inactive guests after 7 days —
+all three reusing S-025's `IAccountDeletionService` unmodified, never a
+second deletion path.
+*Deps:* S-025 (`IAccountDeletionService`), S-069/S-070 (guest play,
+`IsGuest`/`ClaimedAt`), S-008 (`/internal/generate-round`'s bearer-token
+pattern this reuses for the new scheduled endpoint).
+*Accept:* REQ718-named tests (unit: `LastActiveAt` set at creation and
+updated on login/guest-creation/claim/guess-submission and on no other
+request; the 30-day-unclaimed and 7-day-inactive selection queries select
+exactly the rows their own definitions require, including a claimed
+account never matching either regardless of age; API: logging out an
+unclaimed guest deletes the account and a subsequent request with that
+token is rejected, logging out a claimed account deletes nothing;
+integration: the scheduled purge run against seeded
+unclaimed/inactive/claimed/active rows purges only what the two rules
+require) — added by `test-writer` in a follow-up pass, not written here.
+**Built as:** `User` gained a third column, `LastActiveAt` (non-nullable
+`DateTime`, migration `20260725120000_AddUserLastActiveAt` — added
+nullable, backfilled from each row's own `CreatedAt` via raw SQL, then
+tightened to `NOT NULL`, since a per-row backfill can't be expressed via
+`AddColumn`'s single fixed `defaultValue`). Set inline at insert
+(Signup/Guest, alongside `CreatedAt`), folded into
+`UserRepository.ClaimGuestAsync`'s existing write (Claim), and updated via
+a new `IUserRepository.UpdateLastActiveAtAsync` (Login, resolved by
+`AuthProviderUserId`; a submitted guess in `GuessEndpoints`, updated for
+every outcome — accepted, disambiguation, or rejected — since all still
+mean the account genuinely engaged with an active round) — no `IsGuest`
+branch in any of these four paths, per ADR-0038's explicit instruction.
+`AuthController` gained `POST /auth/logout` ([Authorize]) — this system's
+first backend logout call ever (REQ-715's logout was, until now, entirely
+client-side): for an unclaimed guest, calls
+`IAccountDeletionService.DeleteAccountAsync` and always responds `204`
+regardless of outcome (best-effort; failures are logged, not surfaced).
+New `XGArcade.Api.Auth.InternalGuestCleanupEndpoints` maps
+`POST /internal/purge-guest-accounts` (bearer-token-protected) — two new
+`IUserRepository` queries
+(`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`)
+select each rule's rows, deduped by `User.Id` before calling
+`IAccountDeletionService.DeleteAccountAsync` once per account, returning a
+small typed response with each rule's match count and the total deleted.
+The existing `/internal/generate-round` bearer-token
+constant-time-compare check was extracted from `InternalRoundEndpoints`
+into a new, shared `XGArcade.Api.Internal.InternalJobAuthorization` static
+helper, used by both endpoints, rather than hand-duplicated for the new
+one. New `purge-guest-accounts.yml` (daily, 07:00 UTC — offset one hour
+from `generate-round.yml`'s 06:00) follows that workflow's exact
+curl/bearer-token/fail-on->=400 shape. Frontend: `lib/api.ts` gained
+`logout(accessToken)` (POST, best-effort — a caller failure is expected to
+be caught, not thrown further); `App.tsx`'s `handleLogout` captures the
+current `accessToken` before clearing local state, then fires `logout()`
+without awaiting it, so a slow/failing network call never delays or blocks
+REQ-715's existing instant local logout (the `useCallback` now depends on
+`accessToken`, since the token must be read before it's cleared).
+`docs/legal/privacy-policy-draft.md` updated (new `LastActiveAt` tracking
+disclosure, automatic guest-removal rules) per CLAUDE.md's legal-drafts
+rule. **Not run against a live `dotnet build`/`dotnet test`** — no `.NET`
+SDK available in the build environment; hand-traced against REQ-718's own
+Given/When/Then and against every existing call site the new
+`IUserRepository`/`AuthController` members touch. No new Wikidata QIDs
+introduced. `test-writer` to add the REQ718-named unit/API/integration
+coverage listed under *Accept* above in a follow-up pass; `architecture-
+reviewer`/`quality-architect` review still pending as of this entry.

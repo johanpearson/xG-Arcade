@@ -41,8 +41,23 @@ public interface IUserRepository
     // the caller should already have resolved this row via
     // GetByAuthProviderUserIdAsync before calling this). Never touches
     // Guess/LeagueMembership rows — REQ-717 is explicit that claiming is an
-    // in-place identity conversion, not a re-link.
+    // in-place identity conversion, not a re-link. REQ-718/ADR-0038: also
+    // stamps LastActiveAt in this same write — claiming is one of that
+    // requirement's four activity-tracking events, and this row is already
+    // being loaded and saved for ClaimedAt/IsGuest/Email, so no second round
+    // trip is needed.
     Task<User?> ClaimGuestAsync(Guid id, string email, CancellationToken cancellationToken = default);
+
+    // REQ-718/ADR-0038: stamps LastActiveAt to "now" on the caller's own row
+    // — called after a successful login (AuthController.Login) and after a
+    // submitted guess (GuessEndpoints), the two of REQ-718's four activity
+    // events that don't already have some other write touching this row in
+    // the same request (Signup/Guest set it inline at insert; Claim folds it
+    // into ClaimGuestAsync above). Load-then-SaveChangesAsync, same pattern
+    // as every other write here — never ExecuteUpdateAsync (docs/coding-
+    // guidelines.md). Returns null if no such user exists (defensive only;
+    // every caller has already resolved this row before calling this).
+    Task<User?> UpdateLastActiveAtAsync(Guid id, CancellationToken cancellationToken = default);
 
     // REQ-404's leaderboard: resolves every member's DisplayName in one
     // query rather than one round-trip per row.
@@ -60,6 +75,20 @@ public interface IUserRepository
     // resolves it to the local User.Id AccountDeletionService needs.
     // Case-insensitive, matching how Supabase Auth itself treats email.
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+
+    // REQ-718/ADR-0038 rule 2: the scheduled purge job's own selection
+    // query for "unclaimed for more than 30 days" — IsGuest AND
+    // ClaimedAt IS NULL AND CreatedAt < cutoff. A guest claimed at any
+    // point never matches (ClaimedAt is set the moment claiming happens,
+    // regardless of how long ago), matching REQ-718's own scope note.
+    Task<IReadOnlyList<User>> GetUnclaimedGuestsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default);
+
+    // REQ-718/ADR-0038 rule 3: the scheduled purge job's own selection
+    // query for "inactive for more than 7 days" — IsGuest AND
+    // LastActiveAt < cutoff. Deliberately no ClaimedAt condition: claiming
+    // already clears IsGuest, so a claimed account can never match this
+    // query regardless of how old LastActiveAt later becomes.
+    Task<IReadOnlyList<User>> GetInactiveGuestsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default);
 
     // REQ-710: permanently removes the local profile row. Callers must
     // anonymize this user's Guess rows (AnonymizeByUserIdAsync) and remove

@@ -70,4 +70,22 @@ public class User
     public DateTime? ClaimedAt { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    // REQ-718/ADR-0038: tracks genuine engagement (never a passive read) for
+    // every account, guest or not — updated on exactly four events (login,
+    // guest provisioning, claim, a submitted guess) with no `IsGuest` branch
+    // in any of those write paths, mirroring the "IsGuest consulted in
+    // exactly one place" discipline ADR-0036 already established for that
+    // field. Initialized to `CreatedAt` at insert time (Signup/Guest), so a
+    // brand-new account's first 7-day window is measured from creation, not
+    // left undefined. Non-nullable (unlike `ClaimedAt` above, which is
+    // genuinely absent until claimed) — ADR-0038 describes the migration
+    // column as "nullable at the type level" purely as a backfill step for
+    // pre-existing rows; once that backfill runs, no row is ever actually
+    // null, so the entity itself stays a plain `DateTime` like `CreatedAt`
+    // rather than carrying a `?` no code path ever needs to check. Consulted
+    // (alongside `IsGuest`) only by the purge job's own selection queries
+    // (`IUserRepository.GetInactiveGuestsOlderThanAsync`) — never inside
+    // REQ-201-210/204/406/407/408's actual scoring/leaderboard logic.
+    public DateTime LastActiveAt { get; set; }
 }

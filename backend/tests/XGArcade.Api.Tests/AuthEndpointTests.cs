@@ -1725,6 +1725,241 @@ public class AuthEndpointTests
         Assert.That(stillThere, Is.Not.Null, "the guest row must be untouched by the rejected request");
     }
 
+    // ---- REQ-718/ADR-0038: guest account lifecycle cleanup ----
+
+    // ---- LastActiveAt activity tracking (four events: signup/guest/login/
+    // claim/guess — guess-submission is covered in GuessEndpointTests.cs,
+    // the endpoint that actually owns that write path) ----
+
+    [Test]
+    public async Task REQ718_Signup_Post_SetsLastActiveAtEqualToCreatedAt()
+    {
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("last-active-signup@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync(u => u.Email == "last-active-signup@example.com");
+        // AuthController.Signup captures `now` once for both fields, so a
+        // brand-new account's first 7-day inactivity window starts exactly
+        // at creation — not merely "close to it."
+        Assert.That(user.LastActiveAt, Is.EqualTo(user.CreatedAt));
+    }
+
+    [Test]
+    public async Task REQ718_Guest_Post_SetsLastActiveAtEqualToCreatedAt()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync(u => u.IsGuest);
+        Assert.That(user.LastActiveAt, Is.EqualTo(user.CreatedAt));
+    }
+
+    [Test]
+    public async Task REQ718_Login_Post_UpdatesLastActiveAtOnExistingUser()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "last-active-login@example.com");
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var tracked = await dbContext.Users.SingleAsync(u => u.Id == user.Id);
+            tracked.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await dbContext.SaveChangesAsync();
+        }
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = authProviderUserId,
+            AccessToken = "a-fake-access-token",
+            RefreshToken = "a-fake-refresh-token",
+        };
+        var client = _factory.CreateClient();
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync("/auth/login", new LoginRequest("last-active-login@example.com", "a-reasonable-password", "a-fake-turnstile-token"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    [Test]
+    public async Task REQ718_Claim_Post_UpdatesLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("last-active-claim@example.com", "a-reasonable-password", "a-reasonable-password"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == guest.Id);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    // The important negative: a passive read (GET /auth/me) must never
+    // update LastActiveAt — the signal this field exists to capture is
+    // genuine play, not viewing a profile.
+    [Test]
+    public async Task REQ718_Me_Get_DoesNotUpdateLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "last-active-readonly@example.com");
+        var oldLastActiveAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var tracked = await dbContext.Users.SingleAsync(u => u.Id == user.Id);
+            tracked.LastActiveAt = oldLastActiveAt;
+            await dbContext.SaveChangesAsync();
+        }
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(reloaded.LastActiveAt, Is.EqualTo(oldLastActiveAt));
+    }
+
+    // ---- Rule 1: deletion at logout ----
+
+    [Test]
+    public async Task REQ718_Logout_Post_UnclaimedGuest_DeletesAccount_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.EqualTo(authProviderUserId));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == guest.Id);
+        Assert.That(remaining, Is.Null);
+    }
+
+    // The important assertion: once logout has deleted the account, the
+    // exact same still-technically-valid JWT can no longer be used to reach
+    // this account's own data — REQ-718's "subsequent request ... is
+    // rejected" clause. AuthController.Me resolves the local row by
+    // AuthProviderUserId and returns 404 once that row is gone (the JWT
+    // itself is stateless and remains cryptographically valid until it
+    // expires, but no local account backs it anymore).
+    [Test]
+    public async Task REQ718_Logout_Post_UnclaimedGuest_SubsequentRequestWithSameTokenIsRejected()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+        var logoutResponse = await client.PostAsync("/auth/logout", content: null);
+        Assert.That(logoutResponse.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var meResponse = await client.GetAsync("/auth/me");
+
+        Assert.That(meResponse.StatusCode, Is.Not.EqualTo(HttpStatusCode.OK));
+        Assert.That(meResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // REQ-718's own explicit clause: a since-claimed account's logout must
+    // behave exactly like any other account's — deletes nothing.
+    [Test]
+    public async Task REQ718_Logout_Post_ClaimedAccount_DeletesNothing_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        Guid claimedUserId;
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var claimed = new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = "since-claimed@example.com",
+                DisplayName = "Since Claimed",
+                EmailConfirmed = true,
+                IsGuest = false,
+                ClaimedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+                LastActiveAt = DateTime.UtcNow.AddDays(-1),
+            };
+            dbContext.Users.Add(claimed);
+            await dbContext.SaveChangesAsync();
+            claimedUserId = claimed.Id;
+        }
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == claimedUserId);
+        Assert.That(remaining, Is.Not.Null);
+
+        // The account is still fully usable afterward — logout for a
+        // claimed account is a pure no-op, not a partial/soft deletion.
+        var meResponse = await client.GetAsync("/auth/me");
+        Assert.That(meResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+    }
+
+    // A plain, ordinary (never-guest) account's logout must equally delete
+    // nothing — REQ-718 only ever removes IsGuest = true rows.
+    [Test]
+    public async Task REQ718_Logout_Post_NonGuestAccount_DeletesNothing_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "ordinary-logout@example.com");
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remaining, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ718_Logout_Post_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+    }
+
     // captchaToken defaults to the same fixed placeholder every other
     // non-captcha-focused test in this file uses (REQ-710/ADR-0037's second
     // amendment) — callers exercising the captcha check itself pass `null`

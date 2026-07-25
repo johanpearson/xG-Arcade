@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.8"
+version: "0.9"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-21
+last_updated: 2026-07-25
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -33,6 +33,11 @@ last_updated: 2026-07-21
   display name (e.g. "Guest8317") is used until you set your own.
 - **Gameplay data:** the guesses you submit, which rounds and leagues you
   participate in, your scores
+- **Last-active timestamp:** for every account, guest or not, we record the
+  time of your most recent login, guest sign-in, account claim, or
+  submitted guess. For a guest account, this is used only to determine when
+  the account is inactive and eligible for the automatic removal described
+  under "How long we keep it" below.
 - **Nothing else by default:** we don't collect browsing behavior, device
   fingerprints, or location data beyond what's ordinarily present in
   standard web server logs
@@ -81,6 +86,15 @@ last_updated: 2026-07-21
   deleted outright — the record that "someone guessed X for this cell" is
   kept (it's needed for other players' scores to remain accurate), but the
   link between that guess and you is permanently severed.
+- **Guest accounts are removed automatically** if never converted into a
+  full account: when you log out of a guest session that was never
+  claimed, when a guest account has gone unclaimed for more than 30 days,
+  or when any guest account (not yet converted into a full account) has had
+  no activity for more than 7 days. Once you add an email and password
+  (claiming the account), none of this automatic removal applies to you
+  anymore. Removal uses the exact same anonymize-and-delete process
+  described above — your past guesses are kept in anonymized form for the
+  same reason.
 
 ## Your rights
 

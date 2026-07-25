@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.49"
+version: "0.50"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -365,6 +365,29 @@ a claimed account's pre-claim rounds — every other query/service
 (REQ-201-210, REQ-204, REQ-406/407/408) is unmodified, per ADR-0036's own
 "For AI agents" instruction that a guest must never gain a second,
 guest-aware code path anywhere else.
+
+**COMP-01 status (S-072, 2026-07-25, REQ-718/ADR-0038):** guest account
+lifecycle cleanup added a third `User` column, `LastActiveAt` (non-nullable
+`DateTime`, migration `20260725120000_AddUserLastActiveAt`) — updated on
+exactly four events (login, guest provisioning, claim, a submitted guess)
+with no `IsGuest` branch in any of those write paths, the same discipline
+the S-069 status note above already established for `IsGuest` itself. Two
+new `IUserRepository` queries
+(`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`) are
+the *only* other place `IsGuest`/`LastActiveAt` are consulted for this
+feature — inside the new `/internal/purge-guest-accounts` endpoint
+(`XGArcade.Api.Auth.InternalGuestCleanupEndpoints`, see §6.10), never inside
+REQ-201-210/204/406/407/408. A new `POST /auth/logout`
+(`AuthController.Logout`) is this system's first backend logout call at
+all — REQ-715's logout was, until now, entirely client-side. Both the new
+endpoint and the scheduled job call the exact same
+`IAccountDeletionService.DeleteAccountAsync` (COMP-01, S-025) REQ-710's
+self-service deletion and S-026's admin deletion already use — a fourth and
+fifth caller, never a second implementation. The existing
+`/internal/generate-round` bearer-token check
+(`InternalRoundEndpoints.IsAuthorized`) was extracted into a shared
+`XGArcade.Api.Internal.InternalJobAuthorization` helper so this second
+bearer-token-gated `/internal/*` endpoint doesn't hand-duplicate it.
 
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
@@ -1075,6 +1098,11 @@ ADR-0006) — which resolves the admin-supplied email to a `User.Id` (new
 exactly the same `IAccountDeletionService` call the self-service path uses;
 everything below that point is identical, unchanged, and not duplicated.
 
+**S-072 addition (REQ-718/ADR-0038):** two more entry points join the same
+`IAccountDeletionService` call — `AuthController.Logout` and
+`InternalGuestCleanupEndpoints`'s scheduled job (see §6.10) — a fourth and
+fifth *caller*, not a second/third/fourth *implementation*.
+
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
 ```
@@ -1085,6 +1113,44 @@ GitHub Actions → Production database: pg_dump (full export)
     and from Supabase entirely — see infra/README.md for the retention
     policy and restore procedure
 ```
+
+**6.10 Guest account cleanup flow** (realizes REQ-718, ADR-0038)
+
+```
+Rule 1 (logout, best-effort):
+User → Web Frontend: logs out
+  → Backend API: POST /auth/logout ([Authorize])
+    → Core.Users (COMP-01): if IsGuest && ClaimedAt is null,
+      IAccountDeletionService.DeleteAccountAsync(user.Id) — same mechanism
+      as §6.8
+    → Always responds 204, regardless of outcome — Web Frontend clears
+      localStorage immediately, never blocked or delayed by this call
+
+Rules 2 and 3 (scheduled purge, safety net):
+[scheduled, daily, 07:00 UTC — purge-guest-accounts.yml]
+GitHub Actions → Backend API: POST /internal/purge-guest-accounts
+  (bearer-token-protected, same InternalJobAuthorization helper §6.1 uses)
+  → Core.Users: IUserRepository.GetUnclaimedGuestsOlderThanAsync(30 days)
+    — rule 2 (IsGuest && ClaimedAt IS NULL && CreatedAt < cutoff)
+  → Core.Users: IUserRepository.GetInactiveGuestsOlderThanAsync(7 days)
+    — rule 3 (IsGuest && LastActiveAt < cutoff, no ClaimedAt condition)
+  → For every matching row (deduped — a row can satisfy both):
+    IAccountDeletionService.DeleteAccountAsync(user.Id) — same mechanism
+    as §6.8
+  → Returns a count of each rule's matches and the total accounts removed
+```
+
+**Built as (S-072):** `AuthController.Logout` and
+`XGArcade.Api.Auth.InternalGuestCleanupEndpoints` are the two new entry
+points — see the COMP-01 status note above for exactly what's new on the
+data-model side (`User.LastActiveAt`, the two new `IUserRepository`
+queries). Both call sites reuse `IAccountDeletionService.DeleteAccountAsync`
+unmodified (§6.8) — no new deletion logic was written for this flow.
+`/internal/purge-guest-accounts` runs in every environment, following
+`/internal/generate-round`'s own precedent (§6.1) for why a
+bearer-token-gated `/internal/*` endpoint whose only caller is a scheduled
+job isn't restricted to non-Production the way `XGArcade.Testing`/COMP-09
+is (ADR-0006).
 
 ## 7. Cross-cutting concerns
 

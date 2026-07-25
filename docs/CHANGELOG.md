@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/implementation-document.md`, `docs/backlog.md`,
+  `docs/legal/privacy-policy-draft.md` — implemented REQ-718/ADR-0038 (S-072):
+  `User.LastActiveAt` (migration `20260725120000_AddUserLastActiveAt`,
+  non-nullable, initialized from `CreatedAt`), updated unconditionally on
+  login/guest-creation/claim/guess-submission; new `POST /auth/logout`
+  ([Authorize]) deleting an unclaimed guest via the existing
+  `IAccountDeletionService`, best-effort, always `204`; new
+  `POST /internal/purge-guest-accounts` (bearer-token-gated, same pattern as
+  `/internal/generate-round`, run daily by new `purge-guest-accounts.yml`
+  at 07:00 UTC) implementing the 30-day-unclaimed and 7-day-inactive purges
+  via two new `IUserRepository` queries, deduped before deletion. Extracted
+  the existing `/internal/generate-round` bearer-token check into a shared
+  `XGArcade.Api.Internal.InternalJobAuthorization` helper rather than
+  duplicating it for the new endpoint. Frontend: `lib/api.ts` gained
+  `logout()`, called best-effort/non-blocking from `App.tsx`'s
+  `handleLogout` so REQ-715's instant local logout is unaffected. Updated
+  the privacy policy draft (`docs/legal/privacy-policy-draft.md`) to
+  disclose the new `LastActiveAt` tracking and the automatic guest-account
+  removal rules, per CLAUDE.md's legal-drafts rule. Added NUnit/API test
+  coverage (`AuthEndpointTests.cs`, `GuessEndpointTests.cs`,
+  `InternalGuestCleanupEndpointTests.cs`, `UserRepositoryTests.cs`)
+  covering REQ-718's own Unit/API/Integration test-level note, including
+  the exactly-30-days/exactly-7-days boundary cases and claimed-account
+  exclusion. Neither the implementation nor the tests were run against a
+  real `dotnet test`/`dotnet build` in this session — no `.NET` SDK
+  available in the sandbox; both were hand-traced against REQ-718's own
+  acceptance criteria instead and need confirming in CI. REQ/ADR
+  refs: REQ-718, REQ-710, REQ-715, REQ-201, ADR-0038, ADR-0036, ADR-0022.
 - 2026-07-25 — `docs/requirements-document.md`, `docs/decisions/0038-guest-account-cleanup.md`
   — added REQ-718 (guest account lifecycle cleanup: delete at logout,
   30-day unclaimed purge, 7-day inactive purge), bundling all three

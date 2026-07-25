@@ -39,6 +39,16 @@ public static class GuessEndpoints
             if (user is null)
                 return Results.Unauthorized();
 
+            // REQ-718/ADR-0038: a submitted guess is one of the four
+            // activity-tracking events — updated unconditionally here
+            // (no IsGuest branch) for every authenticated submission this
+            // endpoint accepts, regardless of the eventual scoring outcome
+            // (accepted, disambiguation prompt, or rejected as e.g. already
+            // solved/no attempts remaining) — all of those still mean this
+            // account genuinely engaged with an active round, which is the
+            // signal this field exists to capture.
+            await userRepository.UpdateLastActiveAtAsync(user.Id, cancellationToken);
+
             GuessSubmissionResult result;
             try
             {

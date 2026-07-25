@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.66"
+version: "0.67"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -557,6 +557,13 @@ public class User
     // qualifying-rounds query excludes any round closed before this instant.
     public DateTime? ClaimedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Added S-072 (REQ-718/ADR-0038): non-nullable, initialized to CreatedAt
+    // at insert time. Updated on exactly four events (login, guest
+    // provisioning, claim, a submitted guess) with no IsGuest branch in any
+    // of those paths — consulted (alongside IsGuest) only by the guest
+    // cleanup purge job's own selection queries, never inside
+    // REQ-201-210/204/406/407/408.
+    public DateTime LastActiveAt { get; set; }
 }
 
 // Deferred to Phase 2 alongside REQ-706 — included now so the shape exists
@@ -1630,6 +1637,13 @@ split and sync approach.
   against production, respects overrides (REQ-501)
 - **`generate-round.yml`**: scheduled per the configured frequency
   (REQ-301), calls a backend endpoint to create a new Round
+- **`purge-guest-accounts.yml`** (REQ-718/ADR-0038): scheduled daily
+  (07:00 UTC, offset from `generate-round.yml`'s 06:00), calls
+  `POST /internal/purge-guest-accounts` (same bearer-token pattern as
+  `/internal/generate-round`) to delete unclaimed guests older than 30 days
+  and inactive guests older than 7 days — the safety net for
+  `AuthController.Logout`'s best-effort delete-at-logout, which is a plain
+  authenticated endpoint, not a scheduled job
 - **`deploy.yml`**: on push to `main` — builds and pushes the backend image
   to GHCR, deploys the Bicep templates to production, and deploys the
   frontend build to Azure Static Web Apps. This is effectively a promotion
