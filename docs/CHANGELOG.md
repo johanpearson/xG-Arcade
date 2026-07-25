@@ -61,11 +61,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   Cloudflare's dashboard directly, or the code change alone won't surface
   a checkbox. `docs/architecture-document.md`'s ADR-0037 summary row
   needed no change (already scope-level, doesn't describe widget mode).
-  `NOTES.md` gained a matching entry with the log-evidence timeline. No
-  new ADR: reused ADR-0037's established in-place-amendment pattern (this
-  is its third same-general-topic amendment, following the two 2026-07-25
-  scope amendments already there) rather than a new ADR number, since the
-  core wiring decision (provider, mediation-through-Supabase, secret-key
+  `docs/design-document.md` (0.46 → 0.47) gained matching status notes on
+  the still-unspecced login/signup screen (§7) and SCREEN-05 (account
+  deletion), following the same pattern already used there for "Play as
+  guest"/the guest banner — flagged by `architecture-reviewer`'s gate
+  review as a real, if low-priority, documentation-completeness gap since
+  this addition (unlike the earlier invisible-mode captcha ones) has an
+  actual visible footprint on the rendered screen. `NOTES.md` gained a
+  matching entry with the log-evidence timeline. No new ADR: reused
+  ADR-0037's established in-place-amendment pattern (this is its third
+  same-general-topic amendment, following the two 2026-07-25 scope
+  amendments already there) rather than a new ADR number, since the core
+  wiring decision (provider, mediation-through-Supabase, secret-key
   boundary) is unchanged — only the widget's visual mode reversed.
 - 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
   `docs/implementation-document.md`, `docs/backlog.md`,

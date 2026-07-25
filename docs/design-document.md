@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.46"
+version: "0.47"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -1357,6 +1357,13 @@ there is no account left to show anything else on, so the flow signs the
 user out and lands back on the login/landing screen — no "deleted"
 confirmation screen, nothing to confirm to once signed out.
 
+**Status note (2026-07-25, sign-in latency investigation, ADR-0037's
+third amendment):** this screen's password re-confirmation step gained a
+real, visible Cloudflare Turnstile checkbox
+(`.delete-account-screen__turnstile`, same reversal from invisible mode
+described in §7's SCREEN-00 status note) sitting inline in the form,
+empty until submit. No new tokens.
+
 ### SCREEN-06: Scoring/live-updates explainer
 
 ```
@@ -1982,6 +1989,23 @@ Unchanged from v0.1:
   You can save your progress and pick a real account any time from
   Settings."). No new tokens. This addition should be captured by the same
   future SCREEN-00 entry, not left to compound the existing gap further.
+- **2026-07-25 (sign-in latency investigation, ADR-0037's third
+  amendment) addition to this same unreviewed screen:** the login/signup
+  form and "Play as guest" button each gained a real, visible Cloudflare
+  Turnstile checkbox (`.auth-screen__turnstile`, reversing the original
+  invisible-mode captcha widget) — the form's checkbox sits between the
+  error message and the submit button, "Play as guest"'s sits below that
+  button, both empty until the corresponding action is actually submitted.
+  Signup also gained a transient status line
+  (`.auth-screen__turnstile-status`, `--color-text-muted`, matching the
+  existing error text's 13px size) reading "Verifying again to log you
+  in…" during the form's required second Turnstile render (a token is
+  single-use, so signup and its immediate auto-login each need their own).
+  No new tokens beyond `--space-1` for layout spacing. Same as the
+  additions above: this should be captured by the future SCREEN-00 entry,
+  not left to compound the existing gap further — now more consequential
+  than the earlier, invisible-mode captcha additions, since this one has
+  a real, visible footprint on the rendered screen.
 - **SCREEN-08 (Settings) gained a guest claim/upgrade section (2026-07-21,
   REQ-717/ADR-0036), also not yet reflected in a revised wireframe below** —
   see that section's own status note for what was actually built.
