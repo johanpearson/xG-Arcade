@@ -90,6 +90,33 @@ public interface IUserRepository
     // query regardless of how old LastActiveAt later becomes.
     Task<IReadOnlyList<User>> GetInactiveGuestsOlderThanAsync(DateTime cutoff, CancellationToken cancellationToken = default);
 
+    // REQ-507: the admin metrics view's live "total user count" — every
+    // User row, regardless of IsGuest/ClaimedAt.
+    Task<int> CountUsersAsync(CancellationToken cancellationToken = default);
+
+    // REQ-507/REQ-508: the current (== unclaimed, by the IsGuest/ClaimedAt
+    // invariant ClaimGuestAsync above maintains atomically) guest count —
+    // shared between REQ-507's live metrics view and REQ-508's dry-run
+    // count, since both need the exact same unconditional `IsGuest = true`
+    // count. Deliberately not built from
+    // GetUnclaimedGuestsOlderThanAsync/GetInactiveGuestsOlderThanAsync
+    // above — those are REQ-718's age-filtered scheduled-purge queries,
+    // and REQ-508's own scope note is explicit that no age/inactivity
+    // filter applies here.
+    Task<int> CountGuestsAsync(CancellationToken cancellationToken = default);
+
+    // REQ-507: accounts that originated as a guest and have since been
+    // claimed into a real account (REQ-717/ADR-0036).
+    Task<int> CountClaimedGuestsAsync(CancellationToken cancellationToken = default);
+
+    // REQ-508: the bulk force-clear action's own selection query — every
+    // current guest, unconditionally, no age/inactivity filter (see
+    // CountGuestsAsync's comment on why the REQ-718 queries above aren't
+    // reused here). Ids only, not full User rows — the caller only needs
+    // each id to call IAccountDeletionService.DeleteAccountAsync once per
+    // account.
+    Task<IReadOnlyList<Guid>> GetAllGuestIdsAsync(CancellationToken cancellationToken = default);
+
     // REQ-710: permanently removes the local profile row. Callers must
     // anonymize this user's Guess rows (AnonymizeByUserIdAsync) and remove
     // their LeagueMembership rows (ILeagueRepository.RemoveMembershipsByUserIdAsync)

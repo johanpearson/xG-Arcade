@@ -129,6 +129,26 @@ public class UserRepository(XGArcadeDbContext dbContext) : IUserRepository
             .Where(u => u.IsGuest && u.LastActiveAt < cutoff)
             .ToListAsync(cancellationToken);
 
+    // REQ-507's live "total user count".
+    public async Task<int> CountUsersAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking().CountAsync(cancellationToken);
+
+    // REQ-507/REQ-508's shared unconditional guest count — see this
+    // method's own doc comment on IUserRepository for why the REQ-718
+    // age-filtered queries above aren't reused here.
+    public async Task<int> CountGuestsAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking().CountAsync(u => u.IsGuest, cancellationToken);
+
+    // REQ-507's "claimed guest" count.
+    public async Task<int> CountClaimedGuestsAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking().CountAsync(u => u.ClaimedAt != null, cancellationToken);
+
+    // REQ-508's bulk force-clear action own selection query — see this
+    // method's own doc comment on IUserRepository for why this is a new,
+    // unfiltered query rather than a reuse of the REQ-718 queries above.
+    public async Task<IReadOnlyList<Guid>> GetAllGuestIdsAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.Users.AsNoTracking().Where(u => u.IsGuest).Select(u => u.Id).ToListAsync(cancellationToken);
+
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var user = await dbContext.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);

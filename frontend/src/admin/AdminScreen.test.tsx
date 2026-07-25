@@ -553,4 +553,208 @@ describe('AdminScreen', () => {
     expect(onAuthError).not.toHaveBeenCalled();
     expect(screen.queryByText('No unverified data to review.')).not.toBeInTheDocument();
   });
+
+  it('REQ-507: renders total/current/claimed guest counts from the metrics endpoint', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 42, currentGuestCount: 7, claimedGuestCount: 3 }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('Accounts')).toBeInTheDocument();
+    expect(screen.getByText('Total users')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('Current guests')).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText('Claimed guests')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+  });
+
+  it('REQ-507: a 403 from the metrics endpoint hides the Accounts/guest-clear sections without flipping the whole page to access-denied', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Accounts')).not.toBeInTheDocument());
+    expect(screen.queryByText('Guest accounts')).not.toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
+  it('REQ-507: a 401 from the metrics endpoint calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ-508: "Force clear guests" shows the dry-run count in the confirm prompt, and only calls the clear endpoint after confirming', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/accounts/metrics')) {
+        return jsonResponse({ totalUserCount: 10, currentGuestCount: 5, claimedGuestCount: 1 });
+      }
+      if (path.includes('/admin/accounts/guests/count')) return jsonResponse({ count: 5 });
+      if (path.includes('/admin/accounts/guests/clear')) {
+        return jsonResponse({
+          results: [{ userId: 'guest-1', outcome: 'Succeeded', errorMessage: null }],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Guest accounts');
+
+    await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
+    expect(await screen.findByRole('button', { name: 'Yes, delete all 5 guest accounts' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/admin/accounts/guests/clear'),
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Yes, delete all 5 guest accounts' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/accounts/guests/clear'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(await screen.findByText('guest-1 — Cleared.')).toBeInTheDocument();
+  });
+
+  it('REQ-508: "Cancel" during the confirm step does not call the clear endpoint', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/accounts/metrics')) {
+        return jsonResponse({ totalUserCount: 10, currentGuestCount: 5, claimedGuestCount: 1 });
+      }
+      if (path.includes('/admin/accounts/guests/count')) return jsonResponse({ count: 5 });
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Guest accounts');
+
+    await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
+    await screen.findByRole('button', { name: 'Yes, delete all 5 guest accounts' });
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByRole('button', { name: 'Force clear guests' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/admin/accounts/guests/clear'),
+      expect.anything(),
+    );
+  });
+
+  it('REQ-508: a zero dry-run count shows an inline message instead of a confirm prompt', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/accounts/metrics': () =>
+        jsonResponse({ totalUserCount: 10, currentGuestCount: 0, claimedGuestCount: 1 }),
+      '/admin/accounts/guests/count': () => jsonResponse({ count: 0 }),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Guest accounts');
+
+    await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
+
+    expect(await screen.findByText('No guest accounts to clear right now.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Yes, delete all/ })).not.toBeInTheDocument();
+  });
+
+  it('REQ-508: a partial-outcome clear shows Succeeded/NotFound/Failed distinctly, using the server error message when Failed', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/accounts/metrics')) {
+        return jsonResponse({ totalUserCount: 10, currentGuestCount: 3, claimedGuestCount: 1 });
+      }
+      if (path.includes('/admin/accounts/guests/count')) return jsonResponse({ count: 3 });
+      if (path.includes('/admin/accounts/guests/clear')) {
+        return jsonResponse({
+          results: [
+            { userId: 'guest-1', outcome: 'Succeeded', errorMessage: null },
+            { userId: 'guest-2', outcome: 'NotFound', errorMessage: null },
+            { userId: 'guest-3', outcome: 'Failed', errorMessage: 'Supabase delete failed.' },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('Guest accounts');
+
+    await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
+    await user.click(await screen.findByRole('button', { name: 'Yes, delete all 3 guest accounts' }));
+
+    expect(await screen.findByText('guest-1 — Cleared.')).toBeInTheDocument();
+    expect(screen.getByText('guest-2 — Not cleared — this account no longer exists.')).toBeInTheDocument();
+    expect(screen.getByText('guest-3 — Not cleared — Supabase delete failed.')).toBeInTheDocument();
+  });
+
+  it('REQ-508: a successful clear refreshes the account metrics', async () => {
+    let metricsCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/accounts/metrics')) {
+        metricsCallCount += 1;
+        return jsonResponse({
+          totalUserCount: 10,
+          currentGuestCount: metricsCallCount === 1 ? 5 : 0,
+          claimedGuestCount: 1,
+        });
+      }
+      if (path.includes('/admin/accounts/guests/count')) return jsonResponse({ count: 5 });
+      if (path.includes('/admin/accounts/guests/clear')) {
+        return jsonResponse({
+          results: [{ userId: 'guest-1', outcome: 'Succeeded', errorMessage: null }],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    await screen.findByText('5');
+
+    await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
+    await user.click(await screen.findByRole('button', { name: 'Yes, delete all 5 guest accounts' }));
+
+    await screen.findByText('guest-1 — Cleared.');
+    await waitFor(() => expect(screen.getByText('Current guests').nextSibling?.textContent).toBe('0'));
+  });
 });

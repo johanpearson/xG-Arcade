@@ -1,11 +1,14 @@
 import type {
+  AdminAccountMetrics,
   AdminActiveRound,
   AdminRound,
   ApprovePlayerDataResponse,
+  ClearGuestAccountsResponse,
   ClosedRoundListResponse,
   CurrentRoundResponse,
   CurrentUser,
   CustomLeague,
+  GuestAccountCountResponse,
   LeaderboardResponse,
   LoginResponse,
   PlayerAutocompleteSuggestion,
@@ -645,6 +648,53 @@ export async function joinLeague(accessToken: string, inviteCode: string): Promi
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as CustomLeague;
+}
+
+// REQ-507: always registered, in every environment (including Production) —
+// no 404-as-hidden handling needed here the way fetchActiveAdminRound has for
+// its own Non-Production-only probe, since this endpoint's whole point is
+// live visibility into real account counts, not test-data management. A 403
+// (non-admin token) is left to throw like any other admin endpoint; the
+// caller decides how to degrade (AdminScreen's AccountMetricsSection hides
+// itself rather than flipping the whole page to access-denied, since
+// REQ-501/502/503's unverified-data fetch already owns that page-level
+// decision).
+export async function fetchAdminAccountMetrics(accessToken: string): Promise<AdminAccountMetrics> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/metrics`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminAccountMetrics;
+}
+
+// REQ-508 step 1: the dry-run count shown before the bulk force-clear-guests
+// action's confirm step — a live count, not an estimate, of every account
+// currently matching IsGuest = true. Left to throw on any failure (401/403/
+// other), same as every other admin call in this file.
+export async function fetchGuestAccountCount(accessToken: string): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/count`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  const body = (await response.json()) as GuestAccountCountResponse;
+  return body.count;
+}
+
+// REQ-508 step 2: deletes every account currently matching IsGuest = true,
+// each via IAccountDeletionService.DeleteAccountAsync (ADR-0038 — no second/
+// raw bulk-delete path). No request body — the dry-run count from
+// fetchGuestAccountCount above is a separate call, not a parameter re-sent
+// here (the endpoint re-selects matching ids fresh at execution time). Always
+// resolves (never throws for a partial failure) with one result per matching
+// account, same per-row-outcome discipline as approvePlayerData/
+// removePlayerData above.
+export async function clearGuestAccounts(accessToken: string): Promise<ClearGuestAccountsResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/clear`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as ClearGuestAccountsResponse;
 }
 
 // This story's "simple list" of the caller's own custom leagues

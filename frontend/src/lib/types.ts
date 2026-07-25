@@ -278,6 +278,54 @@ export interface UpdateDisplayNameResponse {
   displayName: string;
 }
 
+// REQ-507: GET /admin/accounts/metrics's response shape (SCREEN-04's
+// "Accounts" section) — live counts as of the moment of the request, never a
+// cached/stale snapshot. Visible to any authenticated admin in every
+// environment, including Production (unlike REQ-505/506's Non-Production-only
+// round-control/user-deletion probe) — see AdminAccountsEndpoints.cs.
+// currentGuestCount and claimedGuestCount can never disagree with
+// IsGuest/ClaimedAt by construction (REQ-717/ADR-0036), but both are
+// surfaced anyway so an admin doesn't need to know that invariant to read
+// this view correctly.
+export interface AdminAccountMetrics {
+  totalUserCount: number;
+  currentGuestCount: number;
+  claimedGuestCount: number;
+}
+
+// REQ-508 step 1: GET /admin/accounts/guests/count's response shape — the
+// dry-run count shown before the bulk force-clear-guests action's confirm
+// step, so the admin confirms a known, specific number rather than an
+// open-ended action.
+export interface GuestAccountCountResponse {
+  count: number;
+}
+
+// REQ-508 step 2: one account's outcome from POST /admin/accounts/guests/clear
+// — mirrors the per-row outcome shape REQ-503's bulk approve/remove actions
+// already use (PlayerDataApprovalResult/PlayerDataRemovalResult above), but
+// with three possible outcomes rather than two: a guest account can fail to
+// delete for a reason other than "already gone" (surfaced via errorMessage),
+// unlike removing a PlayerData row. errorMessage is null exactly when
+// outcome is "Succeeded" (mirrors AdminAccountsEndpoints.cs's
+// GuestAccountClearResult).
+export type ClearGuestAccountOutcome = 'Succeeded' | 'NotFound' | 'Failed';
+
+export interface ClearGuestAccountResult {
+  userId: string;
+  outcome: ClearGuestAccountOutcome;
+  errorMessage: string | null;
+}
+
+// REQ-508 step 2: POST /admin/accounts/guests/clear's response shape —
+// always 200 with one result per account matching IsGuest = true at the
+// moment the action ran, never an all-or-nothing batch result (same
+// reporting discipline as ApprovePlayerDataResponse/RemovePlayerDataResponse
+// above).
+export interface ClearGuestAccountsResponse {
+  results: ClearGuestAccountResult[];
+}
+
 // REQ-402/403: a custom league, as returned by POST /leagues,
 // POST /leagues/join, and GET /leagues/mine (XGArcade.Api.Leagues.LeagueResponse)
 // — this story's minimal "create/join/list my leagues" scope only, no

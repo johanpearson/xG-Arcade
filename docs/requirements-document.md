@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.03"
+version: "1.04"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -2992,12 +2992,24 @@ Tier 0, S-026)*
 
 **Test level:** API, UI
 
-**REQ-507 – Admin guest/user metrics view**
+**REQ-507 – Admin guest/user metrics view** *(Status: Implemented, Tier 0,
+S-073, 2026-07-25)*
 > As an admin, I want a live count of how many accounts exist and how many
 > of those are guests, so I can gauge guest-play adoption and how many
 > guest accounts are accumulating, without having to query the database
 > directly.
 
+- **Built as (S-073):** `GET /admin/accounts/metrics`
+  (`XGArcade.Api.Admin.AdminAccountsEndpoints`, Admin policy, registered
+  unconditionally including Production per the scope note below) returns
+  `AdminAccountMetricsResponse(TotalUserCount, CurrentGuestCount,
+  ClaimedGuestCount)`, backed by three new `IUserRepository` methods
+  (`CountUsersAsync`/`CountGuestsAsync`/`CountClaimedGuestsAsync`), each a
+  single `CountAsync` query — no in-memory materialization of the `User`
+  table. Covered by `AdminAccountsEndpointTests.cs` and new
+  `UserRepositoryTests.cs` cases; not independently run against a live
+  `dotnet test` in this build environment (no .NET SDK available) —
+  hand-traced against this REQ's own acceptance criteria instead.
 - **Scope note (why this is not gated like REQ-505/506):** REQ-505/506 are
   restricted to non-Production because their entire stated rationale is
   managing seeded/test data ("so I don't have to wait for real time to
@@ -3036,7 +3048,8 @@ Tier 0, S-026)*
 
 **Test level:** API, UI
 
-**REQ-508 – Admin force-clear guest accounts (bulk)**
+**REQ-508 – Admin force-clear guest accounts (bulk)** *(Status: Implemented,
+Tier 0, S-073, 2026-07-25)*
 > As an admin, I want to immediately delete every current guest account on
 > demand, so I can clear accumulated guest accounts right now — before
 > REQ-718's scheduled purge exists or runs, as a manual remedy if it ever
@@ -3106,19 +3119,42 @@ Tier 0, S-026)*
 - Then they receive a 403, matching every other admin action in this
   document
 
-**Relationship to REQ-718:** REQ-718 (drafted, Accepted via ADR-0038, not
-yet implemented) will eventually purge unclaimed guests automatically
-after 30 days and inactive guests automatically after 7 days, via a
-scheduled job. This REQ is the human-triggered, immediate equivalent —
-useful before REQ-718 exists, and afterward as a manual remedy if the
-scheduled job fails or an immediate sweep is otherwise needed. Both
-REQ-718's eventual scheduled job and this REQ need a "select guest ids
-matching a filter, then delete each via `IAccountDeletionService`"
-building block; whichever lands second should reuse the first's
-selection logic rather than writing an independent query — the exact
-shape of that shared piece (a repository method, a small internal
-service) is an `architecture-document.md`/`implementation-document.md`
-concern, not fixed here. Note this is also the scenario ADR-0038's own
+- **Built as (S-073):** `GET /admin/accounts/guests/count` (the dry-run
+  count) and `POST /admin/accounts/guests/clear` (the execute action),
+  both in `XGArcade.Api.Admin.AdminAccountsEndpoints`, Admin policy,
+  registered unconditionally including Production. Both reuse REQ-507's
+  `IUserRepository.CountGuestsAsync` for the dry-run count; the clear
+  action selects fresh ids via a new `IUserRepository.GetAllGuestIdsAsync`
+  and deletes each via `IAccountDeletionService.DeleteAccountAsync` — the
+  same service REQ-710/REQ-506/REQ-718 already use, no second deletion
+  path (ADR-0038). A new `AccountDeletionService.UserNotFoundErrorMessage`
+  const lets the endpoint classify each per-account outcome as
+  `Succeeded`/`NotFound`/`Failed` without a second existence check.
+  Covered by `AdminAccountsEndpointTests.cs`; not independently run
+  against a live `dotnet test` in this build environment (no .NET SDK
+  available) — hand-traced against this REQ's own acceptance criteria
+  instead.
+
+**Relationship to REQ-718:** REQ-718 (Implemented, `docs/backlog.md`
+S-072, 2026-07-25 — see that REQ's own Status line) purges unclaimed
+guests automatically after 30 days and inactive guests automatically
+after 7 days, via a scheduled job. This REQ is the human-triggered,
+immediate equivalent — usable as a manual remedy if the scheduled job
+fails, an immediate full sweep is otherwise needed, or (now that both
+REQs coexist as implemented) simply on demand, without waiting for either
+of REQ-718's time-boxed rules to fire. **Resolution of the "shared
+building block" question this section originally left open:** REQ-718
+and this REQ ended up with separate, unfiltered-vs-filtered selection
+queries rather than one shared query — `IUserRepository
+.GetAllGuestIdsAsync` (this REQ, unconditional `IsGuest = true`) is
+deliberately not built from REQ-718's
+`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`
+(30-day/7-day age filters), since this REQ's own scope note above is
+explicit that no age/inactivity filter applies here — the two queries'
+filter conditions are genuinely different, not a missed reuse
+opportunity. Both still call the exact same `IAccountDeletionService`
+per account, which remains the one piece ADR-0038 requires every guest
+deletion caller to share. Note this is also the scenario ADR-0038's own
 alternatives table already anticipated ("can be introduced later if a
 third caller ever needs shared guest-selection logic") — this REQ is
 that third caller.
