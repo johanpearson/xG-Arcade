@@ -630,38 +630,44 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        // NOTE (flagged, not fixed here — out of scope for REQ-701/REQ-717's
-        // 2026-07-25 captcha scope-correction, which covers only
-        // POST /auth/guest, POST /auth/signup, POST /auth/login):
-        // ISupabaseAuthClient.SignInWithPasswordAsync now requires a
-        // captchaToken because it's a pass-through to Supabase's
-        // auth/v1/token?grant_type=password endpoint (ADR-0037) — the exact
-        // same endpoint this re-confirmation call hits. If Supabase's
-        // project-wide "Enable Captcha Protection" toggle is on (which
-        // NOTES.md's 2026-07-25 entry confirms it now is), this call sends
-        // no real Turnstile token and Supabase's own captcha verification
-        // may reject it the same way it silently broke Login/Signup before
-        // this fix — surfacing here as the generic "Incorrect password"
-        // below rather than the true cause. This DeleteAccount
-        // re-confirmation flow was not in the approved amendment's scope
-        // (ADR-0037/REQ-701/REQ-717 name only guest/signup/login), so no
-        // Turnstile widget exists on DeleteAccountScreen to obtain a real
-        // token from — adding one is a new product/UX decision (a
-        // re-authentication screen behind a captcha) needing its own
-        // REQ/ADR, not something to infer here. Passing an empty string
-        // keeps this compiling against the new required parameter without
-        // pretending a token was verified; escalate to product owner /
-        // requirements-writer before this ships if Supabase's captcha
-        // toggle is confirmed on.
-        var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, captchaToken: "", cancellationToken);
+        // REQ-710/ADR-0037's second amendment: same "missing token treated
+        // exactly like an invalid one" check as Signup/Login/Guest above,
+        // checked before ever calling Supabase — no point spending that call
+        // on a request with nothing to verify. Placed after the guest check
+        // above since a guest can't reach this flow at all regardless of
+        // captcha.
+        if (string.IsNullOrWhiteSpace(request.CaptchaToken))
+        {
+            return CaptchaRejection();
+        }
+
+        // Safe: the CaptchaToken null/empty check above already returned
+        // before this point otherwise. Same SignInWithPasswordAsync call
+        // Login uses (ADR-0037's second amendment) — no new
+        // ISupabaseAuthClient method needed for this re-confirmation step.
+        var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, request.CaptchaToken!, cancellationToken);
         if (!confirmation.Success)
         {
+            // REQ-710/ADR-0037's second amendment: a captcha rejection must
+            // be carved out and reported distinctly BEFORE the
+            // "Incorrect password" response below — otherwise a person with
+            // a perfectly correct password would be told it was wrong.
+            // Checked first, same ordering Signup/Login already use.
+            if (confirmation.IsCaptchaRejection)
+            {
+                return CaptchaRejection();
+            }
+
             // frontend/src/auth/DeleteAccountScreen.tsx string-matches this exact
             // title to tell "wrong password" (show inline, session still valid)
             // apart from any other 401 on this endpoint (expired/invalid JWT,
             // which has no ProblemDetails body at all and logs the user out
             // instead). If this title ever changes, update that check too —
             // there's no shared machine-readable error code between the two yet.
+            // The CaptchaRejection() check above guarantees this branch is
+            // never reached for a captcha failure, so it can never collide
+            // with this title (REQ-710's 2026-07-25 addition's load-bearing
+            // constraint).
             return Problem(
                 title: "Incorrect password",
                 detail: "Account deletion requires your current password to confirm.",
