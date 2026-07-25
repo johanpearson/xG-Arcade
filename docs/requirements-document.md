@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.06"
+version: "1.07"
 status: draft
 last_updated: 2026-07-25
 owner: Johan
@@ -4561,6 +4561,85 @@ against seeded unclaimed/inactive/claimed/active guest rows purges only
 the accounts the rules above require, reusing `IAccountDeletionService` —
 no second deletion code path)
 
+**REQ-719 – Unauthenticated splash/landing screen before login/signup**
+> As a first-time or logged-out visitor, I want to see an introductory
+> landing screen before the login/signup form, so I get a sense of what
+> xG Arcade is and make a deliberate choice to proceed, rather than being
+> dropped straight into a form.
+
+**Context:** today, `frontend/src/App.tsx` renders `AuthScreen` directly the
+moment there is no valid access token — there is no unauthenticated landing
+page at all. This requirement adds one screen ahead of `AuthScreen`; it
+changes nothing about `AuthScreen` itself, nothing about the account
+creation/login mechanism (REQ-701 and friends), and nothing about
+REQ-303/S-021's already-settled post-login routing to the game-selection
+screen (see the explicit non-interaction criterion below). This is a
+client-side routing addition only — no new endpoint, no data model change.
+
+- Given a visitor's session is unauthenticated — a first-ever visit, a
+  reload with no stored session, or any point at which the app has finished
+  determining no valid session exists (including after REQ-715's silent
+  refresh-token attempt, if a stored refresh token exists, has completed
+  and failed or found none to try)
+- When the app renders
+- Then the visitor sees a splash/landing screen, not the login/signup form
+  (`AuthScreen`) directly
+- And this splash screen is shown every time the app reaches this
+  unauthenticated state, not only on a literal first-ever visit — no
+  persisted "already seen this" flag suppresses it on a later visit (a
+  deliberate default, see §5; revisit if real use shows it's an annoying
+  extra click for a frequent visitor)
+
+- Given the splash screen is showing
+- When the visitor wants to log in or create an account
+- Then a single, explicit, unambiguous call-to-action (clearly the primary
+  action on the screen — no competing primary action of equal visual
+  weight) takes them to the existing login/signup form (`AuthScreen`) with
+  no further step required
+- And the platform name ("xG Arcade") is displayed with clear visual
+  presence on this screen, styled using only color/typography tokens
+  already defined in `docs/design-document.md` §2 — no new color, typeface,
+  or animation introduced solely for this screen, and no image logo asset
+  required (logo/brand-mark artwork is explicitly out of scope for this
+  requirement and is being scoped separately — this screen must work
+  correctly with typographic/token-based treatment alone)
+
+- Given a signed-in player logs out (REQ-715), deletes their account
+  (REQ-710/REQ-718's guest-cleanup logout path), or their session ends
+  because a stored refresh token is invalid, expired, revoked, or absent
+  (REQ-715)
+- When they next reach an unauthenticated screen as a result
+- Then they see the splash screen first, not the login/signup form
+  directly — the same single unauthenticated entry point a first-time
+  visitor sees, not a special-cased shortcut for a returning session
+- **Judgement call, recorded here per the product owner's own request for
+  a recommendation:** consistency was chosen over shortcutting straight to
+  `AuthScreen` after logout, for two reasons — (1) it keeps exactly one
+  unauthenticated entry point for the whole app rather than two slightly
+  different ones depending on history, which is both simpler to reason
+  about and to test; (2) logging out doesn't necessarily mean the visitor
+  intends to sign back in immediately (they may simply be done playing),
+  so landing on a login form presumes an intent the app doesn't actually
+  know. This is a reasonable default, not a settled-forever product law —
+  an implementer or reviewer could reasonably argue the opposite (less
+  friction for someone logging out only to switch accounts) and revisit it.
+
+- Given a visitor reaches `AuthScreen` from this splash screen and
+  successfully logs in or signs up
+- Then they land on the game-selection screen exactly as REQ-303/S-021's
+  existing behavior already defines — this requirement governs only what
+  is shown *before* authentication and never alters what happens
+  immediately after a successful login/signup completes
+
+**Test level:** UI (component test: the splash screen renders instead of
+`AuthScreen` whenever there is no authenticated session; its call-to-action
+navigates to `AuthScreen`; logout, account deletion, and a failed/absent
+refresh-token check each route back to the splash screen, never directly to
+`AuthScreen`), E2E (Playwright: a fresh, fully unauthenticated visit shows
+the splash screen first and a visitor can still reach and complete login
+from it; logging out returns to the splash screen, from which logging back
+in remains reachable — never a dead end)
+
 ---
 
 ### 4.11 Operational resilience
@@ -4634,6 +4713,16 @@ shows the default is wrong.
   auth provider owns credential/session lifecycle, not `XGArcade.Core`.
   "Expired, invalid, or revoked" in REQ-715's acceptance criteria means
   whatever Supabase Auth itself reports at refresh time.
+- **Splash screen shown every unauthenticated load, not just once
+  (REQ-719):** no persisted "already seen it" flag — every time the app
+  determines there's no valid session, the splash screen is shown before
+  `AuthScreen`, whether that's a true first-ever visit, a later reload, or
+  a return from logout. Simpler (a single unauthenticated entry point, no
+  extra persisted state to manage or get out of sync) and consistent with
+  how the rest of the frontend already resets to a starting screen on
+  every fresh load (e.g. `screen` defaults to `'game-select'` on mount
+  rather than restoring the last-viewed screen). Revisit if real use shows
+  a frequent visitor finds the extra click annoying.
 
 ## 6. Product decisions (resolved 2026-07-05)
 

@@ -10,6 +10,7 @@ import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
+import { SplashScreen } from './splash/SplashScreen';
 import { useThemePreference } from './lib/theme';
 
 type HealthState =
@@ -43,6 +44,15 @@ function App() {
     window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
   );
   const [screen, setScreen] = useState<Screen>('game-select');
+  // REQ-719: the unauthenticated splash/landing screen is what renders
+  // whenever there's no accessToken, until this flips true — starts false
+  // on every mount (no persisted "already seen it" flag, deliberately —
+  // see requirements-document.md REQ-719 §5) and is reset back to false by
+  // handleLogout below, which is also what fires on account deletion and a
+  // failed/absent silent-refresh outcome (see that handler's own
+  // reasoning) — so every one of those returns to the splash screen, never
+  // straight to AuthScreen.
+  const [showAuthScreen, setShowAuthScreen] = useState(false);
   // REQ-504/REQ-713: the only signal for whether SettingsScreen shows its
   // admin-only link onward to AdminScreen — a non-admin must see no trace
   // of it anywhere (nav menu or Settings screen), regardless of state.
@@ -118,6 +128,12 @@ function App() {
     setAccessToken(null);
     setCurrentUser(null);
     setScreen('game-select');
+    // REQ-719: back to the splash screen, not straight to AuthScreen — the
+    // same single unauthenticated entry point a first-time visitor sees.
+    // This handler is also what account deletion (onAccountDeleted) and a
+    // failed/absent silent-refresh outcome (the effect below) both funnel
+    // through, so this one reset covers all three cases REQ-719 requires.
+    setShowAuthScreen(false);
 
     if (tokenToLogOut) {
       logout(tokenToLogOut).catch((error: unknown) => {
@@ -308,8 +324,13 @@ function App() {
               onThemePreferenceChange={setThemePreference}
             />
           )
-        ) : (
+        ) : showAuthScreen ? (
           <AuthScreen onAuthenticated={handleAuthenticated} />
+        ) : (
+          // REQ-719: shown before AuthScreen for every unauthenticated
+          // render — see showAuthScreen's own declaration above for why
+          // this is never skipped on a later visit.
+          <SplashScreen onGetStarted={() => setShowAuthScreen(true)} />
         )}
       </main>
 
