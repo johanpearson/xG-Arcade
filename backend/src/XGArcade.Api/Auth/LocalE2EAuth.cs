@@ -52,10 +52,15 @@ public static class LocalE2EAuth
 // because this is unreachable outside Development (see LocalE2EAuth above).
 public class LocalE2EAuthClient : ISupabaseAuthClient
 {
-    public Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default) =>
+    // captchaToken (ADR-0037's 2026-07-25 amendment): accepted but unused,
+    // same reasoning as SignInAnonymouslyAsync's own captchaToken parameter
+    // below — no real Supabase Auth here to verify it against, and no
+    // Cloudflare Turnstile call is ever made from this backend either way.
+    public Task<SupabaseAuthResult> SignUpAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
         Task.FromResult(Authenticate(email));
 
-    public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
+    // captchaToken: same "accepted but unused" reasoning as SignUpAsync above.
+    public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
         Task.FromResult(Authenticate(email));
 
     // REQ-715: no real Supabase project exists in this mode (see class doc
