@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `infra/README.md`, `NOTES.md` — investigated a live report
+  that sign-in became slow after the Cloudflare Turnstile captcha rollout
+  (ADR-0037). Measured real cold-vs-warm latency against the deployed dev
+  Container App via a temporary `workflow_dispatch` diagnostic workflow
+  (added, run, then deleted in the same PR — this repo's own sandbox
+  environments can't reach `*.azurecontainerapps.io` directly, same proxy
+  restriction NOTES.md already documents for `wikidata.org`). Confirmed
+  both hypotheses are real and additive, not either/or: a cold
+  `GET /health` after ~22 idle minutes took 9.93s (0.13s of that was the
+  TCP connect — the rest was `minReplicas: 0`'s Container Apps cold
+  start, pre-existing since ADR-0004/S-001, not new); a warm `/health`
+  took ~0.35s; the first `POST /auth/login` on an already-warm backend
+  cost 1.97s (a ~1.6s one-time premium for the backend's first
+  Supabase-mediated call, which now also verifies the captcha token
+  against Cloudflare), dropping to ~0.45s on the next two attempts. Added
+  a new `infra/README.md` section (after the cost-reality-check table)
+  documenting the numbers, the two distinct additive causes (Container
+  Apps cold start vs. captcha's added external hop, the latter split into
+  a backend→Supabase→Cloudflare cost measured here and a frontend
+  Turnstile-widget cost that is real but wasn't measured by this
+  backend-only probe), and the explicit decision to keep `minReplicas: 0`
+  given this project's stated free-tier-only constraint rather than pay
+  ~$10–12/month to eliminate the cold start — recorded as a known,
+  accepted Tier 0 trade-off (`MVP-SCOPE.md`), not a bug, with a named but
+  not-implemented free-tier-compatible mitigation (an hours-scoped
+  keep-alive ping) for if this is revisited later. No requirements/
+  architecture/implementation-document changes — no application behavior
+  changed, investigation and doc-only. `NOTES.md` gained a matching entry
+  with the same numbers, since this is exactly the kind of "surprising
+  enough to want to have known it going in" gotcha that file exists for.
 - 2026-07-25 — `docs/architecture-document.md` (0.48 → 0.49),
   `docs/implementation-document.md` (0.65 → 0.66), `docs/
   requirements-document.md` (1.00 → 1.01), `SETUP.md` — doc-sync pass for
