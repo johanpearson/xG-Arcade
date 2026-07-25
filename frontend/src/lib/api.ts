@@ -56,27 +56,53 @@ export function describeError(error: unknown): string {
   return 'Something went wrong. Check your connection and try again.';
 }
 
+// REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
+// amendment: Supabase's captcha-protection toggle is project-wide (see
+// NOTES.md's 2026-07-25 entry), not scoped to `POST /auth/guest` alone, so
+// signup now requires a `captchaToken` the exact same way playAsGuest below
+// already does — a Cloudflare Turnstile token the caller obtains
+// client-side via `lib/turnstile.ts`'s `getTurnstileToken()` *before* ever
+// calling this function. This function forwards the token unmodified; it
+// performs no captcha verification of its own (same "mediate, don't
+// reimplement" boundary as playAsGuest — Supabase verifies it against
+// Cloudflare server-side). A captcha-specific rejection comes back as a
+// distinct 400 with `title === 'Captcha verification failed'` (vs. the
+// generic account-enumeration-safe "Signup could not be completed" for any
+// other rejection reason) — left to throw as an ApiError like any other
+// failure here; the caller (AuthScreen.tsx) branches on `error.title` to
+// decide whether to reset the Turnstile widget.
 export async function signup(
   email: string,
   password: string,
   confirmPassword: string,
   displayName: string,
   ageConfirmed: boolean,
+  captchaToken: string,
 ): Promise<SignupResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, confirmPassword, displayName, ageConfirmed }),
+    body: JSON.stringify({ email, password, confirmPassword, displayName, ageConfirmed, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SignupResponse;
 }
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
+// REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
+// amendment: same `captchaToken` requirement and reasoning as signup above
+// — Supabase's captcha-protection toggle covers `token?grant_type=password`
+// (the endpoint this mediates) just as much as anonymous sign-in, so a
+// Turnstile token obtained client-side via `getTurnstileToken()` is now
+// required here too. A captcha-specific rejection comes back as the same
+// distinct 400 (`title === 'Captcha verification failed'`) as signup/guest,
+// vs. the generic 401 "Login failed" for a wrong password or any other
+// rejection reason — left to throw as an ApiError; the caller branches on
+// `error.title` the same way it does for signup/playAsGuest.
+export async function login(email: string, password: string, captchaToken: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LoginResponse;
@@ -352,14 +378,33 @@ export async function fetchPlayerAutocomplete(
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
 // before deleting anything — a wrong password throws (401, title "Incorrect
 // password") rather than resolving. Success is 204 No Content, nothing to parse.
-export async function deleteAccount(accessToken: string, password: string): Promise<void> {
+//
+// REQ-710's 2026-07-25 addition / ADR-0037's second amendment: this
+// re-verification call is the same `SignInWithPasswordAsync` call `login`
+// above uses, so it now requires a `captchaToken` too — a Cloudflare
+// Turnstile token the caller obtains client-side via `lib/turnstile.ts`'s
+// `getTurnstileToken()` *before* ever calling this function. This function
+// forwards the token unmodified; it performs no captcha verification of its
+// own (same "mediate, don't reimplement" boundary as login/signup/
+// playAsGuest — Supabase verifies it against Cloudflare server-side). A
+// captcha-specific rejection comes back as the same distinct 400 with
+// `title === 'Captcha verification failed'` used by every other call site —
+// checked server-side before the password check, so it can never collide
+// with the 401 "Incorrect password" response above — left to throw as an
+// ApiError like any other failure here; the caller (DeleteAccountScreen.tsx)
+// branches on `error.title` to decide whether to reset the Turnstile widget.
+export async function deleteAccount(
+  accessToken: string,
+  password: string,
+  captchaToken: string,
+): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/auth/account`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
 }

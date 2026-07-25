@@ -13,6 +13,76 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-25 — `docs/architecture-document.md` (0.48 → 0.49),
+  `docs/implementation-document.md` (0.65 → 0.66), `docs/
+  requirements-document.md` (1.00 → 1.01), `SETUP.md` — doc-sync pass for
+  the captcha-scope-widening bug fix on `claude/captcha-login-signup-fui8nb`
+  (10 commits since `5ebcb08`; REQ-717/REQ-701/REQ-710, ADR-0037's two
+  same-day amendments). Root cause and fix are already fully recorded in
+  ADR-0037's two 2026-07-25 amendments and the requirements-document.md
+  edits made mid-implementation (REQ-717's scope-correction addition,
+  REQ-701's new signup/login captcha criterion, REQ-710's new
+  account-deletion password re-confirmation captcha criterion) — this pass
+  only closes what those changes explicitly flagged as deferred to
+  `doc-sync`, plus a wording correctness check now that all the code
+  actually exists.
+  `architecture-document.md` §10's ADR-0037 row updated to describe the
+  widened scope (guest + signup + login + account-deletion
+  re-confirmation, not guest-only) — flagged directly in the ADR's own
+  Consequences/Follow-up section as this agent's own scope boundary
+  (`requirements-writer`/`backend-implementer` never edit
+  `architecture-document.md` directly). No other architecture-document.md
+  section needed a change: the "For AI agents"/boundary rules and COMP-01
+  status note were already accurate, since this fix widened which
+  endpoints participate in an unchanged mediate-through-Supabase pattern,
+  not any component boundary or responsibility (`architecture-reviewer`
+  already confirmed this same judgement mid-session — no new ADR).
+  `implementation-document.md` §4's project-structure listing for
+  `frontend/tests/e2e` now names the new `turnstile-stub.ts` helper (stubs
+  `window.turnstile` via `page.addInitScript()` so E2E specs that only
+  need an authenticated session aren't blocked by a captcha widget that
+  can't mint a real token in CI) — judged worth a one-line mention at the
+  same level of detail already given to named `/lib` files, not a deeper
+  treatment; the `ISupabaseAuthClient.SignUpAsync`/
+  `SignInWithPasswordAsync` signature change (added `captchaToken`
+  parameter) was judged adequately covered by ADR-0037/REQ-701/REQ-710
+  already, since this document doesn't track individual interface method
+  signatures anywhere else either. Pre-existing gap noted but *not* fixed
+  in this pass (out of scope of this diff): `implementation-document.md`
+  §1's tech-stack table has never listed Cloudflare Turnstile as an
+  adopted third-party service, even from ADR-0037's original guest-only
+  landing — flagged for a human/future pass, not fixed here.
+  `requirements-document.md`: fixed a genuine inconsistency a
+  `ui-implementer` mid-session review flagged and this pass verified
+  directly against `AuthController.cs` before trusting it — REQ-701's and
+  REQ-710's 2026-07-25 captcha additions each said the requirement "holds
+  regardless of whether Supabase's captcha protection setting happens to
+  be enabled ... when it is disabled, no token is required," which
+  contradicts the shipped code: `AuthController.Signup`/`Login`/
+  `DeleteAccount` all reject a missing `CaptchaToken` unconditionally,
+  with no code path that checks or could check Supabase's dashboard
+  toggle state at request time (matching REQ-717's own guest-flow
+  phrasing, which never had this conditional framing to begin with). Both
+  bullets corrected in place, plus their "not yet built as of this
+  addition" status notes updated to reflect that the code is now built.
+  `SETUP.md` step 6 corrected per ADR-0037's own flagged follow-up (both
+  amendments): it read as if Supabase's "Enable Captcha Protection" toggle
+  only affected guest-account creation, which is what let this bug reach a
+  live deployment undetected; now explains the toggle is project-wide
+  (covers `signup`, `token?grant_type=password`, and anonymous sign-in
+  alike) and that all four call sites now send a token, so enabling it is
+  safe. No new ADR: this pass reused the mid-session judgement already
+  made twice on this branch (amend ADR-0037 in place rather than write
+  ADR-0038/0039) — the wiring decision (provider, mediation-through-
+  Supabase, secret-key boundary) never changed, only which endpoints
+  participate, confirmed again here rather than re-litigated. Open
+  question for a human: whether `docs/legal/*.md` needs updating too, since
+  every signup/login/account-deletion page now loads Cloudflare's Turnstile
+  script (a new-to-those-flows third-party runtime dependency, same class
+  of change the Google Fonts CDN entry in `implementation-document.md` §1
+  already treats as privacy-doc-relevant) — not touched in this pass since
+  it wasn't in this task's explicit scope and legal drafts need human
+  review regardless. ADR-0037/REQ-717/REQ-701/REQ-710.
 - 2026-07-22 — `SETUP.md`, `MVP-SCOPE.md`, `docs/backlog.md` (new S-071
   entry) — final doc-consolidation pass for REQ-717's captcha hardening
   (ADR-0037) now that both backend and frontend halves are merged and

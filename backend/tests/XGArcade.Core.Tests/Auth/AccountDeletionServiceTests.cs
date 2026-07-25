@@ -164,11 +164,13 @@ public class AccountDeletionServiceTests
         // confirmation-step re-verification (REQ-710) is the calling
         // endpoint's job (AuthController.DeleteAccount), not this service's
         // — kept as harmless no-op stubs rather than omitted, so this fake
-        // still fully implements ISupabaseAuthClient.
-        public Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default) =>
+        // still fully implements ISupabaseAuthClient. captchaToken
+        // (REQ-701/REQ-710's 2026-07-25 additions / ADR-0037's amendments)
+        // is likewise unused here for the same reason.
+        public Task<SupabaseAuthResult> SignUpAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
             Task.FromResult(new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid() });
 
-        public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
+        public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
             Task.FromResult(new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid() });
 
         // REQ-715: AccountDeletionService never calls this either — same

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { ApiError, deleteAccount, describeError } from '../lib/api';
+import { getTurnstileToken, resetTurnstileWidget } from '../lib/turnstile';
 import './DeleteAccountScreen.css';
 
 export interface DeleteAccountScreenProps {
@@ -14,7 +15,12 @@ export interface DeleteAccountScreenProps {
 // touched — no bare confirmation checkbox. A wrong password (401, title
 // "Incorrect password") shows inline and deletes nothing; any other 401
 // (the JWT itself is no longer valid) goes through onAuthError instead,
-// same as every other authenticated screen.
+// same as every other authenticated screen. A captcha rejection (400,
+// title "Captcha verification failed" — REQ-710's 2026-07-25 addition /
+// ADR-0037's second amendment) is distinct from both of those: it shows
+// inline like a wrong password, but also resets the Turnstile widget so
+// the next attempt gets a fresh token, same as AuthScreen.tsx's
+// handlePlayAsGuest.
 export function DeleteAccountScreen({
   accessToken,
   onAccountDeleted,
@@ -30,12 +36,16 @@ export function DeleteAccountScreen({
     setError(null);
     setSubmitting(true);
     try {
-      await deleteAccount(accessToken, password);
+      const captchaToken = await getTurnstileToken();
+      await deleteAccount(accessToken, password, captchaToken);
       onAccountDeleted();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401 && err.title !== 'Incorrect password') {
         onAuthError();
         return;
+      }
+      if (err instanceof ApiError && err.title === 'Captcha verification failed') {
+        resetTurnstileWidget();
       }
       setError(describeError(err));
       setSubmitting(false);

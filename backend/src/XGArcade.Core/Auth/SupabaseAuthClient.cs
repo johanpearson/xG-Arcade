@@ -30,11 +30,24 @@ public record SupabaseServiceRoleKey(string Value);
 // httpClient's defaults is never sent on this specific call.
 public class SupabaseAuthClient(HttpClient httpClient, SupabaseServiceRoleKey serviceRoleKey) : ISupabaseAuthClient
 {
-    public Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default) =>
-        PostAuthRequestAsync("auth/v1/signup", new { email, password }, cancellationToken);
+    // captchaToken (ADR-0037's 2026-07-25 amendment — see
+    // ISupabaseAuthClient.SignUpAsync's own doc comment for the full
+    // pass-through contract): merged into the existing { email, password }
+    // body as gotrue_meta_security.captcha_token, the same field
+    // SignInAnonymouslyAsync below already sends on this identical endpoint.
+    public Task<SupabaseAuthResult> SignUpAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
+        PostAuthRequestAsync(
+            "auth/v1/signup",
+            new { email, password, gotrue_meta_security = new { captcha_token = captchaToken } },
+            cancellationToken);
 
-    public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
-        PostAuthRequestAsync("auth/v1/token?grant_type=password", new { email, password }, cancellationToken);
+    // captchaToken: same pass-through contract as SignUpAsync above, merged
+    // into the existing { email, password } body the same way.
+    public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default) =>
+        PostAuthRequestAsync(
+            "auth/v1/token?grant_type=password",
+            new { email, password, gotrue_meta_security = new { captcha_token = captchaToken } },
+            cancellationToken);
 
     // REQ-715: same anon-keyed HttpClient defaults as SignUp/SignInWithPassword
     // above (no service_role key needed — unlike DeleteUserAsync below, this

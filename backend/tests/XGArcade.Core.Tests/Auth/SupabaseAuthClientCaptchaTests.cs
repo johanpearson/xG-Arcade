@@ -94,14 +94,16 @@ public class SupabaseAuthClientCaptchaTests
         Assert.That(captchaToken, Is.EqualTo("the-turnstile-token"));
     }
 
-    // ---- REQ-717/ADR-0037 scope regression: IsCaptchaRejection must never
-    // fire for SignUp/SignInWithPassword/RefreshToken/LinkEmailPassword's
-    // ordinary, realistic failure messages -- this captcha check is scoped
-    // to POST /auth/guest only (REQ-717/ADR-0037's explicit scope), and
-    // ReadFailureResultAsync/IsCaptchaRejection is shared plumbing computed
-    // for every call on this client, not just SignInAnonymouslyAsync. A
+    // ---- REQ-701/REQ-717/ADR-0037's shared IsCaptchaRejection plumbing:
+    // ReadFailureResultAsync computes this flag for every call on this
+    // client, not just SignInAnonymouslyAsync/SignUpAsync/
+    // SignInWithPasswordAsync (the three that now actually carry a
+    // captchaToken parameter, per ADR-0037's 2026-07-25 amendment widening
+    // scope from guest-only to also cover signup and login). These tests
+    // pin down the negative case for every method: an ordinary, realistic
+    // failure message never gets misclassified as a captcha rejection. A
     // false positive here would silently leak a captcha-shaped response out
-    // of an endpoint that was never supposed to have one. ----
+    // of a request that was never actually rejected for that reason. ----
 
     [Test]
     public async Task REQ717_SignUpAsync_NeverSetsIsCaptchaRejection_ForItsOwnOrdinaryFailure()
@@ -109,7 +111,7 @@ public class SupabaseAuthClientCaptchaTests
         const string json = """{ "msg": "User already registered" }""";
         var client = new SupabaseAuthClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(HttpStatusCode.BadRequest, json)), new SupabaseServiceRoleKey("unused"));
 
-        var result = await client.SignUpAsync("player@example.com", "a-reasonable-password");
+        var result = await client.SignUpAsync("player@example.com", "a-reasonable-password", "a-fake-turnstile-token");
 
         Assert.That(result.Success, Is.False);
         Assert.That(result.IsCaptchaRejection, Is.False);
@@ -121,10 +123,92 @@ public class SupabaseAuthClientCaptchaTests
         const string json = """{ "msg": "Invalid login credentials" }""";
         var client = new SupabaseAuthClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(HttpStatusCode.BadRequest, json)), new SupabaseServiceRoleKey("unused"));
 
-        var result = await client.SignInWithPasswordAsync("player@example.com", "the-wrong-password");
+        var result = await client.SignInWithPasswordAsync("player@example.com", "the-wrong-password", "a-fake-turnstile-token");
 
         Assert.That(result.Success, Is.False);
         Assert.That(result.IsCaptchaRejection, Is.False);
+    }
+
+    // REQ-701/ADR-0037's 2026-07-25 amendment: mirrors
+    // REQ717_SignInAnonymouslyAsync_SendsCaptchaTokenAsGotrueMetaSecurityCaptchaTokenField
+    // above -- the token is forwarded exactly as
+    // gotrue_meta_security.captcha_token, merged into the existing
+    // { email, password } body, never renamed/restructured.
+    [Test]
+    public async Task REQ701_SignUpAsync_SendsCaptchaTokenAsGotrueMetaSecurityCaptchaTokenField()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(HttpStatusCode.OK, """{ "access_token": "at", "refresh_token": "rt", "user": { "id": "11111111-1111-1111-1111-111111111111" } }""");
+        var client = new SupabaseAuthClient(BuildHttpClient(handler), new SupabaseServiceRoleKey("unused"));
+
+        await client.SignUpAsync("player@example.com", "a-reasonable-password", "the-turnstile-token");
+
+        Assert.That(handler.LastRequestBody, Is.Not.Null);
+        using var document = JsonDocument.Parse(handler.LastRequestBody!);
+        var root = document.RootElement;
+        Assert.That(root.GetProperty("email").GetString(), Is.EqualTo("player@example.com"));
+        Assert.That(root.GetProperty("password").GetString(), Is.EqualTo("a-reasonable-password"));
+        var captchaToken = root
+            .GetProperty("gotrue_meta_security")
+            .GetProperty("captcha_token")
+            .GetString();
+        Assert.That(captchaToken, Is.EqualTo("the-turnstile-token"));
+    }
+
+    // REQ-701/ADR-0037's 2026-07-25 amendment: same forwarding contract as
+    // SignUpAsync above, this time on Supabase's
+    // auth/v1/token?grant_type=password endpoint (the identical call
+    // AuthController.DeleteAccount also uses for its password
+    // re-confirmation step, per REQ-710's 2026-07-25 addition).
+    [Test]
+    public async Task REQ701_SignInWithPasswordAsync_SendsCaptchaTokenAsGotrueMetaSecurityCaptchaTokenField()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson(HttpStatusCode.OK, """{ "access_token": "at", "refresh_token": "rt", "user": { "id": "11111111-1111-1111-1111-111111111111" } }""");
+        var client = new SupabaseAuthClient(BuildHttpClient(handler), new SupabaseServiceRoleKey("unused"));
+
+        await client.SignInWithPasswordAsync("player@example.com", "a-reasonable-password", "the-turnstile-token");
+
+        Assert.That(handler.LastRequestBody, Is.Not.Null);
+        using var document = JsonDocument.Parse(handler.LastRequestBody!);
+        var root = document.RootElement;
+        Assert.That(root.GetProperty("email").GetString(), Is.EqualTo("player@example.com"));
+        Assert.That(root.GetProperty("password").GetString(), Is.EqualTo("a-reasonable-password"));
+        var captchaToken = root
+            .GetProperty("gotrue_meta_security")
+            .GetProperty("captcha_token")
+            .GetString();
+        Assert.That(captchaToken, Is.EqualTo("the-turnstile-token"));
+    }
+
+    // REQ-701's 2026-07-25 addition: confirms the positive case for
+    // SignUpAsync too, not just the shared negative-case coverage above --
+    // AuthController.Signup now branches on this flag (CaptchaRejection()
+    // vs. the generic fallback), so it matters for real, not just for
+    // SignInAnonymouslyAsync/Guest as it did before this REQ was widened.
+    [Test]
+    public async Task REQ701_SignUpAsync_SetsIsCaptchaRejection_WhenSupabaseReportsCaptchaFailedErrorCode()
+    {
+        const string json = """{ "msg": "Request disallowed", "error_code": "captcha_failed" }""";
+        var client = new SupabaseAuthClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(HttpStatusCode.BadRequest, json)), new SupabaseServiceRoleKey("unused"));
+
+        var result = await client.SignUpAsync("player@example.com", "a-reasonable-password", "an-invalid-token");
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.IsCaptchaRejection, Is.True);
+    }
+
+    // Same positive case for SignInWithPasswordAsync -- AuthController.Login
+    // and AuthController.DeleteAccount (the latter via this identical call)
+    // both branch on this flag now.
+    [Test]
+    public async Task REQ701_SignInWithPasswordAsync_SetsIsCaptchaRejection_WhenSupabaseReportsCaptchaFailedErrorCode()
+    {
+        const string json = """{ "msg": "Request disallowed", "error_code": "captcha_failed" }""";
+        var client = new SupabaseAuthClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(HttpStatusCode.BadRequest, json)), new SupabaseServiceRoleKey("unused"));
+
+        var result = await client.SignInWithPasswordAsync("player@example.com", "the-wrong-password", "an-invalid-token");
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.IsCaptchaRejection, Is.True);
     }
 
     [Test]

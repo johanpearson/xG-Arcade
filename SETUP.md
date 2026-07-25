@@ -75,18 +75,36 @@ which is exactly what ADR-0006 needs (dev + prod).
    session" until this is on — a real gap this doc never called out before
    a live deployment hit it. Turning it on surfaces Supabase's own warning
    recommending a captcha be added — see step 6 below for that.
-6. **Guest-play captcha hardening (Tier 1/2, pulled forward alongside guest
-   play itself — REQ-717, ADR-0036/ADR-0037): both the backend pass-through
-   (`AuthController.Guest`/`SignInAnonymouslyAsync`) and the frontend's
-   Turnstile widget/token acquisition (`frontend/src/lib/turnstile.ts`,
-   `AuthScreen.tsx`) are implemented as of 2026-07-22 — this step's manual
-   Cloudflare/Supabase dashboard configuration is the only remaining piece,
-   not a precondition to complete before the code lands.** Guest account
-   creation (`POST /auth/guest`) uses Supabase's own Anonymous Sign-ins
-   feature; enabling that in Supabase's dashboard (Authentication →
-   Providers → Anonymous) surfaces its own warning recommending a captcha
-   be enabled to prevent abuse. ADR-0037 answers that with Cloudflare
-   Turnstile:
+6. **Captcha hardening — project-wide, not guest-only (Tier 1/2, pulled
+   forward alongside guest play — REQ-717/REQ-701/REQ-710,
+   ADR-0036/ADR-0037): the backend pass-through on all four call sites
+   (`AuthController.Guest`/`Signup`/`Login`/`DeleteAccount`, calling
+   `SignInAnonymouslyAsync`/`SignUpAsync`/`SignInWithPasswordAsync`) and
+   the frontend's Turnstile widget/token acquisition
+   (`frontend/src/lib/turnstile.ts`, `AuthScreen.tsx`,
+   `DeleteAccountScreen.tsx`) are fully implemented as of 2026-07-25 — this
+   step's manual Cloudflare/Supabase dashboard configuration is the only
+   remaining piece, not a precondition to complete before the code lands.**
+   **Correction (2026-07-25):** this step was originally written as if
+   Supabase's "Enable Captcha Protection" toggle only affected guest
+   account creation. It does not — per a live incident written up in
+   `NOTES.md`'s 2026-07-25 entry, this is a single **project-wide**
+   dashboard toggle covering every Supabase Auth (`gotrue`) endpoint that
+   can create or authenticate an identity: anonymous sign-in (guest),
+   `signup`, and `token?grant_type=password` (used by both `Login` and
+   `DeleteAccount`'s password re-confirmation). Turning it on for guest
+   creation alone — the original wording of this step — silently broke
+   real password-based login and signup the first time it was enabled
+   against a live project, because those code paths didn't send a captcha
+   token at all. That gap is now closed: all four call sites send a
+   Turnstile token, so enabling this toggle is safe to do once, below,
+   without breaking any of them. Guest account creation (`POST
+   /auth/guest`) uses Supabase's own Anonymous Sign-ins feature; enabling
+   that in Supabase's dashboard (Authentication → Providers → Anonymous)
+   surfaces its own warning recommending a captcha be enabled to prevent
+   abuse — but the toggle you enable in response to that warning applies to
+   signup and login too, not just to anonymous sign-ins. ADR-0037 answers
+   that with Cloudflare Turnstile:
    - Sign up at cloudflare.com (free), add a Turnstile **site**
      (dash.cloudflare.com → Turnstile → Add site) — no domain ownership
      verification needed to get keys for local/dev use

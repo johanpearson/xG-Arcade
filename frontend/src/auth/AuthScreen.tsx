@@ -71,16 +71,46 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        await signup(email, password, confirmPassword, displayName, ageConfirmed);
+        const signupCaptchaToken = await getTurnstileToken();
+        await signup(email, password, confirmPassword, displayName, ageConfirmed, signupCaptchaToken);
         // Tier 0 UX: auto-login with the same credentials rather than
-        // forcing the player through the form twice.
-        const { accessToken, refreshToken } = await login(email, password);
+        // forcing the player through the form twice. A *second*
+        // getTurnstileToken() call is made here rather than reusing
+        // signupCaptchaToken above: a Cloudflare Turnstile token is
+        // single-use against Supabase's own server-side verification (the
+        // same reason resetTurnstileWidget exists at all — see its own
+        // comment) — reusing an already-verified token for this follow-up
+        // login would fail Supabase's captcha check on arrival, breaking
+        // auto-login for every signup once Supabase's captcha-protection
+        // toggle is on. This does mean a second, real widget render for
+        // every signup (never visible — invisible/managed mode, same as
+        // "Play as guest"), not a UX cost worth avoiding by risking a
+        // silently-broken auto-login instead.
+        const loginCaptchaToken = await getTurnstileToken();
+        const { accessToken, refreshToken } = await login(email, password, loginCaptchaToken);
         onAuthenticated(accessToken, refreshToken);
       } else {
-        const { accessToken, refreshToken } = await login(email, password);
+        const captchaToken = await getTurnstileToken();
+        const { accessToken, refreshToken } = await login(email, password, captchaToken);
         onAuthenticated(accessToken, refreshToken);
       }
     } catch (err) {
+      // REQ-701/REQ-717's 2026-07-25 addition, same reasoning as
+      // handlePlayAsGuest's identical branch below: on the backend's
+      // distinct captcha-rejection response (title === "Captcha
+      // verification failed"), the widget is reset so the *next* attempt
+      // (whether a resubmit of this same form or "Play as guest") obtains a
+      // genuinely fresh token rather than silently retrying with the one
+      // that was just rejected. This also guarantees the signup
+      // account-enumeration-safe fallback text below is never what's shown
+      // for a captcha rejection specifically — AuthController.Signup
+      // returns the distinct "Captcha verification failed" title/detail
+      // *before* ever reaching its generic "Signup could not be completed"
+      // fallback (see AuthController.cs), so describeError(err) here
+      // surfaces that distinct detail text, not the generic one.
+      if (err instanceof ApiError && err.title === 'Captcha verification failed') {
+        resetTurnstileWidget();
+      }
       setError(describeError(err));
     } finally {
       setSubmitting(false);

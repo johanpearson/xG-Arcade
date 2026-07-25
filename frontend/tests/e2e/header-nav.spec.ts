@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { stubTurnstile } from './turnstile-stub'
 
 // REQ-712: the header nav's mobile-collapse behavior only actually applies
 // at real viewport widths — HeaderNav.css's `@media (max-width: 480px)`
@@ -20,6 +21,10 @@ async function signUpNewPlayer(page: Page): Promise<void> {
   const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
   const email = `test-nav-${tag}@test.invalid`
 
+  // REQ-717/ADR-0037 follow-up: handleSubmit calls the real
+  // getTurnstileToken() unconditionally -- stub window.turnstile before
+  // this signup form ever submits (see turnstile-stub.ts).
+  await stubTurnstile(page)
   await page.goto('/')
   await page.getByRole('tab', { name: 'Sign up' }).click()
   await page.getByLabel('Email').fill(email)

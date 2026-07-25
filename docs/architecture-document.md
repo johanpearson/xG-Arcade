@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.48"
+version: "0.49"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-07-25
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1192,7 +1192,7 @@ new ADR that references the old one.
 | ADR-0034 | Dark mode is an explicit System/Light/Dark toggle, stored in `localStorage` (not `prefers-color-scheme`-only, not a `User`-level column) | Accepted |
 | ADR-0035 | National teams (P1532) are a per-row flag on `CountryDefinition`, not a separate category type | Accepted |
 | ADR-0036 | Guest play is a real `User` row via backend-mediated Supabase Anonymous Sign-ins (`User.IsGuest` flag), not a client-local scheme | Accepted |
-| ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation against scripted abuse | Accepted |
+| ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation, signup, login, and account-deletion password re-confirmation against scripted abuse (widened twice from guest-only on 2026-07-25, after Supabase's "Enable Captcha Protection" toggle proved project-wide rather than per-endpoint) | Accepted |
 
 ## 11. Glossary
 

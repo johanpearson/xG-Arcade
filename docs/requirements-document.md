@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "0.99"
+version: "1.01"
 status: draft
-last_updated: 2026-07-22
+last_updated: 2026-07-25
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -3068,6 +3068,38 @@ Tier 0, S-026)*
   or denying whether an account exists for that address (avoids account
   enumeration)
 
+**Captcha requirement for signup and login (2026-07-25 addition — now
+built, same day; see ADR-0037's amendment and REQ-717's matching
+scope-correction addition for the full mechanism):**
+
+- Given the account-creation form (this REQ) or the log-in form (no
+  dedicated REQ of its own yet; recorded here since this is where
+  email/password authentication's rules already live)
+- When a person submits either one
+- Then a valid Cloudflare Turnstile token, obtained by the frontend before
+  the respective endpoint is called, is required before Supabase Auth is
+  called — mirroring REQ-717's guest-flow captcha mechanism exactly, not a
+  separately-designed check (see REQ-717 for the full Given/When/Then and
+  ADR-0037 for the wiring)
+- And a missing, expired, or invalid token produces a distinct rejection
+  the frontend can act on — for signup, this rejection must not be
+  swallowed by this REQ's own account-enumeration-safe generic fallback
+  message above (that message stays exactly as specified for every other
+  signup-rejection reason; only a captcha rejection is carved out from it)
+- **Correction (verified against the shipped code, 2026-07-25):** an
+  earlier version of this bullet stated the requirement "holds regardless
+  of whether Supabase's captcha protection setting happens to be enabled
+  ... when it is disabled, no token is required." That was never accurate
+  and has been corrected here: this backend has no way to observe
+  Supabase's project-wide "Enable Captcha Protection" dashboard toggle at
+  request time, so `AuthController.Signup`/`AuthController.Login` require
+  a non-empty token unconditionally, on every request, regardless of that
+  toggle's state — there is no code path where a missing token is
+  accepted. Supabase's own toggle is what determines whether the token is
+  actually *verified* against Cloudflare on Supabase's side; this
+  backend's own requirement that a token be present at all is not gated on
+  it.
+
 **Test level:** Unit, API
 
 **REQ-702 – Unconfirmed accounts cannot play**
@@ -3487,9 +3519,55 @@ account fields live there). Nothing about the deletion flow itself — the
 password confirmation step, the anonymization behavior, or its tests —
 changes here, only how a player navigates to it.
 
+**Captcha requirement for the password re-confirmation step (2026-07-25
+addition — now built, same day; see ADR-0037's second amendment for the
+full mechanism and why this fourth call site exists):**
+
+- Given the password re-confirmation field on `DeleteAccountScreen`
+- When a logged-in user submits their current password to confirm account
+  deletion (this REQ's existing confirmation step, `DeleteAccountScreen`'s
+  password field)
+- Then a valid Cloudflare Turnstile token, obtained by the frontend before
+  `DELETE /auth/account` is called, is required before the password
+  re-verification call (`ISupabaseAuthClient.SignInWithPasswordAsync`, the
+  same call `Login` uses) is made — mirroring REQ-717's guest-flow captcha
+  mechanism exactly, the same mechanism REQ-701's 2026-07-25 addition
+  already applies to signup and login; see REQ-717 for the full
+  Given/When/Then and ADR-0037 for the wiring, not re-derived here
+- And a missing, expired, or invalid token produces a distinct rejection
+  the frontend can act on, so it can reset the Turnstile widget and obtain
+  a fresh token before allowing another attempt — never a silent retry
+  re-using the same rejected or expired token
+- And this distinct captcha-rejection response's title (e.g. `"Captcha
+  verification failed"`, the same title the guest/signup/login flows
+  already use per REQ-717/REQ-701) **must not collide with
+  `DeleteAccountScreen.tsx`'s existing string-match on the `"Incorrect
+  password"` response title** — that existing match is what the screen
+  uses to distinguish a wrong password (shown as an inline error, nothing
+  deleted) from a 401 caused by an expired/invalid JWT (which signs the
+  user out instead, per this REQ's S-039 "Built as" note above); a captcha
+  rejection must be distinguishable from both of those existing outcomes,
+  not merged into either
+- **Correction (verified against the shipped code, 2026-07-25):** an
+  earlier version of this bullet stated the requirement "holds regardless
+  of whether Supabase's captcha protection setting happens to be enabled
+  ... when it is disabled, no token is required." That was never accurate
+  and has been corrected here — see REQ-701's matching correction for the
+  full explanation, which applies identically: this backend has no way to
+  observe Supabase's dashboard toggle at request time, so
+  `AuthController.DeleteAccount` requires a non-empty token
+  unconditionally, on every request
+
 **Test level:** Unit (anonymization logic specifically — verify no
-reversible link remains), API, UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
-`frontend/tests/unit/App.test.tsx`)
+reversible link remains), API (a missing/invalid Turnstile token on
+`DELETE /auth/account` produces a distinct captcha-rejection response,
+distinguishable from both the wrong-password and JWT-expiry 401 outcomes —
+exercised with Cloudflare's documented always-pass/always-fail test site
+keys, not a live network call, the same way REQ-717's own captcha tests
+avoid live third-party calls), UI (`frontend/src/auth/DeleteAccountScreen.test.tsx`,
+`frontend/tests/unit/App.test.tsx` — including a case confirming the
+captcha-rejection title does not trigger the screen's existing
+"Incorrect password" inline-error branch or its JWT-expiry logout branch)
 
 **REQ-711 – Data export**
 > As a user, I want to export my data, so I have a copy and can verify what
@@ -3976,13 +4054,56 @@ check is, which is exactly the abuse pattern Supabase's own dashboard warns
 about when enabling Anonymous Sign-ins ("Enable captcha for anonymous
 sign-ins — this will prevent potential abuse on sign-ins which may bloat
 your database and incur costs for monthly active users (MAU)"). Both
-layers apply together; neither supersedes the other. **Scoped to guest
-creation (`POST /auth/guest`) only** — this does not extend to
-`POST /auth/signup` or `POST /auth/login`; REQ-606's own existing rate
-limits on those two endpoints are unaffected and unchanged by this
-addition, and neither gains a captcha check as part of this REQ. Mechanism:
-Cloudflare Turnstile — see ADR-0037 for the provider choice and exact
-wiring into Supabase Auth's native captcha-token verification.
+layers apply together; neither supersedes the other. Mechanism: Cloudflare
+Turnstile — see ADR-0037 for the provider choice and exact wiring into
+Supabase Auth's native captcha-token verification.
+
+**Scope correction (2026-07-25 addition — supersedes the "Scoped to guest
+creation... only" line above):** the line immediately above originally
+read "Scoped to guest creation (`POST /auth/guest`) only — this does not
+extend to `POST /auth/signup` or `POST /auth/login`." That scoping was a
+mistaken assumption, now confirmed wrong against a real Supabase project
+(see `NOTES.md`'s 2026-07-25 entry and ADR-0037's matching amendment):
+Supabase's "Enable Captcha Protection" dashboard toggle is a single
+project-wide setting covering every `gotrue` endpoint that authenticates
+or creates an identity, not one this project can enable for guest
+creation alone. Enabling it (per `SETUP.md` step 6) to satisfy this REQ's
+own acceptance criteria below silently broke real password-based login
+and signup, since neither endpoint sent a captcha token at all.
+
+Captcha now applies to every identity-creating/authenticating endpoint
+this backend exposes: `POST /auth/guest`, `POST /auth/signup`, and
+`POST /auth/login` — that is this REQ's own scope, described below. (A
+separate, fourth call site, `DELETE /auth/account`'s password
+re-confirmation step, gained the identical captcha requirement per
+REQ-710's 2026-07-25 addition — it is not itself an identity-creating/
+authenticating endpoint, so its acceptance criteria live there rather than
+being duplicated here. This paragraph deliberately does not pin an exact
+count going forward — see ADR-0037 for the authoritative, maintained list
+of every call site this captcha check currently covers, so a future
+additional call site doesn't require the same repeated correction here.)
+Each of the three endpoints in this REQ's own scope requires a valid
+Turnstile token before the endpoint calls Supabase Auth at all, and each
+returns the same kind of distinct, specific rejection (e.g. a
+`"Captcha verification failed"`-style response, distinguishable from that
+endpoint's other failure modes) on a missing, expired, or invalid token,
+so the frontend can reset the Turnstile widget and obtain a fresh token
+before retrying — exactly mirroring the acceptance criteria already stated
+below for the guest flow, applied identically to signup and login. This
+also means `AuthController.Signup`'s REQ-701 account-enumeration-safe
+generic fallback message must not be the response returned for a captcha
+rejection specifically — that message remains correct for every other
+signup-rejection reason (REQ-701 is unchanged there), but a captcha
+rejection needs to be distinguished from it first, the same way it must be
+distinguished from `POST /auth/guest`'s pre-existing generic
+`"Guest sign-in failed"` response. REQ-606's own existing rate limits on
+`auth-signup`/`auth-login` are unaffected and unchanged by this
+correction — captcha and rate limiting remain independent, additive
+layers on every endpoint they both apply to, per this REQ's "Rate limiting
+for guest creation" acceptance criteria above. See REQ-701 for signup's
+own acceptance-criteria line recording this, REQ-710 for the fourth
+(account-deletion re-confirmation) call site, and ADR-0037 for the amended
+wiring decision.
 
 - Given the "Play as guest" entry point
 - When a person activates it
@@ -4011,13 +4132,52 @@ wiring into Supabase Auth's native captcha-token verification.
   token before allowing another guest-creation attempt — never a silent
   retry re-using the same rejected or expired token
 
+**Signup and login (2026-07-25 addition) — identical structure, applied to
+the other two identity endpoints:**
+
+- Given the account-creation form or the log-in form
+- When a person submits either one
+- Then the frontend first attempts to obtain a Cloudflare Turnstile token
+  before calling `POST /auth/signup` or `POST /auth/login` respectively —
+  neither endpoint is ever called without first attempting to obtain a
+  token, mirroring the guest flow above exactly
+- Given the frontend has obtained a Turnstile token
+- When it calls `POST /auth/signup` or `POST /auth/login`
+- Then the request includes that token, and the backend passes it through
+  unmodified to Supabase Auth's signup/password sign-in call
+  respectively, for Supabase's own server-side verification against
+  Cloudflare — this backend performs no independent captcha verification
+  of its own, on either endpoint
+- Given `POST /auth/signup` or `POST /auth/login` is called with a
+  missing, expired, or otherwise invalid Turnstile token
+- When Supabase's corresponding call rejects the request for that reason
+- Then the response is a distinct, specific rejection the frontend can act
+  on — for signup, never the same generic account-enumeration-safe
+  fallback message this endpoint already returns for other signup
+  rejections (that message is unchanged for every non-captcha rejection
+  reason — see REQ-701); for login, never whatever generic failure
+  response this endpoint already returns for other rejections (e.g. wrong
+  password) — on both, distinguishable enough that the frontend can tell
+  "the captcha check failed, reset the widget and retry" apart from any
+  other failure
+- Given the frontend receives that distinct captcha-rejection response
+  from either endpoint
+- Then it resets/reinitializes the Turnstile widget and obtains a fresh
+  token before allowing another attempt on that same form — never a
+  silent retry re-using the same rejected or expired token
+
 **Widget UX recommendation:** Turnstile's invisible/managed mode (no
 visible checkbox interaction required unless Cloudflare's own risk scoring
 escalates to an interactive challenge) is recommended over the always-shown
 checkbox widget — consistent with "Play as guest" being a zero-friction
 entry point by design (this REQ's own user story above); an always-visible
 checkbox would reintroduce, for the overwhelming majority of legitimate
-players, exactly the friction guest play exists to remove.
+players, exactly the friction guest play exists to remove. The same
+default is recommended for signup and login (2026-07-25 addition) for
+consistency and the same minimal-friction reasoning, even though those two
+flows already involve more friction than guest play (an email/password
+form to fill in either way) — this is a recommendation, not a hard
+acceptance criterion, exactly as it was for guest above.
 
 **External precondition (not application behavior — recorded here for
 traceability; full steps belong in `SETUP.md`):** a Cloudflare Turnstile
@@ -4064,15 +4224,18 @@ and satisfies REQ-701's bounds; REQ-409's qualifying-rounds query excludes
 guest rows and excludes a claimed account's pre-claim rounds), API (guest
 creation endpoint is rate-limited distinctly from `auth-signup`/
 `auth-login`; REQ-407/408 leaderboard responses include a guest row;
-REQ-409's response excludes one; a missing/invalid Turnstile token produces
-the distinct captcha-rejection response required by the 2026-07-21 addition
-above, distinguishable from this endpoint's other failure responses —
-exercised with Cloudflare's documented always-pass/always-fail test site
-keys, not a live network call to Cloudflare, the same way automated tests
-avoid live third-party calls elsewhere in this system), Manual (spot-check
-that a claimed account's guess history and league memberships survive the
-conversion unchanged; the "Play as guest" flow end-to-end with the
-invisible/managed widget against a real Cloudflare Turnstile site)
+REQ-409's response excludes one; on each of `POST /auth/guest`,
+`POST /auth/signup`, and `POST /auth/login`, a missing/invalid Turnstile
+token produces that endpoint's own distinct captcha-rejection response,
+distinguishable from its other failure responses — required by the
+2026-07-21 addition above (guest) and its 2026-07-25 scope-correction
+addition (signup, login) — exercised with Cloudflare's documented
+always-pass/always-fail test site keys, not a live network call to
+Cloudflare, the same way automated tests avoid live third-party calls
+elsewhere in this system), Manual (spot-check that a claimed account's
+guess history and league memberships survive the conversion unchanged;
+the "Play as guest", account-creation, and log-in flows end-to-end with
+the invisible/managed widget against a real Cloudflare Turnstile site)
 
 ---
 
@@ -4204,7 +4367,23 @@ Turnstile), scope (guest creation only), widget mode (invisible/managed,
 recommended), and the failure-mode/error-distinguishability requirement
 were all decided directly by the product owner or follow established
 precedent (ADR-0013's mediation boundary), and are recorded in REQ-717's
-acceptance criteria and ADR-0037, not left open here.
+acceptance criteria and ADR-0037, not left open here. **Note the "scope
+(guest creation only)" line above is superseded** — see the 2026-07-25
+entry immediately below.
+
+REQ-717's 2026-07-25 scope-correction addition ("captcha now applies to
+`POST /auth/guest`, `POST /auth/signup`, and `POST /auth/login`") likewise
+raised no open product question of its own. It was a correction of a
+confirmed-wrong technical assumption (Supabase's captcha-protection toggle
+is project-wide, not per-endpoint — see `NOTES.md`'s 2026-07-25 entry and
+ADR-0037's matching amendment), not a fresh product choice among live
+alternatives — extending the existing captcha mechanism to signup/login
+was the only option that keeps the platform's captcha protection actually
+functional once Supabase's real behavior is accounted for; the alternative
+(turning the dashboard toggle back off) would remove guest-creation bot
+protection entirely, undoing REQ-717's original 2026-07-21 decision rather
+than fixing the bug. Recorded in REQ-717's and REQ-701's acceptance
+criteria and ADR-0037's amendment, not left open here.
 
 Both items from the terms-of-service/privacy-policy drafting were
 resolved 2026-07-06:

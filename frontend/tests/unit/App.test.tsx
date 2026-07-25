@@ -1,7 +1,20 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
+
+// REQ-701/REQ-717's 2026-07-25 scope-correction addition / ADR-0037's
+// amendment: logIn() below drives the real AuthScreen login form, which now
+// calls getTurnstileToken() for real (AuthScreen.tsx's handleSubmit) — no
+// live Cloudflare site key exists in this sandbox, so the token-acquisition
+// step is mocked wholesale here, same pattern/mock-token convention
+// frontend/src/auth/AuthScreen.test.tsx already uses.
+const getTurnstileTokenMock = vi.fn()
+const resetTurnstileWidgetMock = vi.fn()
+vi.mock('../../src/lib/turnstile', () => ({
+  getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
+  resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+}))
 
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve({
@@ -60,8 +73,20 @@ async function logIn(user: ReturnType<typeof userEvent.setup>) {
 // no REQ-xxx exists for the health check itself (pure infra, not user-facing
 // behavior), so these are named descriptively rather than REQ-prefixed.
 describe('App', () => {
+  beforeEach(() => {
+    // logIn() below always submits the real login form, which now always
+    // needs a resolved Turnstile token to get past AuthScreen.tsx's
+    // handleSubmit — a single shared default here means none of the
+    // existing REQ-303/REQ-710/REQ-504/REQ-712/REQ-713 tests below (whose
+    // own point is unrelated to captcha behavior) need to configure it
+    // individually.
+    getTurnstileTokenMock.mockResolvedValue('app-test-turnstile-token')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
+    getTurnstileTokenMock.mockReset()
+    resetTurnstileWidgetMock.mockReset()
   })
 
   it('shows the API health status once the health check resolves', async () => {
