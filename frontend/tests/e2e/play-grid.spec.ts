@@ -69,11 +69,18 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // DB), surfacing as a confusing 401 further down rather than here.
     const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const email = `test-probe-${tag}@test.invalid`
+    // captchaToken (REQ-701/ADR-0037's 2026-07-25 amendment): AuthController
+    // .Signup/Login now reject a missing token unconditionally, at this
+    // backend's own level -- not only when Supabase's real captcha toggle
+    // happens to be on. The local-e2e stack's LocalE2EAuthClient ignores
+    // whatever value this carries (it fakes Supabase entirely), so a fixed
+    // placeholder is fine here -- same convention AuthEndpointTests.cs uses
+    // server-side.
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', confirmPassword: 'password123', displayName: `Probe ${tag}`, ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName: `Probe ${tag}`, ageConfirmed: true, captchaToken: 'e2e-test-token' },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
-      data: { email, password: 'password123' },
+      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
     })
     expect(loginResponse.ok(), `probe login failed: ${loginResponse.status()}`).toBeTruthy()
     const { accessToken } = (await loginResponse.json()) as { accessToken: string }
@@ -127,13 +134,16 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     email: string,
     displayName: string,
   ): Promise<string> {
+    // captchaToken: same fixed placeholder as clearAnyExistingActiveRound
+    // above -- see that function's own comment for why LocalE2EAuthClient
+    // (this stack's ISupabaseAuthClient) doesn't care what value it carries.
     const signupResponse = await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', confirmPassword: 'password123', displayName, ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName, ageConfirmed: true, captchaToken: 'e2e-test-token' },
     })
     expect(signupResponse.ok(), `signup failed: ${signupResponse.status()}`).toBeTruthy()
 
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
-      data: { email, password: 'password123' },
+      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
     })
     expect(loginResponse.ok(), `login failed: ${loginResponse.status()}`).toBeTruthy()
     const { accessToken } = (await loginResponse.json()) as { accessToken: string }
