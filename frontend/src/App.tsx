@@ -4,6 +4,7 @@ import { AdminScreen } from './admin/AdminScreen';
 import { ApiError, fetchMe, logout, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
+import { Logo } from './components/Logo';
 import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { HeaderNav } from './nav/HeaderNav';
@@ -309,13 +310,23 @@ function App() {
             quick-jump entry below, not replaced by it (see that
             requirement's own explicit non-duplication note: this title is
             the room-to-grow landing screen, "Games" is a same-place
-            shortcut). */}
+            shortcut).
+
+            2026-07-26: the plain-text title is now the shared `Logo`
+            (frontend/src/components/Logo.tsx, same mark SplashScreen
+            uses), sized down (iconSize=26) for the header's 22px title
+            line. Its accessible name is still "xG Arcade" either way (the
+            mark's aria-label plus the "Arcade" text), so every existing
+            `getByRole('button'|'heading', { name: 'xG Arcade' })` query
+            elsewhere in this file/tests is unaffected. */}
         {accessToken ? (
           <button type="button" className="app__title app__title--link" onClick={() => navigateTo('game-select')}>
-            xG Arcade
+            <Logo iconSize={26} />
           </button>
         ) : (
-          <h1 className="app__title">xG Arcade</h1>
+          <h1 className="app__title">
+            <Logo iconSize={26} />
+          </h1>
         )}
         {/* REQ-712/REQ-713/REQ-720: the header's only nav surface —
             collapses behind a single toggle below the mobile breakpoint

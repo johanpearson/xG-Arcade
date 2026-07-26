@@ -13,6 +13,11 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note:
+  `Logo` moved from `frontend/src/splash/` to `frontend/src/components/` and
+  now also replaces the header's plain-text "xG Arcade" title in `App.tsx`
+  (both the button and `<h1>` variant), sized down for the header line. Same
+  mark, same accessible-name mechanism, no test changes needed.
 - 2026-07-26 — `docs/design-document.md` — added a "Brand mark" note
   documenting the new `Logo`/`LogoMark` icon that replaces the plain "xG
   Arcade" text on `SplashScreen`, and the matching `favicon.svg`. Direct

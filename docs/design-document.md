@@ -288,6 +288,16 @@ pairings above — so the mark needs no dark-mode variant of its own. The
 normal, so it adapts with theme like any other heading text. No new token
 was added.
 
+**2026-07-26, same-day extension:** `Logo` moved from `frontend/src/splash/`
+to `frontend/src/components/Logo.tsx` (a genuine second consumer now
+existed, not a speculative move) and replaced the header's own plain-text
+"xG Arcade" title in `App.tsx` (both the authenticated button and
+unauthenticated `<h1>` variant), sized down via `iconSize={26}` for the
+header's 22px title line. Same mark, same accessible-name mechanism (the
+badge's `aria-label` plus the "Arcade" text), so every existing
+`getByRole('button'|'heading', { name: 'xG Arcade' })` query kept passing
+with no test changes.
+
 ## 3. Key screens
 
 ### SCREEN-01: Grid (home)

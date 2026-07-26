@@ -1,5 +1,5 @@
 import './SplashScreen.css';
-import { Logo } from './Logo';
+import { Logo } from '../components/Logo';
 
 export interface SplashScreenProps {
   onGetStarted: () => void;
@@ -19,11 +19,12 @@ export interface SplashScreenProps {
 //
 // **2026-07-26 update:** REQ-719 originally shipped with no image logo
 // asset (explicitly scoped out at the time, "to be handled separately") —
-// this direct follow-up request adds the `Logo` mark+wordmark in its place.
-// The heading's accessible name is unchanged ("xG Arcade", via the
-// wordmark's own text content — `Logo`'s icon is `aria-hidden`), so the
-// existing REQ-719 test below still asserts the same heading name; only
-// the visual presentation changed.
+// this direct follow-up request adds the shared `Logo` mark+wordmark
+// (`frontend/src/components/Logo.tsx`, also used in App.tsx's header) in
+// its place. The heading's accessible name is unchanged ("xG Arcade" — the
+// mark's aria-label plus the "Arcade" text), so the existing REQ-719 test
+// below still asserts the same heading name; only the visual presentation
+// changed.
 export function SplashScreen({ onGetStarted }: SplashScreenProps) {
   return (
     // data-testid: App.tsx's header also renders an "xG Arcade" heading

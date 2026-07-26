@@ -52,10 +52,10 @@ export interface LogoProps {
 // badge above, plus "Arcade" as the one remaining word (not the full "xG
 // Arcade" repeated next to its own monogram). The badge's own aria-label
 // ("xG") plus this literal space plus "Arcade" gives the whole lockup the
-// same accessible name ("xG Arcade") the plain-text heading had before, so
-// SplashScreen's REQ-719 test is unaffected. Carries no heading semantics of
-// its own so callers wrap it in whatever element their context needs
-// (SplashScreen uses an <h1>).
+// same accessible name ("xG Arcade") the plain-text label had before, in
+// both places this is used (SplashScreen's <h1>, App.tsx's header
+// title/button). Carries no heading/button semantics of its own so callers
+// wrap it in whatever element their context needs.
 export function Logo({ className, iconSize = 40 }: LogoProps) {
   return (
     <span className={['logo', className].filter(Boolean).join(' ')}>
