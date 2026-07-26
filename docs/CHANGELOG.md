@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.11 → 1.12),
+  `docs/architecture-document.md` (0.55 → 0.56),
+  `docs/implementation-document.md` (0.69 → 0.70),
+  `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (new), `infra/scripts/lib/game-data-tables.sh` — implemented REQ-208's
+  2026-07-26 correction: `PlayerNameIndexRepository.SearchByPrefixAsync`
+  now also matches a query as a prefix of any individual word within a
+  player's normalized name (e.g. a surname-only query), not just the whole
+  name, via a new `PlayerNameIndexWord` child table/migration
+  (`20260726120000_AddPlayerNameIndexWord`) rather than a leading-wildcard
+  scan, to stay index-backed at `PlayerNameIndex`'s bulk-imported scale. See
+  ADR-0044 for why a per-word table was chosen over `pg_trgm`. Added the new
+  table to the prod/dev sync allowlist alongside `PlayerNameIndexEntries` so
+  the two never drift apart.
 - 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.10 → 1.11) —
   corrected REQ-208's acceptance criteria: `PlayerNameIndexRepository
   .SearchByPrefixAsync` only ever matched a query against the prefix of a

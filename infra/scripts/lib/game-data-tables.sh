@@ -27,6 +27,7 @@ GAME_DATA_TABLES=(
   "public.\"PlayerOverrides\""
   "public.\"PlayerAttributes\""
   "public.\"PlayerNameIndexEntries\""
+  "public.\"PlayerNameIndexWords\""
   "public.\"PlayerAliases\""
   "public.\"TrophyDefinitions\""
   "public.\"ClubCrest\""
@@ -40,3 +41,9 @@ GAME_DATA_TABLES=(
 # DbSet/table name isn't confirmed until that entity is actually built. Every
 # other entry above is verified directly against XGArcadeDbContext.cs's
 # DbSet<T> property names.
+#
+# "PlayerNameIndexWords" added 2026-07-26 (REQ-208's correction, ADR-0044):
+# COMP-10's own per-word decomposition of PlayerNameIndexEntries.NormalizedName
+# — same bulk-imported reference-data character as PlayerNameIndexEntries
+# itself, and must travel with it so a synced environment never ends up with
+# entries but no matching word rows (or vice versa).

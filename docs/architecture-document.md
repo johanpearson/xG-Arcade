@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.55"
+version: "0.56"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -712,6 +712,12 @@ deliberate per `MVP-SCOPE.md`, not bugs:
 - **The `Data.PlayerNameIndex`/autocomplete leg is now built (S-032,
   ADR-0007, pulled forward from Tier 1 by deliberate choice).** COMP-10
   exists: `PlayerNameIndex` (keyed on `PlayerId`, `HasIndex(NormalizedName)`),
+  plus (as of REQ-208's 2026-07-26 correction, ADR-0044) a child table
+  `PlayerNameIndexWord` (`PlayerId`, `Word` — one row per space-separated
+  word in `NormalizedName`, `HasIndex(Word)`) so `SearchByPrefixAsync` can
+  match a surname-only query, not just a prefix of the whole stored name —
+  both still plain, index-backed `StartsWith` scans, never a
+  leading-wildcard/`Contains()` match at this table's bulk-imported scale.
   `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` (a repository
   deliberately separate from COMP-06's `IPlayerStoreRepository` — never
   merged, per boundary rule 5), and `GET /players/autocomplete?query=&limit=`

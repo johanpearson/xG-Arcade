@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.11"
+version: "1.12"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -1186,8 +1186,17 @@ grids don't make guessing trivially easy)
   and must not be read as changing, any correctness-checking behavior
   (REQ-203, COMP-06) or REQ-207's own leak-prevention contract (source of
   suggestions, or the rule that suggestion does not imply validity).
-  **Status: gap identified 2026-07-26; corresponding code fix not yet
-  made — tracked separately against the criteria below.**
+  **Status: fixed 2026-07-26.** `PlayerNameIndexRepository.SearchByPrefixAsync`
+  now matches both directions: a plain `StartsWith` scan against
+  `NormalizedName` (unchanged) unioned with a `StartsWith` scan against a new
+  `PlayerNameIndexWord` child table (`PlayerId`, `Word` — one row per
+  space-separated word in `NormalizedName`), keyed and cascade-deleted
+  against `PlayerNameIndex`. Both scans stay index-backed at
+  `PlayerNameIndex`'s bulk-imported scale — no `Contains()`/leading-wildcard
+  `LIKE`, per this correction's own performance note. See ADR-0044 for the
+  alternatives considered (notably why a per-word table was chosen over a
+  `pg_trgm` GIN index) and the migration
+  (`20260726120000_AddPlayerNameIndexWord`).
 - Given a player's indexed normalized full name is made up of more than
   one space-separated word (e.g. `"zlatan ibrahimovic"`)
 - When an autocomplete query is normalized and matched against that

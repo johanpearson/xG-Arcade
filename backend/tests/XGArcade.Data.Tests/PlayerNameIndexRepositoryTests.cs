@@ -70,6 +70,57 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(results, Is.Empty);
     }
 
+    // REQ-208's 2026-07-26 correction: a surname-only query must match via
+    // PlayerNameIndexWord's per-word index, not just the whole-name prefix.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_MatchesSurnameOnlyQuery_ViaIndividualWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic"), BuildEntry("Lionel Messi")]);
+
+        var results = await _repository.SearchByPrefixAsync("ibrah", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Zlatan Ibrahimovic" }));
+    }
+
+    // Both directions (whole-name prefix and per-word prefix) must keep
+    // working at once — this is additive, not a replacement.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_WholeNamePrefixQuery_StillMatches_AlongsideWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic")]);
+
+        var results = await _repository.SearchByPrefixAsync("zlat", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Zlatan Ibrahimovic" }));
+    }
+
+    // A player matching via both branches at once (e.g. a query matching a
+    // single-word name, where the whole name IS the only word) must not
+    // appear twice in the result.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_PlayerMatchingBothBranches_ReturnedOnce()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Pele")]);
+
+        var results = await _repository.SearchByPrefixAsync("pel", 10);
+
+        Assert.That(results, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_QueryMatchingUnrelatedWordPrefix_DoesNotMatch()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic")]);
+
+        // "brah" is a substring of "ibrahimovic" but not a prefix of either
+        // word — must NOT match (this repository is prefix-only, never
+        // Contains()/substring, per REQ-208's correction and its performance
+        // rationale).
+        var results = await _repository.SearchByPrefixAsync("brah", 10);
+
+        Assert.That(results, Is.Empty);
+    }
+
     // REQ-207's explicit acceptance criterion: a PlayerNameIndex row must
     // come back as a suggestion regardless of whether the same player has
     // any PlayerAttribute rows at all — this is the structural separation
@@ -114,6 +165,35 @@ public class PlayerNameIndexRepositoryTests
         var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync(p => p.PlayerId == playerId);
         Assert.That(stored.PrimaryName, Is.EqualTo("Corrected Name"));
         Assert.That(stored.BirthYear, Is.EqualTo(1990));
+    }
+
+    // A re-import that changes a player's name must reconcile
+    // PlayerNameIndexWord in place too — a stale word from the old name must
+    // no longer match, and a word from the new name must.
+    [Test]
+    public async Task REQ208_UpsertManyAsync_NameChange_ReconcilesWordIndex()
+    {
+        var playerId = Guid.NewGuid();
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Old Surname",
+            NormalizedName = PlayerNameNormalizer.Normalize("Old Surname"),
+        }]);
+
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "New Surname",
+            NormalizedName = PlayerNameNormalizer.Normalize("New Surname"),
+        }]);
+
+        Assert.That((await _repository.SearchByPrefixAsync("surname", 10)).Select(r => r.PlayerId),
+            Does.Contain(playerId), "shared word across both names must still match");
+        Assert.That((await _repository.SearchByPrefixAsync("old", 10)).Select(r => r.PlayerId),
+            Does.Not.Contain(playerId), "stale word from the previous name must no longer match");
+        Assert.That((await _repository.SearchByPrefixAsync("new", 10)).Select(r => r.PlayerId),
+            Does.Contain(playerId), "new word must match after the re-import");
     }
 
     [Test]
