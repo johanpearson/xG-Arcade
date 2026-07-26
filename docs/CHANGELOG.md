@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.10 → 1.11) —
+  corrected REQ-208's acceptance criteria: `PlayerNameIndexRepository
+  .SearchByPrefixAsync` only ever matched a query against the prefix of a
+  player's *whole* normalized name, so a surname-only autocomplete query
+  (e.g. "Ibrahimovic") returned no suggestions. Added an acceptance
+  criterion requiring the query to also match as a prefix of any
+  individual word within the normalized name, additive to the existing
+  whole-name-prefix behavior. Diacritic-insensitive matching is unaffected
+  and already correct. Documentation only — the corresponding code fix in
+  `backend/src/XGArcade.Data/Repositories/PlayerNameIndexRepository.cs` is
+  tracked separately.
 - 2026-07-26 — `docs/decisions/0043-global-leaderboard-scoped-per-game.md`
   (new), `docs/architecture-document.md` (0.54 → 0.55),
   `docs/requirements-document.md` (§4.4, REQ-410 new, 1.09 → 1.10) —

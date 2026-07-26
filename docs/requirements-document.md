@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.10"
+version: "1.11"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -1166,9 +1166,46 @@ grids don't make guessing trivially easy)
 - And minor typos are tolerated via a small edit-distance tolerance, applied
   only when no exact or alias match is found, and only when it resolves to
   a small, confident set of candidates (see REQ-209 if more than one remains)
+- **2026-07-26 correction — whole-name-only prefix matching gap (found
+  against `PlayerNameIndexRepository.SearchByPrefixAsync`, shipped as part
+  of REQ-207's S-032 autocomplete work):** the criteria above govern
+  correctness-checking matching (COMP-06) and were always satisfied; this
+  bullet corrects a separate gap in how `PlayerNameIndex` (COMP-10) —
+  which reuses this REQ's normalization scheme for the name it indexes,
+  per ADR-0007 — is matched for autocomplete (REQ-207). As shipped,
+  `SearchByPrefixAsync` matches the query only as a prefix of a player's
+  entire normalized name (e.g. `"zlatan ibrahimovic"`), so a query typed
+  from a surname alone (e.g. "Ibrahimovic") returns no suggestions at all,
+  because that string is never a prefix of the full stored name. This was
+  never a deliberate design choice — it just happened to ship that way.
+  Diacritic-insensitive matching is unaffected by this correction and
+  already works correctly (`PlayerNameNormalizer.Normalize`'s NFKD
+  decomposition already makes "Ibrahimovic" and "Ibrahimović" normalize
+  identically); this bullet is about word-boundary prefix matching only.
+  This is autocomplete-matching text (COMP-10) only — it does not change,
+  and must not be read as changing, any correctness-checking behavior
+  (REQ-203, COMP-06) or REQ-207's own leak-prevention contract (source of
+  suggestions, or the rule that suggestion does not imply validity).
+  **Status: gap identified 2026-07-26; corresponding code fix not yet
+  made — tracked separately against the criteria below.**
+- Given a player's indexed normalized full name is made up of more than
+  one space-separated word (e.g. `"zlatan ibrahimovic"`)
+- When an autocomplete query is normalized and matched against that
+  indexed name
+- Then a match is found if the normalized query is a prefix of the whole
+  normalized name, exactly as today (e.g. "zlat" still matches "zlatan
+  ibrahimovic")
+- And a match is *also* found if the normalized query is a prefix of any
+  individual word within the normalized name (e.g. "ibrah" matches
+  "zlatan ibrahimovic" via its second word) — this is additive to the
+  existing whole-name-prefix behavior, not a replacement of it; both
+  directions must keep working at once
 
 **Test level:** Unit — comprehensive case coverage (diacritics, aliases,
-typos, and confirming near-miss strings that should NOT match are rejected)
+typos, and confirming near-miss strings that should NOT match are rejected;
+per-word prefix matching for `PlayerNameIndex` autocomplete queries,
+including a surname-only query and confirming whole-name-prefix queries
+still match too)
 
 **REQ-209 – Disambiguating multiple players with a matching name**
 > As a player, I want a fair resolution when my guess matches more than one
