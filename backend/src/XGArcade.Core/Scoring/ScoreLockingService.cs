@@ -12,7 +12,15 @@ public class ScoreLockingService(
 {
     public async Task LockRoundScoresAsync(Guid roundId, CancellationToken cancellationToken = default)
     {
-        await MaterializeUnansweredCellsAsync(roundId, cancellationToken);
+        // Fetched once here and reused below (both by
+        // MaterializeUnansweredCellsAsync and the ADR-0040 strategy
+        // resolution) rather than each fetching it independently — the null
+        // check that used to live inside MaterializeUnansweredCellsAsync
+        // moves here with the fetch; behavior for a null round (nothing
+        // materialized) is unchanged.
+        var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
+        if (round is not null)
+            await MaterializeUnansweredCellsAsync(round, roundId, cancellationToken);
 
         var guesses = await guessRepository.GetByRoundIdAsync(roundId, cancellationToken);
         var correctGuessesByCell = guesses
@@ -21,12 +29,11 @@ public class ScoreLockingService(
             .ToDictionary(group => group.Key, group => (IReadOnlyCollection<Guess>)group.ToList());
 
         // ADR-0040: only resolved when at least one correct guess exists in
-        // this round — an empty round never needs a Round fetch or a
-        // strategy at all, matching this method's pre-ADR-0040 behavior.
+        // this round — an empty round never needs a strategy at all,
+        // matching this method's pre-ADR-0040 behavior.
         IScoringStrategy? scoringStrategy = null;
         if (correctGuessesByCell.Count > 0)
         {
-            var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
             scoringStrategy = scoringStrategyResolver.Resolve(round!.GameKey);
         }
 
@@ -84,12 +91,13 @@ public class ScoreLockingService(
     // triggered by generate-round.yml's low-cadence cron (twice a week) or a
     // manual test-data call, never expected to overlap in practice; still
     // not fixed, just an accepted, documented risk at Tier 0 scale.
-    private async Task MaterializeUnansweredCellsAsync(Guid roundId, CancellationToken cancellationToken)
+    //
+    // round: fetched once by LockRoundScoresAsync (and reused there for
+    // ADR-0040's strategy resolution) rather than fetched again here —
+    // the caller only invokes this method once it has already confirmed
+    // round is non-null.
+    private async Task MaterializeUnansweredCellsAsync(Round round, Guid roundId, CancellationToken cancellationToken)
     {
-        var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
-        if (round is null)
-            return;
-
         var existingGuesses = await guessRepository.GetByRoundIdAsync(roundId, cancellationToken);
         var participantIds = existingGuesses
             .Where(g => g.UserId is not null)

@@ -3,8 +3,12 @@ using XGArcade.Data.Entities;
 namespace XGArcade.Core.Scoring;
 
 // REQ-204's uniqueness formula, and the one place it's allowed to be
-// written — shared by the live read path (RoundEndpoints) and round-close's
-// final-score computation (RoundCloseService) so both always agree.
+// written — shared by the live read path (RoundEndpoints) and, as of
+// S-076/ADR-0040, round-close's final-score computation only indirectly:
+// ScoreLockingService no longer calls this directly, it resolves an
+// IScoringStrategy per GameKey and xG Grid's implementation
+// (UniquenessScoringStrategy) calls this on its behalf — so both still
+// always agree.
 //
 // A real bug already regressed once here during design (review-2026-07-07-
 // design.md, finding 2): an earlier draft's denominator was every Guess for
