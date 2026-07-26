@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.53"
+version: "0.54"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -131,8 +131,9 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-02 | Core.Leagues | Global + custom leagues, membership | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
+| COMP-11 | Games.XGPath | **Status: Design only (2026-07-26), no code yet.** Career-path guessing game — `IGameModule` implementation for the second game on the platform, `GameKey = "xg-path"`. Generates a round instance as a small fixed set (3-5) of single-target-player puzzles, each puzzle a "cell" in the existing generic sense; owns the progressive clue-reveal sequence (club stints, capped at 5, each bundled with its appearance count, then one bundled "years" clue, then position/nationality/age) and the per-puzzle attempt cap this requires (ADR-0041). Provides the `ClueEfficiencyScoringStrategy` COMP-04 resolves for this `GameKey` (ADR-0040) — this game has no uniqueness concept at all, since every solver of a given puzzle necessarily names the same target player. Reads career data only from COMP-06's new `PlayerCareerStint` table (ADR-0042), never `PlayerAttribute`; reuses COMP-10's autocomplete/name-matching pipeline unchanged. See `docs/requirements-document.md` §4.12 (REQ-1201 onward) | `XGArcade.Games.XGPath` (not yet scaffolded) |
 | COMP-05 | Games.XGGrid | Grid generation, category logic (Country/Club/Trophy, REQ-107/REQ-108), `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair; not yet extended to Trophy pairs (a known, harmless gap — S-031's Trophy pairings are structurally unselectable in production anyway, see REQ-108's status note), run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
-| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
+| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path. **Planned (ADR-0042, design only):** a new `PlayerCareerStint` entity (ordered, dated career stints with appearance counts), populated from the same `P54` fetch as `PlayerAttribute`'s "club" rows but read only by COMP-11 (xG Path) — never by xG Grid's correctness path, and never merged with `PlayerAttribute` itself | `XGArcade.Data` |
 | COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback. As of REQ-114/ADR-0035 (S-066), `IWikidataClient`/`WikidataLookupService` dispatch a Country×Club query through one of two query-property paths — `P27` (citizenship, every ordinary country) or `P1532` ("country for sport", the four home nations) — chosen from a flag on the `CountryDefinition` row passed in, never a second category type; see COMP-05/COMP-06's own status note below and ADR-0035 for the full design | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
@@ -215,6 +216,30 @@ typed only as "opaque submission reference" in practice resolves to a real
 `GridCell` — an accepted v1 simplification, same one
 `implementation-document.md` §5 already documents on the `Guess` entity
 itself.
+
+**COMP-04 status (design only, 2026-07-26, ADR-0040/ADR-0041):** planning
+xG Path (COMP-11) surfaced two hidden xG-Grid-only assumptions inside
+`Core.Scoring`, both scoped as ADRs rather than being folded silently into
+xG Path's own build. First (ADR-0040): `ScoreLockingService` currently
+calls `UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly
+for every game — it will instead resolve an `IScoringStrategy` by
+`Round.GameKey` through a new `IScoringStrategyResolver`, the same
+resolution shape `IGameModuleResolver` already establishes; xG Grid's
+existing formula becomes `UniquenessScoringStrategy` (an extraction, not a
+behavior change), and xG Path gets `ClueEfficiencyScoringStrategy`. Second
+(ADR-0041): `GuessRules.MaxAttemptsPerCell`'s hardcoded `2` becomes a
+per-cell value read through a new `IGameModule` method (mirroring
+`GetCellIdsAsync`'s existing shape) — xG Grid returns `2` unconditionally
+(no behavior change), xG Path returns each puzzle's own
+`min(club stints, 5) + 4`. Separately, this planning pass also resolved
+the open question the paragraph directly above raises about `Guess.CellId`
+("generalize this when a second game is built"): `XGArcadeDbContext` was
+checked and there is no actual EF Core foreign-key relationship configured
+between `Guess`/`GridCell` today, only the doc comment's conceptual
+coupling — so `Guess.CellId` already works as an opaque per-game cell
+reference for COMP-11 with no schema change needed; the doc-comment
+caveat can be removed once COMP-11 is actually built and confirms this in
+practice.
 
 **COMP-02 status (S-011):** `ILeaderboardService`/`LeaderboardService`
 (`XGArcade.Core.Leagues`) is COMP-02's first real code — REQ-401's

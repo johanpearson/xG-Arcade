@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/decisions/0040-per-game-scoring-strategy.md`,
+  `docs/decisions/0041-per-cell-attempt-cap.md`,
+  `docs/decisions/0042-player-career-stint-data-model.md`,
+  `docs/architecture-document.md` (0.53 → 0.54) — initial design pass for
+  xG Path, the platform's second game (guess a player from a
+  progressively-revealed career path). Three new ADRs, all Accepted:
+  ADR-0040 makes `Core.Scoring` resolve a scoring strategy per `GameKey`
+  instead of hardcoding xG Grid's uniqueness formula for every game;
+  ADR-0041 makes the guess-attempt cap per-cell (resolved via
+  `IGameModule`) instead of the shared `GuessRules.MaxAttemptsPerCell`
+  constant; ADR-0042 adds a new `PlayerCareerStint` entity (COMP-06) for
+  ordered/dated/appearance-count career data, populated from Wikidata `P54`
+  qualifiers the existing query already returns but currently discards.
+  Added COMP-11 (Games.XGPath, design only, no code yet) to
+  `architecture-document.md`'s component table, updated COMP-06's entry for
+  `PlayerCareerStint`, and added a COMP-04 status note tying the two
+  scoring/attempt-cap ADRs together — this note also resolves the open
+  question on `Guess.CellId` recorded 2026-07-04 below ("revisit when a
+  second game is built"): there is no actual EF Core foreign key from
+  `Guess` to `GridCell`, so no schema change is needed for a second game to
+  use the same column. See the entry directly below for the companion
+  `docs/requirements-document.md` REQ-1201–REQ-1206 addition.
+- 2026-07-26 — `docs/requirements-document.md` (§4.12, REQ-1201–REQ-1206,
+  new; 1.08 → 1.09) — added xG Path's design-only requirements (target
+  player eligibility, round structure, clue reveal order, guess
+  correctness, per-puzzle attempt cap, clue-efficiency scoring), all
+  marked `Status: Not started (design only)` — no xG Path code exists yet.
+  References ADR-0040 (per-game scoring strategy) and ADR-0041 (per-cell
+  attempt cap), both already Accepted. Does not touch
+  `architecture-document.md` or `implementation-document.md` — those
+  updates are tracked separately in the same design session.
 - 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
   third time: dropped the ball accent added earlier the same day, per
   direct feedback ("too much", didn't look good) — removed outright, not

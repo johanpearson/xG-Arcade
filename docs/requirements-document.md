@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.08"
+version: "1.09"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -4858,6 +4858,183 @@ runs and produces a non-empty, valid export)
 
 **Test level:** Manual (deliberately break a job once and confirm a
 notification arrives)
+
+---
+
+### 4.12 xG Path generation and gameplay
+
+**xG Path** is the second game hosted on the xG Arcade (see `CLAUDE.md` and
+`architecture-document.md` for the platform/game boundary this section
+must not cross). A puzzle targets one specific real player; the player
+guesses that target from a progressively-revealed career path, one clue at
+a time. This section is design-only — no xG Path code exists yet. Every
+REQ below is written to the same standard as §4.1's xG Grid requirements,
+but describes intended behavior for a game that has not been built,
+not a claim about current behavior.
+
+**REQ-1201 – xG Path target player eligibility**
+> As the system, I want every xG Path puzzle to target a player with a
+> well-defined, orderable career path, so every generated puzzle has a
+> valid, revealable sequence of clues rather than one that runs out of
+> content partway through.
+
+- **Status: Not started (design only).**
+- Given a candidate player is being considered as an xG Path puzzle target
+- When the candidate is evaluated for eligibility
+- Then the player must have at least 3 distinct documented career club
+  stints, each with a chronological order determinable from start/end
+  dates
+- And at least one of those stints must be at a club present in the
+  existing `ClubDefinition` reference table (REQ-109) — v1 needs no new
+  club curation beyond the existing seeded set
+- And the player must already be a member of the existing player pool as
+  restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
+  population and defines no separate one of its own
+- And a candidate failing any of these checks is never selected as a
+  puzzle target
+
+**Test level:** Unit (eligibility check accepts/rejects fixtures covering
+each rule independently — fewer than 3 stints, an undeterminable stint
+order, no stint at a seeded club, a player outside REQ-112's pool)
+
+**REQ-1202 – Round structure: a small, fixed set of puzzles**
+> As a player, I want each xG Path round to contain a small, fixed number
+> of puzzles, so a round is a bounded, comparable challenge every time.
+
+- **Status: Not started (design only).**
+- Given an xG Path round is generated with a configured puzzle count N
+  (3-5, configurable — the same spirit as REQ-102's configurable grid size)
+- When the round instance is created
+- Then exactly N puzzles are generated, each targeting a distinct eligible
+  player (REQ-1201) — no two puzzles in the same round instance target the
+  same player
+- And each puzzle is represented as one cell in the existing generic
+  `IGameModule`/`Round` model (ADR-0003) — `Round` references the xG Path
+  instance via the existing opaque `GameKey` (`"xg-path"`)/`GameInstanceId`
+  pair, unchanged from how xG Grid does this today; this REQ does not
+  change how `Round` references any game instance
+
+**Test level:** Unit, API
+
+**REQ-1203 – Clue reveal order and content**
+> As a player, I want clues about the target player's career revealed one
+> at a time in a fixed, least-narrowing-first order, so solving the puzzle
+> is a genuine progressive challenge rather than trivially easy or
+> unfairly hard from the start.
+
+- **Status: Not started (design only).**
+- Given a puzzle targeting a specific eligible player (REQ-1201)
+- When clues are revealed for that puzzle, one at a time, with the player
+  able to guess after each reveal
+- Then club stints are revealed first, one at a time, in chronological
+  order (earliest first)
+- And each club-stint clue includes the player's appearance count (games
+  played) at that club when that data is known, bundled into the same
+  clue reveal, not a separate clue slot; when the appearance count is not
+  known, the club-stint clue is still revealed, without an appearance
+  count, rather than being delayed or skipped
+- And no more than 5 club-stint clues are ever revealed for a single
+  puzzle, even if the target player's real career has more documented
+  stints than that
+- And once `min(actual stint count, 5)` club-stint clues have been
+  revealed and the player has not yet guessed correctly, exactly one
+  further clue is revealed showing the start-end year range for every
+  club stint already revealed (e.g. "2012-15, 2015-19, 2019-present") —
+  one bundled clue covering all previously-revealed clubs at once, never
+  one clue per club
+- And if the player still hasn't guessed correctly, the following clues
+  are then revealed one at a time, in this exact order and no other:
+  position, then nationality, then age (or birth year)
+- And national team caps/appearances are never revealed as a clue for
+  this game — this clue type does not exist for xG Path
+- And a correct guess submitted at any point stops the reveal sequence
+  immediately — no further clue is ever revealed once the puzzle is
+  solved (mirrors xG Grid's immediate lock on a correct guess, REQ-210)
+- And a given puzzle's total clue count is therefore `min(club stint
+  count, 5) + 4` — a value specific to that puzzle's target player, never
+  a single global constant, and callers must treat it as per-puzzle
+
+**Test level:** Unit (reveal order and content for target players with
+fewer than 5, exactly 5, and more than 5 documented stints; appearance
+count present vs. unknown; the bundled year-range clue's content; the
+fixed position/nationality/age order; the sequence halting immediately on
+a correct guess at every possible point)
+
+**REQ-1204 – Guess correctness resolution**
+> As a player, I want my guess for an xG Path puzzle checked against that
+> puzzle's one specific target player, so I know unambiguously whether
+> I've solved it.
+
+- **Status: Not started (design only).**
+- Given a submitted guess for an xG Path puzzle
+- When the guess is resolved to a candidate player, using the same
+  name-matching/autocomplete pipeline (`PlayerNameIndex`, ADR-0007) xG
+  Grid guesses already use — no new matching infrastructure for this game
+- Then the guess is correct if and only if the resolved candidate's
+  `PlayerId` is this puzzle's target `PlayerId` — there is no
+  category-membership check here, unlike xG Grid's correctness check
+  (REQ-203), since exactly one player is ever correct for a given puzzle
+- And a submitted name that does not resolve to any `PlayerNameIndex`
+  candidate is incorrect
+- And correctness is determined and shown to the player immediately upon
+  submission, not deferred to round close (the same principle as REQ-201)
+
+**Test level:** Unit, API
+
+**REQ-1205 – Per-puzzle attempt cap**
+> As a player, I want the number of guesses I'm allowed on an xG Path
+> puzzle to match how many clues that specific puzzle actually has, so I'm
+> never denied a guess for a clue I've already been shown, and never
+> granted guesses beyond the puzzle's own content.
+
+- **Status: Not started (design only).**
+- Given an xG Path puzzle whose total clue count is `min(club stint
+  count, 5) + 4` (REQ-1203)
+- When a player submits guesses for that puzzle
+- Then the maximum number of attempts allowed for that puzzle equals its
+  own total clue count — not xG Grid's fixed value of 2
+  (`GuessRules.MaxAttemptsPerCell`); see ADR-0041 for the architectural
+  change (the attempt cap resolved per-cell through `IGameModule`, rather
+  than one shared global constant) this depends on
+- And the "at most one active guess per cell per round, subject to
+  attempt cap and lock rules" shape of REQ-201/202/210 still applies
+  conceptually: a correct guess locks the puzzle immediately regardless of
+  how many attempts remain, and exhausting the puzzle's own attempt cap
+  without a correct guess locks it as unsolved
+
+**Test level:** Unit (the resolved attempt cap matches each puzzle's own
+clue count for players with different stint counts; locks immediately on
+a correct guess; locks as unsolved only after that puzzle's own cap is
+reached, never after a fixed count of 2)
+
+**REQ-1206 – Clue-efficiency scoring**
+> As a player, I want my xG Path score to reflect how few clues I needed
+> before guessing correctly, so guessing early with less information is
+> rewarded.
+
+- **Status: Not started (design only).**
+- Given a puzzle with a per-puzzle maximum clue count (REQ-1203/1205) and
+  a correct guess submitted after `cluesUsed` clues have been revealed
+- When the round closes and this puzzle's score is locked
+- Then the awarded points equal `round(cluesUsed / maxCluesForThisPuzzle *
+  MaxPointsPerCell)` — golf-style, lower is better, consistent with
+  ADR-0021
+- And a puzzle never solved before its attempt cap is exhausted (REQ-1205)
+  scores the worst case, `MaxPointsPerCell` — the same
+  "unanswered/incorrect scores worst" convention ADR-0021 already
+  establishes for xG Grid
+- And this is not a uniqueness-based score: every player who solves a
+  given puzzle names the same target player, so there is no "how unique
+  was your correct answer" signal for this game at all — see ADR-0040 for
+  how `Core.Scoring` supports this second, different scoring model
+  per-game without special-casing xG Path inline
+
+**Test level:** Unit (points formula across a range of `cluesUsed`/
+`maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
+never solved; no uniqueness score of any kind is computed by this game's
+scoring strategy)
+
+---
 
 ## 5. Decisions made as sensible technical defaults
 
