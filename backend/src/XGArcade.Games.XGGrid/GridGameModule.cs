@@ -46,6 +46,10 @@ public class GridGameModule(
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
 
+    // ADR-0041: REQ-210's per-cell attempt cap for xG Grid — every cell gets
+    // the same fixed allowance, unconditionally. See GetMaxAttemptsForCellAsync.
+    private const int MaxAttemptsPerCell = 2;
+
     // SelectPairing's uniform-at-random choice among every feasible pairing
     // goes through this field — candidate-order shuffling still uses
     // Random.Shared, same as before S-030, since no test relies on
@@ -254,6 +258,15 @@ public class GridGameModule(
 
         return instance.Cells.Select(c => c.Id).ToList();
     }
+
+    // ADR-0041: REQ-210's existing "2 guesses per cell" behavior, now
+    // reported through IGameModule instead of the deleted
+    // GuessRules.MaxAttemptsPerCell. Every xG Grid cell shares the same
+    // fixed allowance — no repository lookup, no branching on instanceId or
+    // cellId — deliberately identical to today's behavior, per ADR-0041's
+    // "pure extraction, not a rule change" mandate.
+    public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(MaxAttemptsPerCell);
 
     // REQ-208's three-stage matching order — exact primary name, then
     // alias, then bounded fuzzy — each stage only runs if the previous one

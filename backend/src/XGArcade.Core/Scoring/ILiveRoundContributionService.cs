@@ -37,8 +37,9 @@ public interface ILiveRoundContributionService
     //   uniqueness recomputed via UniquenessCalculator/ScoringRules, exactly
     //   as RoundEndpoints/ScoreLockingService already compute it — never a
     //   third formula)
-    // - a locked-incorrect cell (AttemptCount >= GuessRules.MaxAttemptsPerCell,
-    //   both attempts used but never correct): ScoringRules.MaxPointsPerCell
+    // - a locked-incorrect cell (AttemptCount >= this cell's own max-attempts,
+    //   resolved via IGameModule.GetMaxAttemptsForCellAsync per ADR-0041;
+    //   every attempt used but never correct): ScoringRules.MaxPointsPerCell
     // - a cell the participant has made ZERO guesses on at all (no Guess row
     //   for that cell): ScoringRules.MaxPointsPerCell, same as a
     //   locked-incorrect cell (REQ-406/407, 2026-07-20 — a freshly-initiated

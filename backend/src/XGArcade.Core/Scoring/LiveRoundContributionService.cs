@@ -70,9 +70,10 @@ public class LiveRoundContributionService(
                 var uniqueScore = UniquenessCalculator.Calculate(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
                 cellContribution = ScoringRules.PointsFromUniqueScore(uniqueScore);
             }
-            else if (guess.AttemptCount >= GuessRules.MaxAttemptsPerCell)
+            else if (guess.AttemptCount >= await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, guess.CellId, cancellationToken))
             {
-                // Locked-incorrect: both attempts used, never correct.
+                // Locked-incorrect: this cell's own max-attempts (ADR-0041)
+                // used, never correct.
                 cellContribution = ScoringRules.MaxPointsPerCell;
             }
             // else: incorrect with an attempt still remaining — not yet

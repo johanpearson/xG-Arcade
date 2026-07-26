@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
+using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -23,6 +24,7 @@ public static class RoundEndpoints
             IGridInstanceRepository gridInstanceRepository,
             IGuessRepository guessRepository,
             IPlayerStoreRepository playerStoreRepository,
+            IGameModuleResolver gameModuleResolver,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -43,6 +45,12 @@ public static class RoundEndpoints
                     detail: "There is no active round to play right now.",
                     statusCode: StatusCodes.Status404NotFound);
             }
+
+            // ADR-0041: resolved here (not just for the direct-read exception
+            // documented below) so GetMaxAttemptsForCellAsync can be called
+            // per cell — same GameKey-keyed resolution IGameModuleResolver
+            // already provides everywhere else, no new mechanism.
+            var gameModule = gameModuleResolver.Resolve(round.GameKey);
 
             // Reads GridInstance/GridCell directly, bypassing IGameModule —
             // NOT the same precedent as GridTemplateResolver (that one is
@@ -79,63 +87,69 @@ public static class RoundEndpoints
                 .ToList();
             var playersById = await playerStoreRepository.GetPlayersByIdsAsync(ownCorrectPlayerAnswerIds, cancellationToken);
 
-            var cells = instance.Cells
-                .OrderBy(c => c.Row).ThenBy(c => c.Col)
-                .Select(cell =>
+            // ADR-0041: a plain foreach, not the previous LINQ .Select(...) —
+            // GetMaxAttemptsForCellAsync must be awaited per cell, which a
+            // synchronous LINQ projection can't do cleanly.
+            var cells = new List<CurrentRoundCellResponse>(instance.Cells.Count);
+            foreach (var cell in instance.Cells.OrderBy(c => c.Row).ThenBy(c => c.Col))
+            {
+                guessByCellId.TryGetValue(cell.Id, out var guess);
+                CurrentRoundGuessResponse? guessResponse = null;
+                if (guess is not null)
                 {
-                    guessByCellId.TryGetValue(cell.Id, out var guess);
-                    CurrentRoundGuessResponse? guessResponse = null;
-                    if (guess is not null)
-                    {
-                        // Safe: only correct guesses land in
-                        // correctGuessesByCell, and a correct ScoreResult
-                        // always sets PlayerAnswerId (ScoreResult's own doc
-                        // comment).
-                        double? uniquePercent = guess.IsCorrect
-                            ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
-                            : null;
+                    // Safe: only correct guesses land in
+                    // correctGuessesByCell, and a correct ScoreResult
+                    // always sets PlayerAnswerId (ScoreResult's own doc
+                    // comment).
+                    double? uniquePercent = guess.IsCorrect
+                        ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
+                        : null;
 
-                        // S-018 (REQ-204 extension): ScoringRules.PointsFromUniqueScore
-                        // is the exact same call ScoreLockingService makes to lock
-                        // FinalPoints at round-close (REQ-205), computed live here
-                        // instead so it can only ever drift with uniquePercent
-                        // itself, never as a second formula. Still provisional —
-                        // see LivePoints' own doc comment below.
-                        int? livePoints = uniquePercent is not null
-                            ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
-                            : null;
+                    // S-018 (REQ-204 extension): ScoringRules.PointsFromUniqueScore
+                    // is the exact same call ScoreLockingService makes to lock
+                    // FinalPoints at round-close (REQ-205), computed live here
+                    // instead so it can only ever drift with uniquePercent
+                    // itself, never as a second formula. Still provisional —
+                    // see LivePoints' own doc comment below.
+                    int? livePoints = uniquePercent is not null
+                        ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
+                        : null;
 
-                        Player? resolvedPlayer = guess.IsCorrect && guess.PlayerAnswerId is not null
-                            && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var foundPlayer)
-                            ? foundPlayer
-                            : null;
+                    Player? resolvedPlayer = guess.IsCorrect && guess.PlayerAnswerId is not null
+                        && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var foundPlayer)
+                        ? foundPlayer
+                        : null;
 
-                        // REQ-214: PhotoUrl rides along with the same
-                        // resolvedPlayer lookup ResolvedPlayerName already
-                        // uses — no second query, and null exactly when
-                        // Wikidata had no P18 for this player (never an error).
-                        guessResponse = new CurrentRoundGuessResponse(
-                            guess.IsCorrect,
-                            guess.AttemptCount,
-                            guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
-                            guess.SubmittedName,
-                            resolvedPlayer?.FullName,
-                            resolvedPlayer?.PhotoUrl,
-                            uniquePercent,
-                            livePoints);
-                    }
+                    // ADR-0041: this cell's own max-attempts, resolved
+                    // through IGameModule instead of the deleted
+                    // GuessRules.MaxAttemptsPerCell.
+                    var maxAttemptsForCell = await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, cell.Id, cancellationToken);
 
-                    return new CurrentRoundCellResponse(
-                        cell.Id,
-                        cell.Row,
-                        cell.Col,
-                        cell.RowCategoryType,
-                        cell.RowCategoryValue,
-                        cell.ColCategoryType,
-                        cell.ColCategoryValue,
-                        guessResponse);
-                })
-                .ToList();
+                    // REQ-214: PhotoUrl rides along with the same
+                    // resolvedPlayer lookup ResolvedPlayerName already
+                    // uses — no second query, and null exactly when
+                    // Wikidata had no P18 for this player (never an error).
+                    guessResponse = new CurrentRoundGuessResponse(
+                        guess.IsCorrect,
+                        guess.AttemptCount,
+                        guess.IsCorrect || guess.AttemptCount >= maxAttemptsForCell,
+                        guess.SubmittedName,
+                        resolvedPlayer?.FullName,
+                        resolvedPlayer?.PhotoUrl,
+                        uniquePercent,
+                        livePoints);
+                }
+
+                cells.Add(new CurrentRoundCellResponse(
+                    cell.Id,
+                    cell.Row,
+                    cell.Col,
+                    cell.RowCategoryType,
+                    cell.RowCategoryValue,
+                    cell.ColCategoryType,
+                    cell.ColCategoryValue,
+                    guessResponse));
+            }
 
             return Results.Ok(new CurrentRoundResponse(round.Id, round.StartTime, round.EndTime, round.AllowGuessChange, cells));
         }).RequireAuthorization();

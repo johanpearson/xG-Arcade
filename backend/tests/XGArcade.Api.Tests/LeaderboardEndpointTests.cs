@@ -616,7 +616,7 @@ public class LeaderboardEndpointTests
         var alexId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
         var roundId = await SeedClosedRoundAsync(DateTime.UtcNow.AddDays(-1));
         await SeedGuessAsync(roundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 20);
-        await SeedGuessAsync(roundId, alexId, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        await SeedGuessAsync(roundId, alexId, Guid.NewGuid(), isCorrect: false, attemptCount: 2, finalPoints: ScoringRules.MaxPointsPerCell);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");

@@ -428,6 +428,52 @@ public class GuessSubmissionServiceTests
             "a rejected-by-REQ-210 submission must never reach the game module a third time");
     }
 
+    // ---- ADR-0041/S-077: attempt cap resolved per-cell via IGameModule ----
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_ThirdAttemptStillAccepted_ProvingCapIsNotHardcodedTwo()
+    {
+        // The literal acceptance criterion: with a game module reporting a
+        // cap other than 2, a 3rd attempt — which the old hardcoded
+        // GuessRules.MaxAttemptsPerCell == 2 would have rejected with
+        // NoAttemptsRemaining — must still be accepted, proving
+        // GuessSubmissionService reads the cap through IGameModule
+        // (ADR-0041) rather than a hardcoded constant.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 3");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.AttemptCount, Is.EqualTo(3));
+        Assert.That(result.Locked, Is.False, "still under the module-reported cap of 5, must not lock yet");
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_SixthAttemptRejectedWithNoAttemptsRemaining()
+    {
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        for (var i = 1; i <= 5; i++)
+        {
+            await service.SubmitGuessAsync(round.Id, userId, cellId, $"Wrong Guess {i}");
+        }
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 6");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+    }
+
     // ---- REQ-209/REQ-210: disambiguation prompt is not a separate attempt -
 
     [Test]
