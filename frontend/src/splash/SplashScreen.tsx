@@ -1,4 +1,5 @@
 import './SplashScreen.css';
+import { Logo } from '../components/Logo';
 
 export interface SplashScreenProps {
   onGetStarted: () => void;
@@ -14,8 +15,16 @@ export interface SplashScreenProps {
 // No SCREEN-xx spec exists for this in design-document.md yet — same gap
 // AuthScreen.tsx/GameSelectScreen.tsx already flag in §7. Built with only
 // the existing §2 token system (color/typography), no new values, no
-// animation, and no image logo asset — REQ-719 explicitly scopes
-// logo/brand-mark artwork out, to be handled separately.
+// animation.
+//
+// **2026-07-26 update:** REQ-719 originally shipped with no image logo
+// asset (explicitly scoped out at the time, "to be handled separately") —
+// this direct follow-up request adds the shared `Logo` mark+wordmark
+// (`frontend/src/components/Logo.tsx`, also used in App.tsx's header) in
+// its place. The heading's accessible name is unchanged ("xG Arcade" — all
+// three of "x"/"G"/"Arcade" are real text), so the existing REQ-719 test
+// below still asserts the same heading name; only the visual presentation
+// changed.
 export function SplashScreen({ onGetStarted }: SplashScreenProps) {
   return (
     // data-testid: App.tsx's header also renders an "xG Arcade" heading
@@ -25,7 +34,9 @@ export function SplashScreen({ onGetStarted }: SplashScreenProps) {
     // gives for sidestepping a similar query quirk.
     <div className="splash-screen" data-testid="splash-screen">
       <div className="splash-screen__content">
-        <h1 className="splash-screen__title">xG Arcade</h1>
+        <h1 className="splash-screen__title">
+          <Logo />
+        </h1>
         <p className="splash-screen__tagline">
           Guess the player from their country and club. Compete on the leaderboard.
         </p>

@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
+  second time: adopted user-supplied inspiration selectively (two-tone
+  "xG" letters, a flat ball glyph) while explicitly declining the parts
+  that conflict with §1/§2's flat, gradient-free direction (motion swoosh,
+  dissolving pixels, gradient shading). `Logo` is now badge-less
+  (`accent-green`/`accent-gold-text` directly on `bg-base`); `LogoMark`
+  (favicon/icon use) keeps its white-on-green treatment since raw
+  `accent-gold` doesn't read reliably against `accent-green` at icon
+  sizes. Recorded two accessible-name gotchas hit and fixed along the way
+  (child-element name-joining, flex ignoring whitespace-only text nodes
+  for layout).
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note:
+  `Logo` moved from `frontend/src/splash/` to `frontend/src/components/` and
+  now also replaces the header's plain-text "xG Arcade" title in `App.tsx`
+  (both the button and `<h1>` variant), sized down for the header line. Same
+  mark, same accessible-name mechanism, no test changes needed.
+- 2026-07-26 — `docs/design-document.md` — added a "Brand mark" note
+  documenting the new `Logo`/`LogoMark` icon that replaces the plain "xG
+  Arcade" text on `SplashScreen`, and the matching `favicon.svg`. Direct
+  follow-up to REQ-719, which explicitly shipped without a logo asset.
+  Revised same day: the first version used a 2x2-grid glyph, replaced
+  outright with an "xG" monogram after direct feedback asked for xG itself
+  to be the mark's visual center. No new tokens; reuses `accent-green`
+  (fixed across themes) plus a literal white for the monogram text, same
+  reasoning as `overlay-scrim`'s theme-invariant foreground pairings.
 - 2026-07-25 — `frontend/src/App.test.tsx` — `test-writer` closed a gap
   quality-architect found in the REQ-720/REQ-721 review: `grid`/
   `leaderboard`/`admin` hashes had no navigate-sets-hash or
