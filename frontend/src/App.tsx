@@ -314,18 +314,19 @@ function App() {
 
             2026-07-26: the plain-text title is now the shared `Logo`
             (frontend/src/components/Logo.tsx, same mark SplashScreen
-            uses), sized down (iconSize=26) for the header's 22px title
-            line. Its accessible name is still "xG Arcade" either way (the
-            mark's aria-label plus the "Arcade" text), so every existing
+            uses) — it sizes from the header's existing 22px
+            `.app__title` font-size, no separate prop needed. Its
+            accessible name is still "xG Arcade" either way ("x"/"G"/
+            "Arcade" are all real text), so every existing
             `getByRole('button'|'heading', { name: 'xG Arcade' })` query
             elsewhere in this file/tests is unaffected. */}
         {accessToken ? (
           <button type="button" className="app__title app__title--link" onClick={() => navigateTo('game-select')}>
-            <Logo iconSize={26} />
+            <Logo />
           </button>
         ) : (
           <h1 className="app__title">
-            <Logo iconSize={26} />
+            <Logo />
           </h1>
         )}
         {/* REQ-712/REQ-713/REQ-720: the header's only nav surface —

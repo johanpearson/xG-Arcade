@@ -21,8 +21,8 @@ export interface SplashScreenProps {
 // asset (explicitly scoped out at the time, "to be handled separately") —
 // this direct follow-up request adds the shared `Logo` mark+wordmark
 // (`frontend/src/components/Logo.tsx`, also used in App.tsx's header) in
-// its place. The heading's accessible name is unchanged ("xG Arcade" — the
-// mark's aria-label plus the "Arcade" text), so the existing REQ-719 test
+// its place. The heading's accessible name is unchanged ("xG Arcade" — all
+// three of "x"/"G"/"Arcade" are real text), so the existing REQ-719 test
 // below still asserts the same heading name; only the visual presentation
 // changed.
 export function SplashScreen({ onGetStarted }: SplashScreenProps) {
@@ -35,7 +35,7 @@ export function SplashScreen({ onGetStarted }: SplashScreenProps) {
     <div className="splash-screen" data-testid="splash-screen">
       <div className="splash-screen__content">
         <h1 className="splash-screen__title">
-          <Logo iconSize={48} />
+          <Logo />
         </h1>
         <p className="splash-screen__tagline">
           Guess the player from their country and club. Compete on the leaderboard.

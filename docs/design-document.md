@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.51"
+version: "0.52"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -292,11 +292,53 @@ was added.
 to `frontend/src/components/Logo.tsx` (a genuine second consumer now
 existed, not a speculative move) and replaced the header's own plain-text
 "xG Arcade" title in `App.tsx` (both the authenticated button and
-unauthenticated `<h1>` variant), sized down via `iconSize={26}` for the
-header's 22px title line. Same mark, same accessible-name mechanism (the
-badge's `aria-label` plus the "Arcade" text), so every existing
-`getByRole('button'|'heading', { name: 'xG Arcade' })` query kept passing
-with no test changes.
+unauthenticated `<h1>` variant). Same mark, same accessible-name mechanism,
+so every existing `getByRole('button'|'heading', { name: 'xG Arcade' })`
+query kept passing with no test changes.
+
+**2026-07-26, second same-day revision — user-supplied inspiration.** The
+user shared reference logos (bold two-tone "xG," a soccer ball worked into
+the lettering, a motion-swoosh trail, gradient shading, a tagline pill) and
+asked for xG itself to be more the visual center. Adopted selectively rather
+than wholesale — see the direction question this was resolved with:
+- **Adopted, because it fits the existing flat/token system:** two-tone
+  letters (`x` in `accent-green`, `G` in `accent-gold-text`) and a flat
+  (no gradient/shading) ball glyph — a plain circle with one pentagon,
+  not a textured illustration — tucked against the G.
+- **Not adopted, because it conflicts with §1's own settled direction:**
+  the gradient shading, motion-swoosh trail, and dissolving-pixel effect.
+  §1 already rejected a "broadcast-graphics" look in favor of flat and
+  quiet; §2 defines no gradient tokens at all. Revisit only via a real
+  token-system update, not as an icon-only exception.
+- `Logo` (the in-app lockup — `SplashScreen`'s `<h1>`, `App.tsx`'s header)
+  is now badge-less: "x", "G", and "Arcade" are plain text sitting directly
+  on `bg-base`, using `accent-gold-text` (not raw `accent-gold`) for the G
+  specifically, since design-document.md §2 already measured raw
+  `accent-gold` too low-contrast for text/icon use on a light surface —
+  `accent-gold-text` already resolves to the right per-theme value via
+  index.css's existing `data-theme` override, the same mechanism
+  `SettingsScreen`/`CellState` already rely on, so no new CSS was needed
+  for the dark-theme case.
+- `LogoMark` (the self-contained icon — `favicon.svg` and any future
+  app-icon use) deliberately did **not** switch to two-tone letters: raw
+  `accent-gold` measures too close in lightness to `accent-green` to read
+  reliably as G-on-green at small icon sizes, so it keeps the original
+  white-on-green monogram, with the same flat ball glyph (inverted
+  fill — white circle, green pentagon, so it reads against the green
+  badge) added as a corner accent for visual continuity with `Logo`.
+- **Accessible-name implementation note, worth recording because it's easy
+  to get wrong again:** splitting "x" and "G" into separate sibling
+  elements (needed for independent coloring) changes the computed
+  accessible name from "xG" to "x G" — the accessible-name algorithm
+  inserts a joiner space between *each child element's own contribution*
+  when accumulating a parent's name, not just between literal whitespace
+  in the markup. Fixed with `aria-label="xG"` on the wrapping span so it
+  contributes as one atomic string. A second, unrelated gotcha found the
+  same day: a flex container (`.logo` is `display: inline-flex`) ignores a
+  whitespace-only text-node child for *layout* purposes even though it's
+  still read for the *accessible name* — so the literal space kept between
+  the "xG" span and "Arcade" (for the name) rendered with zero visual
+  width, and the visible gap had to come from `gap` on `.logo` instead.
 
 ## 3. Key screens
 

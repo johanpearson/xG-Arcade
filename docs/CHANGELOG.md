@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
+  second time: adopted user-supplied inspiration selectively (two-tone
+  "xG" letters, a flat ball glyph) while explicitly declining the parts
+  that conflict with §1/§2's flat, gradient-free direction (motion swoosh,
+  dissolving pixels, gradient shading). `Logo` is now badge-less
+  (`accent-green`/`accent-gold-text` directly on `bg-base`); `LogoMark`
+  (favicon/icon use) keeps its white-on-green treatment since raw
+  `accent-gold` doesn't read reliably against `accent-green` at icon
+  sizes. Recorded two accessible-name gotchas hit and fixed along the way
+  (child-element name-joining, flex ignoring whitespace-only text nodes
+  for layout).
 - 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note:
   `Logo` moved from `frontend/src/splash/` to `frontend/src/components/` and
   now also replaces the header's plain-text "xG Arcade" title in `App.tsx`
