@@ -47,14 +47,17 @@ internal class FakeGameModule(string gameKey) : IGameModule
     public Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default) =>
         Task.FromResult(GetCellIdsResult(instanceId));
 
-    // ADR-0041/S-077: defaults to 2, matching GridGameModule's own constant
-    // and today's pre-extraction behavior — every existing test that doesn't
-    // explicitly override this keeps passing unmodified. Overridable per
-    // test via MaxAttemptsForCellResult (e.g. to prove a caller reads this
-    // value through IGameModule rather than a hardcoded 2).
+    // ADR-0041/S-077: defaults to DefaultMaxAttempts, matching
+    // GridGameModule's own constant and today's pre-extraction behavior —
+    // every existing test that doesn't explicitly override this keeps
+    // passing unmodified. Overridable per test via MaxAttemptsForCellResult
+    // (e.g. to prove a caller reads this value through IGameModule rather
+    // than a hardcoded literal).
+    public const int DefaultMaxAttempts = 2;
+
     public int MaxAttemptsForCellCallCount { get; private set; }
 
-    public Func<Guid, Guid, int> MaxAttemptsForCellResult { get; set; } = (_, _) => 2;
+    public Func<Guid, Guid, int> MaxAttemptsForCellResult { get; set; } = (_, _) => DefaultMaxAttempts;
 
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default)
     {

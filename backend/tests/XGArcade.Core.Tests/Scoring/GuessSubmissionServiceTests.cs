@@ -474,6 +474,40 @@ public class GuessSubmissionServiceTests
         Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
     }
 
+    [Test]
+    public async Task REQ210_SubmitGuess_EachSubmissionAttempt_ResolvesMaxAttemptsCapExactlyOnce()
+    {
+        // ADR-0041: GetMaxAttemptsForCellAsync must be read exactly once per
+        // submission attempt that reaches it — never skipped (the REQ-210
+        // checks immediately below it depend on the value) and never
+        // re-resolved redundantly within the same call. Same
+        // "exactly-N-calls" assertion pattern this file already uses for
+        // ScoreSubmissionAsyncCallCount (e.g.
+        // REQ210_SubmitGuess_AlreadyCorrectlyLockedCell_RejectedWithoutEverCallingGameModule
+        // above), applied to MaxAttemptsForCellCallCount instead — which
+        // otherwise goes unread by any test.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(1));
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(2));
+
+        // Even the rejected 3rd attempt resolves the cap once (it's what
+        // the NoAttemptsRemaining check itself reads) — never zero, never
+        // twice within the same call.
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Third Guess");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(3),
+            "the cap is resolved exactly once per submission attempt, including the rejected third one");
+    }
+
     // ---- REQ-209/REQ-210: disambiguation prompt is not a separate attempt -
 
     [Test]
