@@ -554,6 +554,15 @@ builder.Services.AddSingleton(new GridGenerationOptions());
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
+// ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
+// Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
+// (the composition root), never hardcoded inside XGArcade.Core — same
+// boundary reason as RoundSchedulingOptions.GameKey below (ADR-0003).
+builder.Services.AddScoped<IScoringStrategy>(_ => new UniquenessScoringStrategy
+{
+    GameKey = GridGameModule.XGGridGameKey,
+});
+builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
 
 // COMP-03 (Core.Rounds) — S-008's round generation/scheduling (REQ-301) and
 // round-close (EndTime pull-forward). RoundCloseService's REQ-205 score

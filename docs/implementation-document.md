@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.71"
+version: "0.72"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -1183,6 +1183,25 @@ the pre-existing, documented concurrent-call race in
 `MaterializeUnansweredCellsAsync` is now reachable from this real scheduled
 path too, still not fixed). The non-Production force-close-round endpoint
 still exists, unchanged, for manual/E2E use.
+
+**S-076 correction (ADR-0040 — pure extraction, no formula change):**
+`ScoreLockingService.LockRoundScoresAsync` no longer calls
+`UniquenessCalculator.Calculate`/`ScoringRules.PointsFromUniqueScore`
+directly for a correct guess. It now resolves an `IScoringStrategy` via a
+new `IScoringStrategyResolver` (`XGArcade.Core.Scoring`), keyed by
+`Round.GameKey`, mirroring `IGameModuleResolver`'s existing resolution
+shape exactly. xG Grid's formula is unchanged, just relocated into
+`UniquenessScoringStrategy` (a pure wrap of the same two calls, same
+order of operations), registered against
+`GridGameModule.XGGridGameKey` in `Program.cs` — the composition root, not
+`XGArcade.Core` itself, per ADR-0003. `MaterializeUnansweredCellsAsync`'s
+unanswered-cell penalty (immediately above) is untouched: it runs before
+any strategy is consulted and stays `FinalPoints = MaxPointsPerCell`/
+`FinalUniquenessScore = null` regardless of `GameKey`. Every existing
+REQ-204/205 acceptance criterion still holds for xG Grid unchanged — this
+groundwork exists so a second game (xG Path, ADR-0040's motivating case)
+can register its own `IScoringStrategy` without editing this file's
+control flow at all.
 
 **Leaderboard pagination (REQ-607)**
 

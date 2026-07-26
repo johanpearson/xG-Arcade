@@ -7,7 +7,8 @@ namespace XGArcade.Core.Scoring;
 public class ScoreLockingService(
     IGuessRepository guessRepository,
     IRoundRepository roundRepository,
-    IGameModuleResolver gameModuleResolver) : IScoreLockingService
+    IGameModuleResolver gameModuleResolver,
+    IScoringStrategyResolver scoringStrategyResolver) : IScoreLockingService
 {
     public async Task LockRoundScoresAsync(Guid roundId, CancellationToken cancellationToken = default)
     {
@@ -19,6 +20,16 @@ public class ScoreLockingService(
             .GroupBy(g => g.CellId)
             .ToDictionary(group => group.Key, group => (IReadOnlyCollection<Guess>)group.ToList());
 
+        // ADR-0040: only resolved when at least one correct guess exists in
+        // this round — an empty round never needs a Round fetch or a
+        // strategy at all, matching this method's pre-ADR-0040 behavior.
+        IScoringStrategy? scoringStrategy = null;
+        if (correctGuessesByCell.Count > 0)
+        {
+            var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
+            scoringStrategy = scoringStrategyResolver.Resolve(round!.GameKey);
+        }
+
         foreach (var guess in guesses)
         {
             if (guess.IsCorrect)
@@ -26,10 +37,12 @@ public class ScoreLockingService(
                 // Safe: ScoreSubmissionAsync never returns IsCorrect = true
                 // without also setting PlayerAnswerId (ScoreResult's own doc
                 // comment), and this guess is necessarily a member of its own
-                // cell's correct-guesses group.
-                var uniqueScore = UniquenessCalculator.Calculate(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
-                guess.FinalUniquenessScore = uniqueScore;
-                guess.FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore);
+                // cell's correct-guesses group. scoringStrategy is
+                // necessarily non-null here too, since correctGuessesByCell
+                // is non-empty whenever any guess.IsCorrect is true.
+                var result = scoringStrategy!.ScoreCorrectGuess(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
+                guess.FinalUniquenessScore = result.FinalUniquenessScore;
+                guess.FinalPoints = result.FinalPoints;
             }
             else
             {

@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.56"
+version: "0.57"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -240,6 +240,27 @@ coupling — so `Guess.CellId` already works as an opaque per-game cell
 reference for COMP-11 with no schema change needed; the doc-comment
 caveat can be removed once COMP-11 is actually built and confirms this in
 practice.
+
+**COMP-04 status (S-076, ADR-0040 — built, not just designed):** the first
+of the two ADR-0040/ADR-0041 refactors above is now real code, ahead of xG
+Path itself (S-079+). `ScoreLockingService.LockRoundScoresAsync` no longer
+calls `UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly;
+it resolves an `IScoringStrategy` via the new `IScoringStrategyResolver`
+(`Core.Scoring`), keyed by `Round.GameKey`, mirroring
+`IGameModuleResolver`'s resolution shape exactly (interface + a concrete
+resolver taking `IEnumerable<IScoringStrategy>`, throwing
+`InvalidOperationException` for an unregistered `GameKey`). xG Grid's
+existing formula is now `UniquenessScoringStrategy`, a pure wrap of
+`UniquenessCalculator.Calculate` + `ScoringRules.PointsFromUniqueScore` —
+same math, same order of operations, registered in `Program.cs` with
+`GameKey = GridGameModule.XGGridGameKey` supplied at the composition root
+(never hardcoded inside `XGArcade.Core`, same pattern
+`RoundSchedulingOptions.GameKey` already established — ADR-0003).
+`MaterializeUnansweredCellsAsync`'s unanswered-cell penalty is untouched:
+it still runs before any strategy is consulted and stays
+`FinalPoints = MaxPointsPerCell`/`FinalUniquenessScore = null`,
+strategy-agnostic. This is a pure extraction — every existing REQ-204/205
+acceptance criterion still holds for xG Grid unchanged.
 
 **COMP-02 status (S-011):** `ILeaderboardService`/`LeaderboardService`
 (`XGArcade.Core.Leagues`) is COMP-02's first real code — REQ-401's
