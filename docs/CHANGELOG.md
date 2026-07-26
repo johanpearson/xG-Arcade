@@ -13,6 +13,13 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/design-document.md` — added a "Brand mark" note
+  documenting the new `Logo`/`LogoMark` icon (2x2 grid, one gold cell) that
+  replaces the plain "xG Arcade" text on `SplashScreen`, and the matching
+  `favicon.svg`. Direct follow-up to REQ-719, which explicitly shipped
+  without a logo asset. No new tokens; reuses `accent-green`/`accent-gold`
+  (fixed across themes) plus a literal white for the neutral cells, same
+  reasoning as `overlay-scrim`'s theme-invariant foreground pairings.
 - 2026-07-25 — `frontend/src/App.test.tsx` — `test-writer` closed a gap
   quality-architect found in the REQ-720/REQ-721 review: `grid`/
   `leaderboard`/`admin` hashes had no navigate-sets-hash or

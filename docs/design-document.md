@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.50"
+version: "0.51"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -266,6 +266,23 @@ and never touches the badge-dock elements or its keyframes. Fires on
 every rejected guess (whether or not an attempt remains afterward), never
 on a page load that shows a cell already incorrect. Respects
 `prefers-reduced-motion`: flash only, no shake.
+
+**Brand mark (2026-07-26).** A small icon/logo pair replaces the plain "xG
+Arcade" text on `SplashScreen` (REQ-719 shipped without one, "to be handled
+separately" — this is that follow-up): a rounded-square badge holding a 2x2
+grid of cells, one cell gold — a literal miniature of the xG Grid game's own
+"correct match" moment (gold = settled/correct, same semantic this section
+already establishes). Implemented as `frontend/src/splash/Logo.tsx`
+(`LogoMark` icon alone, `Logo` icon+wordmark lockup) and, as a static asset,
+`frontend/public/favicon.svg`. Colors: the badge and gold cell reuse
+`accent-green`/`accent-gold` directly — both already fixed at identical hex
+values across light/dark theme (see this section's dark-theme table), so the
+mark needs no dark-mode variant. The three neutral cells are a literal white
+rather than `surface-card` (which does flip dark in dark theme), the same
+"self-contained badge, not page chrome" reasoning already applied to
+`overlay-scrim`'s foreground pairings above. The wordmark itself uses
+`--font-display`/`text-primary` as normal, so it still adapts with theme like
+any other heading text. No new token was added.
 
 ## 3. Key screens
 
