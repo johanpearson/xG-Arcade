@@ -3892,3 +3892,220 @@ listener). `quality-architect`: pass; one medium finding (REQ-721's
 `oxlint` clean throughout; Playwright E2E not run in this sandbox (no
 `dotnet` available to run the backend the E2E tests require) — CI-only,
 consistent with prior sessions.
+
+## Epic 6 — xG Path (second game)
+
+Design-only work (`docs/decisions/0040-0043`, `requirements-document.md`
+REQ-1201-1206/REQ-410, `design-document.md` SCREEN-09/10) turned into a
+concrete build sequence, same house rules as every epic above: one story
+per session/PR, top to bottom, no story depends on a later one, every
+story leaves the system deployable and testable. The first three stories
+are shared-infrastructure refactors surfaced *by* planning xG Path but not
+specific to it — they touch already-shipped xG Grid code, carry real
+regression risk to it, and are ordered first deliberately so that risk is
+validated before any new game logic is built on top of it.
+
+**S-076 · Core.Scoring resolves a scoring strategy per GameKey (ADR-0040)**
+Foundational refactor, no new game yet and no behavior change for xG Grid.
+`ScoreLockingService.LockRoundScoresAsync` currently calls
+`UniquenessCalculator.Calculate`/`ScoringRules.PointsFromUniqueScore`
+directly for every correct guess, regardless of `GameKey`. Introduce
+`IScoringStrategy` (computes `FinalUniquenessScore`/`FinalPoints` for a
+cell's correct guesses) and `IScoringStrategyResolver` (resolves a
+strategy by `GameKey`, mirroring `IGameModuleResolver`'s existing shape
+exactly). Extract xG Grid's existing formula into
+`UniquenessScoringStrategy` — a pure wrap of the current
+calculator/rules calls, not a formula change. `ScoreLockingService` calls
+the resolved strategy instead of the calculator/rules directly.
+`MaterializeUnansweredCellsAsync`'s unanswered-cell penalty is unaffected
+(runs before any strategy is consulted, stays strategy-agnostic).
+*Accept:* every existing REQ-204/205-named test still passes unmodified
+(this is an extraction, not a behavior change); a new test confirms
+`IScoringStrategyResolver` resolves `"xg-grid"` to `UniquenessScoringStrategy`
+and throws/fails loudly for an unregistered `GameKey` rather than
+silently defaulting to it. *Deps:* S-011/S-018/S-022/S-028 (the existing
+scoring code being extracted).
+
+**S-077 · Guess attempt cap resolved per-cell via `IGameModule` (ADR-0041)**
+Foundational refactor, no behavior change for xG Grid. `GuessRules
+.MaxAttemptsPerCell` is a single `const int = 2`, read directly by
+`GuessSubmissionService`, `LiveRoundContributionService`, and
+`RoundEndpoints`. `IGameModule` gains a method resolving a given cell's
+own max-attempts value (same resolution shape `GetCellIdsAsync` already
+uses). All three call sites read through it instead of the constant.
+`GridGameModule`'s implementation returns `2` unconditionally — identical
+behavior to today. Once every call site is migrated,
+`GuessRules.MaxAttemptsPerCell` is deleted outright, not left as unused
+dead code.
+*Accept:* every existing REQ-210-named test still passes unmodified; a
+new test confirms no call site references a hardcoded `2` anymore (all
+three resolve through `IGameModule`); confirm-by-inspection that
+`GuessRules.MaxAttemptsPerCell` no longer exists in the codebase.
+*Deps:* S-009/S-010 (the existing attempt-cap code being extracted). No
+dependency on S-076 — different interface, either order works.
+
+**S-078 · Global League leaderboard scoped per GameKey (ADR-0043/REQ-410)**
+Independent of the rest of this epic — motivated by xG Path but not
+blocked by it, and nothing else in this epic depends on it except S-087.
+`GetGlobalLeaderboardAsync` and `IGuessRepository
+.GetPerRoundFinalPointsByUserIdsAsync` gain a required `gameKey`
+parameter (`GetPerRoundFinalPointsByUserIdsAsync`'s existing `Guess`-
+`Round` join gains a `round.GameKey == gameKey` filter — no schema
+change). `LeaderboardEndpoints`'s route passes `"xg-grid"` explicitly
+today (behavior for the only current game is unchanged) rather than the
+previous implicit "every round regardless of game" query.
+*Accept:* every existing REQ-409-named test still passes, now supplying
+`"xg-grid"` explicitly; a new test seeds rounds under two different
+`GameKey`s and confirms a player's ranking/median only reflects the
+requested game's rounds. *Deps:* S-060 (REQ-409's median ranking, the
+method being changed).
+
+**S-079 · `PlayerCareerStint` data model (ADR-0042)**
+No consumer yet — this story only makes the data available; S-081 is its
+first reader. New entity (`PlayerId`, `ClubName`, `StartYear`, `EndYear?`,
+`SequenceOrder`, `AppearanceCount?`) alongside `PlayerAttribute`/
+`PlayerAlias`/`PlayerOverride` in `XGArcade.Data` (COMP-06). Extend
+`WikidataLookupService`'s existing `P54` query to also read the
+`P580`/`P582`/`P1350` qualifiers already present in the statement it
+already fetches (no new SPARQL query shape, no new external call) and
+populate `PlayerCareerStint` rows alongside the existing `PlayerAttribute`
+`"club"` rows from the same response. `AppearanceCount` is `null`, never
+`0`, when `P1350` isn't present for that stint.
+*Accept:* REQ103-adjacent test: a mocked Wikidata response with `P54`
+qualifiers persists one ordered `PlayerCareerStint` row per stint,
+`SequenceOrder` reflects chronological order regardless of the order
+statements appear in the response, a stint missing `P1350` gets a null
+(never zero) `AppearanceCount`; confirm-by-inspection that
+`PlayerAttribute`'s existing `"club"` rows and REQ-101's candidate-matching
+query are unchanged. *Deps:* S-006 (`WikidataLookupService`/`P54` query
+being extended).
+
+**S-080 · `Games.XGPath` module scaffold (`IGameModule` shell)**
+Via `/new-game` (`game-scaffolder`), matching ADR-0002/0003's boundary
+exactly: new `XGArcade.Games.XGPath` project, `GameKey = "xg-path"`,
+registered in `IGameModuleResolver`. `GenerateInstanceAsync`/
+`ScoreSubmissionAsync`/`GetCellIdsAsync`/the new per-cell attempt-cap
+method (S-077) exist with minimal/stub implementations — enough to prove
+the module is discoverable and the boundary compiles, not real game
+logic yet (mirrors how S-001 scaffolded the whole platform "empty but
+compiling"). No frontend change, no route exposing this game yet.
+*Accept:* `IGameModuleResolver.Resolve("xg-path")` returns the new
+module; a compiling `XGArcade.Games.XGPath.Tests` project exists (even if
+near-empty); confirm no game-specific reference leaked into `Core.*`
+(ADR-0003). *Deps:* S-077 (the `IGameModule` interface shape this scaffolds
+against must be final first).
+
+**S-081 · xG Path puzzle generation (REQ-1201/1202)**
+`GenerateInstanceAsync` picks a configured count `N` (3-5) of distinct
+eligible target players — REQ-1201's eligibility (≥3 documented,
+chronologically-orderable `PlayerCareerStint` rows, at least one at a
+seeded `ClubDefinition` club, drawn from REQ-112's existing player pool)
+— and persists a puzzle instance plus one cell per puzzle.
+`GetCellIdsAsync` returns those cell ids.
+*Accept:* REQ1201-named tests: a candidate with <3 stints, an
+undeterminable stint order, no stint at a seeded club, or outside
+REQ-112's pool is never selected. REQ1202-named tests: exactly `N`
+distinct-target puzzles are generated per instance; `Round.GameKey =
+"xg-path"`/`GameInstanceId` wiring is unchanged from ADR-0003's existing
+shape (no new Core-side reference). *Deps:* S-079 (career-stint data to
+select against), S-080 (module scaffold).
+
+**S-082 · xG Path clue reveal + guess submission (REQ-1203/1204/1205)**
+Backend only. Exposes a puzzle's clue sequence progressively (chronological
+club stints capped at 5, each with appearance count when known; then one
+bundled years clue for every revealed club; then position, nationality,
+age, in that fixed order; national team caps never appear) — mirrors
+`GET /rounds/current`'s per-cell reveal shape, clue-indexed rather than
+category-indexed. `ScoreSubmissionAsync` resolves a guess via the
+existing `PlayerNameIndex`/name-matching pipeline (ADR-0007, no new
+matching infrastructure) and is correct iff the resolved candidate's
+`PlayerId` equals the puzzle's target `PlayerId`. The attempt cap read
+through S-077's `IGameModule` method returns this puzzle's own
+`min(stints, 5) + 4`, not a fixed value.
+*Accept:* REQ1203-named tests: reveal order/content for target players
+with fewer than 5, exactly 5, and more than 5 stints; appearance count
+present vs. unknown; the bundled year-range clue's content; the sequence
+halts immediately on a correct guess at every possible point. REQ1204-named
+tests: correctness is a direct `PlayerId` match, not a category check; a
+guess resolving to no candidate is incorrect. REQ1205-named tests: the
+resolved attempt cap matches each puzzle's own clue count, never a fixed
+`2`. *Deps:* S-081 (puzzle instances/cells to guess against), S-077 (the
+per-cell attempt-cap mechanism).
+
+**S-083 · xG Path scoring strategy (REQ-1206, ADR-0040)**
+`ClueEfficiencyScoringStrategy` — `round(cluesUsed / maxCluesForThisPuzzle
+* MaxPointsPerCell)` for a correct guess; a puzzle never solved before its
+attempt cap is exhausted scores `MaxPointsPerCell` (the same
+"unanswered/incorrect scores worst" convention as xG Grid, ADR-0021).
+Registered against `"xg-path"` in `IScoringStrategyResolver` (S-076).
+Computes no `FinalUniquenessScore` at all (null) — this game has no
+uniqueness concept, per ADR-0040's own reasoning.
+*Accept:* REQ1206-named tests: points formula across a range of
+`cluesUsed`/`maxCluesForThisPuzzle` combinations; worst-case score when
+never solved; `FinalUniquenessScore` is always null for this strategy;
+confirm `ScoreLockingService` resolves this strategy (not
+`UniquenessScoringStrategy`) for an `"xg-path"` round. *Deps:* S-076
+(the resolver/interface), S-082 (guesses carrying enough information —
+clues used at time of correct guess — for this strategy to compute from).
+
+**S-084 · xG Path round scheduling (REQ-1202)**
+A second `RoundSchedulingOptions` instance for `GameKey = "xg-path"` (its
+own duration/config, independent of xG Grid's), wired into
+`generate-round.yml`/`RoundGenerationService` the same per-`GameKey` way
+xG Grid's is today. Whether this extends the existing scheduled job to
+loop over multiple `GameKey`s or adds a second scheduled invocation is an
+implementation judgment call — flag the choice to `architecture-reviewer`
+rather than deciding silently.
+*Accept:* a scheduled run generates an "xg-path" round independent of
+xG Grid's own round timing/duration; REQ-301's "one round ahead"
+generation and REQ-302's round-lifecycle rules hold for `"xg-path"`
+exactly as they do for `"xg-grid"`, proven by test, not by inspection
+alone. *Deps:* S-081 (instance generation to actually schedule).
+
+**S-085 · Frontend: SCREEN-09 multi-tile game select**
+`GameSelectScreen.tsx` gains a second tile (xG Path), per SCREEN-09's
+spec — same tile pattern, no imagery, tokens only. `App.tsx` routing
+extended for a second game destination.
+*Accept:* REQ720/303-adjacent UI test: both tiles render, in the same
+order as `HeaderNav`'s "Games" list; selecting the xG Path tile navigates
+to its own screen (S-086); the existing xG Grid tile/navigation is
+unchanged. *Deps:* S-082 (a real xG Path experience must exist before
+exposing an entry point to it in production).
+
+**S-086 · Frontend: SCREEN-10 xG Path puzzle screen (growing timeline)**
+The validated clue-reveal UI: vertical timeline of clue nodes (settle-in
+motion reusing the badge dock's character, `prefers-reduced-motion`
+fallback per that same precedent), guess input pinned below, "Clue N of
+M" counter in tabular figures, rejected-guess shake reused verbatim from
+SCREEN-02, solved state showing the target player's photo (REQ-214,
+falling back to the initials-avatar treatment already established) or
+name, "Next puzzle" as an explicit action (never automatic), "Puzzle N of
+M" header per SCREEN-10.
+*Accept:* REQ1203/1204/1205/1206-adjacent UI tests: clues render in the
+documented order/content; a correct guess at any point halts further
+reveals; the clue counter reflects that puzzle's own cap, not a fixed
+number; reduced-motion preference disables the slide/fade entirely (no
+partial-motion state). *Deps:* S-082 (backend clue reveal/guess
+endpoints), S-085 (entry point reaching this screen).
+
+**S-087 · Frontend: leaderboard game switcher (SCREEN-03, ADR-0043/REQ-410)**
+`LeaderboardScreen.tsx` gains the game-switcher tab row per SCREEN-03's
+addition, wired to S-078's now-`gameKey`-scoped endpoint. Switching games
+re-fetches whichever scope tab is currently selected without resetting it
+to All-time.
+*Accept:* REQ410-adjacent UI test: switching games re-queries the active
+scope with the new `gameKey`; the selected scope tab is preserved across
+a game switch. *Deps:* S-078 (backend), S-085 (a second game to switch
+to — the switcher is meaningfully testable once one exists, even though
+the backend change alone would technically support it earlier).
+
+**S-088 · E2E coverage for the full xG Path game loop**
+Playwright: generate an xG Path round (extending the non-Production
+test-data endpoint, REQ-806, to cover `GameKey = "xg-path"`), solve a
+puzzle across multiple clue reveals, confirm scoring locks correctly at
+round close, confirm the puzzle's points appear correctly in its own
+game-scoped leaderboard (S-087) and not blended with xG Grid's.
+*Accept:* one full end-to-end spec covering generation → clue reveal →
+guess → round close → leaderboard, run against the same local-stack E2E
+setup `ci.yml` already uses for xG Grid. *Deps:* S-076 through S-087 (the
+complete feature).

@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/backlog.md` — added Epic 6 (xG Path, second game),
+  S-076 through S-088: three shared-infrastructure refactors ordered
+  first (S-076 scoring-strategy pluggability/ADR-0040, S-077 per-cell
+  attempt cap/ADR-0041, S-078 per-game leaderboard scoping/ADR-0043/
+  REQ-410 — each a no-behavior-change extraction for xG Grid), then
+  xG Path's own data model (S-079, ADR-0042), module scaffold (S-080),
+  generation/clue-reveal/scoring (S-081-083), round scheduling (S-084),
+  and three frontend stories (S-085/086/087) plus E2E coverage (S-088).
+  Turns the design-only REQ-1201-1206/REQ-410 and ADR-0040-0043 into a
+  concrete, dependency-ordered build sequence — no code changed.
 - 2026-07-26 — `docs/design-document.md` (0.53 → 0.54) — added SCREEN-09
   (game select, multi-tile — resolves the §7 open question flagged since
   S-021) and SCREEN-10 (xG Path puzzle/clue-reveal screen — design only,
