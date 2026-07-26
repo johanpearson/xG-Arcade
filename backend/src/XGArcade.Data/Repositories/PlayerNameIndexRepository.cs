@@ -28,6 +28,31 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
     //     AsNoTracking-materialized entity instances (no identity map, so two
     //     materializations of the same row are two distinct objects). A
     //     scalar Guid Union has none of that ambiguity.
+    //
+    //     Quality-gate correction, 2026-07-26 (ADR-0044's Consequences
+    //     section now says so explicitly): each branch is capped with its
+    //     own `OrderBy(...).Take(limit)` BEFORE the union, not just once at
+    //     the very end. Autocomplete allows queries as short as
+    //     PlayerAutocompleteEndpoints.MinQueryLength (2 chars), and against
+    //     COMP-10's bulk-imported scale a short common prefix can match a
+    //     very large number of rows in either branch — pulling every
+    //     matching id into memory before limiting (the original shape)
+    //     defeats ADR-0044's whole point of staying bounded at scale. Each
+    //     branch's own OrderBy is on the same column it filters
+    //     (NormalizedName / Word respectively), so it's still a plain
+    //     index-backed range scan, not an extra sort pass. Capping each
+    //     branch at `limit` (not a multiple of it) is a deliberate,
+    //     best-effort choice, not a proof of exact global correctness: since
+    //     the word branch is ordered by Word rather than by the final
+    //     display order (NormalizedName), the two branches' first `limit`
+    //     rows are not guaranteed to contain the true alphabetically-first
+    //     `limit` matches across the full union once total matches exceed
+    //     `limit` in both branches at once. Autocomplete has no requirement
+    //     for exact global ordering under overflow (REQ-208 requires a
+    //     match be found, not a specific ranking) — trading that theoretical
+    //     edge case away for a guaranteed-bounded query is the right call
+    //     here; do not "fix" it by removing the per-branch Take without
+    //     re-reading ADR-0044's Consequences section first.
     //  2. Fetch the actual rows for those ids in one indexed (primary key)
     //     lookup, ordered and limited for display.
     public async Task<IReadOnlyList<PlayerNameIndex>> SearchByPrefixAsync(
@@ -35,11 +60,15 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
     {
         var wholeNameMatchIds = dbContext.PlayerNameIndexEntries
             .Where(pni => pni.NormalizedName.StartsWith(normalizedQuery))
-            .Select(pni => pni.PlayerId);
+            .OrderBy(pni => pni.NormalizedName)
+            .Select(pni => pni.PlayerId)
+            .Take(limit);
 
         var wordMatchIds = dbContext.PlayerNameIndexWords
             .Where(w => w.Word.StartsWith(normalizedQuery))
-            .Select(w => w.PlayerId);
+            .OrderBy(w => w.Word)
+            .Select(w => w.PlayerId)
+            .Take(limit);
 
         var matchingPlayerIds = await wholeNameMatchIds
             .Union(wordMatchIds)

@@ -66,6 +66,29 @@ one extra child table populated by the same bulk import.
   column value) and the InMemory test provider (no such guarantee for
   `AsNoTracking`-materialized entities) — unioning on the scalar `PlayerId`
   instead removes that ambiguity entirely.
+- **Correction, 2026-07-26 (quality-gate finding on the original write-up):**
+  the original version of this section listed "two round trips" as the only
+  cost and did not call out that the first of those two round trips
+  (building the candidate id list from the two `StartsWith` branches) was
+  itself unbounded — no `Take` was applied until after both branches were
+  already unioned into a single in-memory list. Since autocomplete accepts
+  queries as short as `PlayerAutocompleteEndpoints.MinQueryLength` (2
+  characters), a short common prefix against COMP-10's bulk-imported scale
+  could pull a large number of candidate ids into memory before any limiting
+  happened at all — undermining the "stays index-backed and bounded at
+  scale" premise this whole ADR is built on. This was a real gap in the
+  original design, not a hypothetical one. Fixed by giving each branch its
+  own `OrderBy(<the column it filters on>).Take(limit)` before the union,
+  so neither branch can return more than `limit` rows. This is a
+  best-effort bound, not a proof of exact global top-`limit` correctness:
+  the word branch orders by `Word`, not by the final display order
+  (`NormalizedName`), so once total matches in *both* branches exceed
+  `limit` at once, the surviving candidates are not guaranteed to be the
+  true alphabetically-first `limit` results across the full union.
+  Accepted because REQ-208 requires autocomplete to surface a match, not a
+  specific ranking under overflow, and a guaranteed-bounded query matters
+  more here than exactness in an edge case with no stated requirement
+  behind it.
 - Follow-up: if profiling ever shows the per-word table meaningfully
   increasing bulk-import time, reconsider batching the word reconciliation;
   not expected to matter at today's scale.

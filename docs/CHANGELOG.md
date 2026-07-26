@@ -13,6 +13,18 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (Consequences section corrected), `docs/implementation-document.md`
+  (0.70 → 0.71) — quality-gate correction to the REQ-208/ADR-0044 fix:
+  `PlayerNameIndexRepository.SearchByPrefixAsync`'s two candidate-id
+  branches (`NormalizedName` and `PlayerNameIndexWord.Word` `StartsWith`
+  scans) were each unbounded before their union, which could pull a large
+  candidate-id list into memory for a short prefix at scale — the exact
+  thing ADR-0044 was meant to avoid. Each branch now applies its own
+  `OrderBy(...).Take(limit)` before the union; ADR-0044's Consequences
+  section now documents this as a real gap the original write-up missed,
+  not just "two round trips." Also fixed `PlayerNameIndexWord`'s doc code
+  sample (missing `required` on `Word`, drifted from the real entity).
 - 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.11 → 1.12),
   `docs/architecture-document.md` (0.55 → 0.56),
   `docs/implementation-document.md` (0.69 → 0.70),

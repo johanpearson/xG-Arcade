@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.70"
+version: "0.71"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -398,7 +398,7 @@ public class PlayerNameIndex
 public class PlayerNameIndexWord
 {
     public Guid PlayerId { get; set; }
-    public string Word { get; set; }  // already normalized; never re-normalized here
+    public required string Word { get; set; }  // already normalized; never re-normalized here
 }
 
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
