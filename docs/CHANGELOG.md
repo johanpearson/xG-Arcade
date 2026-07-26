@@ -14,6 +14,11 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
+  third time: dropped the ball accent added earlier the same day, per
+  direct feedback ("too much", didn't look good) — removed outright, not
+  kept as an option. `Logo`/`LogoMark`/`favicon.svg` are back to plain
+  `x`/`G`/`Arcade` text (still two-tone in `Logo`) with no ball glyph.
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
   second time: adopted user-supplied inspiration selectively (two-tone
   "xG" letters, a flat ball glyph) while explicitly declining the parts
   that conflict with §1/§2's flat, gradient-free direction (motion swoosh,

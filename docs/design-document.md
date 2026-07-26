@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.52"
+version: "0.53"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -339,6 +339,17 @@ than wholesale — see the direction question this was resolved with:
   still read for the *accessible name* — so the literal space kept between
   the "xG" span and "Arcade" (for the name) rendered with zero visual
   width, and the visible gap had to come from `gap` on `.logo` instead.
+
+**2026-07-26, third same-day revision — ball accent dropped.** Direct
+feedback after seeing the ball glyph live: "too much" and didn't look
+good. Removed outright (`.logo__ball`/`BallAccent` in `Logo.tsx`, and the
+matching corner glyph in `LogoMark`/`favicon.svg`), not kept as a toggle —
+the two-tone "xG" letters alone were already reading well and are what
+remains. `Logo` is back to just `x`/`G`/`Arcade` as plain sibling text
+(still needing the same `aria-label="xG"` wrapper for the accessible-name
+reason above, since that's independent of whether a ball accent exists);
+`LogoMark`/`favicon.svg` are back to the plain white-on-green monogram
+with no corner glyph.
 
 ## 3. Key screens
 
