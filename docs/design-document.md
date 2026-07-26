@@ -267,22 +267,26 @@ every rejected guess (whether or not an attempt remains afterward), never
 on a page load that shows a cell already incorrect. Respects
 `prefers-reduced-motion`: flash only, no shake.
 
-**Brand mark (2026-07-26).** A small icon/logo pair replaces the plain "xG
-Arcade" text on `SplashScreen` (REQ-719 shipped without one, "to be handled
-separately" — this is that follow-up): a rounded-square badge holding a 2x2
-grid of cells, one cell gold — a literal miniature of the xG Grid game's own
-"correct match" moment (gold = settled/correct, same semantic this section
-already establishes). Implemented as `frontend/src/splash/Logo.tsx`
-(`LogoMark` icon alone, `Logo` icon+wordmark lockup) and, as a static asset,
-`frontend/public/favicon.svg`. Colors: the badge and gold cell reuse
-`accent-green`/`accent-gold` directly — both already fixed at identical hex
-values across light/dark theme (see this section's dark-theme table), so the
-mark needs no dark-mode variant. The three neutral cells are a literal white
-rather than `surface-card` (which does flip dark in dark theme), the same
-"self-contained badge, not page chrome" reasoning already applied to
-`overlay-scrim`'s foreground pairings above. The wordmark itself uses
-`--font-display`/`text-primary` as normal, so it still adapts with theme like
-any other heading text. No new token was added.
+**Brand mark (2026-07-26, revised same day).** A small icon/logo pair
+replaces the plain "xG Arcade" text on `SplashScreen` (REQ-719 shipped
+without one, "to be handled separately" — this is that follow-up): an "xG"
+monogram on a rounded-square badge — xG (expected goals) is the term the
+whole product name is built on, so it's the mark's entire content, not a
+supporting detail beside a separate pictorial symbol. **First attempt used a
+2x2-grid glyph instead of the monogram; direct feedback the same day asked
+for xG itself to be the visual center, not a grid icon — the grid version
+was replaced outright, not kept as an alternate.** Implemented as
+`frontend/src/splash/Logo.tsx` (`LogoMark` is the badge alone, `Logo` pairs
+it with the word "Arcade" — not the full "xG Arcade" repeated next to its
+own monogram) and, as a static asset, `frontend/public/favicon.svg`. Colors
+are fixed rather than theme-driven: `accent-green` is already the same hex
+across light/dark theme (see this section's dark-theme table), and the
+monogram text is a literal white for the same "self-contained badge, not
+page chrome" reasoning already applied to `overlay-scrim`'s foreground
+pairings above — so the mark needs no dark-mode variant of its own. The
+"Arcade" word next to it still uses `--font-display`/`text-primary` as
+normal, so it adapts with theme like any other heading text. No new token
+was added.
 
 ## 3. Key screens
 

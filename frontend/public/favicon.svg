@@ -1,7 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#1e9e63" />
-  <rect x="7" y="7" width="22" height="22" rx="5" fill="#ffffff" />
-  <rect x="35" y="7" width="22" height="22" rx="5" fill="#ffffff" />
-  <rect x="7" y="35" width="22" height="22" rx="5" fill="#ffffff" />
-  <rect x="35" y="35" width="22" height="22" rx="5" fill="#c99a2e" />
+  <text
+    x="32"
+    y="35"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="'Space Grotesk', system-ui, sans-serif"
+    font-weight="700"
+    font-size="27"
+    fill="#ffffff"
+  >xG</text>
 </svg>
