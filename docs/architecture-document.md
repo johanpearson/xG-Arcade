@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.54"
+version: "0.55"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -329,6 +329,25 @@ above: REQ-405 keeps its own plain-sum-within-the-window ranking, since
 "total scored within this window" and "typical per-round performance
 across all history" are different questions with different natural
 formulas.
+
+**COMP-02 status (design only, 2026-07-26, ADR-0043):** planning xG Path's
+platform integration (not just its own game logic, COMP-11) found that
+three of `ILeaderboardService`'s four scopes were already `GameKey`-scoped
+(`GetActiveRoundLeaderboardAsync` via the specific `Round` passed in;
+`GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`/
+`GetWindowedLeaderboardAsync` via an explicit `gameKey` parameter,
+S-054/S-027 above) — only `GetGlobalLeaderboardAsync` (REQ-409's all-time
+median) was not, silently blending every game's rounds into one ranking.
+ADR-0043 closes that one remaining gap: `GetGlobalLeaderboardAsync` and
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` both gain a
+required `gameKey` parameter (the latter's existing `Guess`-`Round` join
+just gains a `round.GameKey == gameKey` filter, no schema change). `League`
+membership itself is untouched — one Global League, auto-joined at signup
+(REQ-401) — only which game's rounds count toward the *ranking* becomes an
+explicit parameter, consistent with the other three scopes. See
+`docs/requirements-document.md` §4.4 for the corresponding REQ addition.
+Not yet implemented — xG Grid is still the only game, so there is nothing
+to scope against in practice yet.
 
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index

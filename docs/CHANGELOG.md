@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/decisions/0043-global-leaderboard-scoped-per-game.md`
+  (new), `docs/architecture-document.md` (0.54 → 0.55),
+  `docs/requirements-document.md` (§4.4, REQ-410 new, 1.09 → 1.10) —
+  planning xG Path's platform integration found the Global League's
+  all-time ranking (REQ-409) was the one leaderboard scope with no
+  per-`GameKey` filter (the other three already had one). ADR-0043
+  documents the fix: `GetGlobalLeaderboardAsync`/
+  `GetPerRoundFinalPointsByUserIdsAsync` gain a required `gameKey`
+  parameter (no schema change). Added REQ-410 (Status: Not started, design
+  only) and forward-pointing status notes on REQ-401/404/409. Updated
+  `architecture-document.md`'s COMP-02 status accordingly.
 - 2026-07-26 — `docs/decisions/0040-per-game-scoring-strategy.md`,
   `docs/decisions/0041-per-cell-attempt-cap.md`,
   `docs/decisions/0042-player-career-stint-data-model.md`,
