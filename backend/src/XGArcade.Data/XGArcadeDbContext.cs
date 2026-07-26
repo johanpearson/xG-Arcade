@@ -17,6 +17,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // boundary rule 5. Deliberately never read by IPlayerStoreRepository
     // (COMP-06); only IPlayerNameIndexRepository queries this DbSet.
     public DbSet<PlayerNameIndex> PlayerNameIndexEntries => Set<PlayerNameIndex>();
+    // REQ-208's 2026-07-26 correction / ADR-0044: per-word decomposition of
+    // PlayerNameIndex.NormalizedName, indexed so a surname-only autocomplete
+    // query can still be a proper (index-backed) StartsWith match. Same
+    // COMP-10/autocomplete-only boundary as PlayerNameIndexEntries above —
+    // never read by IPlayerStoreRepository.
+    public DbSet<PlayerNameIndexWord> PlayerNameIndexWords => Set<PlayerNameIndexWord>();
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
@@ -93,6 +99,25 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasKey(pni => pni.PlayerId);
         modelBuilder.Entity<PlayerNameIndex>()
             .HasIndex(pni => pni.NormalizedName);
+
+        // REQ-208's 2026-07-26 correction / ADR-0044: PlayerNameIndexWord is
+        // PlayerNameIndex's own per-word decomposition (see that entity's doc
+        // comment for why), so it's keyed and cascade-deleted against
+        // PlayerNameIndex rather than Player — same "no FK crossing into
+        // Player's id space" rule PlayerNameIndex itself follows. Composite
+        // key (PlayerId, Word), same shape as PlayerAlias's (PlayerId,
+        // NormalizedAlias) above, so re-upserting a player's words is
+        // idempotent rather than duplicating. (Word) index is the actual hot
+        // path — SearchByPrefixAsync's per-word StartsWith match.
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasKey(w => new { w.PlayerId, w.Word });
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasIndex(w => w.Word);
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasOne<PlayerNameIndex>()
+            .WithMany()
+            .HasForeignKey(w => w.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // (Name) unique per implementation-document.md §5 — grid generation
         // picks from these directly (REQ-109); also prevents an admin

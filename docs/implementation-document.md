@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.69"
+version: "0.71"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -387,6 +387,20 @@ public class PlayerNameIndex
     // re-add it without a new, real autocomplete-photo requirement.
 }
 
+// Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per
+// space-separated word in PlayerNameIndex.NormalizedName, so
+// SearchByPrefixAsync can match a surname-only query as a genuine,
+// index-backed StartsWith on Word — never a leading-wildcard/Contains()
+// scan against NormalizedName, which can't use a B-tree index at this
+// table's bulk-imported scale. Keyed/cascade-deleted against
+// PlayerNameIndex.PlayerId, not Player — same "no FK into Player's id
+// space" rule PlayerNameIndex itself follows.
+public class PlayerNameIndexWord
+{
+    public Guid PlayerId { get; set; }
+    public required string Word { get; set; }  // already normalized; never re-normalized here
+}
+
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
 {
     public Guid PlayerId { get; set; }
@@ -667,6 +681,7 @@ public class LeagueMembership
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
 | `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
+| `PlayerNameIndexWord` | `(Word)`, plus `(PlayerId, Word)` composite primary key | Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per space-separated word in `PlayerNameIndex.NormalizedName`, cascade-deleted from `PlayerNameIndexEntries`. Lets `SearchByPrefixAsync` also match a surname-only query as a genuine, index-backed `StartsWith` on `Word`, instead of a leading-wildcard/`Contains()` scan against `NormalizedName` that couldn't use a B-tree index at this table's bulk-imported scale. `PlayerNameIndexRepository.UpsertManyAsync` reconciles each player's word rows in place on every re-import |
 | `PlayerAlias` | `(NormalizedAlias)` | Alias lookup on the fallback path when the primary name doesn't match (REQ-208) |
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |

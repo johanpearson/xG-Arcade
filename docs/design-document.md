@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.53"
+version: "0.54"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -1080,6 +1080,24 @@ Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
 (`accent-green` underline on the active tab) — one visual tab pattern
 reused, not a second one invented.
 
+**Game switcher (design only, ADR-0043/`requirements-document.md` REQ-410
+— not yet built, xG Grid is still the only shipped game):** once a second
+game exists, the **All-time** scope above can no longer mean one thing —
+`GetGlobalLeaderboardAsync` is scoped per `GameKey` (ADR-0043), so "the"
+all-time ranking becomes "xG Grid's all-time ranking" and "xG Path's
+all-time ranking," never one blended number. A game switcher — the same
+plain underline-tab pattern used everywhere else on this screen, not a
+new control type — sits above the `[All-time] [Current Round]...` scope
+row, one tab per game (same name/order as SCREEN-09's tiles and
+`HeaderNav`'s "Games" list: xG Grid, then xG Path). Switching games
+re-fetches whichever scope tab is currently selected, scoped to the newly
+selected game — it does not reset the selected scope tab back to
+All-time. This affects **every** scope in this section (Current Round,
+Previous Rounds, and Time Windows already take an explicit `gameKey`
+today per their own REQs — REQ-407/408/405 — only **All-time** is the
+scope this switcher newly makes possible), so the switcher sits above all
+four scope tabs, not duplicated per scope.
+
 **Scoring explainer entry point (REQ-213, S-068, added 2026-07-21):** the
 `(ⓘ)` shown in the header above, next to the "Global leaderboard" title —
 quiet, no-accent treatment (`text-muted`), same visual weight as
@@ -1751,6 +1769,140 @@ given a wireframe in this document** — built functionally with the
 existing token system only, same "flagged, not silently left out of sync"
 treatment as this document's other unreviewed-screen gaps (see §7).
 
+### SCREEN-09: Game select (post-login landing)
+
+```
+┌───────────────────────────────┐
+│ Choose a game                   │
+├───────────────────────────────┤
+│  ┌─────────────┐ ┌───────────┐ │
+│  │   xG Grid    │ │  xG Path  │ │
+│  │  Guess the   │ │ Guess the │ │
+│  │  player from │ │ player    │ │
+│  │  two clues   │ │ from a    │ │
+│  │              │ │ revealed  │ │
+│  │              │ │ career    │ │
+│  └─────────────┘ └───────────┘ │
+└───────────────────────────────┘
+```
+
+**Resolves the open question flagged in §7 (design only, no code yet —
+tracks `docs/decisions/0040-0043` and `requirements-document.md`
+REQ-1201-1206).** `GameSelectScreen.tsx` (REQ-303, S-021) shipped as a
+single hardcoded tile deliberately kept unspecified here, since Tier 0
+only ever had one game to choose from — that reasoning stops applying the
+moment a second game exists. This entry is the real spec for the
+multi-tile version:
+
+- Tiles are laid out in a row that wraps to stacked on narrow viewports
+  (same breakpoint SCREEN-07's header-nav toggle already uses,
+  `max-width: 480px`) — no new responsive mechanism.
+- Each tile: game name (`--font-display`) plus a one-line, plain-language
+  description of the core loop (not marketing copy, not a tagline) —
+  "Guess the player from two clues" / "Guess the player from a revealed
+  career", matching how REQ-720's "Games" nav entry already names them.
+  No imagery on the tile itself (no crest/logo asset exists for either
+  game, and none is planned — see the crest/trademark note under
+  SCREEN-10 below).
+- Tokens only: `surface-card` tile background, `border-hairline` border,
+  no new color, no per-game accent color — a tile's identity comes from
+  its name and description text, not a color code, consistent with
+  "the UI is deliberately quiet" (§2).
+- Order matches `HeaderNav`'s existing "Games" list order (REQ-720): xG
+  Grid first (the original game), xG Path second — never alphabetical,
+  never reordered by recency, so the two lists (this screen, the nav
+  menu) never disagree about game order.
+- No loading state: both `GameSelectScreen.tsx`'s existing constant
+  (`XG_GRID_GAME_KEY`) and its future second constant are client-side
+  values, not a fetched list (S-021's own reasoning: "a 'list games' API
+  would be building a catalog for a catalog of one" — still true for a
+  catalog of two) — the tile row renders immediately, nothing to wait on.
+- Selecting a tile navigates the same way `onSelectGame(gameKey)` already
+  works today — no change to that mechanism, only to how many tiles call
+  it.
+
+### SCREEN-10: xG Path puzzle (clue reveal)
+
+```
+┌───────────────────────────────┐
+│ xG Path          Puzzle 2 of 4 │
+├───────────────────────────────┤
+│ ┆                               │
+│ ●─[AJ] Ajax · 74 apps          │
+│ ┆                               │
+│ ●─[JV] Juventus · 94 apps       │
+│ ┆                               │
+│ ●─[IM] Inter Milan · 88 apps    │
+│ ┆                               │
+│ ●─Ajax 2001–04 · Juventus       │
+│    2004–06 · Inter Milan        │
+│    2006–09                      │
+├───────────────────────────────┤
+│ [ Guess the player…      ] [Guess]│
+│         Clue 4 of 7            │
+└───────────────────────────────┘
+```
+
+**Design only — no code yet** (`requirements-document.md` REQ-1201-1206,
+`docs/decisions/0040-0042`). Direction validated against two working
+prototypes (a growing-timeline concept and a spotlight-stepper concept);
+the growing timeline was chosen. Built entirely from the existing token
+system — no new color, typeface, or animation family introduced:
+
+- **Layout:** clues stack as nodes on a vertical connecting line — the
+  literal career path being drawn as it's revealed, one node per clue,
+  oldest at top. Every past clue stays visible (no collapsing, no
+  scrolling-away) — reviewing everything learned so far is part of the
+  puzzle, not a secondary concern. The guess input is pinned below the
+  timeline, not inside its scroll area, so it's always reachable
+  regardless of how many clues have been revealed.
+- **Clue content and order**, exactly per REQ-1203 — this screen adds no
+  new sequencing decision, only how it's rendered:
+  1. Club stints, chronological, one node each, each showing the club
+     name plus appearance count when known (never a placeholder like
+     "0 apps" when unknown — the count is simply omitted for that node)
+  2. Once every available club node (capped at 5) is shown, one further
+     node bundles every revealed club's own start–end year range
+     together (never one aggregate span across the whole career)
+  3. Then, if still unsolved: position, nationality, age — one node
+     each, in that fixed order
+  4. National team caps are never a clue (REQ-1203's explicit exclusion)
+- **Club identity:** the same placeholder initial-chip badge already used
+  on SCREEN-01 (a colored circle with the club's initials) — no real
+  crest artwork. This isn't a stopgap unique to this screen: real crests
+  remain trademarked/licensing-unresolved (§2's existing "club crests
+  deferred" note, ADR-0008), and switching the *source* (Wikidata
+  instead of API-Football) doesn't change that — Wikidata's own
+  club-logo files are typically tagged for Wikipedia-only fair use, not
+  general reuse, so this is the same open question, not a new one.
+- **Attempt/clue counter:** "Clue N of M" in `--font-mono`/tabular
+  figures (same treatment as every other score/count in this app),
+  directly under the guess input — M is that puzzle's own total clue
+  count (REQ-1205's per-puzzle cap), never a fixed number across puzzles.
+- **Motion:** each new node fades and rises into place (~400ms,
+  `ease-out`-family curve) — deliberately the same *settle* character as
+  the grid's existing badge-dock reveal (§3's "Signature element: badge
+  dock" above), not a new motion signature for the platform. Respects
+  `prefers-reduced-motion`: nodes simply appear, no animation, same
+  fallback pattern already established for the badge dock.
+- **Rejected guess:** reuses SCREEN-02's existing shake cue verbatim —
+  this screen does not invent a third "try again" motion for what is
+  the same underlying moment (a guess didn't match).
+- **Solved state:** the final node turns gold (`accent-gold`/
+  `accent-gold-text` per §2's "gold means settled/correct" rule) and
+  shows the target player's name plus, when `Player.PhotoUrl` is set, their
+  photo (REQ-214's existing infrastructure, reused as-is — not a new
+  photo feature for this game) — falling back to the same initials-avatar
+  treatment REQ-214 already established for a player with no photo on
+  file, never a broken-image icon. Once solved, the guess input and
+  "Guess" button disable; a "Next puzzle" action appears to advance
+  through the round's remaining puzzles (REQ-1202) — advancing is always
+  an explicit action, never automatic, consistent with how a correct
+  grid cell also waits for the player to tap before revealing anything
+  further.
+- **Puzzle position:** "Puzzle N of M" (plain text, `text-muted`) in the
+  header, mirroring SCREEN-01's round-timer header row placement.
+
 ## 4. Responsive strategy
 
 Unchanged from v0.1 — built "equally both" from the start:
@@ -2146,14 +2298,13 @@ Unchanged from v0.1:
   `border-hairline`, `accent-green-text`) and no new motion. Clicking it
   navigates to Settings (SCREEN-08), where the claim section above actually
   lives.
-- **No SCREEN-xx spec exists for the post-login game-selection landing
-  screen either** (`frontend/src/games/GameSelectScreen.tsx`, added S-021,
-  REQ-303's UX addition). Same gap as SCREEN-00 above, same reasoning: kept
-  deliberately minimal (a single tokens-only tile for xG Grid, no
-  wireframe/copy/state review) since Tier 0 only ever has one game to
-  select from — but once a second game exists this screen stops being
-  trivial and needs a real spec (multi-tile layout, empty/loading states,
-  copy) rather than staying an unreviewed de facto one.
+- ~~No SCREEN-xx spec exists for the post-login game-selection landing
+  screen either~~ — **resolved 2026-07-26, see SCREEN-09.** Written ahead
+  of the second game (xG Path) actually existing in code — this is a
+  design-only spec (`requirements-document.md` REQ-1201-1206), not a
+  claim that the multi-tile version is built yet; `GameSelectScreen.tsx`
+  still renders only the single xG Grid tile until xG Path's own frontend
+  work happens.
 - **No SCREEN-xx spec exists for the unauthenticated splash/landing screen
   either** (`frontend/src/splash/SplashScreen.tsx`, added for REQ-719).
   Same gap and same reasoning as SCREEN-00/the game-selection screen above:

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.08"
+version: "1.12"
 status: draft
-last_updated: 2026-07-25
+last_updated: 2026-07-26
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1166,9 +1166,55 @@ grids don't make guessing trivially easy)
 - And minor typos are tolerated via a small edit-distance tolerance, applied
   only when no exact or alias match is found, and only when it resolves to
   a small, confident set of candidates (see REQ-209 if more than one remains)
+- **2026-07-26 correction — whole-name-only prefix matching gap (found
+  against `PlayerNameIndexRepository.SearchByPrefixAsync`, shipped as part
+  of REQ-207's S-032 autocomplete work):** the criteria above govern
+  correctness-checking matching (COMP-06) and were always satisfied; this
+  bullet corrects a separate gap in how `PlayerNameIndex` (COMP-10) —
+  which reuses this REQ's normalization scheme for the name it indexes,
+  per ADR-0007 — is matched for autocomplete (REQ-207). As shipped,
+  `SearchByPrefixAsync` matches the query only as a prefix of a player's
+  entire normalized name (e.g. `"zlatan ibrahimovic"`), so a query typed
+  from a surname alone (e.g. "Ibrahimovic") returns no suggestions at all,
+  because that string is never a prefix of the full stored name. This was
+  never a deliberate design choice — it just happened to ship that way.
+  Diacritic-insensitive matching is unaffected by this correction and
+  already works correctly (`PlayerNameNormalizer.Normalize`'s NFKD
+  decomposition already makes "Ibrahimovic" and "Ibrahimović" normalize
+  identically); this bullet is about word-boundary prefix matching only.
+  This is autocomplete-matching text (COMP-10) only — it does not change,
+  and must not be read as changing, any correctness-checking behavior
+  (REQ-203, COMP-06) or REQ-207's own leak-prevention contract (source of
+  suggestions, or the rule that suggestion does not imply validity).
+  **Status: fixed 2026-07-26.** `PlayerNameIndexRepository.SearchByPrefixAsync`
+  now matches both directions: a plain `StartsWith` scan against
+  `NormalizedName` (unchanged) unioned with a `StartsWith` scan against a new
+  `PlayerNameIndexWord` child table (`PlayerId`, `Word` — one row per
+  space-separated word in `NormalizedName`), keyed and cascade-deleted
+  against `PlayerNameIndex`. Both scans stay index-backed at
+  `PlayerNameIndex`'s bulk-imported scale — no `Contains()`/leading-wildcard
+  `LIKE`, per this correction's own performance note. See ADR-0044 for the
+  alternatives considered (notably why a per-word table was chosen over a
+  `pg_trgm` GIN index) and the migration
+  (`20260726120000_AddPlayerNameIndexWord`).
+- Given a player's indexed normalized full name is made up of more than
+  one space-separated word (e.g. `"zlatan ibrahimovic"`)
+- When an autocomplete query is normalized and matched against that
+  indexed name
+- Then a match is found if the normalized query is a prefix of the whole
+  normalized name, exactly as today (e.g. "zlat" still matches "zlatan
+  ibrahimovic")
+- And a match is *also* found if the normalized query is a prefix of any
+  individual word within the normalized name (e.g. "ibrah" matches
+  "zlatan ibrahimovic" via its second word) — this is additive to the
+  existing whole-name-prefix behavior, not a replacement of it; both
+  directions must keep working at once
 
 **Test level:** Unit — comprehensive case coverage (diacritics, aliases,
-typos, and confirming near-miss strings that should NOT match are rejected)
+typos, and confirming near-miss strings that should NOT match are rejected;
+per-word prefix matching for `PlayerNameIndex` autocomplete queries,
+including a surname-only query and confirming whole-name-prefix queries
+still match too)
 
 **REQ-209 – Disambiguating multiple players with a matching name**
 > As a player, I want a fair resolution when my guess matches more than one
@@ -2020,6 +2066,13 @@ a past/near-past `endTime`, and the accessible-name assertion)
   submitted a single guess (see REQ-404's own new acceptance criterion).
   This REQ still governs membership only; it does not claim every member
   is shown in the ranked list.
+- **Status note (2026-07-26, forward-looking — REQ-410, design only):**
+  membership itself (below) is unaffected by ADR-0043 — there remains
+  exactly one `League(type="global")`, auto-joined at signup, regardless of
+  how many games the platform hosts. What changes, once REQ-410 ships, is
+  that the all-time *ranking* read from that membership (REQ-409) is
+  computed per `GameKey` rather than blended across every game's rounds —
+  see REQ-410 for the acceptance criteria and ADR-0043 for the rationale.
 - Given a new user registers
 - Then the user is automatically added to `League(type="global")`
 - And this requires no action from the user
@@ -2123,6 +2176,16 @@ undefined.
   sum. This REQ's own text is kept, not rewritten in place, per this
   document's ID-stability rule; see REQ-409 for the current, actual
   behavior and full acceptance criteria.
+- **Status note (2026-07-26, forward-looking — REQ-410, design only):**
+  ADR-0043 found that `GetGlobalLeaderboardAsync` (REQ-409's median
+  ranking, the method this REQ's own leaderboard resolves to) computes
+  across every game's rounds with no `GameKey` filter at all — harmless
+  today since xG Grid is the only shipped game, but not correct once a
+  second game (xG Path) ships its first round. REQ-410 (not yet
+  implemented) specifies that the all-time ranking this REQ and REQ-409
+  describe becomes scoped per `GameKey`. This REQ's own acceptance criteria
+  above are unchanged and remain accurate as a description of the
+  single-game case; see REQ-410 and ADR-0043 for the per-game scope.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -2633,6 +2696,17 @@ superseded interim behavior.)*
   analogue in this document and is not resolved by this REQ; a live-
   updating version of this median, if ever wanted, is a separate future
   requirement.
+- **Cross-reference (2026-07-26, REQ-410 — design only, not yet
+  implemented):** ADR-0043 found that the median ranking this REQ defines
+  is computed across every game's rounds combined, with no `GameKey`
+  filter — `GetGlobalLeaderboardAsync` and
+  `GetPerRoundFinalPointsByUserIdsAsync` take no `gameKey` parameter today,
+  unlike the other three `ILeaderboardService` methods. REQ-410 specifies
+  that this ranking becomes scoped per `GameKey` instead — this REQ's own
+  median definition, qualifying-round definition, and 5-round minimum
+  above are unchanged by that; REQ-410 adds a per-game filter on top of
+  them, it does not alter the formula itself. See REQ-410 for the
+  acceptance criteria and ADR-0043 for the full rationale.
 - Given a player has fewer than 5 qualifying rounds (per the definition
   above)
 - Then that player does not appear on the all-time ranked list at all —
@@ -2666,6 +2740,51 @@ regardless of guesses made in it; sort order and tie-break match every
 other leaderboard ranking in this document), API (all-time leaderboard
 endpoint returns the median-based ranking; a below-threshold member is
 absent from the response, not present with a placeholder value)
+
+**REQ-410 – Global League's all-time ranking is scoped per game**
+*(Status: Not started (design only), 2026-07-26 — see ADR-0043 for the full
+context and rationale, not re-derived here. xG Grid is the only shipped
+game today, so there is nothing to scope against yet in practice, even
+though the code change itself is small.)*
+> As a player on a platform with more than one game, I want the Global
+> League's all-time ranking to reflect only the game I'm currently
+> viewing, so a game with a different scoring model isn't blended into my
+> ranking, and so I'm not compared against players who only play a
+> different game.
+
+- **Status:** Not started (design only). ADR-0043 specifies
+  `GetGlobalLeaderboardAsync` (REQ-409's median ranking) gains a required
+  `gameKey` parameter, matching the shape `GetActiveRoundLeaderboardAsync`
+  (REQ-407), `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`
+  (REQ-408), and `GetWindowedLeaderboardAsync` (REQ-405) already have.
+  `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` gains the
+  matching `gameKey` parameter, added as a `round.GameKey == gameKey`
+  filter to its existing `Guess`-`Round` join. `League` membership itself
+  (REQ-401) is unchanged — there remains exactly one Global League; only
+  the ranking read from it is scoped per game.
+- Given the platform hosts more than one game, each with its own `GameKey`
+- When a player requests the Global League's all-time ranking (REQ-409)
+  for a specific game
+- Then only rounds whose `Round.GameKey` matches the requested game count
+  towards that player's qualifying-round total, median calculation, and
+  5-round minimum (REQ-409's own definitions, unchanged — this REQ adds a
+  filter on top of them, it does not alter the median formula itself)
+- And rounds belonging to a different game contribute nothing to this
+  ranking — a player who has played 5+ qualifying rounds of one game and
+  zero of another is ranked (or correctly excluded, per REQ-409) for each
+  game independently, never combined into one number
+- And a request for the all-time ranking must specify which game's rounds
+  to rank by — there is no ranking that silently spans every game, the
+  same requirement REQ-405/407/408 already impose by taking an explicit
+  `gameKey` or a specific `Round`
+
+**Test level:** Unit (`GetGlobalLeaderboardAsync`/
+`GetPerRoundFinalPointsByUserIdsAsync` filtered by `gameKey` return only
+that game's qualifying rounds in the median/count; a player's rounds in
+one game never appear in another game's qualifying-round count or
+median), API (requesting the all-time leaderboard for two different games
+returns two independent rankings, and a player who qualifies in one game
+but not the other is present in exactly one of the two responses)
 
 ---
 
@@ -4858,6 +4977,183 @@ runs and produces a non-empty, valid export)
 
 **Test level:** Manual (deliberately break a job once and confirm a
 notification arrives)
+
+---
+
+### 4.12 xG Path generation and gameplay
+
+**xG Path** is the second game hosted on the xG Arcade (see `CLAUDE.md` and
+`architecture-document.md` for the platform/game boundary this section
+must not cross). A puzzle targets one specific real player; the player
+guesses that target from a progressively-revealed career path, one clue at
+a time. This section is design-only — no xG Path code exists yet. Every
+REQ below is written to the same standard as §4.1's xG Grid requirements,
+but describes intended behavior for a game that has not been built,
+not a claim about current behavior.
+
+**REQ-1201 – xG Path target player eligibility**
+> As the system, I want every xG Path puzzle to target a player with a
+> well-defined, orderable career path, so every generated puzzle has a
+> valid, revealable sequence of clues rather than one that runs out of
+> content partway through.
+
+- **Status: Not started (design only).**
+- Given a candidate player is being considered as an xG Path puzzle target
+- When the candidate is evaluated for eligibility
+- Then the player must have at least 3 distinct documented career club
+  stints, each with a chronological order determinable from start/end
+  dates
+- And at least one of those stints must be at a club present in the
+  existing `ClubDefinition` reference table (REQ-109) — v1 needs no new
+  club curation beyond the existing seeded set
+- And the player must already be a member of the existing player pool as
+  restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
+  population and defines no separate one of its own
+- And a candidate failing any of these checks is never selected as a
+  puzzle target
+
+**Test level:** Unit (eligibility check accepts/rejects fixtures covering
+each rule independently — fewer than 3 stints, an undeterminable stint
+order, no stint at a seeded club, a player outside REQ-112's pool)
+
+**REQ-1202 – Round structure: a small, fixed set of puzzles**
+> As a player, I want each xG Path round to contain a small, fixed number
+> of puzzles, so a round is a bounded, comparable challenge every time.
+
+- **Status: Not started (design only).**
+- Given an xG Path round is generated with a configured puzzle count N
+  (3-5, configurable — the same spirit as REQ-102's configurable grid size)
+- When the round instance is created
+- Then exactly N puzzles are generated, each targeting a distinct eligible
+  player (REQ-1201) — no two puzzles in the same round instance target the
+  same player
+- And each puzzle is represented as one cell in the existing generic
+  `IGameModule`/`Round` model (ADR-0003) — `Round` references the xG Path
+  instance via the existing opaque `GameKey` (`"xg-path"`)/`GameInstanceId`
+  pair, unchanged from how xG Grid does this today; this REQ does not
+  change how `Round` references any game instance
+
+**Test level:** Unit, API
+
+**REQ-1203 – Clue reveal order and content**
+> As a player, I want clues about the target player's career revealed one
+> at a time in a fixed, least-narrowing-first order, so solving the puzzle
+> is a genuine progressive challenge rather than trivially easy or
+> unfairly hard from the start.
+
+- **Status: Not started (design only).**
+- Given a puzzle targeting a specific eligible player (REQ-1201)
+- When clues are revealed for that puzzle, one at a time, with the player
+  able to guess after each reveal
+- Then club stints are revealed first, one at a time, in chronological
+  order (earliest first)
+- And each club-stint clue includes the player's appearance count (games
+  played) at that club when that data is known, bundled into the same
+  clue reveal, not a separate clue slot; when the appearance count is not
+  known, the club-stint clue is still revealed, without an appearance
+  count, rather than being delayed or skipped
+- And no more than 5 club-stint clues are ever revealed for a single
+  puzzle, even if the target player's real career has more documented
+  stints than that
+- And once `min(actual stint count, 5)` club-stint clues have been
+  revealed and the player has not yet guessed correctly, exactly one
+  further clue is revealed showing the start-end year range for every
+  club stint already revealed (e.g. "2012-15, 2015-19, 2019-present") —
+  one bundled clue covering all previously-revealed clubs at once, never
+  one clue per club
+- And if the player still hasn't guessed correctly, the following clues
+  are then revealed one at a time, in this exact order and no other:
+  position, then nationality, then age (or birth year)
+- And national team caps/appearances are never revealed as a clue for
+  this game — this clue type does not exist for xG Path
+- And a correct guess submitted at any point stops the reveal sequence
+  immediately — no further clue is ever revealed once the puzzle is
+  solved (mirrors xG Grid's immediate lock on a correct guess, REQ-210)
+- And a given puzzle's total clue count is therefore `min(club stint
+  count, 5) + 4` — a value specific to that puzzle's target player, never
+  a single global constant, and callers must treat it as per-puzzle
+
+**Test level:** Unit (reveal order and content for target players with
+fewer than 5, exactly 5, and more than 5 documented stints; appearance
+count present vs. unknown; the bundled year-range clue's content; the
+fixed position/nationality/age order; the sequence halting immediately on
+a correct guess at every possible point)
+
+**REQ-1204 – Guess correctness resolution**
+> As a player, I want my guess for an xG Path puzzle checked against that
+> puzzle's one specific target player, so I know unambiguously whether
+> I've solved it.
+
+- **Status: Not started (design only).**
+- Given a submitted guess for an xG Path puzzle
+- When the guess is resolved to a candidate player, using the same
+  name-matching/autocomplete pipeline (`PlayerNameIndex`, ADR-0007) xG
+  Grid guesses already use — no new matching infrastructure for this game
+- Then the guess is correct if and only if the resolved candidate's
+  `PlayerId` is this puzzle's target `PlayerId` — there is no
+  category-membership check here, unlike xG Grid's correctness check
+  (REQ-203), since exactly one player is ever correct for a given puzzle
+- And a submitted name that does not resolve to any `PlayerNameIndex`
+  candidate is incorrect
+- And correctness is determined and shown to the player immediately upon
+  submission, not deferred to round close (the same principle as REQ-201)
+
+**Test level:** Unit, API
+
+**REQ-1205 – Per-puzzle attempt cap**
+> As a player, I want the number of guesses I'm allowed on an xG Path
+> puzzle to match how many clues that specific puzzle actually has, so I'm
+> never denied a guess for a clue I've already been shown, and never
+> granted guesses beyond the puzzle's own content.
+
+- **Status: Not started (design only).**
+- Given an xG Path puzzle whose total clue count is `min(club stint
+  count, 5) + 4` (REQ-1203)
+- When a player submits guesses for that puzzle
+- Then the maximum number of attempts allowed for that puzzle equals its
+  own total clue count — not xG Grid's fixed value of 2
+  (`GuessRules.MaxAttemptsPerCell`); see ADR-0041 for the architectural
+  change (the attempt cap resolved per-cell through `IGameModule`, rather
+  than one shared global constant) this depends on
+- And the "at most one active guess per cell per round, subject to
+  attempt cap and lock rules" shape of REQ-201/202/210 still applies
+  conceptually: a correct guess locks the puzzle immediately regardless of
+  how many attempts remain, and exhausting the puzzle's own attempt cap
+  without a correct guess locks it as unsolved
+
+**Test level:** Unit (the resolved attempt cap matches each puzzle's own
+clue count for players with different stint counts; locks immediately on
+a correct guess; locks as unsolved only after that puzzle's own cap is
+reached, never after a fixed count of 2)
+
+**REQ-1206 – Clue-efficiency scoring**
+> As a player, I want my xG Path score to reflect how few clues I needed
+> before guessing correctly, so guessing early with less information is
+> rewarded.
+
+- **Status: Not started (design only).**
+- Given a puzzle with a per-puzzle maximum clue count (REQ-1203/1205) and
+  a correct guess submitted after `cluesUsed` clues have been revealed
+- When the round closes and this puzzle's score is locked
+- Then the awarded points equal `round(cluesUsed / maxCluesForThisPuzzle *
+  MaxPointsPerCell)` — golf-style, lower is better, consistent with
+  ADR-0021
+- And a puzzle never solved before its attempt cap is exhausted (REQ-1205)
+  scores the worst case, `MaxPointsPerCell` — the same
+  "unanswered/incorrect scores worst" convention ADR-0021 already
+  establishes for xG Grid
+- And this is not a uniqueness-based score: every player who solves a
+  given puzzle names the same target player, so there is no "how unique
+  was your correct answer" signal for this game at all — see ADR-0040 for
+  how `Core.Scoring` supports this second, different scoring model
+  per-game without special-casing xG Path inline
+
+**Test level:** Unit (points formula across a range of `cluesUsed`/
+`maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
+never solved; no uniqueness score of any kind is computed by this game's
+scoring strategy)
+
+---
 
 ## 5. Decisions made as sensible technical defaults
 

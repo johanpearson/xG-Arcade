@@ -13,6 +13,105 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/backlog.md` — added Epic 6 (xG Path, second game),
+  S-076 through S-088: three shared-infrastructure refactors ordered
+  first (S-076 scoring-strategy pluggability/ADR-0040, S-077 per-cell
+  attempt cap/ADR-0041, S-078 per-game leaderboard scoping/ADR-0043/
+  REQ-410 — each a no-behavior-change extraction for xG Grid), then
+  xG Path's own data model (S-079, ADR-0042), module scaffold (S-080),
+  generation/clue-reveal/scoring (S-081-083), round scheduling (S-084),
+  and three frontend stories (S-085/086/087) plus E2E coverage (S-088).
+  Turns the design-only REQ-1201-1206/REQ-410 and ADR-0040-0043 into a
+  concrete, dependency-ordered build sequence — no code changed.
+- 2026-07-26 — `docs/design-document.md` (0.53 → 0.54) — added SCREEN-09
+  (game select, multi-tile — resolves the §7 open question flagged since
+  S-021) and SCREEN-10 (xG Path puzzle/clue-reveal screen — design only,
+  no code yet, `requirements-document.md` REQ-1201-1206), validated
+  against two working prototypes (growing-timeline chosen over a
+  spotlight-stepper alternative). Updated SCREEN-03 (Leaderboard) with a
+  game-switcher note for the All-time scope (ADR-0043/REQ-410) — the
+  only scope not already `gameKey`-scoped. No new colors, typefaces, or
+  animation families introduced; both new screens reuse existing tokens
+  and the badge-dock/shake motion vocabulary.
+- 2026-07-26 — `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (Consequences section corrected), `docs/implementation-document.md`
+  (0.70 → 0.71) — quality-gate correction to the REQ-208/ADR-0044 fix:
+  `PlayerNameIndexRepository.SearchByPrefixAsync`'s two candidate-id
+  branches (`NormalizedName` and `PlayerNameIndexWord.Word` `StartsWith`
+  scans) were each unbounded before their union, which could pull a large
+  candidate-id list into memory for a short prefix at scale — the exact
+  thing ADR-0044 was meant to avoid. Each branch now applies its own
+  `OrderBy(...).Take(limit)` before the union; ADR-0044's Consequences
+  section now documents this as a real gap the original write-up missed,
+  not just "two round trips." Also fixed `PlayerNameIndexWord`'s doc code
+  sample (missing `required` on `Word`, drifted from the real entity).
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.11 → 1.12),
+  `docs/architecture-document.md` (0.55 → 0.56),
+  `docs/implementation-document.md` (0.69 → 0.70),
+  `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (new), `infra/scripts/lib/game-data-tables.sh` — implemented REQ-208's
+  2026-07-26 correction: `PlayerNameIndexRepository.SearchByPrefixAsync`
+  now also matches a query as a prefix of any individual word within a
+  player's normalized name (e.g. a surname-only query), not just the whole
+  name, via a new `PlayerNameIndexWord` child table/migration
+  (`20260726120000_AddPlayerNameIndexWord`) rather than a leading-wildcard
+  scan, to stay index-backed at `PlayerNameIndex`'s bulk-imported scale. See
+  ADR-0044 for why a per-word table was chosen over `pg_trgm`. Added the new
+  table to the prod/dev sync allowlist alongside `PlayerNameIndexEntries` so
+  the two never drift apart.
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.10 → 1.11) —
+  corrected REQ-208's acceptance criteria: `PlayerNameIndexRepository
+  .SearchByPrefixAsync` only ever matched a query against the prefix of a
+  player's *whole* normalized name, so a surname-only autocomplete query
+  (e.g. "Ibrahimovic") returned no suggestions. Added an acceptance
+  criterion requiring the query to also match as a prefix of any
+  individual word within the normalized name, additive to the existing
+  whole-name-prefix behavior. Diacritic-insensitive matching is unaffected
+  and already correct. Documentation only — the corresponding code fix in
+  `backend/src/XGArcade.Data/Repositories/PlayerNameIndexRepository.cs` is
+  tracked separately.
+- 2026-07-26 — `docs/decisions/0043-global-leaderboard-scoped-per-game.md`
+  (new), `docs/architecture-document.md` (0.54 → 0.55),
+  `docs/requirements-document.md` (§4.4, REQ-410 new, 1.09 → 1.10) —
+  planning xG Path's platform integration found the Global League's
+  all-time ranking (REQ-409) was the one leaderboard scope with no
+  per-`GameKey` filter (the other three already had one). ADR-0043
+  documents the fix: `GetGlobalLeaderboardAsync`/
+  `GetPerRoundFinalPointsByUserIdsAsync` gain a required `gameKey`
+  parameter (no schema change). Added REQ-410 (Status: Not started, design
+  only) and forward-pointing status notes on REQ-401/404/409. Updated
+  `architecture-document.md`'s COMP-02 status accordingly.
+- 2026-07-26 — `docs/decisions/0040-per-game-scoring-strategy.md`,
+  `docs/decisions/0041-per-cell-attempt-cap.md`,
+  `docs/decisions/0042-player-career-stint-data-model.md`,
+  `docs/architecture-document.md` (0.53 → 0.54) — initial design pass for
+  xG Path, the platform's second game (guess a player from a
+  progressively-revealed career path). Three new ADRs, all Accepted:
+  ADR-0040 makes `Core.Scoring` resolve a scoring strategy per `GameKey`
+  instead of hardcoding xG Grid's uniqueness formula for every game;
+  ADR-0041 makes the guess-attempt cap per-cell (resolved via
+  `IGameModule`) instead of the shared `GuessRules.MaxAttemptsPerCell`
+  constant; ADR-0042 adds a new `PlayerCareerStint` entity (COMP-06) for
+  ordered/dated/appearance-count career data, populated from Wikidata `P54`
+  qualifiers the existing query already returns but currently discards.
+  Added COMP-11 (Games.XGPath, design only, no code yet) to
+  `architecture-document.md`'s component table, updated COMP-06's entry for
+  `PlayerCareerStint`, and added a COMP-04 status note tying the two
+  scoring/attempt-cap ADRs together — this note also resolves the open
+  question on `Guess.CellId` recorded 2026-07-04 below ("revisit when a
+  second game is built"): there is no actual EF Core foreign key from
+  `Guess` to `GridCell`, so no schema change is needed for a second game to
+  use the same column. See the entry directly below for the companion
+  `docs/requirements-document.md` REQ-1201–REQ-1206 addition.
+- 2026-07-26 — `docs/requirements-document.md` (§4.12, REQ-1201–REQ-1206,
+  new; 1.08 → 1.09) — added xG Path's design-only requirements (target
+  player eligibility, round structure, clue reveal order, guess
+  correctness, per-puzzle attempt cap, clue-efficiency scoring), all
+  marked `Status: Not started (design only)` — no xG Path code exists yet.
+  References ADR-0040 (per-game scoring strategy) and ADR-0041 (per-cell
+  attempt cap), both already Accepted. Does not touch
+  `architecture-document.md` or `implementation-document.md` — those
+  updates are tracked separately in the same design session.
 - 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
   third time: dropped the ball accent added earlier the same day, per
   direct feedback ("too much", didn't look good) — removed outright, not
