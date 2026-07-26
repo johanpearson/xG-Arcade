@@ -16,9 +16,13 @@ public static class ScoringRules
     public const int MaxPointsPerCell = 100;
 
     // REQ-205's locked-score formula, and the one place it's allowed to be
-    // written — shared by ScoreLockingService's FinalPoints and
-    // RoundEndpoints' live LivePoints (S-018) so the two can never drift
-    // into two different roundings/scalings of the same uniqueScore.
+    // written — shared by RoundEndpoints' live LivePoints (S-018) and, as of
+    // S-076/ADR-0040, ScoreLockingService's FinalPoints only indirectly, via
+    // UniquenessScoringStrategy (ScoreLockingService no longer calls this
+    // directly; it resolves an IScoringStrategy per GameKey, and xG Grid's
+    // implementation calls this method on its behalf) — so the two can
+    // never drift into two different roundings/scalings of the same
+    // uniqueScore.
     //
     // ADR-0021: inverted from an earlier direct `uniqueScore * MaxPointsPerCell`
     // mapping (higher uniqueScore -> higher points -> "more points is

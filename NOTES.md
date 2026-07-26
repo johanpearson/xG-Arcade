@@ -38,6 +38,24 @@ timer leakage from another suite. Not a regression from any recent change —
 worth a real look next time someone's in `AdminScreen.test.tsx`, rather than
 re-discovering it from a random CI flake later.
 
+### 2026-07-26 — S-076's `IScoringStrategy` extraction didn't reach `LiveRoundContributionService`
+
+Found by `quality-architect` while gating S-076 (ADR-0040). `ScoreLockingService`
+now resolves an `IScoringStrategy` per `Round.GameKey` instead of calling
+`UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly — but
+`LiveRoundContributionService` (the live per-cell/per-round contribution
+formula behind `ILiveRoundContributionService`, ADR-0031) still calls both of
+those directly, inline, unchanged. S-076's own scope (backlog.md) was
+`ScoreLockingService` only, so this wasn't a defect in that story — but it
+means ADR-0040's stated goal ("`Core.Scoring` gains zero compile-time
+knowledge of any specific game") isn't fully true yet: once xG Path
+(`ClueEfficiencyScoringStrategy`) ships, `LiveRoundContributionService` will
+keep computing xG Grid's uniqueness formula for every game's live view,
+producing wrong live points for xG Path rounds. Needs its own follow-up story
+(resolve `IScoringStrategy` here too, same as `ScoreLockingService`) before
+xG Path's frontend (S-085+) can rely on live points being correct — worth
+raising before S-081-083 land, not after.
+
 ### 2026-07-25 — Sign-in latency follow-up: live evidence pointed at the client-side Turnstile step, not backend/cold start
 
 Follow-up to the entry immediately below. The product owner manually

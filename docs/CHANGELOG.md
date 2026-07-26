@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/architecture-document.md` (0.56 → 0.57),
+  `docs/implementation-document.md` (0.71 → 0.72) — implemented S-076
+  (ADR-0040): `Core.Scoring` now resolves an `IScoringStrategy` per
+  `Round.GameKey` through a new `IScoringStrategyResolver`, mirroring
+  `IGameModuleResolver`'s resolution shape exactly. xG Grid's existing
+  REQ-204/205 formula is extracted unchanged into
+  `UniquenessScoringStrategy` (`GameKey` supplied by `Program.cs`, never
+  hardcoded in `XGArcade.Core`, per ADR-0003); `ScoreLockingService` calls
+  the resolved strategy instead of `UniquenessCalculator`/`ScoringRules`
+  directly for a correct guess. `MaterializeUnansweredCellsAsync`'s
+  unanswered-cell penalty is untouched. Pure extraction — no REQ-204/205
+  acceptance criteria changed; new tests cover
+  `IScoringStrategyResolver`'s resolve/throw behavior.
 - 2026-07-26 — `docs/backlog.md` — added Epic 6 (xG Path, second game),
   S-076 through S-088: three shared-infrastructure refactors ordered
   first (S-076 scoring-strategy pluggability/ADR-0040, S-077 per-cell

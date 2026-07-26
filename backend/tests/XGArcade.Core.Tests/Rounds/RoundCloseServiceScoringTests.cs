@@ -36,9 +36,10 @@ public class RoundCloseServiceScoringTests
         // GetCellIdsResult explicitly.
         _fakeGameModule = new FakeGameModule(GameKey);
         var gameModuleResolver = new GameModuleResolver([_fakeGameModule]);
+        var scoringStrategyResolver = new ScoringStrategyResolver([new UniquenessScoringStrategy { GameKey = GameKey }]);
         _service = new RoundCloseService(
             _roundRepository,
-            new ScoreLockingService(_guessRepository, _roundRepository, gameModuleResolver));
+            new ScoreLockingService(_guessRepository, _roundRepository, gameModuleResolver, scoringStrategyResolver));
     }
 
     [TearDown]

@@ -7,17 +7,35 @@ namespace XGArcade.Core.Scoring;
 public class ScoreLockingService(
     IGuessRepository guessRepository,
     IRoundRepository roundRepository,
-    IGameModuleResolver gameModuleResolver) : IScoreLockingService
+    IGameModuleResolver gameModuleResolver,
+    IScoringStrategyResolver scoringStrategyResolver) : IScoreLockingService
 {
     public async Task LockRoundScoresAsync(Guid roundId, CancellationToken cancellationToken = default)
     {
-        await MaterializeUnansweredCellsAsync(roundId, cancellationToken);
+        // Fetched once here and reused below (both by
+        // MaterializeUnansweredCellsAsync and the ADR-0040 strategy
+        // resolution) rather than each fetching it independently — the null
+        // check that used to live inside MaterializeUnansweredCellsAsync
+        // moves here with the fetch; behavior for a null round (nothing
+        // materialized) is unchanged.
+        var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
+        if (round is not null)
+            await MaterializeUnansweredCellsAsync(round, roundId, cancellationToken);
 
         var guesses = await guessRepository.GetByRoundIdAsync(roundId, cancellationToken);
         var correctGuessesByCell = guesses
             .Where(g => g.IsCorrect)
             .GroupBy(g => g.CellId)
             .ToDictionary(group => group.Key, group => (IReadOnlyCollection<Guess>)group.ToList());
+
+        // ADR-0040: only resolved when at least one correct guess exists in
+        // this round — an empty round never needs a strategy at all,
+        // matching this method's pre-ADR-0040 behavior.
+        IScoringStrategy? scoringStrategy = null;
+        if (correctGuessesByCell.Count > 0)
+        {
+            scoringStrategy = scoringStrategyResolver.Resolve(round!.GameKey);
+        }
 
         foreach (var guess in guesses)
         {
@@ -26,10 +44,12 @@ public class ScoreLockingService(
                 // Safe: ScoreSubmissionAsync never returns IsCorrect = true
                 // without also setting PlayerAnswerId (ScoreResult's own doc
                 // comment), and this guess is necessarily a member of its own
-                // cell's correct-guesses group.
-                var uniqueScore = UniquenessCalculator.Calculate(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
-                guess.FinalUniquenessScore = uniqueScore;
-                guess.FinalPoints = ScoringRules.PointsFromUniqueScore(uniqueScore);
+                // cell's correct-guesses group. scoringStrategy is
+                // necessarily non-null here too, since correctGuessesByCell
+                // is non-empty whenever any guess.IsCorrect is true.
+                var result = scoringStrategy!.ScoreCorrectGuess(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
+                guess.FinalUniquenessScore = result.FinalUniquenessScore;
+                guess.FinalPoints = result.FinalPoints;
             }
             else
             {
@@ -71,12 +91,13 @@ public class ScoreLockingService(
     // triggered by generate-round.yml's low-cadence cron (twice a week) or a
     // manual test-data call, never expected to overlap in practice; still
     // not fixed, just an accepted, documented risk at Tier 0 scale.
-    private async Task MaterializeUnansweredCellsAsync(Guid roundId, CancellationToken cancellationToken)
+    //
+    // round: fetched once by LockRoundScoresAsync (and reused there for
+    // ADR-0040's strategy resolution) rather than fetched again here —
+    // the caller only invokes this method once it has already confirmed
+    // round is non-null.
+    private async Task MaterializeUnansweredCellsAsync(Round round, Guid roundId, CancellationToken cancellationToken)
     {
-        var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
-        if (round is null)
-            return;
-
         var existingGuesses = await guessRepository.GetByRoundIdAsync(roundId, cancellationToken);
         var participantIds = existingGuesses
             .Where(g => g.UserId is not null)
