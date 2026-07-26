@@ -121,6 +121,22 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(results, Is.Empty);
     }
 
+    // REQ-208's 2026-07-26 correction: the existing word-match tests above
+    // only cover 2-word names where the matching word is the first or the
+    // (only) second word. This covers a realistic 3-word name (a double
+    // surname, "Mbappe Lottin") where the matching word is neither first nor
+    // last, to confirm the per-word branch isn't accidentally only checking
+    // the first/last split segment.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_MatchesMiddleWordOfThreeWordName_ViaIndividualWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Kylian Mbappe Lottin"), BuildEntry("Robert Lewandowski")]);
+
+        var results = await _repository.SearchByPrefixAsync("mbap", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Kylian Mbappe Lottin" }));
+    }
+
     // REQ-207's explicit acceptance criterion: a PlayerNameIndex row must
     // come back as a suggestion regardless of whether the same player has
     // any PlayerAttribute rows at all — this is the structural separation
@@ -194,6 +210,31 @@ public class PlayerNameIndexRepositoryTests
             Does.Not.Contain(playerId), "stale word from the previous name must no longer match");
         Assert.That((await _repository.SearchByPrefixAsync("new", 10)).Select(r => r.PlayerId),
             Does.Contain(playerId), "new word must match after the re-import");
+    }
+
+    // REQ-208's 2026-07-26 correction / ADR-0044: ReconcileWords splits
+    // NormalizedName into a HashSet before diffing against existing words —
+    // this exercises that dedup directly. "Zztest Zztest" is a deliberately
+    // synthetic, clearly-not-a-real-player name (not a mistake) whose only
+    // purpose is to make the same word appear twice in one normalized name:
+    // without the ToHashSet() dedup, Split would yield ["zztest", "zztest"]
+    // and the reconcile loop would call Add(...) twice with the same
+    // (PlayerId, Word) composite key, which EF's change tracker rejects as
+    // soon as the second Add happens (before SaveChangesAsync is even
+    // reached).
+    [Test]
+    public async Task REQ208_UpsertManyAsync_NameWithRepeatedWord_DedupesWordRows_AndDoesNotThrow()
+    {
+        var entry = BuildEntry("Zztest Zztest");
+
+        Assert.DoesNotThrowAsync(async () => await _repository.UpsertManyAsync([entry]));
+
+        var wordRows = await _dbContext.PlayerNameIndexWords.Where(w => w.PlayerId == entry.PlayerId).ToListAsync();
+        Assert.That(wordRows, Has.Count.EqualTo(1), "a repeated word within one name must produce exactly one deduplicated PlayerNameIndexWord row");
+        Assert.That(wordRows.Single().Word, Is.EqualTo("zztest"));
+
+        var results = await _repository.SearchByPrefixAsync("zzt", 10);
+        Assert.That(results.Select(r => r.PlayerId), Does.Contain(entry.PlayerId), "the repeated word must still be usable for autocomplete matching");
     }
 
     [Test]
