@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/design-document.md` (0.53 → 0.54) — added SCREEN-09
+  (game select, multi-tile — resolves the §7 open question flagged since
+  S-021) and SCREEN-10 (xG Path puzzle/clue-reveal screen — design only,
+  no code yet, `requirements-document.md` REQ-1201-1206), validated
+  against two working prototypes (growing-timeline chosen over a
+  spotlight-stepper alternative). Updated SCREEN-03 (Leaderboard) with a
+  game-switcher note for the All-time scope (ADR-0043/REQ-410) — the
+  only scope not already `gameKey`-scoped. No new colors, typefaces, or
+  animation families introduced; both new screens reuse existing tokens
+  and the badge-dock/shake motion vocabulary.
 - 2026-07-26 — `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
   (Consequences section corrected), `docs/implementation-document.md`
   (0.70 → 0.71) — quality-gate correction to the REQ-208/ADR-0044 fix:
