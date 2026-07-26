@@ -15,21 +15,8 @@
   color: var(--color-accent-green);
 }
 
-.logo__g-wrap {
-  position: relative;
-  display: inline-block;
-}
-
 .logo__g {
   color: var(--color-accent-gold-text);
-}
-
-.logo__ball {
-  position: absolute;
-  top: -0.28em;
-  right: -0.32em;
-  width: 0.75em;
-  height: 0.75em;
 }
 
 .logo__arcade {
