@@ -2758,25 +2758,23 @@ endpoint returns the median-based ranking; a below-threshold member is
 absent from the response, not present with a placeholder value)
 
 **REQ-410 – Global League's all-time ranking is scoped per game**
-*(Status: Implemented (backend), 2026-07-27, S-078 — see ADR-0043 for the
-full context and rationale, not re-derived here. xG Grid is the only
-shipped game today, so `LeaderboardEndpoints` passes
+*(Status: Implemented, 2026-07-27, S-078 — see ADR-0043 for the full
+context and rationale, not re-derived here. xG Grid is the only shipped
+game today, so `LeaderboardEndpoints` passes
 `GridGameModule.XGGridGameKey` ("xg-grid") explicitly and behavior for
 that one game is unchanged; there is nothing to scope against yet in
-practice, even though the code change itself is small. The dedicated
-cross-game-isolation test this REQ's own acceptance criteria call for
-(two `GameKey`s, confirm rankings never blend) is tracked as a separate
-follow-up — this pass made every existing REQ-409-named test compile and
-pass by supplying `"xg-grid"` explicitly, per S-078's own accept
-criterion, and did not yet add a second `GameKey` to prove the isolation
-itself in a test.)*
+practice, even though the code change itself is small. Dedicated
+REQ410-named tests in `LeaderboardServiceTests.cs` seed a second, real
+`"xg-path"` `GameKey` and confirm qualifying rounds/medians/the 5-round
+minimum are computed independently per game and never blended. Frontend
+game-switcher UI remains a separate follow-up, S-087/SCREEN-03.)*
 > As a player on a platform with more than one game, I want the Global
 > League's all-time ranking to reflect only the game I'm currently
 > viewing, so a game with a different scoring model isn't blended into my
 > ranking, and so I'm not compared against players who only play a
 > different game.
 
-- **Status:** Implemented (backend). `GetGlobalLeaderboardAsync`
+- **Status:** Implemented. `GetGlobalLeaderboardAsync`
   (REQ-409's median ranking) gains a required `gameKey` parameter,
   matching the shape `GetActiveRoundLeaderboardAsync` (REQ-407),
   `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync` (REQ-408), and
@@ -2808,9 +2806,14 @@ itself in a test.)*
 `GetPerRoundFinalPointsByUserIdsAsync` filtered by `gameKey` return only
 that game's qualifying rounds in the median/count; a player's rounds in
 one game never appear in another game's qualifying-round count or
-median), API (requesting the all-time leaderboard for two different games
-returns two independent rankings, and a player who qualifies in one game
-but not the other is present in exactly one of the two responses)
+median) — covered, `LeaderboardServiceTests.cs`'s `REQ410_*` cases. API
+(requesting the all-time leaderboard for two different games returns two
+independent rankings, and a player who qualifies in one game but not the
+other is present in exactly one of the two responses) — not yet
+addable: `LeaderboardEndpoints`'s route takes no `gameKey` query
+parameter today (it always requests xG Grid's ranking), so there is no
+second game to request via the API until S-087's game switcher lands;
+tracked alongside that story, not a gap in S-078 itself.
 
 ---
 

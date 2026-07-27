@@ -24,10 +24,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   explicitly, same convention the other three `ILeaderboardService` scopes
   already used, bringing all four into line. Every existing REQ-409-named
   test now supplies the shared `GameKey` constant explicitly (behavior for
-  xG Grid, the only shipped game, is unchanged). Not included in this
-  pass: the dedicated cross-game-isolation test REQ-410's acceptance
-  criteria call for (two distinct `GameKey`s proving no blending) and the
-  frontend game-switcher (S-087/SCREEN-03) — both tracked as separate
+  xG Grid, the only shipped game, is unchanged), and four new REQ-410-named
+  tests in `LeaderboardServiceTests.cs` seed a second, real `"xg-path"`
+  `GameKey` and confirm qualifying rounds, medians, and the 5-round
+  minimum are computed independently per game and never blended, exercised
+  through the real EF InMemory `Guess`-`Round` join. Not included in this
+  pass: an API-level cross-game test (blocked on `LeaderboardEndpoints` not
+  yet accepting a `gameKey` query parameter) and the frontend game-switcher
+  (S-087/SCREEN-03) — both tracked as separate
   follow-ups.
 - 2026-07-26 — `docs/architecture-document.md` (0.57 → 0.58),
   `docs/implementation-document.md` (0.72 → 0.73),
