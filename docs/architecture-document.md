@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.63"
+version: "0.64"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -832,17 +832,44 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   (`GetMatchCountAsync`), so the call sites can't drift on which pairings
   are handled; Trophy×Trophy has no dedicated persist method (unreachable
   in production anyway, see REQ-108's status note) and, like any other
-  unhandled pairing, fails closed rather than throwing. This differs from the diagram's full shape in
-  one deliberate way: the trigger is "cached data didn't resolve this
-  guess," not "guess matched a `Data.PlayerNameIndex` candidate" — even
-  though `PlayerNameIndex`/COMP-10 (REQ-207) is now built (S-032), REQ-211's
-  guess-time live-lookup trigger does not consult it yet (that wiring is
-  REQ-208/209's still-deferred candidate-resolution step, not this story's
-  scope), and ADR-0018 explains why Tier 0 doesn't need it as a prerequisite
-  here (Wikidata has no scarce daily budget to protect, unlike
-  API-Football). There is still no API-Football fallback leg or
-  `ExternalApiUsage` budget-gating for this call site, same as REQ-103's
-  status.
+  unhandled pairing, fails closed rather than throwing. **Correction
+  (2026-07-27, bug-fix bundle, ADR-0045; supersedes the paragraph this
+  replaces):** this diagram's full shape ("guess matched a
+  `Data.PlayerNameIndex` candidate") is now accurate for the trigger
+  condition, not a deliberate simplification anymore —
+  `GridGameModule.ScoreSubmissionAsync` now checks
+  `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` before running
+  the live lookup, closing the gap the previous version of this paragraph
+  described. This was not a new pull-forward of REQ-208/209's
+  candidate-resolution work: `PlayerNameIndex`/COMP-10 (REQ-207) has existed
+  since S-032, and the un-gated trigger had simply never been updated to
+  use it once it existed — a stale simplification note, not a deliberate
+  scope boundary, and the dominant cost behind a reported "guessing is slow"
+  bug (an un-gated live Wikidata round-trip on every unresolved guess,
+  including ones matching no real player at all). ADR-0018's own
+  Wikidata-has-no-scarce-budget reasoning for *not requiring* this gate is
+  unaffected — the gate is now applied anyway, purely as the latency
+  optimization ADR-0018's "For AI agents" section already anticipated.
+  There is still no API-Football fallback leg or `ExternalApiUsage`
+  budget-gating for this call site, same as REQ-103's status.
+- **New exception-based signal crossing the Games.XGGrid → Core.Scoring
+  boundary (2026-07-27, ADR-0045):** a timeout on this live-lookup call
+  (`DataSync.Clients`, COMP-07) previously swallowed to an empty result,
+  indistinguishable from "Wikidata found no match" — wrong for this call
+  site specifically, since it let a timeout during a genuinely correct
+  guess get persisted as a confirmed incorrect answer. `IWikidataClient`'s
+  intersection-query methods now accept an opt-in `throwOnTimeout`
+  parameter, set only here (REQ-103's own use of the same client is
+  unaffected — default unchanged); on timeout, `DataSync.Clients` throws
+  `WikidataQueryException`, which `Games.XGGrid` catches and translates
+  into a new `XGArcade.Core.Games.LiveLookupUnavailableException` — defined
+  in `Core` itself, never in `Games.XGGrid` or `DataSync`, so `Core.Scoring`
+  never references a `DataSync`-specific type (ADR-0003's boundary).
+  `Core.Scoring` (`GuessSubmissionService`) catches that exception and
+  returns a new `GuessSubmissionOutcome.LiveLookupUnavailable` — before
+  writing any `Guess` row, the same shape REQ-209's disambiguation branch
+  already uses — which `XGArcade.Api` maps to HTTP 503. See ADR-0045 for
+  the full decision and alternatives considered.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011, extended S-018)** — `GET /rounds/current` computes
   `UniquePercent` on every request via `UniquenessCalculator.Calculate`,

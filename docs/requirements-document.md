@@ -1123,10 +1123,33 @@ a photo shows neither at rest as of S-048, see that status note)
 - And a name appearing in autocomplete implies nothing about whether it is
   correct for the current cell — correctness is only ever determined after
   submission (REQ-203)
+- **2026-07-27 correction — `Nationality` shipped in the autocomplete
+  response (found against `PlayerAutocompleteSuggestion`, shipped as part
+  of this requirement's own S-032 work):** as shipped, `GET
+  /players/autocomplete`'s `PlayerAutocompleteSuggestion` DTO carried
+  `PlayerNameIndex.PrimaryNationality` alongside `BirthYear`, both rendered
+  in `GuessInput.tsx`'s suggestion caption line. For a nationality-based
+  cell (e.g. Country × Club), this told the player which suggestions
+  carried the target nationality before they'd guessed anything — a real
+  violation of this requirement's "implies nothing about whether it is
+  correct" criterion above, not a hypothetical one. This was never a
+  deliberate design choice — it just happened to ship that way, the same
+  category of gap as REQ-208's 2026-07-26 correction. **Status: fixed
+  2026-07-27 (bug-fix bundle, commit f5d10da/f6d06e3).** `Nationality` was
+  removed entirely from `PlayerAutocompleteSuggestion`
+  (`PlayerAutocompleteEndpoints.cs`) and from the frontend suggestion type
+  and rendering (`frontend/src/lib/types.ts`, `GuessInput.tsx`); only
+  `BirthYear` remains in the caption. `BirthYear` is not a leak under the
+  same rule — xG Grid's categories are Country/Club/Trophy only
+  (`CategoryPairingRules`), so no category can ever be birth-year-based,
+  and this correction does not change that stays true. See
+  `docs/design-document.md` SCREEN-02's matching note for the UI-side
+  detail.
 
 **Test level:** Unit (verify the autocomplete data source is distinct from
-the correctness-check data source), Manual (spot-check that early/sparse
-grids don't make guessing trivially easy)
+the correctness-check data source; verify `PlayerAutocompleteSuggestion`
+never carries `Nationality`, added 2026-07-27), Manual (spot-check that
+early/sparse grids don't make guessing trivially easy)
 
 **REQ-208 – Name normalization and matching**
 > As a player, I want reasonable spelling/formatting variations of a
@@ -1197,6 +1220,19 @@ grids don't make guessing trivially easy)
   alternatives considered (notably why a per-word table was chosen over a
   `pg_trgm` GIN index) and the migration
   (`20260726120000_AddPlayerNameIndexWord`).
+- **2026-07-27 addendum — pre-migration rows never got word rows:** the
+  2026-07-26 fix above only populates `PlayerNameIndexWord` on a fresh
+  `UpsertManyAsync` call, so `PlayerNameIndex` rows imported *before* that
+  migration (`20260726120000_AddPlayerNameIndexWord`) — via the
+  `import-player-name-index` run described in REQ-207's status note, which
+  predates this fix — had zero word rows, so a surname-only search still
+  failed for them (Clarence Seedorf, from the bug report, was almost
+  certainly among them; "Seedorf" returned nothing). **Status: fixed
+  2026-07-27.** A new `PlayerNameIndexWordBackfiller`
+  (`XGArcade.Data.Seeding`, mirrors `PlayerNormalizedFullNameBackfiller`'s
+  exact idempotent, no-external-call pattern) is wired into `Program.cs`'s
+  `migrate-and-seed` backfill chain, so this gap self-heals on the next
+  deploy rather than needing a manual one-off run.
 - Given a player's indexed normalized full name is made up of more than
   one space-separated word (e.g. `"zlatan ibrahimovic"`)
 - When an autocomplete query is normalized and matched against that
@@ -1290,6 +1326,14 @@ required, no valid candidate), UI (disambiguation prompt)
   any name resolution work, not after" ordering itself is unaffected;
   only which single constant vs. which per-game method supplies the cap
   value has changed.
+- **Status note (2026-07-27, bug-fix bundle, ADR-0045):** a live-lookup
+  timeout during REQ-211's guess-time fallback is a fourth "doesn't consume
+  an attempt" case, alongside the existing disambiguation one (REQ-209,
+  referenced below) — `GuessSubmissionService.SubmitGuessAsync` returns
+  `GuessSubmissionOutcome.LiveLookupUnavailable` before ever touching
+  `guessRepository`, the same "return before persisting" shape the
+  disambiguation branch already uses. See REQ-211's own 2026-07-27 status
+  notes and acceptance criterion for the full detail — not repeated here.
 - Given a cell where `allow_guess_change` is true for the round (REQ-202)
 - When a player submits a guess for that cell
 - Then they may submit at most 2 guesses total for that cell in that round
@@ -1750,9 +1794,15 @@ asserting on the same text regardless of which screen triggered it)
   field that was built and then dropped from `PlayerNameIndex` — this
   requirement does not reintroduce that column or revisit that decision.
 - **Backfill addendum (S-045, 2026-07-18):** `Player.PhotoUrl` is only ever
-  set at the moment a `Player` row is first created
-  (`WikidataLookupService.GetOrCreatePlayerAsync`) — a row created by an
-  earlier `warm-player-cache` run, before this requirement's `P18` addition
+  set at the moment a `Player` row is first created (as of a 2026-07-27
+  bug-fix bundle's batching fix, that's
+  `IPlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`, called
+  from `WikidataLookupService.PersistMatchesAsync` for the whole match set
+  at once — this was a single-player, per-match
+  `WikidataLookupService.GetOrCreatePlayerAsync` at the time this addendum
+  was written; the method was replaced, not just renamed, by that fix's
+  per-cell batching) — a row created by an earlier `warm-player-cache` run,
+  before this requirement's `P18` addition
   shipped, has `PhotoUrl` permanently `NULL` with no other code path that
   will ever revisit it, so this requirement's acceptance criteria ("a photo
   shows … whenever one is available") were silently unmet for every

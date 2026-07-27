@@ -1078,9 +1078,13 @@ answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
 
 **REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
-moment a `Player` row is first created
-(`WikidataLookupService.GetOrCreatePlayerAsync`, see §6/REQ-214's own note
-above) — a row created by an earlier `warm-player-cache` run, before the
+moment a `Player` row is first created (`IPlayerStoreRepository
+.GetOrCreatePlayersByWikidataQidAsync`, called from `WikidataLookupService
+.PersistMatchesAsync` — a 2026-07-27 batching fix replaced the original
+single-player `WikidataLookupService.GetOrCreatePlayerAsync` this note
+referred to, batching the whole match set into a fixed number of round
+trips instead of one per player; see §6/REQ-214's own note above) — a row
+created by an earlier `warm-player-cache` run, before the
 `P18` addition shipped, has `PhotoUrl` permanently `NULL` with no other
 code path that will ever revisit it. `PlayerPhotoBackfillService`
 (`XGArcade.DataSync.Wikidata`, same project as `WikidataLookupService`/
@@ -1564,8 +1568,13 @@ deliberate and load-bearing:
 - `QueryPlayerPoolBirthYearAsync` **throws** (`WikidataQueryException`) on
   timeout/HTTP/parse failure instead of returning `[]` — an empty list
   means exactly "no eligible players born this year" (real for sparse
-  early years). The intersection queries' never-throw contract is
-  untouched (REQ-103 depends on it).
+  early years). The intersection queries' never-throw-by-default contract
+  is untouched (REQ-103 depends on it) — **as of a 2026-07-27 bug-fix
+  bundle (ADR-0045)**, each intersection query method gained an opt-in
+  `throwOnTimeout` parameter, `false` by default, so REQ-103's own call
+  path (grid generation) is unaffected; only REQ-211's guess-time fallback
+  sets it `true`, to distinguish a timeout from a genuine no-match on that
+  one call site. See REQ-211's 2026-07-27 status notes and ADR-0045 for why.
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice
