@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.12"
+version: "1.13"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -1275,6 +1275,21 @@ required, no valid candidate), UI (disambiguation prompt)
   inapplicable rather than violated: REQ-209's Tier 0 simplification never
   produces a disambiguation prompt to resolve as a separate step, so there
   is nothing for that clause to apply to yet.
+- **Status note (2026-07-26, S-077, ADR-0041):** "before calling the owning
+  `IGameModule` at all" above now needs a narrow clarification. The fixed
+  "2" in this requirement's acceptance criteria is no longer a
+  `GuessSubmissionService`-local constant (the old `GuessRules
+  .MaxAttemptsPerCell`, now deleted) — it's read per-cell through a new
+  `IGameModule.GetMaxAttemptsForCellAsync(instanceId, cellId)` method
+  (`GridGameModule`'s implementation still returns `2` unconditionally, so
+  this requirement's behavior for xG Grid is completely unchanged).
+  `GuessSubmissionService` therefore *does* call into `IGameModule` before
+  the lock/cap rejection decision — just not `ScoreSubmissionAsync` (the
+  name-resolution call this status note's original text is about), which
+  still only runs after every check below has passed. The "checked before
+  any name resolution work, not after" ordering itself is unaffected;
+  only which single constant vs. which per-game method supplies the cap
+  value has changed.
 - Given a cell where `allow_guess_change` is true for the round (REQ-202)
 - When a player submits a guess for that cell
 - Then they may submit at most 2 guesses total for that cell in that round

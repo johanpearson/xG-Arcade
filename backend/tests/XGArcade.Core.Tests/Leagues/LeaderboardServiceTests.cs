@@ -572,7 +572,7 @@ public class LeaderboardServiceTests
         var realMember = await SeedMemberAsync("RealPlayer");
         var round = await SeedRoundAsync(DateTime.UtcNow.AddDays(-2), DateTime.UtcNow.AddDays(-1), closedAt: DateTime.UtcNow.AddDays(-1));
         await SeedGuessAsync(round.Id, guest.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
-        await SeedGuessAsync(round.Id, realMember.Id, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        await SeedGuessAsync(round.Id, realMember.Id, Guid.NewGuid(), isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts, finalPoints: ScoringRules.MaxPointsPerCell);
 
         var result = await _service.GetClosedRoundLeaderboardAsync(round.Id, guest.Id, cursor: 0, pageSize: 50);
 
@@ -702,8 +702,8 @@ public class LeaderboardServiceTests
         // the 2026-07-20 zero-guess-cell rule (REQ-406/407) never applies
         // here — this test isolates ordering alone, unaffected by that
         // change.
-        await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
-        await SeedGuessAsync(round.Id, alex.Id, cellB, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
+        await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
+        await SeedGuessAsync(round.Id, alex.Id, cellB, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
         await SeedGuessAsync(round.Id, sam.Id, cellA, isCorrect: false, attemptCount: 1);
         await SeedGuessAsync(round.Id, sam.Id, cellB, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
 
@@ -723,8 +723,8 @@ public class LeaderboardServiceTests
         var round = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         _fakeGameModule.GetCellIdsResult = _ => [cellA, cellB];
         // Both locked-incorrect on their own cell -> identical TotalPoints.
-        await SeedGuessAsync(round.Id, zoe.Id, cellA, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
-        await SeedGuessAsync(round.Id, amy.Id, cellB, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell);
+        await SeedGuessAsync(round.Id, zoe.Id, cellA, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
+        await SeedGuessAsync(round.Id, amy.Id, cellB, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts);
 
         var page = await _service.GetActiveRoundLeaderboardAsync(zoe.Id, round, cursor: 0, pageSize: 50);
 
@@ -833,7 +833,7 @@ public class LeaderboardServiceTests
         // Two locked guesses for "You" in this round, summing to 30.
         await SeedGuessAsync(round.Id, you.Id, cellA, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
         await SeedGuessAsync(round.Id, you.Id, cellB, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 20);
-        await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        await SeedGuessAsync(round.Id, alex.Id, cellA, isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts, finalPoints: ScoringRules.MaxPointsPerCell);
         // A locked guess from a DIFFERENT round for "You" must never bleed
         // into this round-scoped total.
         await SeedLockedGuessAsync(you.Id, 999);
@@ -890,7 +890,7 @@ public class LeaderboardServiceTests
         var mostRecentlyClosedRound = await SeedRoundAsync(now.AddDays(-2), now.AddDays(-1), closedAt: now.AddDays(-1));
         await SeedGuessAsync(olderClosedRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
         await SeedGuessAsync(mostRecentlyClosedRound.Id, you.Id, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 10);
-        await SeedGuessAsync(mostRecentlyClosedRound.Id, alex.Id, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        await SeedGuessAsync(mostRecentlyClosedRound.Id, alex.Id, Guid.NewGuid(), isCorrect: false, attemptCount: FakeGameModule.DefaultMaxAttempts, finalPoints: ScoringRules.MaxPointsPerCell);
 
         var page = await _service.GetWindowedLeaderboardAsync(you.Id, GameKey, LeaderboardWindowResolution.Round, now, cursor: 0, pageSize: 50);
 

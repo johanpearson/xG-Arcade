@@ -21,4 +21,17 @@ public interface IGameModule
     // through IGameModule, never by reaching into a game-specific instance
     // table directly (ADR-0003).
     Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default);
+
+    // ADR-0041: a given cell's own max-attempts value, replacing the old
+    // single `GuessRules.MaxAttemptsPerCell` global constant. Not every game
+    // has a fixed, uniform attempt cap (e.g. xG Path's cap varies
+    // target-player to target-player within the same round), so this is
+    // resolved per cell through the owning module rather than assumed
+    // platform-wide. GuessSubmissionService (REQ-210's lock/cap check),
+    // LiveRoundContributionService, and RoundEndpoints all call this instead
+    // of reading a shared constant. xG Grid's implementation returns a fixed
+    // 2 for every cell, unconditionally — REQ-210's existing behavior,
+    // unchanged, now reported through this method instead of the deleted
+    // GuessRules.MaxAttemptsPerCell.
+    Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default);
 }

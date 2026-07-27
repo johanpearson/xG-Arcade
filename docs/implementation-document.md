@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.72"
+version: "0.73"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -130,6 +130,13 @@ public interface IGameModule
     // (and penalize) a round participant's unattempted cells, without
     // Core reaching into a game-specific instance table directly.
     Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId);
+    // ADR-0041 (S-077): a given cell's own max-attempts value, replacing
+    // the old GuessRules.MaxAttemptsPerCell global constant — not every
+    // game has a fixed, uniform cap (xG Path's varies per puzzle), so this
+    // is resolved per cell through the owning module. xG Grid's
+    // implementation returns 2 unconditionally, identical to the constant
+    // it replaced.
+    Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId);
 }
 ```
 
@@ -1128,8 +1135,10 @@ at Round.EndTime (scheduled job):
 `XGArcade.Core.Scoring`) — no document specified an exact value for "how
 many points is the worst-case (fully common, incorrect, or unanswered)
 outcome worth"; this is the Tier 0 default, chosen and recorded here
-(S-011), same non-appsettings-bound, plain-constant pattern as
-`GuessRules.MaxAttemptsPerCell`. The `round((1 - uniqueScore) *
+(S-011), a plain constant not bound to appsettings. Unlike REQ-210's
+attempt cap (ADR-0041, S-077: resolved per-cell through `IGameModule`
+since it isn't the same value for every game), this points scale is a
+genuine platform-wide constant. The `round((1 - uniqueScore) *
 MAX_POINTS_PER_CELL)` computation itself is written in exactly one place,
 `ScoringRules.PointsFromUniqueScore(double uniqueScore)` (extracted S-018,
 inverted S-028/ADR-0021) — both the "at Round.EndTime" `FinalPoints`

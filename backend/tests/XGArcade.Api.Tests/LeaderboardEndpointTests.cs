@@ -46,6 +46,16 @@ namespace XGArcade.Api.Tests;
 // the real HTTP pipeline proves" split.
 public class LeaderboardEndpointTests
 {
+    // ADR-0041/S-077: this project doesn't reference XGArcade.Core.Tests, so
+    // it can't share XGArcade.Core.Tests.Rounds.FakeGameModule.DefaultMaxAttempts
+    // directly — and this file's tests exercise the real, DI-registered
+    // GridGameModule (see SeedActiveRoundWithOneCellAsync's comment), not
+    // that fake, anyway. Named locally instead so "both attempts used" has
+    // a source of truth here too, not a bare literal; keep in sync with
+    // GridGameModule's own MaxAttemptsPerCell (currently 2) and
+    // FakeGameModule.DefaultMaxAttempts by convention.
+    private const int MaxAttemptsPerCellForTests = 2;
+
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private WebApplicationFactory<Program> _factory = null!;
 
@@ -616,7 +626,7 @@ public class LeaderboardEndpointTests
         var alexId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
         var roundId = await SeedClosedRoundAsync(DateTime.UtcNow.AddDays(-1));
         await SeedGuessAsync(roundId, youId, Guid.NewGuid(), isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 20);
-        await SeedGuessAsync(roundId, alexId, Guid.NewGuid(), isCorrect: false, attemptCount: GuessRules.MaxAttemptsPerCell, finalPoints: ScoringRules.MaxPointsPerCell);
+        await SeedGuessAsync(roundId, alexId, Guid.NewGuid(), isCorrect: false, attemptCount: MaxAttemptsPerCellForTests, finalPoints: ScoringRules.MaxPointsPerCell);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
         var response = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds/{roundId}");

@@ -428,6 +428,86 @@ public class GuessSubmissionServiceTests
             "a rejected-by-REQ-210 submission must never reach the game module a third time");
     }
 
+    // ---- ADR-0041/S-077: attempt cap resolved per-cell via IGameModule ----
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_ThirdAttemptStillAccepted_ProvingCapIsNotHardcodedTwo()
+    {
+        // The literal acceptance criterion: with a game module reporting a
+        // cap other than 2, a 3rd attempt — which the old hardcoded
+        // GuessRules.MaxAttemptsPerCell == 2 would have rejected with
+        // NoAttemptsRemaining — must still be accepted, proving
+        // GuessSubmissionService reads the cap through IGameModule
+        // (ADR-0041) rather than a hardcoded constant.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 3");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.AttemptCount, Is.EqualTo(3));
+        Assert.That(result.Locked, Is.False, "still under the module-reported cap of 5, must not lock yet");
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_SixthAttemptRejectedWithNoAttemptsRemaining()
+    {
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        for (var i = 1; i <= 5; i++)
+        {
+            await service.SubmitGuessAsync(round.Id, userId, cellId, $"Wrong Guess {i}");
+        }
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 6");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_EachSubmissionAttempt_ResolvesMaxAttemptsCapExactlyOnce()
+    {
+        // ADR-0041: GetMaxAttemptsForCellAsync must be read exactly once per
+        // submission attempt that reaches it — never skipped (the REQ-210
+        // checks immediately below it depend on the value) and never
+        // re-resolved redundantly within the same call. Same
+        // "exactly-N-calls" assertion pattern this file already uses for
+        // ScoreSubmissionAsyncCallCount (e.g.
+        // REQ210_SubmitGuess_AlreadyCorrectlyLockedCell_RejectedWithoutEverCallingGameModule
+        // above), applied to MaxAttemptsForCellCallCount instead — which
+        // otherwise goes unread by any test.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(1));
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(2));
+
+        // Even the rejected 3rd attempt resolves the cap once (it's what
+        // the NoAttemptsRemaining check itself reads) — never zero, never
+        // twice within the same call.
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Third Guess");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(3),
+            "the cap is resolved exactly once per submission attempt, including the rejected third one");
+    }
+
     // ---- REQ-209/REQ-210: disambiguation prompt is not a separate attempt -
 
     [Test]

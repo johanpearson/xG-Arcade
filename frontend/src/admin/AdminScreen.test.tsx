@@ -565,7 +565,12 @@ describe('AdminScreen', () => {
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
 
     expect(await screen.findByText('Accounts')).toBeInTheDocument();
-    expect(screen.getByText('Total users')).toBeInTheDocument();
+    // "Accounts" renders unconditionally on mount, before the
+    // /admin/accounts/metrics fetch resolves (AdminScreen.tsx's `metrics`
+    // state starts null) — the metrics block below is a separate,
+    // later render, so it needs its own await rather than an immediate
+    // getByText racing the fetch.
+    expect(await screen.findByText('Total users')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText('Current guests')).toBeInTheDocument();
     expect(screen.getByText('7')).toBeInTheDocument();

@@ -2,8 +2,10 @@ namespace XGArcade.Core.Scoring;
 
 // REQ-205/206's points scale. No document specifies an exact value for "how
 // many points is the worst-case (fully common) correct guess worth" — this
-// is the Tier 0 default, same non-appsettings-bound, plain-constant pattern
-// as GuessRules.MaxAttemptsPerCell.
+// is the Tier 0 default, a plain constant not bound to appsettings. Unlike
+// REQ-210's attempt cap (ADR-0041: resolved per-cell through IGameModule
+// since it isn't the same value for every game), this points scale is a
+// genuine platform-wide constant.
 //
 // ADR-0021: xG Arcade is scored like golf — LOWER is better, and a player's
 // (or the leaderboard's) goal is to MINIMIZE total points, not maximize
