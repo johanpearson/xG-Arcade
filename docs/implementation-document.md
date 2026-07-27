@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.78"
+version: "0.79"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -212,9 +212,14 @@ misconfigured per-endpoint. See ADR-0006.
     /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator
     /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11). S-081 built
                                    GenerateInstanceAsync/GetCellIdsAsync
-                                   (REQ-1201/1202, ADR-0045); ScoreSubmissionAsync/
-                                   GetMaxAttemptsForCellAsync (REQ-1204/1205)
-                                   still throw NotImplementedException — S-082
+                                   (REQ-1201/1202, ADR-0045); S-082 built
+                                   ScoreSubmissionAsync/GetMaxAttemptsForCellAsync
+                                   (REQ-1204/1205) plus PathClueSequenceBuilder/
+                                   PathClueTurn (REQ-1203's clue-reveal sequence)
+                                   and PathScoringException (now derives from
+                                   Core.Games.GameEntityNotFoundException, shared
+                                   with Games.XGGrid's GuessScoringException).
+                                   No IScoringStrategy registration yet — S-083
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -231,10 +236,17 @@ misconfigured per-endpoint. See ADR-0006.
                                    REQ1201-/REQ1202-named tests against
                                    InMemory-backed repositories (no fakes,
                                    same pattern as GridGameModule.Tests);
-                                   GameKey/remaining-stub tests are unchanged
+                                   S-082 added PathClueSequenceBuilderTests
+                                   (REQ-1203) and REQ1204-/REQ1205-named
+                                   XGPathGameModuleTests coverage; GameKey
+                                   tests are unchanged
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
-    /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP)
-    /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
+    /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
+                                   S-082 extended WikidataClientTests/
+                                   WikidataLookupServiceTests for REQ-1207's
+                                   P413/P569 sourcing
+    /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB).
+                                   S-082 added PathEndpointTests (GET /path/current, REQ-1203)
 
 /frontend
   /src                          -> feature folders, not the layer folders this
@@ -329,6 +341,23 @@ public class Player
     // per-player scalar has no natural "which row owns it" answer there.
     // Migration: AddPlayerPhotoUrl.
     public string PhotoUrl { get; set; }
+    // REQ-1207/S-082: Wikidata's P413 ("position played on team /
+    // speciality"), carried through the same five intersection queries
+    // that already resolve FullName/WikidataQid/PhotoUrl and set once at
+    // player creation — same "never re-synced on a later lookup" rule as
+    // PhotoUrl above. A single scalar, not a PlayerAttribute row, for the
+    // same reason PhotoUrl isn't (no natural per-player multiplicity).
+    // Null whenever Wikidata has no P413 statement — never an error; xG
+    // Path's clue-reveal sequence (REQ-1203) renders a null Position as an
+    // explicit "not available" clue, never a skipped turn. Migration:
+    // AddPlayerPositionAndBirthYear.
+    public string? Position { get; set; }
+    // REQ-1207/S-082: derived from the P569 ("date of birth") binding
+    // those same five queries already require for the male/born-1939-or-
+    // later pool filter (ADR-0025) — extracting just the year, no new
+    // SPARQL binding added for this field. Same set-once-at-creation rule
+    // as Position/PhotoUrl above. Migration: AddPlayerPositionAndBirthYear.
+    public int? BirthYear { get; set; }
 }
 
 // PlayerData, PlayerOverride, and PlayerAttribute below each carry a
@@ -611,7 +640,13 @@ public class PathPuzzle
     public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
     public Guid PathInstanceId { get; set; }
     public Guid TargetPlayerId { get; set; }  // FK to Player — see this section's own note above
-    // No clue/reveal fields yet — that's REQ-1203/S-082.
+    // No clue/reveal fields stored here — REQ-1203's 7-turn clue sequence
+    // (S-082) is computed on every GET /path/current read
+    // (Games.XGPath.PathClueSequenceBuilder, from PlayerCareerStint +
+    // Player.Position/BirthYear + PlayerAttribute's "nationality" row),
+    // never persisted, the same "compute live on read" precedent
+    // UniquenessCalculator already establishes for xG Grid (§6.2's
+    // GET /rounds/current note).
 }
 
 // --- Core (xG Arcade) entities (XGArcade.Core) ---

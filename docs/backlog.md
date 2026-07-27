@@ -4008,9 +4008,12 @@ undeterminable stint order, no stint at a seeded club, or a seeded-club
 stint with a known appearance count below 20 is never selected; a
 seeded-club stint at exactly 20 or with an unknown count is still
 eligible. REQ-112 pool membership is satisfied by construction, not a
-runtime check — `Player` has no `BirthYear`/`Gender` field to violate,
-the same restriction `GridGameModule` already relies on being enforced
-upstream at Wikidata-query time (ADR-0025); this is confirmed by
+runtime check — at the time this story was built, `Player` had no
+`BirthYear`/`Gender` field to violate; `Player.BirthYear` was added later
+by REQ-1207/S-082, for xG Path's own age clue, not for pool filtering, and
+this eligibility check still does not read it — the restriction remains
+enforced entirely upstream at Wikidata-query time (ADR-0025), the same
+restriction `GridGameModule` already relies on; this is confirmed by
 inspection, not a test case, the same scope-note precedent S-079's own
 CHANGELOG entry used. REQ1202-named tests: exactly `N`
 distinct-target puzzles are generated per instance; `Round.GameKey =
@@ -4018,7 +4021,7 @@ distinct-target puzzles are generated per instance; `Round.GameKey =
 shape (no new Core-side reference). *Deps:* S-079 (career-stint data to
 select against), S-080 (module scaffold).
 
-**S-082 · xG Path clue reveal + guess submission (REQ-1203/1204/1205)**
+**S-082 · xG Path clue reveal + guess submission (REQ-1203/1204/1205/1207)**
 Backend only. Exposes a puzzle's clue sequence progressively — every one
 of the target's `N` documented club stints, split across exactly 3
 reveal turns (smallest turn first: `base = N div 3`, `remainder = N mod
@@ -4043,6 +4046,20 @@ every possible point. REQ1204-named tests: correctness is a direct
 is incorrect. REQ1205-named tests: the resolved attempt cap is 7 for every
 puzzle, never a fixed `2`. *Deps:* S-081 (puzzle instances/cells to guess
 against), S-077 (the per-cell attempt-cap mechanism).
+
+**REQ-1207 folded in mid-session:** REQ-1203's position/nationality/age
+clues turned out to depend on `Player` data (`Position`/`BirthYear`) that
+didn't exist anywhere in the schema or the Wikidata sync pipeline. Rather
+than fake that data, silently skip those clue types, or block this story on
+a separate one, REQ-1207 (Wikidata P413/P569 sourcing, set once at player
+creation) was drafted and built as part of S-082 itself — see REQ-1207's
+own entry in `docs/requirements-document.md` for the full detail. Also
+added `GET /path/current` (`XGArcade.Api.Path.PathEndpoints`, REQ-1203's
+read path) and a shared `XGArcade.Core.Games.GameEntityNotFoundException`
+base type (a quality-gate follow-up so `GuessEndpoints`, game-agnostic by
+design, doesn't need compile-time knowledge of each game's own scoring-
+exception type) — see ADR-0048 for the display-read pattern this endpoint
+confirms.
 
 **S-083 · xG Path scoring strategy (REQ-1206, ADR-0040)**
 `ClueEfficiencyScoringStrategy` — `round(cluesUsed / maxCluesForThisPuzzle
