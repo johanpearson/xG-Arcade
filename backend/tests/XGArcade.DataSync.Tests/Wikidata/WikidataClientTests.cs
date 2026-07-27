@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.TestSupport;
 
@@ -92,6 +93,118 @@ public class WikidataClientTests
             queryTimeout: TimeSpan.FromMilliseconds(50));
 
         var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // Observability fix (2026-07-27): a swallowed timeout used to log
+    // nothing at all, unlike the HTTP/parse-error branch just below it in
+    // WikidataClient — this made warm-player-cache's own aggregate summary
+    // ("N queried live") unable to distinguish "queried live and found
+    // nothing" from "queried live and silently timed out." This test proves
+    // the warning is now actually emitted, not just that the timeout is
+    // swallowed (already covered by the test above).
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_Timeout_LogsWarning()
+    {
+        var logger = new CapturingLogger<WikidataClient>();
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            logger: logger);
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(logger.Messages, Has.Exactly(1).Matches<string>(
+            m => m.Contains("country-club") && m.Contains(CountryQid) && m.Contains(ClubQid) && m.Contains("timed out")));
+    }
+
+    // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
+    // "don't over-mock") — captures only the formatted message text of each
+    // Log call, which is all this file's tests need to assert against.
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
+
+    // REQ-211 (2026-07-27 fix): throwOnTimeout defaults to false, so every
+    // call site above that doesn't pass it explicitly keeps the original
+    // swallow-to-[] contract completely unaffected.
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutFalse_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: false);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // REQ-211 (2026-07-27 fix): the guess-time fallback's own opt-in — a
+    // timeout throws WikidataQueryException instead of swallowing to [],
+    // so a genuine timeout is distinguishable from "Wikidata answered and
+    // found nothing."
+    [Test]
+    public void QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_Timeout_ThrowsWikidataQueryException()
+    {
+        // ADR-0046 follow-up: throwOnTimeout: true uses
+        // guessTimeFallbackQueryTimeout, not queryTimeout — must be set here
+        // too, or this test would wait out the real (28s default) budget.
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true));
+    }
+
+    // ADR-0046 follow-up (2026-07-27): a real report (guessing "Clarence
+    // Seedorf" for Ajax x AC Milan) showed a throwOnTimeout: true call
+    // reusing queryTimeout would fail every retry for a query shape that
+    // legitimately needs longer than 15s (ADR-0011's documented 9-27s WDQS
+    // range) — this proves the two budgets are genuinely independent, not
+    // just that a timeout eventually throws: a short queryTimeout must NOT
+    // cut a throwOnTimeout: true call off early once guessTimeFallbackQueryTimeout
+    // is set wider than it.
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_UsesGuessTimeFallbackBudget_NotQueryTimeout()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(400));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true));
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short queryTimeout (50ms) must not cut this call off before the wider guessTimeFallbackQueryTimeout (400ms) elapses");
+        Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (guessTimeFallback) budget used, not queryTimeout");
+    }
+
+    // A non-timeout failure (HTTP error/malformed JSON) must still swallow
+    // to [] even with throwOnTimeout: true — that parameter only ever
+    // changes the TIMEOUT branch's behavior, never the HTTP/parse-error
+    // branch's (see RunIntersectionQueryAsync's own comment on why).
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_HttpErrorStatus_StillReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true);
 
         Assert.That(result, Is.Empty);
     }

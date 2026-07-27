@@ -13,6 +13,7 @@ namespace XGArcade.DataSync.Wikidata;
 public class WikidataClient(
     HttpClient httpClient,
     TimeSpan? queryTimeout = null,
+    TimeSpan? guessTimeFallbackQueryTimeout = null,
     ILogger<WikidataClient>? logger = null) : IWikidataClient
 {
     // Optional param (like queryTimeout) so tests can construct a client
@@ -46,6 +47,32 @@ public class WikidataClient(
     // exercise the timeout path without waiting out a real multi-second delay.
     private readonly TimeSpan _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(15);
 
+    // ADR-0046 follow-up (2026-07-27): 15s above is REQ-103/grid-generation's
+    // budget only — a real report (guessing "Clarence Seedorf" for
+    // Ajax x AC Milan) hit exactly the failure mode ADR-0011's own evidence
+    // predicted: this club-club shape's two full P54 statement-path joins
+    // (BuildClubClubIntersectionQuery's own comment explains why they can't
+    // use the cheaper truthy wdt:P54 shortcut) is one of the query shapes
+    // that can land in that documented 9-27s range, and 15s doesn't cover
+    // it. ADR-0046 already made a timeout here fail closed as "unknown, try
+    // again" (LiveLookupUnavailable, HTTP 503) rather than silently
+    // persisting a wrong "incorrect" — but at 15s, a query that
+    // consistently takes ~20s would fail *every* retry, never actually
+    // answering the guess. This second, longer timeout is used ONLY when
+    // throwOnTimeout is true (i.e. only WikidataLookupOrigin
+    // .GuessTimeFallback) — REQ-103/grid-generation's 15s budget above is
+    // completely unaffected. 28s comfortably covers ADR-0011's documented
+    // worst case (27s observed) with a small margin, while staying well
+    // under Azure Container Apps' ingress idle timeout (no explicit limit
+    // configured in infra/bicep/modules/backend-container-app.bicep, and
+    // this repo's own default is far more generous than 28s) and the
+    // frontend's guess-submission fetch (no client-side AbortSignal/timeout
+    // configured on it), so widening this doesn't reintroduce a "failed to
+    // fetch" network-level failure — it should just mean an honest 503
+    // becomes rare instead of routine for this query shape. Same
+    // overridable-for-tests shape as _queryTimeout above.
+    private readonly TimeSpan _guessTimeFallbackQueryTimeout = guessTimeFallbackQueryTimeout ?? TimeSpan.FromSeconds(28);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -54,6 +81,7 @@ public class WikidataClient(
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(countryWikidataQid))
@@ -62,7 +90,7 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
@@ -70,6 +98,7 @@ public class WikidataClient(
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(nationalTeamWikidataQid))
@@ -78,12 +107,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(clubAWikidataQid))
@@ -92,12 +122,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
-        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
@@ -106,12 +137,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
 
         var query = BuildTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
@@ -120,18 +152,23 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
-        string queryKind, string qidA, string qidB, string query, CancellationToken cancellationToken)
+        string queryKind, string qidA, string qidB, string query, bool throwOnTimeout, CancellationToken cancellationToken)
     {
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
 
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        // ADR-0046 follow-up: throwOnTimeout is exactly "this is the
+        // guess-time fallback" (see WikidataLookupService's own throwOnTimeout
+        // assignment), so it doubles as the signal for which budget applies
+        // — REQ-103/Sync callers always get _queryTimeout, unchanged.
+        var effectiveTimeout = throwOnTimeout ? _guessTimeFallbackQueryTimeout : _queryTimeout;
+        using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
         try
@@ -144,11 +181,38 @@ public class WikidataClient(
 
             return ParseBindings(parsed);
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // Timeout — treated as "no match," never surfaced as a failure.
-            // REQ-103: falls through to the API-Football fallback (Tier 1)
-            // or the combination is discarded (REQ-101), same as a genuine miss.
+            // Timeout — treated as "no match," never surfaced as a failure,
+            // UNLESS throwOnTimeout (REQ-211, 2026-07-27 fix): see this
+            // method's own throwOnTimeout parameter doc comment (on the
+            // interface) for the full reasoning. REQ-103: for every other
+            // caller, this falls through to the API-Football fallback
+            // (Tier 1) or the combination is discarded (REQ-101), same as a
+            // genuine miss. The added `!cancellationToken.IsCancellationRequested`
+            // guard (matching QueryPlayerPoolBirthYearAsync's own pattern
+            // below) makes sure a genuine caller-initiated cancellation
+            // (e.g. request aborted) is never mistaken for this client's own
+            // timeout and propagates as an ordinary OperationCanceledException
+            // instead, regardless of throwOnTimeout.
+            if (throwOnTimeout)
+            {
+                throw new WikidataQueryException(
+                    $"Wikidata {queryKind} intersection query for {qidA}/{qidB} timed out after {effectiveTimeout.TotalSeconds:0}s.");
+            }
+
+            // Observability fix (2026-07-27): this branch previously logged
+            // nothing at all, unlike the HTTP/parse-error branch just below —
+            // warm-player-cache's own aggregate summary ("N queried live")
+            // couldn't distinguish "queried live and found nothing" from
+            // "queried live and silently timed out," making its per-pair
+            // outcome undiagnosable from the log alone. Same level/shape as
+            // the HTTP-error branch's warning, just without an exception to
+            // attach (a timeout is expected/swallowed here, not exceptional).
+            _logger.LogWarning(
+                "Wikidata {QueryKind} SPARQL query timed out after {TimeoutSeconds:0}s for {QidA}/{QidB}; treating as no match.",
+                queryKind, _queryTimeout.TotalSeconds, qidA, qidB);
+
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)

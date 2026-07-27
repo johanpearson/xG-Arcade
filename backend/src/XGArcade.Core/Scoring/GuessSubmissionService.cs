@@ -59,8 +59,21 @@ public class GuessSubmissionService(
         if (existingGuess is not null && existingGuess.AttemptCount >= 1 && !round.AllowGuessChange)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.GuessChangeNotAllowed);
 
-        var scoreResult = await gameModule.ScoreSubmissionAsync(
-            round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName, chosenPlayerId), cancellationToken);
+        ScoreResult scoreResult;
+        try
+        {
+            scoreResult = await gameModule.ScoreSubmissionAsync(
+                round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName, chosenPlayerId), cancellationToken);
+        }
+        catch (LiveLookupUnavailableException)
+        {
+            // REQ-211: a live-lookup timeout means "we don't know yet," not
+            // "wrong" — return before ever touching guessRepository, same
+            // shape as REQ-209's disambiguation branch below (no
+            // AddAsync/UpdateAsync, no attempt-count increment, no lock
+            // check). The player gets a genuine retry, not a consumed one.
+            return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.LiveLookupUnavailable);
+        }
 
         // REQ-209/REQ-210: showing a disambiguation prompt is part of the
         // same attempt that triggered it, not a separate one — return

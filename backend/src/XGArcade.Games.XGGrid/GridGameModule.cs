@@ -31,6 +31,7 @@ public class GridGameModule(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
     IWikidataLookupService wikidataLookupService,
+    IPlayerNameIndexRepository playerNameIndexRepository,
     GridGenerationOptions options,
     ILogger<GridGameModule> logger,
     Random? random = null,
@@ -225,8 +226,7 @@ public class GridGameModule(
         if (result.IsCorrect || (result.DisambiguationCandidates?.Count ?? 0) > 0)
             return result;
 
-        // REQ-211 (Tier 0 simplified — no PlayerNameIndex prerequisite,
-        // ADR-0010's documented gap): grid generation's cached match count
+        // REQ-211 (2026-07-27 fix): grid generation's cached match count
         // (REQ-101/MinValidAnswers) only ever needed to prove this cell had
         // *some* valid answers, never to catalog every one, so a guess can
         // be genuinely correct even though nothing cached confirms it yet —
@@ -234,15 +234,24 @@ public class GridGameModule(
         // because they already exist with one category's attribute cached
         // (from an unrelated cell) but not this cell's other one. Re-running
         // this cell's own country x club intersection query is an upsert,
-        // not a fresh insert (WikidataLookupService.GetOrCreatePlayerAsync),
-        // so one call fixes both cases and completes the cell's whole
-        // answer key for later guesses too, not just this one name. Full
-        // REQ-211 gates this on a PlayerNameIndex match first (Tier 1, not
-        // built) to keep the trigger narrow against a scarce API budget;
-        // Wikidata alone isn't meaningfully capped (ADR-0011), so Tier 0
-        // skips that prerequisite and simply retries once per guess that
-        // didn't already resolve from cache — bounded by REQ-210's 2-attempt
-        // cap, same as every other guess-time cost.
+        // not a fresh insert (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync,
+        // via WikidataLookupService.PersistMatchesAsync), so one call fixes
+        // both cases and completes the cell's whole answer key for later
+        // guesses too, not just this one name.
+        //
+        // Gated on PlayerNameIndex first (REQ-207/S-032 built this, 2026-07-17
+        // — the "Tier 1, not built" gap this comment used to describe is
+        // closed): only a guess that matched a real PlayerNameIndex candidate
+        // is worth a live Wikidata round-trip — a name that matched nothing
+        // there at all can never be a real player, so paying for a live
+        // lookup (and the retry latency that comes with it, this bug
+        // bundle's original report) on every wrong guess was pure waste.
+        // Every other trigger condition is unchanged: bounded by REQ-210's
+        // 2-attempt cap, same as every other guess-time cost, and still a
+        // single retry, never a loop.
+        if (!await playerNameIndexRepository.ExistsByNormalizedNameAsync(normalized, cancellationToken))
+            return result;
+
         if (!await RefreshCellFromLiveLookupAsync(cell, cancellationToken))
             return result;
 
@@ -294,7 +303,7 @@ public class GridGameModule(
             // REQ-208: known aliases/stage names, matched via PlayerAlias —
             // an exact NormalizedAlias equality check, same normalization as
             // the primary-name path (PlayerNameNormalizer.Normalize applied
-            // at persist time, WikidataLookupService.PersistAliasesAsync).
+            // at persist time, WikidataLookupService.PersistMatchesAsync).
             var aliasCandidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
             matching = await FilterByCategoriesAsync(cell, aliasCandidates, cancellationToken);
         }
@@ -502,9 +511,36 @@ public class GridGameModule(
         if (row is null || col is null)
             return false;
 
-        var liveMatches = await LookupLiveMatchesAsync(
-            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value,
-            WikidataLookupOrigin.GuessTimeFallback, cancellationToken);
+        IReadOnlyList<Player>? liveMatches;
+        try
+        {
+            liveMatches = await LookupLiveMatchesAsync(
+                cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value,
+                WikidataLookupOrigin.GuessTimeFallback, cancellationToken);
+        }
+        catch (WikidataQueryException ex)
+        {
+            // REQ-211 (2026-07-27 fix): a timeout here means this cell's
+            // correctness is genuinely UNKNOWN, not "no match" — the
+            // guess-time fallback asked WikidataClient to throw instead of
+            // its usual swallow-to-[] (see WikidataLookupService's
+            // throwOnTimeout comment), specifically so this case is
+            // distinguishable from a real "Wikidata answered, found
+            // nothing." GridGameModule is the one place a DataSync-specific
+            // exception is allowed to cross into Core's cross-boundary
+            // contract (LiveLookupUnavailableException, XGArcade.Core.Games)
+            // — Core itself never references WikidataQueryException or
+            // anything else DataSync-specific (ADR-0003). Left uncaught
+            // here, ScoreSubmissionAsync's caller (GuessSubmissionService)
+            // would otherwise silently fall through to the cache-only
+            // "incorrect" ScoreResult below and persist a wasted attempt for
+            // a guess that might well be correct (this bug bundle's
+            // reported "guessed Seedorf, got 'failed to fetch', retried,
+            // got 'incorrect'" symptom).
+            throw new LiveLookupUnavailableException(
+                $"Live Wikidata lookup for cell {cell.Id} did not complete in time: {ex.Message}");
+        }
+
         return liveMatches is not null;
     }
 

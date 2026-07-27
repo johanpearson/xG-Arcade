@@ -35,7 +35,8 @@ public class Player
     // country/club and club/club intersection queries that already resolve
     // FullName/WikidataQid (WikidataClient's Build*IntersectionQuery
     // methods) and set once at player creation
-    // (WikidataLookupService.GetOrCreatePlayerAsync), same as FullName never
+    // (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync, via
+    // WikidataLookupService.PersistMatchesAsync), same as FullName never
     // being re-synced on a later lookup. Deliberately a single scalar here,
     // NOT a PlayerAttribute row: PlayerAttribute's composite key
     // (PlayerId, AttributeType, AttributeValue) holds many rows per player

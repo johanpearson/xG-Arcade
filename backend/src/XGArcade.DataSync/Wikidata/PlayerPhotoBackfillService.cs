@@ -5,11 +5,11 @@ namespace XGArcade.DataSync.Wikidata;
 
 // REQ-214 backfill (S-045): fills Player.PhotoUrl for every Player row that
 // predates REQ-214's P18 addition to WikidataClient's intersection queries.
-// WikidataLookupService.GetOrCreatePlayerAsync only ever sets PhotoUrl at
-// the moment a Player row is first created — an already-existing row (the
-// common case for anyone who ran `warm-player-cache` before REQ-214
-// shipped) is returned as-is and never revisited, so PhotoUrl stays NULL
-// on it forever with no other code path that will ever backfill it.
+// PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync only ever sets
+// PhotoUrl at the moment a Player row is first created — an already-existing
+// row (the common case for anyone who ran `warm-player-cache` before
+// REQ-214 shipped) is returned as-is and never revisited, so PhotoUrl stays
+// NULL on it forever with no other code path that will ever backfill it.
 //
 // Deliberately a `dotnet run -- backfill-player-photos` CLI verb
 // (Program.cs), not an HTTP endpoint or a background task — squarely the

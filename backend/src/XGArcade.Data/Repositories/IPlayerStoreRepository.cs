@@ -20,6 +20,23 @@ public interface IPlayerStoreRepository
 
     Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default);
 
+    // Bug-bundle fix (2026-07-27): batched counterpart to
+    // GetPlayerByWikidataQidAsync + AddPlayerAsync's old "check-then-insert"
+    // pattern — one indexed SELECT for every WikidataQid already known, plus
+    // one INSERT for whichever ones aren't, instead of one round-trip pair
+    // PER PLAYER (WikidataLookupService.PersistMatchesAsync's own doc
+    // comment has the full "why this mattered" story: intersection queries
+    // never LIMIT, so a popular cell's dozens of matches made the old
+    // per-player loop the dominant cost of a slow guess). Same upsert-by-
+    // WikidataQid semantics as the single-item path: a QID already known
+    // reuses its existing Player row, never a duplicate. Keyed by
+    // WikidataQid in the returned dictionary, not Player.Id — that's the
+    // natural join key every caller already has on hand
+    // (WikidataPlayerMatch.WikidataQid). One SaveChangesAsync call for the
+    // whole batch (load-then-SaveChangesAsync, coding-guidelines.md).
+    Task<IReadOnlyDictionary<string, Player>> GetOrCreatePlayersByWikidataQidAsync(
+        IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default);
+
     // REQ-208: guess-time name matching's primary-name path — queries
     // Player.NormalizedFullName directly. Still never PlayerNameIndex/
     // COMP-10 (ADR-0007's autocomplete/correctness separation, permanent,
@@ -30,7 +47,7 @@ public interface IPlayerStoreRepository
     // REQ-208: guess-time name matching's alias path, checked only when the
     // primary-name path above found no candidate satisfying the cell's
     // categories — PlayerAlias.NormalizedAlias is populated at persist time
-    // (WikidataLookupService.PersistAliasesAsync) with the same
+    // (WikidataLookupService.PersistMatchesAsync) with the same
     // PlayerNameNormalizer.Normalize used here, so an exact string match is
     // enough. Never PlayerNameIndex — same boundary as the method above.
     Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
@@ -57,6 +74,14 @@ public interface IPlayerStoreRepository
         IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
 
     Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default);
+
+    // Bug-bundle fix (2026-07-27): batched counterpart to AddPlayerDataAsync
+    // — one SaveChangesAsync call for the whole list (docs/coding-
+    // guidelines.md), not one round trip per row. No dedup here: PlayerData
+    // is a raw, per-source append log (see AddPlayerDataAsync's own
+    // comment) — every row is recorded unconditionally, same contract as
+    // the single-item method.
+    Task AddPlayerDataBatchAsync(IReadOnlyList<PlayerData> data, CancellationToken cancellationToken = default);
 
     // REQ-503 (S-012): the admin review view's candidate list — every
     // PlayerData row still awaiting an admin's approve/correct/remove
@@ -111,6 +136,15 @@ public interface IPlayerStoreRepository
         string attributeType, string attributeValue, CancellationToken cancellationToken = default);
     Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default);
 
+    // Bug-bundle fix (2026-07-27): batched counterpart to
+    // AddPlayerAttributeAsync — one SaveChangesAsync call for the whole
+    // list. Callers are responsible for dedup (same "caller already knows
+    // which player/attribute pairs are new" discipline
+    // WikidataLookupService's PersistMatchesAsync/QueueAttribute already
+    // follows) — this never checks the composite
+    // (PlayerId, AttributeType, AttributeValue) key itself.
+    Task AddPlayerAttributesBatchAsync(IReadOnlyList<PlayerAttribute> attributes, CancellationToken cancellationToken = default);
+
     // REQ-209: disambiguation-prompt candidate building
     // (GridGameModule.BuildDisambiguationCandidatesAsync) — every cached
     // PlayerAttribute row for a batch of candidate players in one query,
@@ -132,6 +166,11 @@ public interface IPlayerStoreRepository
     Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default);
     Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default);
 
+    // Bug-bundle fix (2026-07-27): batched counterpart to AddPlayerAliasAsync
+    // — one SaveChangesAsync call for the whole list. Same caller-dedups-
+    // first discipline as AddPlayerAttributesBatchAsync above.
+    Task AddPlayerAliasesBatchAsync(IReadOnlyList<PlayerAlias> aliases, CancellationToken cancellationToken = default);
+
     Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default);
     Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default);
@@ -149,8 +188,8 @@ public interface IPlayerStoreRepository
 
     // REQ-214 backfill (S-045): PlayerPhotoBackfillService's read cursor.
     // Every `Player` row created before REQ-214 shipped has PhotoUrl
-    // permanently NULL — WikidataLookupService.GetOrCreatePlayerAsync only
-    // ever sets it at row-creation time, never on a later lookup — so this
+    // permanently NULL — GetOrCreatePlayersByWikidataQidAsync only ever
+    // sets it at row-creation time, never on a later lookup — so this
     // is the query that finds the backlog. excludingPlayerIds accumulates
     // every player ID the caller has already attempted THIS RUN (whether
     // that attempt succeeded or failed) so repeated calls make guaranteed
@@ -197,8 +236,9 @@ public interface IPlayerStoreRepository
     // SaveChangesAsync call at all) when newStints is empty — callers
     // (WikidataLookupService) are expected to have already filtered out
     // stints that already exist for this player via GetCareerStintsAsync,
-    // so idempotency is the caller's responsibility, same as
-    // PersistAttributeAsync/PersistAliasesAsync's existing pattern.
+    // so idempotency is the caller's responsibility, same discipline
+    // PersistMatchesAsync/QueueAttribute already follow for
+    // PlayerData/PlayerAttribute/PlayerAlias.
     Task AddCareerStintsAsync(
         Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default);
 
@@ -213,7 +253,35 @@ public interface IPlayerStoreRepository
     // GetPlayerAttributesByPlayerIdsAsync above.
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
         CancellationToken cancellationToken = default);
+
+    // Bug-bundle fix (2026-07-27): bulk counterpart to GetCareerStintsAsync
+    // — every existing stint for a batch of players in one query, used by
+    // WikidataLookupService's batched PersistCareerStintsAsync to dedupe
+    // candidate stints against what's already stored before calling
+    // AddCareerStintsBatchAsync, instead of one GetCareerStintsAsync round
+    // trip per player. Same "playerId absent = no rows" shape as
+    // GetPlayerAliasesByPlayerIdsAsync/GetPlayerAttributesByPlayerIdsAsync
+    // above.
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetCareerStintsByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default);
+
+    // Bug-bundle fix (2026-07-27): batched counterpart to
+    // AddCareerStintsAsync — resolves every affected player's FULL
+    // chronological SequenceOrder (existing rows + this call's newStints)
+    // via one existing-stint SELECT plus one SaveChangesAsync for the whole
+    // dictionary, instead of one round-trip pair per player. A player entry
+    // with an empty newStints list is a no-op for that player, same
+    // idempotency-is-the-caller's-job contract as AddCareerStintsAsync.
+    Task AddCareerStintsBatchAsync(
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default);
 }
+
+// Bug-bundle fix (2026-07-27): one match's worth of the data needed to
+// create a Player row if GetOrCreatePlayersByWikidataQidAsync doesn't
+// already have one for this WikidataQid — mirrors the three Player fields
+// WikidataLookupService's old per-player GetOrCreatePlayerAsync used to set
+// at creation time.
+public record PlayerCreationRequest(string WikidataQid, string FullName, string? PhotoUrl);
 
 // REQ-503 (2026-07-20 extension): per-row outcome of
 // IPlayerStoreRepository.ApprovePlayerDataAsync — the shape that lets a

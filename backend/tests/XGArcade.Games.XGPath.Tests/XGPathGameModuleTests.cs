@@ -92,7 +92,7 @@ public class XGPathGameModuleTests
     // irrelevant to eligibility (IsEligible reads only StartYear/EndYear/
     // ClubName/AppearanceCount), so every fixture row is left at 0 rather
     // than replicating AddCareerStintsAsync's own re-sequencing logic here.
-    // AppearanceCount defaults to null ("unknown"), which ADR-0046 treats
+    // AppearanceCount defaults to null ("unknown"), which ADR-0047 treats
     // as passing the appearance-count check — most fixtures don't need to
     // set it explicitly.
     private void SeedStints(Guid playerId, params (int StartYear, int? EndYear, string ClubName)[] stints)
@@ -227,7 +227,7 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
-    // ADR-0046: a seeded-club stint with a known, sub-threshold appearance
+    // ADR-0047: a seeded-club stint with a known, sub-threshold appearance
     // count doesn't count toward eligibility — a one-off loan/fringe
     // appearance shouldn't be enough to make an otherwise-obscure player a
     // valid target.
@@ -250,7 +250,7 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
-    // ADR-0046: a known appearance count meeting the threshold exactly is
+    // ADR-0047: a known appearance count meeting the threshold exactly is
     // still eligible — the check is ">=", not ">".
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintAtAppearanceThreshold_IsEligible()
@@ -274,7 +274,7 @@ public class XGPathGameModuleTests
         Assert.That(targets, Does.Contain(atThreshold.Id));
     }
 
-    // ADR-0046: an unknown appearance count (Wikidata's P1350 qualifier
+    // ADR-0047: an unknown appearance count (Wikidata's P1350 qualifier
     // absent) is not evidence of a fringe appearance, so it still passes —
     // only a known, sub-threshold count disqualifies a stint.
     [Test]

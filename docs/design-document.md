@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.54"
+version: "0.56"
 status: draft
-last_updated: 2026-07-26
+last_updated: 2026-07-27
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -955,10 +955,22 @@ from v0.1, recolored for the light theme:
 
 **S-032 implementation note:** shipped without the photo/silhouette avatar
 described above — the `PlayerNameIndex`-backed contract this story builds
-against (ADR-0007) carries `name`/`birthYear`/`nationality` only, no photo
-field, so each suggestion row instead shows the name plus an optional
-`nationality · birthYear` caption line in `text-muted` for disambiguation.
-Avatar support stays an open item if/when the index gains a photo field.
+against (ADR-0007) carries `name`/`birthYear` only, no photo field, so each
+suggestion row instead shows the name plus an optional `birthYear` caption
+line in `text-muted` for disambiguation. Avatar support stays an open item
+if/when the index gains a photo field.
+
+**Nationality removed from the autocomplete contract (post-S-032 fix):**
+suggestion rows originally also carried `nationality`, shown alongside
+`birthYear` in the same caption line. That leaked the answer for
+nationality-based categories (e.g. Country × Club) — seeing which
+suggestions carried the target nationality told the player who was
+eligible before they'd even guessed, violating REQ-207/ADR-0007's "implies
+nothing about correctness" rule. `nationality` was removed entirely from
+`GET /players/autocomplete`'s response and from the suggestion row; only
+`birthYear` remains, since it doesn't align with any xG Grid category and
+so can't leak an answer the same way. If a future category is ever
+birth-year-based, this caption would need the same treatment.
 Judgment calls made without an existing spec to follow, recorded here
 rather than left as unreviewed implementation-only detail:
 - Suggestions list uses only neutral tokens — `surface-card` background,
@@ -1858,12 +1870,17 @@ system — no new color, typeface, or animation family introduced:
   regardless of how many clues have been revealed.
 - **Clue content and order**, exactly per REQ-1203 — this screen adds no
   new sequencing decision, only how it's rendered:
-  1. Club stints, chronological, one node each, each showing the club
-     name plus appearance count when known (never a placeholder like
-     "0 apps" when unknown — the count is simply omitted for that node)
-  2. Once every available club node (capped at 5) is shown, one further
-     node bundles every revealed club's own start–end year range
-     together (never one aggregate span across the whole career)
+  1. Every one of the target's documented club stints, chronological,
+     split across exactly 3 nodes ("turns") — the wireframe above shows
+     the 3-clubs case (one club per turn, since `N=3` splits 1-1-1); for a
+     longer career a single node bundles more than one club together
+     (e.g. `N=10` splits 3-3-4, so the last node alone shows 4 clubs), each
+     still showing its own name plus appearance count when known (never a
+     placeholder like "0 apps" when unknown — the count is simply omitted
+     for that club within the node)
+  2. Once all 3 club-reveal nodes are shown, one further node bundles
+     every revealed club's own start–end year range together (never one
+     aggregate span across the whole career)
   3. Then, if still unsolved: position, nationality, age — one node
      each, in that fixed order
   4. National team caps are never a clue (REQ-1203's explicit exclusion)

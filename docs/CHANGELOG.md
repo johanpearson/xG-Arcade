@@ -13,21 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
-- 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
-  `docs/architecture-document.md` (0.64 → 0.65),
-  `docs/decisions/0046-xg-path-seeded-club-appearance-threshold.md` (new),
+- 2026-07-27 — `docs/requirements-document.md` (1.18 → 1.19),
+  `docs/architecture-document.md` (0.65 → 0.66),
+  `docs/decisions/0047-xg-path-seeded-club-appearance-threshold.md` (new,
+  renumbered from a draft ADR-0046 during merge — ADR-0046 was already
+  claimed by the live-lookup-timeout ADR below, landed on `main` first),
   `docs/backlog.md`, `backend/src/XGArcade.Games.XGPath/
   XGPathGameModule.cs`, `backend/tests/XGArcade.Games.XGPath.Tests/
   XGPathGameModuleTests.cs` — tightened REQ-1201's xG Path eligibility: a
   candidate's seeded-club stint now also needs ≥20 recorded appearances
   there (or an unknown count) to count, closing the gap where a single
   loan/fringe appearance at a big club was enough to qualify an otherwise
-  obscure player as a target — ADR-0046. `IsEligible`'s seeded-club check
+  obscure player as a target — ADR-0047. `IsEligible`'s seeded-club check
   now also filters on `PlayerCareerStint.AppearanceCount`; 3 new REQ1201-
   named tests cover below/at/unknown appearance count. `dotnet test` run
   locally: 16/16 passing (13 existing + 3 new).
-- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
-  `docs/architecture-document.md` (0.63 → 0.64), `docs/decisions/0041-
+- 2026-07-27 — `docs/requirements-document.md` (1.17 → 1.18),
+  `docs/architecture-document.md` (0.64 → 0.65), `docs/decisions/0041-
   per-cell-attempt-cap.md`, `docs/backlog.md` — revised REQ-1203's xG Path
   clue-reveal mechanic per a product decision: club stints are no longer
   capped at 5 and revealed one-per-clue; every documented stint is now
@@ -43,6 +45,33 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   actual decision, per-cell resolution through `IGameModule`, is
   unaffected). No code exists for REQ-1203/1205/1206 yet (still "design
   only," S-082/S-083), so this is a pure documentation change.
+- 2026-07-27 — `docs/implementation-document.md` (0.77 → 0.78),
+  `docs/design-document.md` (0.55 → 0.56) — while merging the two entries
+  above against `main`, found two more stale references to the old
+  "club-stint clues capped at 5" design that the REQ-1203 revision above
+  had missed: `implementation-document.md`'s `IGameModule` interface
+  comment ("xG Path's varies per puzzle") and `design-document.md`'s
+  SCREEN-10 spec (an explicit "capped at 5" bullet, written before the
+  revision). Corrected both to describe the current design (a fixed
+  `MinAppearancesAtSeededClub`-independent 7-clue total; all stints shown
+  across 3 grouped reveal turns) — no behavior change, both docs were
+  already stale relative to `requirements-document.md`.
+- 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
+  `docs/decisions/0046-live-lookup-timeout-exception-signal.md` — follow-up
+  to #123: real usage showed guessing "Clarence Seedorf" for Ajax × AC Milan
+  consistently returned `LiveLookupUnavailable` (503) rather than ever
+  resolving, since `WikidataClient`'s 15s budget (REQ-103's own, reused
+  unmodified by #123's fix) doesn't cover the up-to-27s WDQS latency
+  ADR-0011 already documented for this club-club query shape. Added a
+  second, wider budget (`guessTimeFallbackQueryTimeout`, 28s) used only when
+  `throwOnTimeout` is set (i.e. only `WikidataLookupOrigin.GuessTimeFallback`)
+  — REQ-103/grid generation's 15s budget is completely unaffected. New
+  status notes on REQ-211 and ADR-0046 explain why this doesn't reopen
+  ADR-0046's own rejected "increase the timeout instead" alternative (that
+  alternative was rejected in the context of the fallback firing on every
+  unresolved guess; REQ-211's `PlayerNameIndex` gate, landed in the same
+  PR, already narrowed that to only real, indexed players before this
+  follow-up widened the budget further).
 - 2026-07-27 — `docs/backlog.md`, `docs/architecture-document.md`
   (0.62 → 0.63), `docs/CHANGELOG.md` — doc-sync pass over S-081's diff
   (REQ-1201/1202, ADR-0045). `docs/backlog.md`'s S-081 Accept-criteria
@@ -103,6 +132,69 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   on `XGPathGameModuleTests` (same scope-note precedent S-079's own
   CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
   insufficient-pool/unknown-template/cell-id-lookup behavior.
+- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
+  `docs/architecture-document.md` (0.63 → 0.64),
+  `docs/implementation-document.md` (0.76 → 0.77),
+  `docs/design-document.md` (0.54 → 0.55, previously landed by the frontend
+  half of this same bundle — folded in here rather than left as a separate
+  entry), `docs/decisions/0046-live-lookup-timeout-exception-signal.md`
+  (new) — doc sync for the `claude/xg-grid-perf-search-r0q708` bug-fix
+  bundle (commits f5d10da/f6d06e3), which fixed slow/unreliable guessing,
+  stale name-index words, and an autocomplete answer leak:
+  - **REQ-211** (requirements-document.md): the guess-time live-lookup
+    fallback now gates on a real `IPlayerNameIndexRepository` match before
+    calling Wikidata — closing a stale "Tier 1, not built" gap in this
+    REQ's own status text (`PlayerNameIndex` has existed since S-032,
+    2026-07-17; the un-gated trigger was the dominant cost of the reported
+    "guessing is slow" symptom, not a deliberate simplification). Also adds
+    a new `GuessSubmissionOutcome.LiveLookupUnavailable` branch (HTTP 503,
+    no `Guess` row written, no REQ-210 attempt consumed) so a Wikidata
+    timeout during this fallback is distinguishable from a confirmed
+    incorrect guess (previously conflated — the reported "guessed Clarence
+    Seedorf, got a fetch error, retried, scored incorrect" symptom). New
+    acceptance-criterion bullet added. See ADR-0046.
+  - **REQ-210** (requirements-document.md): status note cross-referencing
+    the new `LiveLookupUnavailable` branch as a fourth "doesn't consume an
+    attempt" case, alongside REQ-209's existing disambiguation branch.
+  - **REQ-207** (requirements-document.md): 2026-07-27 correction recording
+    that the shipped `PlayerAutocompleteSuggestion` DTO leaked
+    `Nationality` — a real violation of this REQ's "implies nothing about
+    correctness" criterion for nationality-based categories — now removed
+    from both the backend DTO and the frontend suggestion type/caption
+    (`GuessInput.tsx`, already fixed in this bundle's frontend half,
+    f5d10da); `BirthYear` stays, since no xG Grid category is
+    birth-year-based.
+  - **REQ-208** (requirements-document.md): addendum recording that
+    pre-2026-07-26-migration `PlayerNameIndex` rows had no
+    `PlayerNameIndexWord` rows (so surname-only search still failed for
+    them, e.g. "Seedorf") — fixed by a new, idempotent
+    `PlayerNameIndexWordBackfiller` wired into `migrate-and-seed`.
+  - **New ADR-0046**: the structural decision behind the
+    `LiveLookupUnavailableException`/`GuessSubmissionOutcome
+    .LiveLookupUnavailable`/503 signal — a new, narrow exception-based
+    cross-boundary contract between `Games.XGGrid` (COMP-05) and
+    `Core.Scoring` (COMP-04), kept inside `Core.Games` per ADR-0003, so a
+    live-lookup infra failure is never conflated with a confirmed-incorrect
+    guess. Covers the alternatives considered (result-type/nullable signal,
+    a longer timeout, accepting the false-negative rate) and why the
+    exception-based signal was chosen instead.
+  - **architecture-document.md** §6.2: corrected the REQ-211 guess-time
+    fallback's trigger-condition description (now matches the diagram's
+    full shape, per the fix above) and added a note on the new
+    exception-based signal crossing the `Games.XGGrid` → `Core.Scoring`
+    boundary.
+  - **implementation-document.md**: fixed two now-stale references to
+    `WikidataLookupService.GetOrCreatePlayerAsync` (replaced by
+    `IPlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`,
+    called from the newly-batched `PersistMatchesAsync` — root cause #2 of
+    this bundle, one `SaveChangesAsync` per batch instead of per player,
+    per `docs/coding-guidelines.md`'s own rule), and corrected the
+    intersection-queries'-never-throw claim to note the new opt-in
+    `throwOnTimeout` parameter (REQ-211/ADR-0046 only; REQ-103's default
+    behavior is unchanged).
+  - Not touched: `docs/design-document.md` was already updated correctly by
+    this bundle's frontend commit (f5d10da) — reviewed and left as-is,
+    consolidated into this entry rather than duplicated as its own.
 - 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
   §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
   `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews

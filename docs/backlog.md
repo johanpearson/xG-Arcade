@@ -4000,7 +4000,7 @@ against must be final first).
 eligible target players — REQ-1201's eligibility (≥3 documented,
 chronologically-orderable `PlayerCareerStint` rows, at least one at a
 seeded `ClubDefinition` club with ≥20 recorded appearances there or an
-unknown appearance count (ADR-0046, added 2026-07-27), drawn from
+unknown appearance count (ADR-0047, added 2026-07-27), drawn from
 REQ-112's existing player pool) — and persists a puzzle instance plus one
 cell per puzzle. `GetCellIdsAsync` returns those cell ids.
 *Accept:* REQ1201-named tests: a candidate with <3 stints, an

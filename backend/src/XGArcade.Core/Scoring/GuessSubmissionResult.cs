@@ -22,6 +22,19 @@ public enum GuessSubmissionOutcome
     CellAlreadySolved,
     NoAttemptsRemaining,
     GuessChangeNotAllowed,
+
+    // REQ-211 (2026-07-27 fix): the owning game module's live-lookup
+    // fallback (Games.LiveLookupUnavailableException) couldn't complete in
+    // time — the guess's correctness is genuinely UNKNOWN, not "wrong."
+    // Like NeedsDisambiguation, this is not a rejection of anything the
+    // player did wrong: nothing about IsCorrect/AttemptCount/Locked is
+    // meaningful for it, and — unlike every other Rejected outcome above,
+    // which reject before any name-resolution work even starts —
+    // SubmitGuessAsync only learns about this partway through name
+    // resolution, after IGameModule.ScoreSubmissionAsync throws. Either way,
+    // no Guess row is written and no attempt is consumed, so the player gets
+    // a genuine retry, not a wasted one.
+    LiveLookupUnavailable,
 }
 
 public class GuessSubmissionResult

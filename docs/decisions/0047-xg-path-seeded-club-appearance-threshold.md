@@ -1,4 +1,4 @@
-# ADR-0046: xG Path eligibility requires meaningful playing time at the seeded club, not just any stint
+# ADR-0047: xG Path eligibility requires meaningful playing time at the seeded club, not just any stint
 
 - **Status:** Accepted
 - **Date:** 2026-07-27

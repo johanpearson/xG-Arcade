@@ -21,7 +21,7 @@ public class XGPathGameModule(
 {
     public const string XGPathGameKey = "xg-path";
 
-    // REQ-1201/ADR-0046: a seeded-club stint only counts toward eligibility
+    // REQ-1201/ADR-0047: a seeded-club stint only counts toward eligibility
     // if it reflects meaningful playing time there, not a one-off loan/
     // fringe appearance — see the ADR for why 20 and why an unknown count
     // still passes rather than being rejected.
@@ -149,7 +149,7 @@ public class XGPathGameModule(
     //   - at least one stint at a club present in the seeded
     //     ClubDefinition reference table (REQ-109), with at least
     //     MinAppearancesAtSeededClub games played there when that count is
-    //     known (ADR-0046) — a stint with no recorded AppearanceCount still
+    //     known (ADR-0047) — a stint with no recorded AppearanceCount still
     //     counts, since "unknown" is not evidence of a fringe appearance;
     //     only a known, sub-threshold count disqualifies a stint.
     private static bool IsEligible(IReadOnlyList<PlayerCareerStint> stints, IReadOnlySet<string> seededClubNames)

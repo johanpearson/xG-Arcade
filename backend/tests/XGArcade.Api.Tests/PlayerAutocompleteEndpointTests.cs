@@ -125,7 +125,29 @@ public class PlayerAutocompleteEndpointTests
         Assert.That(suggestions[0].PlayerId, Is.EqualTo(playerId));
         Assert.That(suggestions[0].Name, Is.EqualTo("Someone Uncached"));
         Assert.That(suggestions[0].BirthYear, Is.EqualTo(1995));
-        Assert.That(suggestions[0].Nationality, Is.EqualTo("Norway"));
+    }
+
+    // Bug-bundle fix (2026-07-27, ADR-0007/REQ-207): Nationality must never
+    // appear in the autocomplete response at all, regardless of whether the
+    // underlying PlayerNameIndex row has one — seeding a nationality above
+    // and confirming it never reaches the wire is the actual regression
+    // test for the leak, not just an assertion this field happens to be
+    // absent from the record shape.
+    [Test]
+    public async Task REQ207_Autocomplete_Get_ResponseNeverIncludesNationality_EvenWhenPlayerNameIndexHasOne()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        await SeedPlayerNameIndexEntryAsync("Someone Nationalised", nationality: "Norway");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/players/autocomplete?query=someone");
+
+        var rawJson = await response.Content.ReadAsStringAsync();
+        Assert.That(rawJson, Does.Not.Contain("Norway"),
+            "a nationality value must never be serialized into the autocomplete response — it leaks correctness for a nationality-based cell");
+        Assert.That(rawJson, Does.Not.Contain("nationality").IgnoreCase,
+            "the field itself must be gone from the response shape, not merely null");
     }
 
     [Test]
