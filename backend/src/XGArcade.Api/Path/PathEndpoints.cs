@@ -19,22 +19,14 @@ namespace XGArcade.Api.Path;
 // once XGPathGameModule.ScoreSubmissionAsync/GetMaxAttemptsForCellAsync
 // are implemented (S-082) — no second guess-submission endpoint here.
 //
-// ADR-0016 scope note (flagged for architecture-reviewer, not resolved
-// here): ADR-0016 blesses a read-only, non-scoring display query bypassing
-// IGameModule, but its own text and worked example are scoped to
-// GET /rounds/current reading GridInstance/GridCell directly — this is a
-// second, different game module's equivalent read (PathInstance/
-// PathPuzzle, via IPathInstanceRepository), built the same way (direct
-// repository read from the Api layer) rather than waiting for a
-// generalized IGameModule read method. ADR-0016's own "Follow-up" section
-// anticipated exactly this moment: "when a second game module is actually
-// built, use it to design IGameModule's read method for real ... supersede
-// this ADR at that point rather than letting the direct-repository-read
-// pattern spread to more endpoints." Whether that generalization should
-// happen now (informed by both games' real shapes) or this endpoint should
-// simply be treated as covered by ADR-0016's "any future read-only,
-// non-scoring endpoint in that same class" carve-out is an open call for
-// architecture-reviewer, not decided unilaterally here.
+// ADR-0016/ADR-0048: this read (PathInstance/PathPuzzle, via
+// IPathInstanceRepository, direct from the Api layer) is ADR-0016's
+// direct-repository-read pattern applied to a second game module —
+// resolved, not an open question: ADR-0048 compared this shape against
+// GridInstance/GridCell (RoundEndpoints' own GET /rounds/current) and
+// confirmed the per-game direct-repository-read pattern as the accepted
+// long-term shape, rather than designing a generalized IGameModule read
+// method from only two real data points. See ADR-0048 for the reasoning.
 public static class PathEndpoints
 {
     // REQ-1203's nationality clue reads PlayerAttribute's "nationality"
