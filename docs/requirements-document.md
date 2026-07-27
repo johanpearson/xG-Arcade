@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.13"
+version: "1.14"
 status: draft
-last_updated: 2026-07-26
+last_updated: 2026-07-27
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -2081,13 +2081,13 @@ a past/near-past `endTime`, and the accessible-name assertion)
   submitted a single guess (see REQ-404's own new acceptance criterion).
   This REQ still governs membership only; it does not claim every member
   is shown in the ranked list.
-- **Status note (2026-07-26, forward-looking — REQ-410, design only):**
-  membership itself (below) is unaffected by ADR-0043 — there remains
-  exactly one `League(type="global")`, auto-joined at signup, regardless of
-  how many games the platform hosts. What changes, once REQ-410 ships, is
-  that the all-time *ranking* read from that membership (REQ-409) is
-  computed per `GameKey` rather than blended across every game's rounds —
-  see REQ-410 for the acceptance criteria and ADR-0043 for the rationale.
+- **Status note (2026-07-27, REQ-410/S-078 — implemented):** membership
+  itself (below) is unaffected by ADR-0043 — there remains exactly one
+  `League(type="global")`, auto-joined at signup, regardless of how many
+  games the platform hosts. What REQ-410 changed is that the all-time
+  *ranking* read from that membership (REQ-409) is now computed per
+  `GameKey` rather than blended across every game's rounds — see REQ-410
+  for the acceptance criteria and ADR-0043 for the rationale.
 - Given a new user registers
 - Then the user is automatically added to `League(type="global")`
 - And this requires no action from the user
@@ -2191,15 +2191,16 @@ undefined.
   sum. This REQ's own text is kept, not rewritten in place, per this
   document's ID-stability rule; see REQ-409 for the current, actual
   behavior and full acceptance criteria.
-- **Status note (2026-07-26, forward-looking — REQ-410, design only):**
-  ADR-0043 found that `GetGlobalLeaderboardAsync` (REQ-409's median
-  ranking, the method this REQ's own leaderboard resolves to) computes
-  across every game's rounds with no `GameKey` filter at all — harmless
-  today since xG Grid is the only shipped game, but not correct once a
-  second game (xG Path) ships its first round. REQ-410 (not yet
-  implemented) specifies that the all-time ranking this REQ and REQ-409
-  describe becomes scoped per `GameKey`. This REQ's own acceptance criteria
-  above are unchanged and remain accurate as a description of the
+- **Status note (2026-07-27, REQ-410/S-078 — implemented):** ADR-0043
+  found that `GetGlobalLeaderboardAsync` (REQ-409's median ranking, the
+  method this REQ's own leaderboard resolves to) computed across every
+  game's rounds with no `GameKey` filter at all — harmless while xG Grid
+  was the only shipped game, but not correct once a second game (xG Path)
+  ships its first round. REQ-410 now scopes the all-time ranking this REQ
+  and REQ-409 describe per `GameKey`; `LeaderboardEndpoints` currently
+  always requests xG Grid's ranking (no frontend game switcher yet,
+  tracked separately as S-087/SCREEN-03). This REQ's own acceptance
+  criteria above are unchanged and remain accurate as a description of the
   single-game case; see REQ-410 and ADR-0043 for the per-game scope.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
@@ -2711,17 +2712,17 @@ superseded interim behavior.)*
   analogue in this document and is not resolved by this REQ; a live-
   updating version of this median, if ever wanted, is a separate future
   requirement.
-- **Cross-reference (2026-07-26, REQ-410 — design only, not yet
-  implemented):** ADR-0043 found that the median ranking this REQ defines
-  is computed across every game's rounds combined, with no `GameKey`
-  filter — `GetGlobalLeaderboardAsync` and
-  `GetPerRoundFinalPointsByUserIdsAsync` take no `gameKey` parameter today,
-  unlike the other three `ILeaderboardService` methods. REQ-410 specifies
-  that this ranking becomes scoped per `GameKey` instead — this REQ's own
-  median definition, qualifying-round definition, and 5-round minimum
-  above are unchanged by that; REQ-410 adds a per-game filter on top of
-  them, it does not alter the formula itself. See REQ-410 for the
-  acceptance criteria and ADR-0043 for the full rationale.
+- **Cross-reference (2026-07-27, REQ-410/S-078 — implemented):** ADR-0043
+  found that the median ranking this REQ defines was computed across
+  every game's rounds combined, with no `GameKey` filter —
+  `GetGlobalLeaderboardAsync` and `GetPerRoundFinalPointsByUserIdsAsync`
+  took no `gameKey` parameter, unlike the other three
+  `ILeaderboardService` methods. REQ-410 now scopes this ranking per
+  `GameKey` — this REQ's own median definition, qualifying-round
+  definition, and 5-round minimum above are unchanged by that; REQ-410
+  adds a per-game filter on top of them, it does not alter the formula
+  itself. See REQ-410 for the acceptance criteria and ADR-0043 for the
+  full rationale.
 - Given a player has fewer than 5 qualifying rounds (per the definition
   above)
 - Then that player does not appear on the all-time ranked list at all —
@@ -2757,26 +2758,36 @@ endpoint returns the median-based ranking; a below-threshold member is
 absent from the response, not present with a placeholder value)
 
 **REQ-410 – Global League's all-time ranking is scoped per game**
-*(Status: Not started (design only), 2026-07-26 — see ADR-0043 for the full
-context and rationale, not re-derived here. xG Grid is the only shipped
-game today, so there is nothing to scope against yet in practice, even
-though the code change itself is small.)*
+*(Status: Implemented (backend), 2026-07-27, S-078 — see ADR-0043 for the
+full context and rationale, not re-derived here. xG Grid is the only
+shipped game today, so `LeaderboardEndpoints` passes
+`GridGameModule.XGGridGameKey` ("xg-grid") explicitly and behavior for
+that one game is unchanged; there is nothing to scope against yet in
+practice, even though the code change itself is small. The dedicated
+cross-game-isolation test this REQ's own acceptance criteria call for
+(two `GameKey`s, confirm rankings never blend) is tracked as a separate
+follow-up — this pass made every existing REQ-409-named test compile and
+pass by supplying `"xg-grid"` explicitly, per S-078's own accept
+criterion, and did not yet add a second `GameKey` to prove the isolation
+itself in a test.)*
 > As a player on a platform with more than one game, I want the Global
 > League's all-time ranking to reflect only the game I'm currently
 > viewing, so a game with a different scoring model isn't blended into my
 > ranking, and so I'm not compared against players who only play a
 > different game.
 
-- **Status:** Not started (design only). ADR-0043 specifies
-  `GetGlobalLeaderboardAsync` (REQ-409's median ranking) gains a required
-  `gameKey` parameter, matching the shape `GetActiveRoundLeaderboardAsync`
-  (REQ-407), `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`
-  (REQ-408), and `GetWindowedLeaderboardAsync` (REQ-405) already have.
+- **Status:** Implemented (backend). `GetGlobalLeaderboardAsync`
+  (REQ-409's median ranking) gains a required `gameKey` parameter,
+  matching the shape `GetActiveRoundLeaderboardAsync` (REQ-407),
+  `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync` (REQ-408), and
+  `GetWindowedLeaderboardAsync` (REQ-405) already have.
   `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` gains the
   matching `gameKey` parameter, added as a `round.GameKey == gameKey`
   filter to its existing `Guess`-`Round` join. `League` membership itself
   (REQ-401) is unchanged — there remains exactly one Global League; only
-  the ranking read from it is scoped per game.
+  the ranking read from it is scoped per game. No frontend game-switcher
+  yet (tracked separately, S-087/SCREEN-03) — the route still always
+  requests xG Grid's ranking today.
 - Given the platform hosts more than one game, each with its own `GameKey`
 - When a player requests the Global League's all-time ranking (REQ-409)
   for a specific game

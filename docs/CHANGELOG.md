@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/architecture-document.md` (0.58 → 0.59),
+  `docs/requirements-document.md` (REQ-410, 1.13 → 1.14) — implemented
+  S-078 (ADR-0043): `ILeaderboardService.GetGlobalLeaderboardAsync` and
+  `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` gained a
+  required `gameKey` parameter, filtering the latter's existing
+  `Guess`-`Round` join with `round.GameKey == gameKey` — no schema change,
+  no new join, and REQ-409's median/5-round-qualification formula itself
+  is untouched. `LeaderboardEndpoints` passes `GridGameModule.XGGridGameKey`
+  explicitly, same convention the other three `ILeaderboardService` scopes
+  already used, bringing all four into line. Every existing REQ-409-named
+  test now supplies the shared `GameKey` constant explicitly (behavior for
+  xG Grid, the only shipped game, is unchanged). Not included in this
+  pass: the dedicated cross-game-isolation test REQ-410's acceptance
+  criteria call for (two distinct `GameKey`s proving no blending) and the
+  frontend game-switcher (S-087/SCREEN-03) — both tracked as separate
+  follow-ups.
 - 2026-07-26 — `docs/architecture-document.md` (0.57 → 0.58),
   `docs/implementation-document.md` (0.72 → 0.73),
   `docs/requirements-document.md` (REQ-210, 1.12 → 1.13) — implemented
