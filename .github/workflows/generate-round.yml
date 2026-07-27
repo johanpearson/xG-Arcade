@@ -33,6 +33,16 @@ jobs:
   generate-round:
     runs-on: ubuntu-latest
     steps:
+      # Bug-bundle follow-up (2026-07-27): a single failed attempt (e.g. a
+      # transient Wikidata hiccup during header-picking, ADR-0023) previously
+      # meant waiting for tomorrow's cron — REQ-301's "one round ahead" design
+      # tolerates that gap without players noticing, but there's no reason to
+      # accept it when a same-run retry is free and safe: RoundGenerationService
+      # is idempotent (this workflow's own top comment) and ADR-0023's
+      # MaxDuration abort happens before a Round is ever persisted, so a
+      # retried call can never create a duplicate or partial round. 3 attempts,
+      # 30s/60s backoff — generous relative to ADR-0023's own 90s per-attempt
+      # budget, cheap relative to a whole day's wait.
       - name: Trigger round generation
         run: |
           url="https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round"
@@ -40,14 +50,25 @@ jobs:
             url="${url}?roundDurationHours=${{ inputs.round_duration_hours }}"
           fi
 
-          http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
-            "$url" \
-            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+              "$url" \
+              -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
 
-          echo "Response body:"
-          cat response.json
+            echo "Attempt $attempt/$max_attempts — response body:"
+            cat response.json
 
-          if [ "$http_status" -ge 400 ]; then
-            echo "::error::/internal/generate-round returned HTTP $http_status"
-            exit 1
-          fi
+            if [ "$http_status" -lt 400 ]; then
+              exit 0
+            fi
+
+            echo "::warning::/internal/generate-round returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep $((attempt * 30))
+            fi
+          done
+
+          echo "::error::/internal/generate-round failed after $max_attempts attempts (last status: $http_status)"
+          exit 1
