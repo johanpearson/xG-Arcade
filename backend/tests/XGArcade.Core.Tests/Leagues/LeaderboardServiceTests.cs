@@ -30,8 +30,11 @@ namespace XGArcade.Core.Tests.Leagues;
 // parameter to GetGlobalLeaderboardAsync — every existing REQ401/409/717/607
 // call in this file now passes the shared `GameKey` constant below
 // explicitly (every seeded Round already carries that same GameKey, so this
-// is a same-behavior compile fix, not a new scoping test); dedicated
-// REQ410-named cross-game-isolation tests are added separately.
+// is a same-behavior compile fix, not a new scoping test). The dedicated
+// REQ410-named cross-game-isolation tests (a second, real "xg-path" GameKey,
+// confirming rankings never blend) live in their own section below, using a
+// second SeedQualifyingRoundsAsync overload and SeedLockedGuessAsync's new
+// optional gameKey parameter.
 // Same no-mocking-framework, real-InMemory-backed-repository pattern as
 // RoundCloseServiceScoringTests. Reuses FakeGameModule from
 // XGArcade.Core.Tests.Rounds (internal, same-assembly-visible) rather than
@@ -102,12 +105,17 @@ public class LeaderboardServiceTests
     // (see e.g. the pre-existing "a second closed round's points" comment
     // below) — this just makes that literally true instead of only summing
     // as if it were.
-    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints)
+    // REQ-410 (2026-07-27, backlog S-078, ADR-0043): optional trailing
+    // gameKey parameter, defaulting to the shared GameKey constant so every
+    // pre-existing call site (all implicitly "xg-grid") is unchanged — only
+    // the new REQ410-named cross-game-isolation tests below pass a second,
+    // different GameKey ("xg-path") explicitly.
+    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints, string? gameKey = null)
     {
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GameKey,
+            GameKey = gameKey ?? GameKey,
             GameInstanceId = Guid.NewGuid(),
             StartTime = DateTime.UtcNow.AddDays(-2),
             EndTime = DateTime.UtcNow.AddDays(-1),
@@ -139,6 +147,17 @@ public class LeaderboardServiceTests
     {
         foreach (var finalPoints in finalPointsPerRound)
             await SeedLockedGuessAsync(userId, finalPoints);
+    }
+
+    // REQ-410: same as SeedQualifyingRoundsAsync above, but for a
+    // caller-chosen GameKey other than the file's default — lets a
+    // cross-game-isolation test build a player's qualifying-round history
+    // under a second game without touching the many existing single-game
+    // callers of the overload above.
+    private async Task SeedQualifyingRoundsAsync(Guid userId, string gameKey, params int[] finalPointsPerRound)
+    {
+        foreach (var finalPoints in finalPointsPerRound)
+            await SeedLockedGuessAsync(userId, finalPoints, gameKey);
     }
 
     // REQ-717/ADR-0036: same shape as SeedLockedGuessAsync above, but with a
@@ -421,6 +440,98 @@ public class LeaderboardServiceTests
         var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
+    }
+
+    // ---- REQ-410/ADR-0043: all-time ranking scoped per game (2026-07-27) ----
+    // GetGlobalLeaderboardAsync/GetPerRoundFinalPointsByUserIdsAsync gained a
+    // required gameKey parameter — every round seeded via
+    // SeedQualifyingRoundsAsync's second overload above carries an explicit,
+    // caller-chosen GameKey (distinct from the file's "xg-grid" default),
+    // exercised through the real EF InMemory provider's round.GameKey ==
+    // gameKey filter (GuessRepository.GetPerRoundFinalPointsByUserIdsAsync),
+    // not a fake/mock. GetGlobalLeaderboardAsync itself never touches
+    // GameModuleResolver/FakeGameModule, so no second FakeGameModule
+    // registration is needed for these tests — only the Guess-Round join's
+    // GameKey column matters here.
+    private const string OtherGameKey = "xg-path";
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_QualifyingRoundsInAnotherGame_NeverCountTowardThisGamesRanking()
+    {
+        // 5 qualifying xg-grid rounds (clears REQ-409's floor), zero
+        // xg-path rounds — requesting xg-grid's ranking must include this
+        // player; requesting xg-path's ranking must not, since none of
+        // those rounds carry GameKey == "xg-path".
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows, Has.Count.EqualTo(1));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+        Assert.That(xgPathPage.Rows, Is.Empty);
+        Assert.That(xgPathPage.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_FiveQualifyingRoundsInOneGame_RankedForThatGameAloneNeverInTheOther()
+    {
+        // Mirrors the acceptance criterion's own example: 5+ qualifying
+        // rounds in game A, zero in game B — ranked (or excluded, per
+        // REQ-409) independently per game, never combined into one number.
+        var alex = await SeedMemberAsync("Alex");
+        await SeedQualifyingRoundsAsync(alex.Id, 60, 70, 80, 90, 100); // xg-grid median 80.
+        var sam = await SeedMemberAsync("Sam");
+        await SeedQualifyingRoundsAsync(sam.Id, OtherGameKey, 10, 20, 30, 40, 50); // xg-path median 30.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(alex.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(sam.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex" }));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(80));
+        Assert.That(xgPathPage.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam" }));
+        Assert.That(xgPathPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_FiveQualifyingRoundsInGameA_ThreeSubThresholdRoundsInGameB_RankedInAOnlyExcludedFromB()
+    {
+        // The REQ-409 5-round minimum applies independently per game: this
+        // player clears it for xg-grid (5 rounds) but not for xg-path (only
+        // 3 rounds) — must be ranked for xg-grid and entirely absent from
+        // xg-path's response, not present there with a placeholder/zero.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50); // xg-grid: 5 rounds, median 30.
+        await SeedQualifyingRoundsAsync(you.Id, OtherGameKey, 900, 900, 900); // xg-path: only 3 rounds.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows, Has.Count.EqualTo(1));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+        Assert.That(xgGridPage.Rows.Single().Rank, Is.EqualTo(1));
+        Assert.That(xgPathPage.Rows, Is.Empty);
+        Assert.That(xgPathPage.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_SamePlayerQualifiesInBothGames_MediansComputedIndependentlyNeverBlended()
+    {
+        // If the two games' rounds were ever combined into one median, this
+        // player's 10-round pool (5 low xg-grid values + 5 high xg-path
+        // values) would compute a single blended median that matches
+        // neither game's own, independently-correct median. Asserting both
+        // per-game medians separately proves no blending occurred.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 10, 10, 10, 10); // xg-grid median 10.
+        await SeedQualifyingRoundsAsync(you.Id, OtherGameKey, 90, 90, 90, 90, 90); // xg-path median 90.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(10));
+        Assert.That(xgPathPage.Rows.Single().TotalPoints, Is.EqualTo(90));
     }
 
     // ---- REQ-717/ADR-0036: guest exclusion + claimed-account cutoff ----
