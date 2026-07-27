@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.19"
+version: "1.20"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -5245,6 +5245,14 @@ API route exposes this game yet — that's S-084)
 - **Status: Not started (design only). Revised 2026-07-27 (see
   `docs/CHANGELOG.md`): replaces the earlier "one club per clue, capped at
   5" design — no code implements either version yet.**
+- **Status note (2026-07-27): position/nationality/age data prerequisite.**
+  This REQ's position, nationality, and age clues assume `Player.Position`/
+  `Player.BirthYear` (and, for nationality, an existing `PlayerAttribute`
+  "nationality" row) are actually populated — see REQ-1207 for how
+  Position/BirthYear are sourced from Wikidata, their set-once persistence
+  rule, and the "null renders as 'not available,' never skips a turn"
+  contract this REQ's implementation must honor so a data gap never shrinks
+  a puzzle's clue count below the fixed 7 (REQ-1205/1206).
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -5373,6 +5381,78 @@ count of 2)
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
 never solved; no uniqueness score of any kind is computed by this game's
 scoring strategy)
+
+**REQ-1207 – Player position and birth year sourced from Wikidata**
+> As a player, I want the position, nationality, and age clues at the end
+> of an xG Path puzzle's reveal sequence (REQ-1203) to be backed by real
+> Wikidata data about the target player, not fields with no way to ever be
+> populated, so those clues are as trustworthy as the club and appearance-
+> count clues already are.
+
+- **Status: Not started (design only) — S-082.**
+- **Scope note:** this REQ covers `Player.Position` and `Player.BirthYear`
+  only — two new nullable scalar columns on `Player` (COMP-06, the same
+  table `PhotoUrl`/`WikidataQid`/`FullName` already live on), not new
+  `PlayerAttribute` rows, since neither value has club-style multiplicity
+  (a player has at most one position and one birth year, unlike club/
+  nationality/trophy membership, which is inherently one-row-per-value).
+  It is not a new external data source — still Wikidata, the already-
+  approved provider (ADR-0008's terms-of-service review does not need
+  repeating for a new property on an already-approved source). Separately:
+  REQ-1203's nationality clue depends on a `PlayerAttribute` "nationality"
+  row, which this REQ does not add — that row only exists for a player who
+  entered the system via a query shape that queries a country side
+  (Country×Club, National-team×Club, Trophy×Country); a player who only
+  ever entered via Club×Club sync has no such row today. This is a
+  pre-existing gap this REQ did not create and does not fix — flagged here
+  for visibility, since REQ-1203's nationality clue depends on it, but
+  resolving it is out of this REQ's scope.
+- Given the existing Wikidata intersection queries that create or enrich
+  `Player` rows during xG Grid/xG Path player sync (Country×Club,
+  National-team×Club, Club×Club, Trophy×Country, Trophy×Club — every query
+  built on `WikidataClient`'s shared query-building predicates, including
+  REQ-211's guess-time live lookup, which routes through the same query
+  builders)
+- When a player match is fetched from one of those queries
+- Then the query additionally requests Wikidata's P413 ("position played
+  on team / speciality") as an OPTIONAL binding alongside the existing
+  SELECT — no new query, no new round-trip, no new HTTP request — mirroring
+  how `Player.PhotoUrl`/P18 already rides along the same existing SELECT
+  (see `Player.PhotoUrl`'s own doc comment) and how `PlayerCareerStint`'s
+  P580/P582/P1350 qualifiers ride along the existing P54 statement fetch
+  (ADR-0042)
+- And `Player.BirthYear` is derived from the P569 ("date of birth")
+  binding those same queries already require for every matched player
+  (ADR-0025's male/born-1939-or-later pool filter) — extracting just the
+  year, with no new binding added to the query for this field at all
+- And both values are persisted onto `Player.Position`/`Player.BirthYear`
+  only at the moment a `Player` row is first created — never written or
+  overwritten on a `Player` row that already exists, regardless of whether
+  that row's current value is null or already set, mirroring `PhotoUrl`'s
+  existing "set once, at creation, never re-synced" rule
+  (`PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`)
+- And a player with no P413 statement on Wikidata has a permanently null
+  `Position` unless a future dedicated backfill (mirroring
+  `PlayerPhotoBackfillService`, REQ-214's addendum) is built and run — this
+  REQ does not itself define or require that backfill, the same way
+  REQ-214's original scope didn't either
+- And null is a valid, expected value for both columns, never an error
+  condition — REQ-1203's position/nationality/age clues are expected to
+  treat a null `Position`/`BirthYear` the same way REQ-1203 already treats
+  an unknown club appearance count: the clue is still revealed, rendered as
+  "not available," never delayed, skipped, or silently dropped from the
+  fixed 7-clue sequence, so a data gap here never changes a puzzle's total
+  clue count away from the fixed 7 that REQ-1205's attempt cap and
+  REQ-1206's scoring formula depend on
+
+**Test level:** Unit (`WikidataClient` query construction — the OPTIONAL
+P413 binding is present in the generated SPARQL for every one of the five
+intersection query builders, with no additional query or HTTP call added;
+`WikidataLookupService`/`PlayerStoreRepository` persistence — Position/
+BirthYear are set from the query response when a `Player` row is first
+created, and left completely untouched on a `Player` row that already
+exists on a later sync, whether or not its current value is null; both
+columns are correctly null when their source Wikidata data is absent)
 
 ---
 
