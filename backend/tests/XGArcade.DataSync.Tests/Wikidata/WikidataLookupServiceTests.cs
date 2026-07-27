@@ -363,6 +363,43 @@ public class WikidataLookupServiceTests
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
     }
 
+    // REQ-211 (2026-07-27 fix): the guess-time fallback's own opt-in —
+    // unlike REQ103_LookupAndPersistAsync_WhenWikidataTimesOut_ReturnsEmptyWithoutThrowing
+    // above (Sync origin, unaffected), a GuessTimeFallback-origin call must
+    // THROW on a timeout instead of swallowing to [], so
+    // GridGameModule.RefreshCellFromLiveLookupAsync can distinguish "we
+    // don't know yet" from a genuine no-match.
+    [Test]
+    public void REQ211_LookupAndPersistAsync_GuessTimeFallback_WhenWikidataTimesOut_ThrowsWikidataQueryException()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    // S-030 mirror of the test above — the Club x Club dispatch path
+    // (RefreshCellFromLiveLookupAsync's other Tier-0-handled pairing) needs
+    // its own coverage rather than assuming symmetry with Country x Club.
+    [Test]
+    public void REQ211_LookupAndPersistClubClubAsync_GuessTimeFallback_WhenWikidataTimesOut_ThrowsWikidataQueryException()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.GuessTimeFallback));
+    }
+
     [Test]
     public async Task REQ103_LookupAndPersistAsync_WhenNoMatch_ReturnsEmptyWithoutThrowing()
     {

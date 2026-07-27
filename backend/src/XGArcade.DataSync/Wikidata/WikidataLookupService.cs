@@ -45,6 +45,13 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
 
+        // REQ-211 (2026-07-27 fix): only the guess-time fallback asks the
+        // client to THROW on a timeout instead of swallowing to [] — see
+        // IWikidataClient's throwOnTimeout doc comment. A generation-time
+        // Sync lookup keeps the original swallow-to-[] contract completely
+        // unaffected (REQ-103).
+        var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
+
         // REQ-114/ADR-0035: the only place this decision is made — a second
         // query path (P1532, "country for sport"), not a replacement for
         // the P27 ("country of citizenship") path every other seeded
@@ -57,9 +64,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // the match.
         var matches = country.UsesCountryForSportProperty
             ? await wikidataClient.QueryNationalTeamClubIntersectionAsync(
-                country.WikidataQid, club.WikidataQid, cancellationToken)
+                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken)
             : await wikidataClient.QueryCountryClubIntersectionAsync(
-                country.WikidataQid, club.WikidataQid, cancellationToken);
+                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken);
 
         var persisted = await PersistMatchesAsync(
             matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);
@@ -84,8 +91,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
             return [];
 
+        // REQ-211 (2026-07-27 fix): see LookupAndPersistAsync's own comment
+        // on throwOnTimeout — same rule for every Lookup*Async method below.
+        var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
+
         var matches = await wikidataClient.QueryClubClubIntersectionAsync(
-            clubA.WikidataQid, clubB.WikidataQid, cancellationToken);
+            clubA.WikidataQid, clubB.WikidataQid, throwOnTimeout, cancellationToken);
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
         // this story only wires up the country/nationality x club path
@@ -108,8 +119,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (trophy.WikidataQid is null || country.WikidataQid is null)
             return [];
 
+        // REQ-211 (2026-07-27 fix): see LookupAndPersistAsync's own comment
+        // on throwOnTimeout.
+        var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
+
         var matches = await wikidataClient.QueryTrophyCountryIntersectionAsync(
-            trophy.WikidataQid, country.WikidataQid, cancellationToken);
+            trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken);
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
         // this query has no P54 clause at all (see
@@ -130,8 +145,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (trophy.WikidataQid is null || club.WikidataQid is null)
             return [];
 
+        // REQ-211 (2026-07-27 fix): see LookupAndPersistAsync's own comment
+        // on throwOnTimeout.
+        var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
+
         var matches = await wikidataClient.QueryTrophyClubIntersectionAsync(
-            trophy.WikidataQid, club.WikidataQid, cancellationToken);
+            trophy.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken);
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint,
         // even though this query shape DOES share the ?clubStatement
@@ -143,12 +162,23 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             matches, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, origin, cancellationToken);
     }
 
-    // Fetched once for the whole batch rather than re-queried per player —
-    // every match in this result set shares the same two attribute
-    // type/value pairs (this cell's two category values). Shared by both
-    // LookupAndPersistAsync (country + club) and LookupAndPersistClubClubAsync
-    // (club + club) — the only difference between the two callers is which
-    // attribute type/value pairs the matches get persisted under.
+    // Batched (bug-bundle fix, 2026-07-27 — see docs/coding-guidelines.md's
+    // "one SaveChangesAsync call for the whole batch" rule): the whole match
+    // set is get-or-created, and every PlayerData/PlayerAttribute/
+    // PlayerAlias row is added, via a small FIXED number of repository
+    // round trips regardless of how many players this cell's Wikidata query
+    // returned — never one round trip per player. Before this fix, the
+    // per-player loop below called GetOrCreatePlayerAsync (up to 2 round
+    // trips) + PersistAttributeAsync x2 (up to 4) + PersistAliasesAsync (2+)
+    // per match; since intersection queries never LIMIT (implementation-
+    // document.md §6a: "the result set IS the cell's complete answer key"),
+    // a popular cell returning dozens of players made this the dominant cost
+    // of a slow guess (REQ-211's guess-time fallback runs synchronously
+    // inside the guess-submission request). Shared by LookupAndPersistAsync
+    // (country + club), LookupAndPersistClubClubAsync (club + club),
+    // LookupAndPersistTrophyCountryAsync, and LookupAndPersistTrophyClubAsync
+    // — the only difference between callers is which attribute type/value
+    // pairs the matches get persisted under.
     private async Task<IReadOnlyList<Player>> PersistMatchesAsync(
         IReadOnlyList<WikidataPlayerMatch> matches,
         string attributeTypeA, string attributeValueA,
@@ -159,6 +189,20 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         if (matches.Count == 0)
             return [];
 
+        // Upsert by WikidataQid — never insert per query (implementation-
+        // document.md §6a's non-negotiable rule): the same player can be
+        // returned by many different country/club intersection queries
+        // across many cells and must resolve to exactly one Player row.
+        // `matches` is already keyed by unique WikidataQid (WikidataClient.
+        // ParseBindings groups by qid), so this request list has no
+        // duplicate keys to worry about.
+        var playersByQid = await playerStore.GetOrCreatePlayersByWikidataQidAsync(
+            matches.Select(m => new PlayerCreationRequest(m.WikidataQid, m.FullName, m.PhotoUrl)).ToList(),
+            cancellationToken);
+
+        // Fetched once for the whole batch rather than re-queried per
+        // player — every match in this result set shares the same two
+        // attribute type/value pairs (this cell's two category values).
         var playerIdsWithAttributeA = (await playerStore.GetPlayerAttributesAsync(
                 attributeTypeA, attributeValueA, cancellationToken))
             .Select(a => a.PlayerId)
@@ -168,88 +212,75 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             .Select(a => a.PlayerId)
             .ToHashSet();
 
+        var existingAliasesByPlayerId = await playerStore.GetPlayerAliasesByPlayerIdsAsync(
+            playersByQid.Values.Select(p => p.Id).ToList(), cancellationToken);
+
         var persisted = new List<Player>(matches.Count);
+        var playerDataToAdd = new List<PlayerData>();
+        var attributesToAdd = new List<PlayerAttribute>();
+        var aliasesToAdd = new List<PlayerAlias>();
+        var confidence = ConfidenceFor(origin);
+        var syncedAt = DateTime.UtcNow;
 
         foreach (var match in matches)
         {
-            var player = await GetOrCreatePlayerAsync(match, cancellationToken);
-
-            await PersistAttributeAsync(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, origin, cancellationToken);
-            await PersistAttributeAsync(player.Id, attributeTypeB, attributeValueB, playerIdsWithAttributeB, origin, cancellationToken);
-            await PersistAliasesAsync(player.Id, match.Aliases, cancellationToken);
-
+            var player = playersByQid[match.WikidataQid];
             persisted.Add(player);
+
+            QueueAttribute(player.Id, attributeTypeA, attributeValueA, playerIdsWithAttributeA, confidence, syncedAt, playerDataToAdd, attributesToAdd);
+            QueueAttribute(player.Id, attributeTypeB, attributeValueB, playerIdsWithAttributeB, confidence, syncedAt, playerDataToAdd, attributesToAdd);
+
+            if (match.Aliases.Count == 0)
+                continue;
+
+            HashSet<string> existingNormalizedAliases = existingAliasesByPlayerId.TryGetValue(player.Id, out var existingAliasesForPlayer)
+                ? existingAliasesForPlayer.Select(a => a.NormalizedAlias).ToHashSet()
+                : [];
+
+            foreach (var alias in match.Aliases)
+            {
+                var normalized = PlayerNameNormalizer.Normalize(alias);
+                if (existingNormalizedAliases.Add(normalized))
+                    aliasesToAdd.Add(new PlayerAlias { PlayerId = player.Id, Alias = alias, NormalizedAlias = normalized });
+            }
         }
+
+        // Three more fixed-count repository calls (never one per player) —
+        // GetOrCreatePlayersByWikidataQidAsync above already contributed the
+        // batch's own SaveChangesAsync for the Player rows themselves.
+        await playerStore.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
+        await playerStore.AddPlayerAttributesBatchAsync(attributesToAdd, cancellationToken);
+        await playerStore.AddPlayerAliasesBatchAsync(aliasesToAdd, cancellationToken);
 
         return persisted;
     }
 
-    // Upsert by WikidataQid — never insert per query (implementation-
-    // document.md §6a's non-negotiable rule): the same player can be
-    // returned by many different country/club intersection queries across
-    // many cells and must resolve to exactly one Player row.
-    private async Task<Player> GetOrCreatePlayerAsync(WikidataPlayerMatch match, CancellationToken cancellationToken)
-    {
-        var existing = await playerStore.GetPlayerByWikidataQidAsync(match.WikidataQid, cancellationToken);
-        if (existing is not null)
-            return existing;
-
-        return await playerStore.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = match.FullName, WikidataQid = match.WikidataQid, PhotoUrl = match.PhotoUrl },
-            cancellationToken);
-    }
-
-    private async Task PersistAttributeAsync(
-        Guid playerId,
-        string attributeType,
-        string attributeValue,
+    // PlayerData is a raw, per-source append log (its own SyncedAt
+    // timestamps each sync) — always recorded. PlayerAttribute is the
+    // effective, denormalized view with a composite key on (PlayerId,
+    // AttributeType, AttributeValue), so it must be guarded against a
+    // duplicate insert across repeated lookups — same dedup rule as before
+    // this method was batched, just queuing into the batch lists
+    // PersistMatchesAsync flushes afterwards instead of writing immediately.
+    private static void QueueAttribute(
+        Guid playerId, string attributeType, string attributeValue,
         HashSet<Guid> playerIdsAlreadyHavingThisAttribute,
-        WikidataLookupOrigin origin,
-        CancellationToken cancellationToken)
+        string confidence, DateTime syncedAt,
+        List<PlayerData> playerDataToAdd, List<PlayerAttribute> attributesToAdd)
     {
-        // PlayerData is a raw, per-source append log (its own SyncedAt
-        // timestamps each sync) — always recorded. PlayerAttribute is the
-        // effective, denormalized view with a composite key on
-        // (PlayerId, AttributeType, AttributeValue), so it must be guarded
-        // against a duplicate insert across repeated lookups.
-        await playerStore.AddPlayerDataAsync(new PlayerData
+        playerDataToAdd.Add(new PlayerData
         {
             Id = Guid.NewGuid(),
             PlayerId = playerId,
             Field = attributeType,
             Value = attributeValue,
             Source = WikidataSource,
-            Confidence = ConfidenceFor(origin),
-            SyncedAt = DateTime.UtcNow,
-        }, cancellationToken);
+            Confidence = confidence,
+            SyncedAt = syncedAt,
+        });
 
-        if (!playerIdsAlreadyHavingThisAttribute.Add(playerId))
-            return;
-
-        await playerStore.AddPlayerAttributeAsync(
-            new PlayerAttribute { PlayerId = playerId, AttributeType = attributeType, AttributeValue = attributeValue },
-            cancellationToken);
-    }
-
-    private async Task PersistAliasesAsync(Guid playerId, IReadOnlyList<string> aliases, CancellationToken cancellationToken)
-    {
-        if (aliases.Count == 0)
-            return;
-
-        var existingNormalizedAliases = (await playerStore.GetPlayerAliasesAsync(playerId, cancellationToken))
-            .Select(a => a.NormalizedAlias)
-            .ToHashSet();
-
-        foreach (var alias in aliases)
-        {
-            var normalized = PlayerNameNormalizer.Normalize(alias);
-            if (!existingNormalizedAliases.Add(normalized))
-                continue;
-
-            await playerStore.AddPlayerAliasAsync(
-                new PlayerAlias { PlayerId = playerId, Alias = alias, NormalizedAlias = normalized },
-                cancellationToken);
-        }
+        if (playerIdsAlreadyHavingThisAttribute.Add(playerId))
+            attributesToAdd.Add(new PlayerAttribute { PlayerId = playerId, AttributeType = attributeType, AttributeValue = attributeValue });
     }
 
     // ADR-0042/S-079: only called from LookupAndPersistAsync (see that
@@ -257,12 +288,32 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
     // length and share the same index-for-index ordering, since
     // PersistMatchesAsync's loop iterates `matches` once, in order, adding
     // exactly one Player per match to its returned list.
+    //
+    // Batched the same way PersistMatchesAsync above is (bug-bundle fix,
+    // 2026-07-27): one bulk GetCareerStintsByPlayerIdsAsync fetch (for every
+    // player this match set assigned at least one CareerStints qualifier
+    // to) instead of one GetCareerStintsAsync round trip per player, and one
+    // AddCareerStintsBatchAsync call instead of one per player.
     private async Task PersistCareerStintsAsync(
         IReadOnlyList<WikidataPlayerMatch> matches,
         IReadOnlyList<Player> persistedPlayers,
         string clubName,
         CancellationToken cancellationToken)
     {
+        var playerIdsWithStints = new List<Guid>();
+        for (var i = 0; i < matches.Count; i++)
+        {
+            if (matches[i].CareerStints.Count > 0)
+                playerIdsWithStints.Add(persistedPlayers[i].Id);
+        }
+
+        if (playerIdsWithStints.Count == 0)
+            return;
+
+        var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(playerIdsWithStints, cancellationToken);
+
+        var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
+
         for (var i = 0; i < matches.Count; i++)
         {
             var match = matches[i];
@@ -274,11 +325,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             // Idempotency: re-running the same query must not create
             // duplicate stint rows — skip a tuple that already exists for
             // this player (same ClubName/StartYear/EndYear/AppearanceCount),
-            // mirroring PersistAttributeAsync/PersistAliasesAsync's existing
-            // "fetch once, HashSet.Add as the dedup+select gate" pattern.
-            var seenTuples = (await playerStore.GetCareerStintsAsync(playerId, cancellationToken))
-                .Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount))
-                .ToHashSet();
+            // same "fetch once, HashSet.Add as the dedup+select gate"
+            // pattern as before this method was batched.
+            HashSet<(string ClubName, int StartYear, int? EndYear, int? AppearanceCount)> seenTuples =
+                existingStintsByPlayerId.TryGetValue(playerId, out var existingStints)
+                    ? existingStints.Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)).ToHashSet()
+                    : [];
 
             var newStints = match.CareerStints
                 .Where(q => seenTuples.Add((clubName, q.StartYear, q.EndYear, q.AppearanceCount)))
@@ -290,7 +342,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
                     StartYear = q.StartYear,
                     EndYear = q.EndYear,
                     AppearanceCount = q.AppearanceCount,
-                    // Resolved by IPlayerStoreRepository.AddCareerStintsAsync
+                    // Resolved by IPlayerStoreRepository.AddCareerStintsBatchAsync
                     // across the player's full stint set — this placeholder
                     // is always overwritten before SaveChangesAsync.
                     SequenceOrder = 0,
@@ -298,7 +350,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
                 .ToList();
 
             if (newStints.Count > 0)
-                await playerStore.AddCareerStintsAsync(playerId, newStints, cancellationToken);
+                newStintsByPlayerId[playerId] = newStints;
         }
+
+        await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
     }
 }

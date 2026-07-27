@@ -16,7 +16,13 @@ public interface IWikidataLookupService
     // Returns the players persisted (new or already-known) for this
     // country/club combination — empty if either value has no resolved
     // WikidataQid yet (REQ-109), or if the query timed out/errored/found
-    // no match (REQ-103). Never throws for those cases.
+    // no match (REQ-103). Never throws for those cases — EXCEPT: when
+    // origin is WikidataLookupOrigin.GuessTimeFallback, a timeout throws
+    // XGArcade.DataSync.Wikidata.WikidataQueryException instead of
+    // swallowing to empty (REQ-211, 2026-07-27 fix) — see
+    // IWikidataClient.QueryCountryClubIntersectionAsync's throwOnTimeout
+    // doc comment for why. A Sync-origin call is completely unaffected and
+    // keeps the original never-throws contract.
     //
     // REQ-114/ADR-0035: internally branches on
     // `country.UsesCountryForSportProperty` to query Wikidata's P1532
@@ -32,7 +38,8 @@ public interface IWikidataLookupService
         CancellationToken cancellationToken = default);
 
     // S-030: the Club x Club counterpart, same empty-on-unresolved-QID/
-    // never-throws contract. Both clubs persist their matched players under
+    // never-throws contract, EXCEPT a GuessTimeFallback-origin timeout —
+    // see LookupAndPersistAsync's own doc comment above. Both clubs persist their matched players under
     // AttributeType "club" — with two distinct AttributeValues (clubA.Name,
     // clubB.Name), never the same value twice.
     Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(

@@ -82,6 +82,15 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
             .ToListAsync(cancellationToken);
     }
 
+    // REQ-211 (2026-07-27 fix): a cheap, index-backed EXACT match against
+    // NormalizedName's existing index — deliberately NOT StartsWith (that's
+    // SearchByPrefixAsync's job, a different, looser contract this gate must
+    // never share). Used only to decide whether GridGameModule's guess-time
+    // live-lookup fallback should even run — see this interface's own doc
+    // comment on this method.
+    public async Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerNameIndexEntries.AsNoTracking().AnyAsync(pni => pni.NormalizedName == normalizedName, cancellationToken);
+
     public async Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default)
     {
         var entryList = entries as IReadOnlyCollection<PlayerNameIndex> ?? entries.ToList();
@@ -135,7 +144,13 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
     // words already exist for this player, rather than blindly deleting and
     // re-inserting every row on every upsert — same "correct in place"
     // discipline as the parent entry's own fields just above.
-    private void ReconcileWords(PlayerNameIndex entry, List<PlayerNameIndexWord> currentWords)
+    //
+    // Internal, not private (2026-07-27 fix): reused as-is by
+    // PlayerNameIndexWordBackfiller (XGArcade.Data.Seeding, same assembly)
+    // so the one-time backfill for rows imported before PlayerNameIndexWord
+    // existed can never drift from this method's own reconciliation logic —
+    // see that backfiller's doc comment for why the backfill is needed.
+    internal void ReconcileWords(PlayerNameIndex entry, List<PlayerNameIndexWord> currentWords)
     {
         var newWords = entry.NormalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         var currentWordSet = currentWords.Select(w => w.Word).ToHashSet();

@@ -30,6 +30,44 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         return player;
     }
 
+    public async Task<IReadOnlyDictionary<string, Player>> GetOrCreatePlayersByWikidataQidAsync(
+        IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default)
+    {
+        if (requests.Count == 0)
+            return new Dictionary<string, Player>();
+
+        var qids = requests.Select(r => r.WikidataQid).ToList();
+        var existingByQid = await dbContext.Players
+            .AsNoTracking()
+            .Where(p => p.WikidataQid != null && qids.Contains(p.WikidataQid))
+            .ToDictionaryAsync(p => p.WikidataQid!, cancellationToken);
+
+        var result = new Dictionary<string, Player>(existingByQid);
+
+        foreach (var request in requests)
+        {
+            if (result.ContainsKey(request.WikidataQid))
+                continue;
+
+            var player = new Player
+            {
+                Id = Guid.NewGuid(),
+                FullName = request.FullName,
+                WikidataQid = request.WikidataQid,
+                PhotoUrl = request.PhotoUrl,
+            };
+            dbContext.Players.Add(player);
+            result[request.WikidataQid] = player;
+        }
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return result;
+    }
+
     public async Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
         string normalizedFullName, CancellationToken cancellationToken = default) =>
         await dbContext.Players
@@ -95,6 +133,18 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
     public async Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default)
     {
         dbContext.PlayerData.Add(data);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task AddPlayerDataBatchAsync(IReadOnlyList<PlayerData> data, CancellationToken cancellationToken = default)
+    {
+        if (data.Count == 0)
+            return;
+
+        dbContext.PlayerData.AddRange(data);
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md).
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -192,6 +242,18 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task AddPlayerAttributesBatchAsync(IReadOnlyList<PlayerAttribute> attributes, CancellationToken cancellationToken = default)
+    {
+        if (attributes.Count == 0)
+            return;
+
+        dbContext.PlayerAttributes.AddRange(attributes);
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md).
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
         IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
     {
@@ -257,6 +319,18 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
     public async Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default)
     {
         dbContext.PlayerAliases.Add(alias);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task AddPlayerAliasesBatchAsync(IReadOnlyList<PlayerAlias> aliases, CancellationToken cancellationToken = default)
+    {
+        if (aliases.Count == 0)
+            return;
+
+        dbContext.PlayerAliases.AddRange(aliases);
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md).
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -387,5 +461,57 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         return stints
             .GroupBy(s => s.PlayerId)
             .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerCareerStint>)g.ToList());
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetCareerStintsByPlayerIdsAsync(
+        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
+    {
+        if (playerIds.Count == 0)
+            return new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
+
+        var idList = playerIds.ToList();
+        return await GroupByPlayerIdAsync(
+            dbContext.PlayerCareerStints.Where(s => idList.Contains(s.PlayerId)),
+            stint => stint.PlayerId,
+            cancellationToken);
+    }
+
+    public async Task AddCareerStintsBatchAsync(
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default)
+    {
+        var playerIds = newStintsByPlayerId.Where(kv => kv.Value.Count > 0).Select(kv => kv.Key).ToList();
+        if (playerIds.Count == 0)
+            return;
+
+        var existingByPlayer = (await dbContext.PlayerCareerStints
+                .Where(s => playerIds.Contains(s.PlayerId))
+                .ToListAsync(cancellationToken))
+            .GroupBy(s => s.PlayerId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var playerId in playerIds)
+        {
+            var newStints = newStintsByPlayerId[playerId];
+            dbContext.PlayerCareerStints.AddRange(newStints);
+
+            // ADR-0042/S-079: SequenceOrder is resolved here, across the
+            // player's FULL stint set (existing rows + newStints), not just
+            // the newly-added ones — same chronological re-sequencing rule
+            // as AddCareerStintsAsync's own comment, just applied to every
+            // affected player in this call rather than one at a time.
+            var chronological = existingByPlayer.GetValueOrDefault(playerId, [])
+                .Concat(newStints)
+                .OrderBy(s => s.StartYear)
+                .ThenBy(s => s.EndYear ?? int.MaxValue)
+                .ToList();
+
+            for (var i = 0; i < chronological.Count; i++)
+                chronological[i].SequenceOrder = i;
+        }
+
+        // One SaveChangesAsync call for the whole batch, across every
+        // affected player — load-then-SaveChangesAsync
+        // (docs/coding-guidelines.md), never ExecuteUpdateAsync.
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 }

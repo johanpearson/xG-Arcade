@@ -96,6 +96,50 @@ public class WikidataClientTests
         Assert.That(result, Is.Empty);
     }
 
+    // REQ-211 (2026-07-27 fix): throwOnTimeout defaults to false, so every
+    // call site above that doesn't pass it explicitly keeps the original
+    // swallow-to-[] contract completely unaffected.
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutFalse_Timeout_ReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: false);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    // REQ-211 (2026-07-27 fix): the guess-time fallback's own opt-in — a
+    // timeout throws WikidataQueryException instead of swallowing to [],
+    // so a genuine timeout is distinguishable from "Wikidata answered and
+    // found nothing."
+    [Test]
+    public void QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true));
+    }
+
+    // A non-timeout failure (HTTP error/malformed JSON) must still swallow
+    // to [] even with throwOnTimeout: true — that parameter only ever
+    // changes the TIMEOUT branch's behavior, never the HTTP/parse-error
+    // branch's (see RunIntersectionQueryAsync's own comment on why).
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_HttpErrorStatus_StillReturnsEmptyWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true);
+
+        Assert.That(result, Is.Empty);
+    }
+
     [Test]
     public async Task QueryCountryClubIntersectionAsync_MalformedJson_ReturnsEmptyWithoutThrowing()
     {

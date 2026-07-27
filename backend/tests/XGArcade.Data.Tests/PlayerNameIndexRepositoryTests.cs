@@ -156,6 +156,42 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(results.Select(r => r.PlayerId), Does.Contain(entry.PlayerId));
     }
 
+    // ---- REQ-211 (2026-07-27 fix): ExistsByNormalizedNameAsync -------------
+
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_ExactNormalizedMatch_ReturnsTrue()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("clarence seedorf");
+
+        Assert.That(exists, Is.True);
+    }
+
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_NoMatch_ReturnsFalse()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("someone else entirely");
+
+        Assert.That(exists, Is.False);
+    }
+
+    // This is the gate's whole point: a PREFIX match must never count as an
+    // "exists" — SearchByPrefixAsync's looser contract belongs to
+    // autocomplete, not to this correctness-narrowing gate (see this
+    // method's own interface doc comment).
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_PartialPrefixOnly_ReturnsFalse()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("clarence");
+
+        Assert.That(exists, Is.False, "a prefix match must never satisfy this exact-match gate");
+    }
+
     [Test]
     public async Task UpsertManyAsync_ExistingPlayerId_UpdatesInPlace_NotDuplicateInsert()
     {

@@ -717,4 +717,227 @@ public class PlayerStoreRepositoryTests
 
         Assert.That(stints, Is.Empty);
     }
+
+    // ---- Bug-bundle fix (2026-07-27): batched player-persist methods -------
+    // (WikidataLookupService.PersistMatchesAsync/PersistCareerStintsAsync's
+    // new O(1)-round-trips shape.)
+
+    [Test]
+    public async Task GetOrCreatePlayersByWikidataQidAsync_UnknownQids_CreatesOnePlayerPerRequest()
+    {
+        var requests = new List<PlayerCreationRequest>
+        {
+            new("Q1519", "Thierry Henry", null),
+            new("Q182804", "Nicolas Anelka", "https://example.com/anelka.jpg"),
+        };
+
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(requests);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result["Q1519"].FullName, Is.EqualTo("Thierry Henry"));
+        Assert.That(result["Q1519"].PhotoUrl, Is.Null);
+        Assert.That(result["Q182804"].FullName, Is.EqualTo("Nicolas Anelka"));
+        Assert.That(result["Q182804"].PhotoUrl, Is.EqualTo("https://example.com/anelka.jpg"));
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task GetOrCreatePlayersByWikidataQidAsync_ExistingQid_ReusesExistingPlayer_NeverInserts()
+    {
+        var existing = await _repository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
+
+        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetOrCreatePlayersByWikidataQidAsync_MixOfExistingAndNewQids_HandlesBothInOneCall()
+    {
+        var existing = await _repository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([
+            new PlayerCreationRequest("Q1519", "Thierry Henry", null),
+            new PlayerCreationRequest("Q182804", "Nicolas Anelka", null),
+        ]);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task GetOrCreatePlayersByWikidataQidAsync_EmptyRequestList_ReturnsEmptyDictionary_DoesNotThrow()
+    {
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([]);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task AddPlayerDataBatchAsync_PersistsEveryRow_InOneCall()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.AddPlayerDataBatchAsync([
+            new PlayerData { Id = Guid.NewGuid(), PlayerId = player.Id, Field = "nationality", Value = "France", Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow },
+            new PlayerData { Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal", Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow },
+        ]);
+
+        Assert.That(await _dbContext.PlayerData.CountAsync(d => d.PlayerId == player.Id), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void AddPlayerDataBatchAsync_EmptyList_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddPlayerDataBatchAsync([]));
+    }
+
+    [Test]
+    public async Task AddPlayerAttributesBatchAsync_PersistsEveryRow_InOneCall()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.AddPlayerAttributesBatchAsync([
+            new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
+            new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" },
+        ]);
+
+        var attributes = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id]);
+        Assert.That(attributes[player.Id], Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void AddPlayerAttributesBatchAsync_EmptyList_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddPlayerAttributesBatchAsync([]));
+    }
+
+    [Test]
+    public async Task AddPlayerAliasesBatchAsync_PersistsEveryRow_InOneCall()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Qkaka" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.AddPlayerAliasesBatchAsync([
+            new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" },
+        ]);
+
+        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
+        Assert.That(aliases, Has.Count.EqualTo(1));
+        Assert.That(aliases[0].Alias, Is.EqualTo("Kaka"));
+    }
+
+    [Test]
+    public void AddPlayerAliasesBatchAsync_EmptyList_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddPlayerAliasesBatchAsync([]));
+    }
+
+    [Test]
+    public async Task GetCareerStintsByPlayerIdsAsync_ReturnsOnlyRequestedPlayersStints_GroupedByPlayerId()
+    {
+        var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
+        var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
+        await _repository.AddPlayerAsync(playerA);
+        await _repository.AddPlayerAsync(playerB);
+        await _repository.AddCareerStintsAsync(playerA.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 },
+        ]);
+        await _repository.AddCareerStintsAsync(playerB.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Barcelona", StartYear = 2004, EndYear = 2014 },
+        ]);
+
+        var result = await _repository.GetCareerStintsByPlayerIdsAsync([playerA.Id]);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[playerA.Id], Has.Count.EqualTo(1));
+        Assert.That(result[playerA.Id][0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(result.ContainsKey(playerB.Id), Is.False, "a player not requested must be absent from the result");
+    }
+
+    [Test]
+    public async Task GetCareerStintsByPlayerIdsAsync_EmptyIdList_ReturnsEmptyDictionary()
+    {
+        var result = await _repository.GetCareerStintsByPlayerIdsAsync([]);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task AddCareerStintsBatchAsync_PersistsStintsForMultiplePlayers_InOneCall()
+    {
+        var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
+        var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
+        await _repository.AddPlayerAsync(playerA);
+        await _repository.AddPlayerAsync(playerB);
+
+        await _repository.AddCareerStintsBatchAsync(new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+        {
+            [playerA.Id] = [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }],
+            [playerB.Id] = [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Barcelona", StartYear = 2004, EndYear = 2014 }],
+        });
+
+        var stintsA = await _repository.GetCareerStintsAsync(playerA.Id);
+        var stintsB = await _repository.GetCareerStintsAsync(playerB.Id);
+        Assert.That(stintsA, Has.Count.EqualTo(1));
+        Assert.That(stintsA[0].SequenceOrder, Is.EqualTo(0));
+        Assert.That(stintsB, Has.Count.EqualTo(1));
+        Assert.That(stintsB[0].SequenceOrder, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task AddCareerStintsBatchAsync_ResequencesEachPlayersExistingStints_Independently()
+    {
+        // Same re-sequencing rule as AddCareerStintsAsync's own test above,
+        // proven here across two DIFFERENT players in the SAME batch call —
+        // one player's chronologically-earlier new stint must never affect
+        // another player's own SequenceOrder.
+        var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
+        var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
+        await _repository.AddPlayerAsync(playerA);
+        await _repository.AddPlayerAsync(playerB);
+        await _repository.AddCareerStintsAsync(playerA.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Barcelona", StartYear = 2010, EndYear = 2015 },
+        ]);
+        await _repository.AddCareerStintsAsync(playerB.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Chelsea", StartYear = 2005, EndYear = 2010 },
+        ]);
+
+        await _repository.AddCareerStintsBatchAsync(new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+        {
+            // Chronologically earlier than playerA's existing Barcelona stint.
+            [playerA.Id] = [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }],
+            // playerB gets no new stints in this batch call.
+            [playerB.Id] = [],
+        });
+
+        var stintsA = (await _repository.GetCareerStintsAsync(playerA.Id)).OrderBy(s => s.SequenceOrder).ToList();
+        var stintsB = await _repository.GetCareerStintsAsync(playerB.Id);
+        Assert.That(stintsA, Has.Count.EqualTo(2));
+        Assert.That(stintsA[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stintsA[1].ClubName, Is.EqualTo("Barcelona"), "playerA's pre-existing stint must be re-sequenced");
+        Assert.That(stintsB, Has.Count.EqualTo(1));
+        Assert.That(stintsB[0].SequenceOrder, Is.EqualTo(0), "playerB's own stint must be untouched by playerA's re-sequencing");
+    }
+
+    [Test]
+    public void AddCareerStintsBatchAsync_EmptyDictionary_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddCareerStintsBatchAsync(new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>()));
+    }
+
+    [Test]
+    public void AddCareerStintsBatchAsync_EveryEntryHasEmptyNewStintsList_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddCareerStintsBatchAsync(new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
+        {
+            [Guid.NewGuid()] = [],
+        }));
+    }
 }

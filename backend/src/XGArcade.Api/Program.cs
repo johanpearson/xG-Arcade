@@ -56,6 +56,10 @@ if (args is ["migrate-and-seed"])
     // REQ-401's auto-enrollment-at-signup — see LeagueMembershipBackfiller's
     // own doc comment.
     await LeagueMembershipBackfiller.BackfillAsync(migrationDbContext);
+    // Bug-bundle fix (2026-07-27): backfills PlayerNameIndexWord for any
+    // PlayerNameIndex row imported before that table existed — see
+    // PlayerNameIndexWordBackfiller's own doc comment.
+    await PlayerNameIndexWordBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;

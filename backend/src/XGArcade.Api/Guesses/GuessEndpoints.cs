@@ -107,6 +107,15 @@ public static class GuessEndpoints
                     title: "Guess changes are not allowed",
                     detail: "This round does not allow changing an already-submitted guess.",
                     statusCode: StatusCodes.Status409Conflict),
+                // REQ-211 (2026-07-27 fix): a live Wikidata timeout during
+                // the guess-time fallback means "we don't know yet," not
+                // "wrong" — no Guess row was written and no attempt was
+                // consumed (GuessSubmissionService), so the client should
+                // simply retry rather than treat this as a scored result.
+                GuessSubmissionOutcome.LiveLookupUnavailable => Results.Problem(
+                    title: "Live verification unavailable",
+                    detail: "We couldn't verify this guess against our live data source in time. Please try again.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable),
                 _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
             };
         }).RequireAuthorization();
