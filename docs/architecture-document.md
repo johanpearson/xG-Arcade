@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.63"
+version: "0.64"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -230,8 +230,10 @@ behavior change), and xG Path gets `ClueEfficiencyScoringStrategy`. Second
 (ADR-0041): `GuessRules.MaxAttemptsPerCell`'s hardcoded `2` becomes a
 per-cell value read through a new `IGameModule` method (mirroring
 `GetCellIdsAsync`'s existing shape) — xG Grid returns `2` unconditionally
-(no behavior change), xG Path returns each puzzle's own
-`min(club stints, 5) + 4`. Separately, this planning pass also resolved
+(no behavior change), xG Path returns a fixed `7` for every puzzle
+(REQ-1203, revised 2026-07-27: all of a target's club stints are now
+shown, spread across 3 reveal turns, rather than capping at 5 one-per-clue
+— see `docs/CHANGELOG.md`). Separately, this planning pass also resolved
 the open question the paragraph directly above raises about `Guess.CellId`
 ("generalize this when a second game is built"): `XGArcadeDbContext` was
 checked and there is no actual EF Core foreign-key relationship configured

@@ -88,7 +88,7 @@ public class XGPathGameModule(
     }
 
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
-        // REQ-1205 (per-puzzle attempt cap, min(stints, 5) + 4) — see S-082.
+        // REQ-1205 (per-puzzle attempt cap, fixed at 7) — see S-082.
         Task.FromException<int>(
             new NotImplementedException("xG Path per-puzzle attempt cap not yet implemented — see REQ-1205 (S-082)."));
 

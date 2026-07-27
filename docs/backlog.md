@@ -4016,26 +4016,30 @@ shape (no new Core-side reference). *Deps:* S-079 (career-stint data to
 select against), S-080 (module scaffold).
 
 **S-082 · xG Path clue reveal + guess submission (REQ-1203/1204/1205)**
-Backend only. Exposes a puzzle's clue sequence progressively (chronological
-club stints capped at 5, each with appearance count when known; then one
-bundled years clue for every revealed club; then position, nationality,
-age, in that fixed order; national team caps never appear) — mirrors
-`GET /rounds/current`'s per-cell reveal shape, clue-indexed rather than
-category-indexed. `ScoreSubmissionAsync` resolves a guess via the
-existing `PlayerNameIndex`/name-matching pipeline (ADR-0007, no new
-matching infrastructure) and is correct iff the resolved candidate's
-`PlayerId` equals the puzzle's target `PlayerId`. The attempt cap read
-through S-077's `IGameModule` method returns this puzzle's own
-`min(stints, 5) + 4`, not a fixed value.
-*Accept:* REQ1203-named tests: reveal order/content for target players
-with fewer than 5, exactly 5, and more than 5 stints; appearance count
-present vs. unknown; the bundled year-range clue's content; the sequence
-halts immediately on a correct guess at every possible point. REQ1204-named
-tests: correctness is a direct `PlayerId` match, not a category check; a
-guess resolving to no candidate is incorrect. REQ1205-named tests: the
-resolved attempt cap matches each puzzle's own clue count, never a fixed
-`2`. *Deps:* S-081 (puzzle instances/cells to guess against), S-077 (the
-per-cell attempt-cap mechanism).
+Backend only. Exposes a puzzle's clue sequence progressively — every one
+of the target's `N` documented club stints, split across exactly 3
+reveal turns (smallest turn first: `base = N div 3`, `remainder = N mod
+3`, first `3 - remainder` turns get `base` clubs, last `remainder` turns
+get `base + 1`; e.g. `N=10` → 3-3-4), each club in a turn carrying its
+appearance count when known; then one bundled years clue for every
+revealed club; then position, nationality, age, in that fixed order;
+national team caps never appear — mirrors `GET /rounds/current`'s
+per-cell reveal shape, clue-indexed rather than category-indexed.
+`ScoreSubmissionAsync` resolves a guess via the existing
+`PlayerNameIndex`/name-matching pipeline (ADR-0007, no new matching
+infrastructure) and is correct iff the resolved candidate's `PlayerId`
+equals the puzzle's target `PlayerId`. The attempt cap read through
+S-077's `IGameModule` method returns a fixed `7` for every puzzle.
+*Accept:* REQ1203-named tests: the 3-way club split for `N` at the
+minimum (3), a non-multiple-of-3 value below 10, and a value at or above
+10; appearance count present vs. unknown within a multi-club turn;
+chronological order across and within turns; the bundled year-range
+clue's content; the sequence halts immediately on a correct guess at
+every possible point. REQ1204-named tests: correctness is a direct
+`PlayerId` match, not a category check; a guess resolving to no candidate
+is incorrect. REQ1205-named tests: the resolved attempt cap is 7 for every
+puzzle, never a fixed `2`. *Deps:* S-081 (puzzle instances/cells to guess
+against), S-077 (the per-cell attempt-cap mechanism).
 
 **S-083 · xG Path scoring strategy (REQ-1206, ADR-0040)**
 `ClueEfficiencyScoringStrategy` — `round(cluesUsed / maxCluesForThisPuzzle

@@ -13,10 +13,18 @@
 locks against further guessing (REQ-210). This is correct for xG Grid,
 where every cell has the same fixed guess allowance. xG Path's puzzle
 shape breaks that assumption directly: its "attempt cap" is the number of
-clues available for that specific puzzle
-(`min(club stint count, 5) + 4` — see REQ-1201-REQ-1206), which varies
-target-player to target-player within the very same round. A single
-`const int` cannot represent that.
+clues available for a puzzle (see REQ-1201-REQ-1206) — a value specific
+to xG Path, not shared with xG Grid's `2`. A single `const int` on
+`GuessRules` cannot represent a second game's own value without an `if`
+per call site.
+
+(REQ-1203 originally defined this as `min(club stint count, 5) + 4`,
+varying target-player to target-player; a 2026-07-27 revision to REQ-1203
+made it a fixed `7` for every xG Path puzzle instead — see
+`docs/CHANGELOG.md`. That revision doesn't change this ADR's decision: the
+cap is still resolved per-cell through `IGameModule` rather than a shared
+constant, since a future game module may still need a genuinely variable
+value, and xG Path's own value is still not xG Grid's `2`.)
 
 This is the same structural fork ADR-0040 identifies for the scoring
 formula, applied one layer earlier in the guess-submission flow: xG Grid's
@@ -38,8 +46,8 @@ xG Grid's implementation returns the constant `2` for every cell,
 unconditionally — REQ-210's existing behavior and every existing test
 describing it are unchanged; this is a pure extraction, not a rule change,
 identical in spirit to how ADR-0040 extracts xG Grid's scoring formula
-without altering it. xG Path's implementation returns each puzzle's own
-`min(club stint count, 5) + 4`, computed at instance-generation time and
+without altering it. xG Path's implementation returns a fixed `7` for
+every puzzle (REQ-1203), computed at instance-generation time and
 stored alongside that puzzle's own state (not recomputed from scratch on
 every guess-submission call, to keep a puzzle's cap stable even if
 underlying reference data changes later).

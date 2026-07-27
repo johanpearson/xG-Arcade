@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
+  `docs/architecture-document.md` (0.63 → 0.64), `docs/decisions/0041-
+  per-cell-attempt-cap.md`, `docs/backlog.md` — revised REQ-1203's xG Path
+  clue-reveal mechanic per a product decision: club stints are no longer
+  capped at 5 and revealed one-per-clue; every documented stint is now
+  revealed, split across exactly 3 club-reveal turns (`N` divided into 3
+  as evenly as possible, smallest turn first — e.g. `N=4` → 1-1-2, `N=10`
+  → 3-3-4, `N=11` → 3-4-4), each club still carrying its appearance count
+  when known. The bundled year-range clue and the fixed
+  position/nationality/age tail are unchanged. Net effect: a puzzle's
+  total clue count (REQ-1205/1206) becomes a fixed **7** for every xG Path
+  puzzle instead of the earlier `min(club stint count, 5) + 4`, which
+  varied by target player — updated the stale formula references in
+  ADR-0041 and `architecture-document.md` §COMP-04 to match (the ADR's
+  actual decision, per-cell resolution through `IGameModule`, is
+  unaffected). No code exists for REQ-1203/1205/1206 yet (still "design
+  only," S-082/S-083), so this is a pure documentation change.
 - 2026-07-27 — `docs/backlog.md`, `docs/architecture-document.md`
   (0.62 → 0.63), `docs/CHANGELOG.md` — doc-sync pass over S-081's diff
   (REQ-1201/1202, ADR-0045). `docs/backlog.md`'s S-081 Accept-criteria
