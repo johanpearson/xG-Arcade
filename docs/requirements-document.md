@@ -1348,6 +1348,52 @@ an extra attempt), API
   immediately, in the same request, exactly the same as the `Sync` origin
   REQ-103/110 already use. See the superseded acceptance-criterion bullet
   below for the specific line this reverses.
+- **Status note (2026-07-27, bug-fix bundle `claude/xg-grid-perf-search-r0q708`,
+  commits f5d10da/f6d06e3 — supersedes, in effect, the "Partially
+  implemented" bullet's "there is no name-index pre-filter yet" claim):**
+  `GridGameModule.ScoreSubmissionAsync`'s live-lookup trigger now checks
+  `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` before running
+  the live Wikidata lookup — exactly the "this live lookup only triggers
+  when the name matched a real `PlayerNameIndex` candidate" acceptance
+  criterion below, which had been drifting undone since Tier 0 shipped.
+  This is **not** a new Tier 1 pull-forward: `PlayerNameIndex` (REQ-207,
+  COMP-10) has existed since S-032 (2026-07-17) — the "Tier 1, not built"
+  language in the "Partially implemented" bullet above and in ADR-0018 was
+  a stale simplification note that never got updated once its own
+  prerequisite shipped, and this fix closes that specific gap rather than
+  pulling forward anything new (a new ADR superseding ADR-0018 was
+  considered but judged unnecessary — closing a documented gap with the
+  gap's own already-specified fix is not a new structural decision). Root
+  cause: the un-gated live lookup was firing on every unresolved guess,
+  including ones matching nothing in `PlayerNameIndex` and therefore never
+  a real player — the dominant cost behind the reported "guessing is slow,
+  especially for incorrect guesses" symptom. The remaining part of the
+  "Partially implemented" bullet above — a single live source (Wikidata
+  only, no API-Football fallback/`ExternalApiUsage` budget-gating) — is
+  unaffected and still accurate.
+- **Status note (2026-07-27, same bundle) — timeout now distinguished from
+  "no match" for this guess-time fallback (ADR-0045):** `WikidataClient`'s
+  intersection-query methods previously swallowed their own 15-second
+  timeout to an empty result, indistinguishable from "Wikidata answered,
+  found nothing" — correct for REQ-103's grid-generation use of the same
+  client, but wrong here: a timeout during a genuinely correct guess got
+  persisted as a confirmed incorrect answer, consuming one of REQ-210's two
+  attempts (the reported symptom: guessing "Clarence Seedorf" for Ajax ×
+  AC Milan failed once with a fetch error, and the retry was scored
+  incorrect). Fixed by adding an opt-in `throwOnTimeout` parameter to
+  `IWikidataClient`'s five intersection-query methods, set only for
+  `WikidataLookupOrigin.GuessTimeFallback` (REQ-103's own grid-generation
+  call path is completely unaffected — default `false`, unchanged
+  behavior). On timeout, `WikidataClient` now throws
+  `WikidataQueryException`; `GridGameModule.RefreshCellFromLiveLookupAsync`
+  catches it and throws the new `XGArcade.Core.Games
+  .LiveLookupUnavailableException` (kept in `Core.Games` so `Core` never
+  references a `DataSync`-specific exception type, per ADR-0003);
+  `GuessSubmissionService.SubmitGuessAsync` catches that and returns the
+  new `GuessSubmissionOutcome.LiveLookupUnavailable`, which
+  `GuessEndpoints` maps to HTTP 503 — see the new acceptance-criterion
+  bullet below, REQ-210's matching status note, and ADR-0045 for the full
+  structural decision (including alternatives considered).
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -1370,11 +1416,22 @@ an extra attempt), API
   consumed on the rarer path where Wikidata didn't resolve the lookup —
   if that budget is exhausted on that path, the guess is evaluated against
   existing cached data only (fails closed as incorrect, not blocked)
+- **(Added 2026-07-27, ADR-0045)** Given the live lookup above is triggered
+  (a `PlayerNameIndex` match with no existing `PlayerAttribute`/
+  `PlayerOverride` record for the cell's category types)
+- When the Wikidata query does not complete within its timeout
+- Then the guess's correctness is treated as genuinely unknown, not
+  incorrect — no `Guess` row is written and none of REQ-210's two attempts
+  is consumed — and the API returns HTTP 503
+  (`GuessSubmissionOutcome.LiveLookupUnavailable`) so the client can retry
+  the same guess without penalty
 
 **Test level:** Unit (all branches: no `PlayerNameIndex` match → incorrect,
 no live call; match with existing attribute data → no live call needed;
 match with no attribute data and budget available → live call + persist;
-match with no attribute data and budget exhausted → fails closed), API
+match with no attribute data and budget exhausted → fails closed; live
+lookup timeout → `LiveLookupUnavailable`, no attempt consumed, added
+2026-07-27), API
 
 **REQ-212 – Click/tap reveals the guessed player name on a locked, correct cell**
 > As a player, I want to see which player I answered for a cell I've already
