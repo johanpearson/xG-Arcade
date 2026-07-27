@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
+         ScoreResult) live in XGArcade.Core — nothing else is needed for a
+         stub whose method bodies only throw NotImplementedException. Real
+         generation/scoring logic (S-081+) will add XGArcade.Data (for
+         PlayerCareerStint, per COMP-11/ADR-0042) at that point, not before —
+         boundary rule 1: no ProjectReference beyond what the current code
+         actually uses. -->
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

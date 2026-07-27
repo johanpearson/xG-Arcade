@@ -24,6 +24,7 @@ using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
 // server start) used by ci.yml's local E2E stack. Applies pending EF Core
@@ -553,6 +554,13 @@ builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 builder.Services.AddSingleton(new GridGenerationOptions());
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
+// COMP-11 (Games.XGPath) — S-080's module scaffold. Registered here so
+// IGameModuleResolver.Resolve("xg-path") returns a real module, same as
+// xG Grid above — but every IGameModule method on this one still throws
+// NotImplementedException (S-081+ builds the real logic). Deliberately no
+// IScoringStrategy registration for "xg-path" yet (that's
+// ClueEfficiencyScoringStrategy, S-083) and no route exposes this game.
+builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
 // Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
