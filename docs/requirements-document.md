@@ -1326,7 +1326,7 @@ required, no valid candidate), UI (disambiguation prompt)
   any name resolution work, not after" ordering itself is unaffected;
   only which single constant vs. which per-game method supplies the cap
   value has changed.
-- **Status note (2026-07-27, bug-fix bundle, ADR-0045):** a live-lookup
+- **Status note (2026-07-27, bug-fix bundle, ADR-0046):** a live-lookup
   timeout during REQ-211's guess-time fallback is a fourth "doesn't consume
   an attempt" case, alongside the existing disambiguation one (REQ-209,
   referenced below) — `GuessSubmissionService.SubmitGuessAsync` returns
@@ -1416,7 +1416,7 @@ an extra attempt), API
   only, no API-Football fallback/`ExternalApiUsage` budget-gating) — is
   unaffected and still accurate.
 - **Status note (2026-07-27, same bundle) — timeout now distinguished from
-  "no match" for this guess-time fallback (ADR-0045):** `WikidataClient`'s
+  "no match" for this guess-time fallback (ADR-0046):** `WikidataClient`'s
   intersection-query methods previously swallowed their own 15-second
   timeout to an empty result, indistinguishable from "Wikidata answered,
   found nothing" — correct for REQ-103's grid-generation use of the same
@@ -1436,7 +1436,7 @@ an extra attempt), API
   `GuessSubmissionService.SubmitGuessAsync` catches that and returns the
   new `GuessSubmissionOutcome.LiveLookupUnavailable`, which
   `GuessEndpoints` maps to HTTP 503 — see the new acceptance-criterion
-  bullet below, REQ-210's matching status note, and ADR-0045 for the full
+  bullet below, REQ-210's matching status note, and ADR-0046 for the full
   structural decision (including alternatives considered).
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
@@ -1460,7 +1460,7 @@ an extra attempt), API
   consumed on the rarer path where Wikidata didn't resolve the lookup —
   if that budget is exhausted on that path, the guess is evaluated against
   existing cached data only (fails closed as incorrect, not blocked)
-- **(Added 2026-07-27, ADR-0045)** Given the live lookup above is triggered
+- **(Added 2026-07-27, ADR-0046)** Given the live lookup above is triggered
   (a `PlayerNameIndex` match with no existing `PlayerAttribute`/
   `PlayerOverride` record for the cell's category types)
 - When the Wikidata query does not complete within its timeout

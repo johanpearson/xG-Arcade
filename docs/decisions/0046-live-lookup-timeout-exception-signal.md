@@ -1,4 +1,4 @@
-# ADR-0045: A timeout during REQ-211's guess-time live lookup is a distinct, non-scoring exception signal, not a swallowed empty result
+# ADR-0046: A timeout during REQ-211's guess-time live lookup is a distinct, non-scoring exception signal, not a swallowed empty result
 
 - **Status:** Accepted
 - **Date:** 2026-07-27

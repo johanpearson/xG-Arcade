@@ -833,7 +833,7 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   are handled; Trophy×Trophy has no dedicated persist method (unreachable
   in production anyway, see REQ-108's status note) and, like any other
   unhandled pairing, fails closed rather than throwing. **Correction
-  (2026-07-27, bug-fix bundle, ADR-0045; supersedes the paragraph this
+  (2026-07-27, bug-fix bundle, ADR-0046; supersedes the paragraph this
   replaces):** this diagram's full shape ("guess matched a
   `Data.PlayerNameIndex` candidate") is now accurate for the trigger
   condition, not a deliberate simplification anymore —
@@ -853,7 +853,7 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   There is still no API-Football fallback leg or `ExternalApiUsage`
   budget-gating for this call site, same as REQ-103's status.
 - **New exception-based signal crossing the Games.XGGrid → Core.Scoring
-  boundary (2026-07-27, ADR-0045):** a timeout on this live-lookup call
+  boundary (2026-07-27, ADR-0046):** a timeout on this live-lookup call
   (`DataSync.Clients`, COMP-07) previously swallowed to an empty result,
   indistinguishable from "Wikidata found no match" — wrong for this call
   site specifically, since it let a timeout during a genuinely correct
@@ -868,7 +868,7 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   `Core.Scoring` (`GuessSubmissionService`) catches that exception and
   returns a new `GuessSubmissionOutcome.LiveLookupUnavailable` — before
   writing any `Guess` row, the same shape REQ-209's disambiguation branch
-  already uses — which `XGArcade.Api` maps to HTTP 503. See ADR-0045 for
+  already uses — which `XGArcade.Api` maps to HTTP 503. See ADR-0046 for
   the full decision and alternatives considered.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011, extended S-018)** — `GET /rounds/current` computes

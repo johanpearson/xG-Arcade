@@ -1570,11 +1570,11 @@ deliberate and load-bearing:
   means exactly "no eligible players born this year" (real for sparse
   early years). The intersection queries' never-throw-by-default contract
   is untouched (REQ-103 depends on it) — **as of a 2026-07-27 bug-fix
-  bundle (ADR-0045)**, each intersection query method gained an opt-in
+  bundle (ADR-0046)**, each intersection query method gained an opt-in
   `throwOnTimeout` parameter, `false` by default, so REQ-103's own call
   path (grid generation) is unaffected; only REQ-211's guess-time fallback
   sets it `true`, to distinguish a timeout from a genuine no-match on that
-  one call site. See REQ-211's 2026-07-27 status notes and ADR-0045 for why.
+  one call site. See REQ-211's 2026-07-27 status notes and ADR-0046 for why.
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice

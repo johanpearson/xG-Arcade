@@ -78,7 +78,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `docs/implementation-document.md` (0.76 → 0.77),
   `docs/design-document.md` (0.54 → 0.55, previously landed by the frontend
   half of this same bundle — folded in here rather than left as a separate
-  entry), `docs/decisions/0045-live-lookup-timeout-exception-signal.md`
+  entry), `docs/decisions/0046-live-lookup-timeout-exception-signal.md`
   (new) — doc sync for the `claude/xg-grid-perf-search-r0q708` bug-fix
   bundle (commits f5d10da/f6d06e3), which fixed slow/unreliable guessing,
   stale name-index words, and an autocomplete answer leak:
@@ -93,7 +93,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
     timeout during this fallback is distinguishable from a confirmed
     incorrect guess (previously conflated — the reported "guessed Clarence
     Seedorf, got a fetch error, retried, scored incorrect" symptom). New
-    acceptance-criterion bullet added. See ADR-0045.
+    acceptance-criterion bullet added. See ADR-0046.
   - **REQ-210** (requirements-document.md): status note cross-referencing
     the new `LiveLookupUnavailable` branch as a fourth "doesn't consume an
     attempt" case, alongside REQ-209's existing disambiguation branch.
@@ -110,7 +110,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
     `PlayerNameIndexWord` rows (so surname-only search still failed for
     them, e.g. "Seedorf") — fixed by a new, idempotent
     `PlayerNameIndexWordBackfiller` wired into `migrate-and-seed`.
-  - **New ADR-0045**: the structural decision behind the
+  - **New ADR-0046**: the structural decision behind the
     `LiveLookupUnavailableException`/`GuessSubmissionOutcome
     .LiveLookupUnavailable`/503 signal — a new, narrow exception-based
     cross-boundary contract between `Games.XGGrid` (COMP-05) and
@@ -131,7 +131,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
     this bundle, one `SaveChangesAsync` per batch instead of per player,
     per `docs/coding-guidelines.md`'s own rule), and corrected the
     intersection-queries'-never-throw claim to note the new opt-in
-    `throwOnTimeout` parameter (REQ-211/ADR-0045 only; REQ-103's default
+    `throwOnTimeout` parameter (REQ-211/ADR-0046 only; REQ-103's default
     behavior is unchanged).
   - Not touched: `docs/design-document.md` was already updated correctly by
     this bundle's frontend commit (f5d10da) — reviewed and left as-is,
