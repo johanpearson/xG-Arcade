@@ -3999,12 +3999,15 @@ against must be final first).
 `GenerateInstanceAsync` picks a configured count `N` (3-5) of distinct
 eligible target players — REQ-1201's eligibility (≥3 documented,
 chronologically-orderable `PlayerCareerStint` rows, at least one at a
-seeded `ClubDefinition` club, drawn from REQ-112's existing player pool)
-— and persists a puzzle instance plus one cell per puzzle.
-`GetCellIdsAsync` returns those cell ids.
+seeded `ClubDefinition` club with ≥20 recorded appearances there or an
+unknown appearance count (ADR-0046, added 2026-07-27), drawn from
+REQ-112's existing player pool) — and persists a puzzle instance plus one
+cell per puzzle. `GetCellIdsAsync` returns those cell ids.
 *Accept:* REQ1201-named tests: a candidate with <3 stints, an
-undeterminable stint order, or no stint at a seeded club is never
-selected. REQ-112 pool membership is satisfied by construction, not a
+undeterminable stint order, no stint at a seeded club, or a seeded-club
+stint with a known appearance count below 20 is never selected; a
+seeded-club stint at exactly 20 or with an unknown count is still
+eligible. REQ-112 pool membership is satisfied by construction, not a
 runtime check — `Player` has no `BirthYear`/`Gender` field to violate,
 the same restriction `GridGameModule` already relies on being enforced
 upstream at Wikidata-query time (ADR-0025); this is confirmed by

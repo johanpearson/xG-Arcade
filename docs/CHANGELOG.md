@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
+  `docs/architecture-document.md` (0.64 → 0.65),
+  `docs/decisions/0046-xg-path-seeded-club-appearance-threshold.md` (new),
+  `docs/backlog.md`, `backend/src/XGArcade.Games.XGPath/
+  XGPathGameModule.cs`, `backend/tests/XGArcade.Games.XGPath.Tests/
+  XGPathGameModuleTests.cs` — tightened REQ-1201's xG Path eligibility: a
+  candidate's seeded-club stint now also needs ≥20 recorded appearances
+  there (or an unknown count) to count, closing the gap where a single
+  loan/fringe appearance at a big club was enough to qualify an otherwise
+  obscure player as a target — ADR-0046. `IsEligible`'s seeded-club check
+  now also filters on `PlayerCareerStint.AppearanceCount`; 3 new REQ1201-
+  named tests cover below/at/unknown appearance count. `dotnet test` run
+  locally: 16/16 passing (13 existing + 3 new).
 - 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
   `docs/architecture-document.md` (0.63 → 0.64), `docs/decisions/0041-
   per-cell-attempt-cap.md`, `docs/backlog.md` — revised REQ-1203's xG Path

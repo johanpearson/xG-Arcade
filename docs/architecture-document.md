@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.64"
+version: "0.65"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -1407,6 +1407,7 @@ new ADR that references the old one.
 | ADR-0043 | Global League's all-time leaderboard ranking is scoped per `GameKey`, not merged across games | Accepted |
 | ADR-0044 | Per-word decomposition (`PlayerNameIndexWord`), not `pg_trgm`, for `PlayerNameIndex` surname-prefix matching | Accepted |
 | ADR-0045 | xG Path puzzle generation: `PathTemplate`/`PathInstance`/`PathPuzzle` entity shape, `PathPuzzle.TargetPlayerId` as a real FK to `Player`, and the settled reading of REQ-1201's two ambiguous eligibility phrases | Accepted |
+| ADR-0046 | REQ-1201's seeded-club eligibility stint must also clear a 20-appearance floor (or have an unknown count) — closes the "one token appearance at a big club" loophole | Accepted |
 
 ## 11. Glossary
 

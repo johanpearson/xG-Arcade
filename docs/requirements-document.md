@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.16"
+version: "1.17"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -5026,7 +5026,8 @@ not a claim about current behavior.
 > valid, revealable sequence of clues rather than one that runs out of
 > content partway through.
 
-- **Status: Implemented (Tier 0, S-081, ADR-0045).** `XGPathGameModule.
+- **Status: Implemented (Tier 0, S-081, ADR-0045; appearance threshold
+  added 2026-07-27, ADR-0046).** `XGPathGameModule.
   GenerateInstanceAsync` (`XGArcade.Games.XGPath`) reads every player's
   full `PlayerCareerStint` set in bulk
   (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`) and applies
@@ -5040,7 +5041,12 @@ not a claim about current behavior.
   The "at least one seeded-club stint" check compares `PlayerCareerStint.
   ClubName` against `ICategoryValueRepository.GetClubsAsync` (`ClubDefinition.
   Name`), the same reference table GridGameModule already reads (REQ-109) —
-  never a second path to `ClubDefinition`. The REQ-112 pool-membership
+  never a second path to `ClubDefinition` — **and** that stint's
+  `AppearanceCount` must be either unknown (`null`) or at least 20
+  (`MinAppearancesAtSeededClub`, ADR-0046) — a known, sub-threshold count
+  (e.g. a one-off loan appearance) does not count toward eligibility, but
+  an unknown count still does, since Wikidata's P1350 qualifier being
+  absent isn't evidence of a fringe career. The REQ-112 pool-membership
   criterion is met **by construction, not by a runtime check**: `Player` has
   no `BirthYear`/`Gender` field at all — the restriction is enforced entirely
   upstream at Wikidata-query time (ADR-0025), the same reasoning
@@ -5054,6 +5060,10 @@ not a claim about current behavior.
 - And at least one of those stints must be at a club present in the
   existing `ClubDefinition` reference table (REQ-109) — v1 needs no new
   club curation beyond the existing seeded set
+- And that seeded-club stint's recorded appearance count, when known, must
+  be at least 20 — a known count below that does not make the candidate
+  eligible on the strength of that stint alone (ADR-0046); an unknown
+  appearance count is treated as passing this check, not failing it
 - And the player must already be a member of the existing player pool as
   restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
   population and defines no separate one of its own
@@ -5062,10 +5072,11 @@ not a claim about current behavior.
 
 **Test level:** Unit (eligibility check accepts/rejects fixtures covering
 each rule independently — fewer than 3 stints, an undeterminable stint
-order, no stint at a seeded club, a player outside REQ-112's pool — the
-last of these confirmed by inspection/schema absence rather than a runtime
-fixture, since `Player` has no field that could represent "outside the
-pool"; see `XGPathGameModuleTests`'s own class doc comment)
+order, no stint at a seeded club, a seeded-club stint below/at/unknown
+appearance count, a player outside REQ-112's pool — the last of these
+confirmed by inspection/schema absence rather than a runtime fixture,
+since `Player` has no field that could represent "outside the pool"; see
+`XGPathGameModuleTests`'s own class doc comment)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number

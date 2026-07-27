@@ -90,11 +90,19 @@ public class XGPathGameModuleTests
 
     // Seeds `stints` PlayerCareerStint rows for playerId. SequenceOrder is
     // irrelevant to eligibility (IsEligible reads only StartYear/EndYear/
-    // ClubName), so every fixture row is left at 0 rather than replicating
-    // AddCareerStintsAsync's own re-sequencing logic here.
+    // ClubName/AppearanceCount), so every fixture row is left at 0 rather
+    // than replicating AddCareerStintsAsync's own re-sequencing logic here.
+    // AppearanceCount defaults to null ("unknown"), which ADR-0046 treats
+    // as passing the appearance-count check — most fixtures don't need to
+    // set it explicitly.
     private void SeedStints(Guid playerId, params (int StartYear, int? EndYear, string ClubName)[] stints)
     {
-        foreach (var (startYear, endYear, clubName) in stints)
+        SeedStints(playerId, stints.Select(s => (s.StartYear, s.EndYear, s.ClubName, (int?)null)).ToArray());
+    }
+
+    private void SeedStints(Guid playerId, params (int StartYear, int? EndYear, string ClubName, int? AppearanceCount)[] stints)
+    {
+        foreach (var (startYear, endYear, clubName, appearanceCount) in stints)
         {
             _dbContext.PlayerCareerStints.Add(new PlayerCareerStint
             {
@@ -104,6 +112,7 @@ public class XGPathGameModuleTests
                 StartYear = startYear,
                 EndYear = endYear,
                 SequenceOrder = 0,
+                AppearanceCount = appearanceCount,
             });
         }
         _dbContext.SaveChanges();
@@ -216,6 +225,78 @@ public class XGPathGameModuleTests
 
         Assert.ThrowsAsync<PathGenerationException>(
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // ADR-0046: a seeded-club stint with a known, sub-threshold appearance
+    // count doesn't count toward eligibility — a one-off loan/fringe
+    // appearance shouldn't be enough to make an otherwise-obscure player a
+    // valid target.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintBelowAppearanceThreshold_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var fringeAppearance = SeedPlayer("FringeAppearance");
+        SeedStints(fringeAppearance.Id,
+            (2010, 2011, "Seeded FC", 19), // one below the 20-appearance threshold
+            (2011, 2014, "Unseeded Club A", (int?)null),
+            (2014, null, "Unseeded Club B", (int?)null));
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // ADR-0046: a known appearance count meeting the threshold exactly is
+    // still eligible — the check is ">=", not ">".
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintAtAppearanceThreshold_IsEligible()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var atThreshold = SeedPlayer("AtThreshold");
+        SeedStints(atThreshold.Id,
+            (2010, 2011, "Seeded FC", 20), // exactly the threshold
+            (2011, 2014, "Unseeded Club A", (int?)null),
+            (2014, null, "Unseeded Club B", (int?)null));
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(atThreshold.Id));
+    }
+
+    // ADR-0046: an unknown appearance count (Wikidata's P1350 qualifier
+    // absent) is not evidence of a fringe appearance, so it still passes —
+    // only a known, sub-threshold count disqualifies a stint.
+    [Test]
+    public async Task REQ1201_GenerateInstanceAsync_CandidateWithSeededClubStintUnknownAppearanceCount_IsEligible()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var unknownCount = SeedPlayer("UnknownAppearanceCount");
+        SeedStints(unknownCount.Id,
+            (2010, 2011, "Seeded FC", (int?)null),
+            (2011, 2014, "Unseeded Club A", (int?)null),
+            (2014, null, "Unseeded Club B", (int?)null));
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(unknownCount.Id));
     }
 
     // Positive control for the "3 rows, not 3 distinct clubs" reading of

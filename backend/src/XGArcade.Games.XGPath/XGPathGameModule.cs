@@ -21,6 +21,12 @@ public class XGPathGameModule(
 {
     public const string XGPathGameKey = "xg-path";
 
+    // REQ-1201/ADR-0046: a seeded-club stint only counts toward eligibility
+    // if it reflects meaningful playing time there, not a one-off loan/
+    // fringe appearance — see the ADR for why 20 and why an unknown count
+    // still passes rather than being rejected.
+    private const int MinAppearancesAtSeededClub = 20;
+
     // REQ-1202: N distinct targets, no repeats, picked uniformly at random
     // — mirrors GridGameModule's optional constructor Random? param
     // precedent so tests can pin selection deterministically without DI
@@ -141,7 +147,11 @@ public class XGPathGameModule(
     //     themselves, so "order determinable from start/end dates" fails
     //     for this candidate.
     //   - at least one stint at a club present in the seeded
-    //     ClubDefinition reference table (REQ-109).
+    //     ClubDefinition reference table (REQ-109), with at least
+    //     MinAppearancesAtSeededClub games played there when that count is
+    //     known (ADR-0046) — a stint with no recorded AppearanceCount still
+    //     counts, since "unknown" is not evidence of a fringe appearance;
+    //     only a known, sub-threshold count disqualifies a stint.
     private static bool IsEligible(IReadOnlyList<PlayerCareerStint> stints, IReadOnlySet<string> seededClubNames)
     {
         if (stints.Count < 3)
@@ -151,7 +161,9 @@ public class XGPathGameModule(
         if (datePairs.Count != datePairs.Distinct().Count())
             return false;
 
-        return stints.Any(s => seededClubNames.Contains(s.ClubName));
+        return stints.Any(s =>
+            seededClubNames.Contains(s.ClubName) &&
+            (s.AppearanceCount is null || s.AppearanceCount >= MinAppearancesAtSeededClub));
     }
 
     // REQ-1202: pick `count` distinct entries from `pool` uniformly at
