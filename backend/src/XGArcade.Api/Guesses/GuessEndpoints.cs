@@ -4,6 +4,7 @@ using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Guesses;
 
@@ -55,17 +56,32 @@ public static class GuessEndpoints
                 result = await guessSubmissionService.SubmitGuessAsync(
                     roundId, user.Id, cellId, request.SubmittedName, request.ChosenPlayerId, cancellationToken);
             }
-            catch (GuessScoringException ex)
+            catch (Exception ex) when (ex is GuessScoringException or PathScoringException)
             {
-                // The cellId didn't resolve to a real cell in this round's
-                // grid instance — a malformed/stale request, not an ordinary
-                // incorrect-guess outcome. Logged server-side (coding-
-                // guidelines.md), same discipline InternalRoundEndpoints
-                // uses for GridGenerationException; the client gets the
-                // same bare 404 as RoundNotFound below — both are plain
-                // "this id doesn't resolve to anything" outcomes, so they
-                // share one response shape rather than one being a richer
-                // Problem body than the other for no real reason.
+                // The cellId didn't resolve to a real cell/puzzle in this
+                // round's game instance — a malformed/stale request, not an
+                // ordinary incorrect-guess outcome. Logged server-side
+                // (coding-guidelines.md), same discipline
+                // InternalRoundEndpoints uses for GridGenerationException;
+                // the client gets the same bare 404 as RoundNotFound below —
+                // both are plain "this id doesn't resolve to anything"
+                // outcomes, so they share one response shape rather than one
+                // being a richer Problem body than the other for no real
+                // reason.
+                //
+                // Judgment call (flagged for architecture-reviewer): this
+                // endpoint (XGArcade.Api.Guesses, game-agnostic by design —
+                // routes through IGuessSubmissionService/
+                // IGameModuleResolver by round.GameKey) now has compile-time
+                // knowledge of both games' own scoring-exception types
+                // (GuessScoringException from Games.XGGrid, PathScoringException
+                // from Games.XGPath) to catch here. A cleaner fix — a shared
+                // "cell/puzzle not found" exception type living in
+                // Core.Games (the same cross-boundary precedent
+                // LiveLookupUnavailableException already sets) that both
+                // game-specific exceptions could derive from or be replaced
+                // by — is a real design option but a boundary decision, not
+                // one made silently here; flagged rather than built.
                 logger.LogError(ex, "Guess submission failed: cell not found.");
                 return Results.NotFound();
             }
@@ -99,9 +115,14 @@ public static class GuessEndpoints
                     title: "Cell already solved",
                     detail: "This cell already has a correct guess and is locked.",
                     statusCode: StatusCodes.Status409Conflict),
+                // ADR-0041/REQ-1205: worded generically ("all allowed
+                // attempts," not "both") since this endpoint is game-agnostic
+                // and the attempt cap itself now varies by game (xG Grid's
+                // fixed 2 vs. xG Path's fixed 7) — the old "Both guess
+                // attempts" wording was accurate only for xG Grid.
                 GuessSubmissionOutcome.NoAttemptsRemaining => Results.Problem(
                     title: "No attempts remaining",
-                    detail: "Both guess attempts for this cell have already been used.",
+                    detail: "All allowed attempts for this cell have already been used.",
                     statusCode: StatusCodes.Status409Conflict),
                 GuessSubmissionOutcome.GuessChangeNotAllowed => Results.Problem(
                     title: "Guess changes are not allowed",

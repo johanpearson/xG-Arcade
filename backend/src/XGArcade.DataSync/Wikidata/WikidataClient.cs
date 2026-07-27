@@ -268,8 +268,18 @@ public class WikidataClient(
     // an empty binding (see WikidataLookupService's own scope note for why
     // only the country/nationality x club path persists this data as of
     // S-079).
+    //
+    // REQ-1207/S-082: ?position is P413 ("position played on team /
+    // speciality") — OPTIONAL, same reasoning as ?photo above, so a player
+    // with no P413 statement still matches the rest of the query. ?dateOfBirth
+    // is NOT a new binding — the WHERE clause already required it (ADR-0025's
+    // pool filter, the FILTER line below); it just wasn't previously listed
+    // in the SELECT projection, so ParseBindings never saw it. Adding it to
+    // SELECT is the only change needed to make Player.BirthYear derivable —
+    // no new triple pattern, no new round-trip, per REQ-1207's "no new
+    // binding added to the query for this field at all."
     private static string BuildIntersectionQuery(string candidateClauses) => $$"""
-        SELECT ?player ?playerLabel ?alias ?photo ?startTime ?endTime ?numberOfMatches WHERE {
+        SELECT ?player ?playerLabel ?alias ?photo ?position ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
           ?player wdt:P106 wd:Q937857.
         {{candidateClauses}}
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
@@ -280,6 +290,7 @@ public class WikidataClient(
             FILTER(LANG(?alias) = "en")
           }
           OPTIONAL { ?player wdt:P18 ?photo. }
+          OPTIONAL { ?player wdt:P413 ?position. }
           OPTIONAL { ?clubStatement pq:P580 ?startTime. }
           OPTIONAL { ?clubStatement pq:P582 ?endTime. }
           OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
@@ -617,7 +628,7 @@ public class WikidataClient(
         if (response?.Results?.Bindings is null)
             return [];
 
-        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases, string? PhotoUrl, HashSet<CareerStintQualifiers> CareerStints)>();
+        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases, string? PhotoUrl, string? Position, int? BirthYear, HashSet<CareerStintQualifiers> CareerStints)>();
 
         foreach (var binding in response.Results.Bindings)
         {
@@ -629,7 +640,7 @@ public class WikidataClient(
             if (!byQid.TryGetValue(qid, out var entry))
             {
                 var label = binding.TryGetValue("playerLabel", out var labelValue) ? labelValue.Value : qid;
-                entry = (label, [], null, []);
+                entry = (label, [], null, null, null, []);
             }
 
             if (binding.TryGetValue("alias", out var aliasValue) && !string.IsNullOrWhiteSpace(aliasValue.Value))
@@ -645,6 +656,22 @@ public class WikidataClient(
             if (entry.PhotoUrl is null && binding.TryGetValue("photo", out var photoValue)
                 && !string.IsNullOrWhiteSpace(photoValue.Value))
                 entry.PhotoUrl = photoValue.Value;
+
+            // REQ-1207/S-082: same "first non-null value seen" shape as
+            // PhotoUrl above — wdt:P413 is effectively single-valued in
+            // practice for a Wikidata person item.
+            if (entry.Position is null && binding.TryGetValue("position", out var positionValue)
+                && !string.IsNullOrWhiteSpace(positionValue.Value))
+                entry.Position = positionValue.Value;
+
+            // REQ-1207/S-082: ?dateOfBirth is bound on every row for this
+            // player (it's a mandatory, non-OPTIONAL match — ADR-0025's pool
+            // filter), so every row should agree; "first non-null seen" is
+            // still the defensive shape used throughout this method.
+            if (entry.BirthYear is null && binding.TryGetValue("dateOfBirth", out var dateOfBirthValue)
+                && !string.IsNullOrWhiteSpace(dateOfBirthValue.Value)
+                && TryParseXsdDateTimeYear(dateOfBirthValue.Value, out var birthYear))
+                entry.BirthYear = birthYear;
 
             // ADR-0042/S-079: SPARQL's OPTIONAL semantics mean a player with
             // N aliases and M distinct qualifier combinations can produce up
@@ -673,7 +700,11 @@ public class WikidataClient(
 
         return byQid
             .Select(kv => new WikidataPlayerMatch(
-                kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl, kv.Value.CareerStints.ToList()))
+                kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl, kv.Value.CareerStints.ToList())
+            {
+                Position = kv.Value.Position,
+                BirthYear = kv.Value.BirthYear,
+            })
             .ToList();
     }
 

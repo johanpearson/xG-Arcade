@@ -12,21 +12,25 @@ namespace XGArcade.Games.XGPath.Tests;
 // "don't over-mock"), same as GridGameModuleTests: real, InMemory-backed
 // repositories, no fakes.
 //
+// GameKey_IsXgPath below is unchanged from S-080's scaffold.
 // ScoreSubmissionAsync_ThrowsNotImplemented/GetMaxAttemptsForCellAsync_
-// ThrowsNotImplemented/GameKey_IsXgPath below are unchanged from S-080's
-// scaffold — REQ-1204/REQ-1205 are still S-082, not this story.
+// ThrowsNotImplemented were removed by S-082, which implements both methods
+// for real (REQ-1204/REQ-1205) — a REQ1204/REQ1205-named test suite for
+// them is test-writer's follow-up, not added by this class.
 // GenerateInstanceAsync_ThrowsNotImplemented/GetCellIdsAsync_
-// ThrowsNotImplemented are replaced with real REQ1201/REQ1202-named tests,
-// since those two methods are no longer stubs.
+// ThrowsNotImplemented were likewise replaced with real REQ1201/REQ1202-named
+// tests by S-081, since those two methods are no longer stubs.
 //
-// REQ-112 pool-membership scope note: `Player` has no BirthYear/Gender
-// field at all (see Player.cs and XGPathGameModule.
-// GetEligiblePlayerIdsAsync's own comment) — every Player/PlayerCareerStint
-// row already satisfies REQ-112 by construction, enforced upstream at
-// Wikidata-query time (ADR-0025). There is no runtime branch to exercise
-// here, and no "outside the pool" fixture this schema can even represent —
-// this criterion is confirmed by inspection, not by a test case, the same
-// scope-note precedent S-079's own CHANGELOG entry used.
+// REQ-112 pool-membership scope note: `Player` has no Gender field at all,
+// and while Player.BirthYear now exists (REQ-1207/S-082, for xG Path's own
+// age/birth-year clue, not for pool filtering — see Player.cs and
+// XGPathGameModule.GetEligiblePlayerIdsAsync's own comment), every
+// Player/PlayerCareerStint row already satisfies REQ-112 by construction,
+// enforced upstream at Wikidata-query time (ADR-0025) — there is no runtime
+// branch to exercise here, and no "outside the pool" fixture this schema
+// can even represent. This criterion is confirmed by inspection, not by a
+// test case, the same scope-note precedent S-079's own CHANGELOG entry
+// used.
 public class XGPathGameModuleTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
@@ -398,17 +402,10 @@ public class XGPathGameModuleTests
         Assert.That(XGPathGameModule.XGPathGameKey, Is.EqualTo("xg-path"));
     }
 
-    [Test]
-    public void ScoreSubmissionAsync_ThrowsNotImplemented()
-    {
-        Assert.ThrowsAsync<NotImplementedException>(
-            async () => await _module.ScoreSubmissionAsync(Guid.NewGuid(), Guid.NewGuid(), new object()));
-    }
-
-    [Test]
-    public void GetMaxAttemptsForCellAsync_ThrowsNotImplemented()
-    {
-        Assert.ThrowsAsync<NotImplementedException>(
-            async () => await _module.GetMaxAttemptsForCellAsync(Guid.NewGuid(), Guid.NewGuid()));
-    }
+    // ScoreSubmissionAsync_ThrowsNotImplemented/GetMaxAttemptsForCellAsync_
+    // ThrowsNotImplemented (S-080's scaffold) removed here — S-082
+    // implements both methods for real (REQ-1204/REQ-1205); a real
+    // REQ1204/REQ1205-named test suite for them is test-writer's follow-up,
+    // not added in this change (see this class's own class-doc-comment note
+    // on scope).
 }

@@ -55,6 +55,13 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
                 FullName = request.FullName,
                 WikidataQid = request.WikidataQid,
                 PhotoUrl = request.PhotoUrl,
+                // REQ-1207/S-082: set only at creation, same as PhotoUrl —
+                // this method never touches an existing Player row (the
+                // `if (result.ContainsKey(...)) continue;` above skips it),
+                // so "set once, never overwritten" is already this method's
+                // behavior for free.
+                Position = request.Position,
+                BirthYear = request.BirthYear,
             };
             dbContext.Players.Add(player);
             result[request.WikidataQid] = player;

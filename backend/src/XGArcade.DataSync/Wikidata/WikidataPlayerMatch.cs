@@ -26,6 +26,16 @@ namespace XGArcade.DataSync.Wikidata;
 // club path) actually persists these as of S-079 — see that method's own
 // comment for why the other three Lookup*Async callers deliberately leave
 // this unconsumed for now.
+//
+// Position/BirthYear (REQ-1207/S-082): Wikidata's P413 ("position played on
+// team / speciality", OPTIONAL, same "first non-null value seen" shape as
+// PhotoUrl) and the year extracted from the P569 ("date of birth") binding
+// every one of the five intersection queries already requires (ADR-0025's
+// pool filter) — no new SPARQL binding added for BirthYear specifically, see
+// WikidataClient.BuildIntersectionQuery's own comment. Both null whenever
+// the source data is absent, never an error — REQ-1203's clue-reveal
+// sequence renders a null value as an explicit "not available," never a
+// skipped turn.
 public record WikidataPlayerMatch(
     string WikidataQid,
     string FullName,
@@ -39,6 +49,9 @@ public record WikidataPlayerMatch(
     // check, the same convenience Aliases already gets from ParseBindings
     // always supplying a (possibly empty) list.
     public IReadOnlyList<CareerStintQualifiers> CareerStints { get; init; } = CareerStints ?? [];
+
+    public string? Position { get; init; }
+    public int? BirthYear { get; init; }
 }
 
 // ADR-0042/S-079: one distinct (start, end, appearance-count) combination
