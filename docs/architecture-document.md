@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.62"
+version: "0.63"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -1399,6 +1399,12 @@ new ADR that references the old one.
 | ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation, signup, login, and account-deletion password re-confirmation against scripted abuse (widened twice from guest-only on 2026-07-25, after Supabase's "Enable Captcha Protection" toggle proved project-wide rather than per-endpoint) | Accepted |
 | ADR-0038 | Guest account cleanup reuses `IAccountDeletionService`; activity tracked via a new `User.LastActiveAt`, updated only on genuine engagement | Accepted |
 | ADR-0039 | Hash-based, hand-rolled client-side routing for URL-reflected navigation (REQ-721) — no `react-router`, no server-side SPA-fallback dependency | Accepted |
+| ADR-0040 | `Core.Scoring` resolves an `IScoringStrategy` per `GameKey`, extracting xG Grid's existing formula as the first implementation with no formula change | Accepted |
+| ADR-0041 | Guess attempt cap becomes a per-cell value the owning game module reports (`IGameModule`), not a shared `GuessRules.MaxAttemptsPerCell` constant | Accepted |
+| ADR-0042 | New `PlayerCareerStint` entity (COMP-06) for ordered, dated career stint data, populated from the same Wikidata `P54` fetch as `PlayerAttribute` | Accepted |
+| ADR-0043 | Global League's all-time leaderboard ranking is scoped per `GameKey`, not merged across games | Accepted |
+| ADR-0044 | Per-word decomposition (`PlayerNameIndexWord`), not `pg_trgm`, for `PlayerNameIndex` surname-prefix matching | Accepted |
+| ADR-0045 | xG Path puzzle generation: `PathTemplate`/`PathInstance`/`PathPuzzle` entity shape, `PathPuzzle.TargetPlayerId` as a real FK to `Player`, and the settled reading of REQ-1201's two ambiguous eligibility phrases | Accepted |
 
 ## 11. Glossary
 
