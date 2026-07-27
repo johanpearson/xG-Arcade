@@ -24,6 +24,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- CI hygiene fix (2026-07-27) — see XGArcade.Data.csproj's matching
+         comment: Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 only floors
+         Microsoft.EntityFrameworkCore.Relational at 10.0.4, so it must be
+         pinned explicitly here too or NuGet settles on that floor instead of
+         the 10.0.10 this project actually builds against (MSB3277). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- JWT validation middleware (REQ-606's pipeline, ADR-0004: auth
          delegated to Supabase Auth, backend validates JWTs only). -->

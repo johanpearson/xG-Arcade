@@ -30,7 +30,32 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+      # Bug-bundle follow-up (2026-07-27): retries the whole command if the
+      # process itself crashes/exits non-zero (e.g. a DB connection drop) —
+      # PlayerCacheWarmingService.WarmAsync is idempotent and safe to re-run
+      # (its own doc comment), and a real run comfortably finishes in ~30 of
+      # this job's 90-minute budget, so 2 attempts fits well within it. This
+      # is NOT the mechanism for a single pair's Wikidata query timing out —
+      # WikidataClient already swallows that internally and keeps going
+      # (now with a warning logged per pair, see WikidataClient.cs's
+      # timeout-branch comment), so a crash here means something actually
+      # broke, not just an unlucky slow query. If specific pairs are still
+      # missing after a clean run, just re-dispatch this workflow again — it
+      # skips anything already cached and only re-queries what's still
+      # missing, so a fresh run is the right lever for "a few pairs got
+      # unlucky," not a build-in retry loop here.
       - name: Warm player cache
-        run: dotnet run --project backend/src/XGArcade.Api -- warm-player-cache
+        run: |
+          max_attempts=2
+          for attempt in $(seq 1 "$max_attempts"); do
+            if dotnet run --project backend/src/XGArcade.Api -- warm-player-cache; then
+              exit 0
+            fi
+
+            echo "::warning::warm-player-cache exited non-zero (attempt $attempt/$max_attempts)"
+          done
+
+          echo "::error::warm-player-cache failed after $max_attempts attempts"
+          exit 1
         env:
           ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

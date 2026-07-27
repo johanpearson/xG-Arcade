@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.TestSupport;
 
@@ -94,6 +95,44 @@ public class WikidataClientTests
         var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
 
         Assert.That(result, Is.Empty);
+    }
+
+    // Observability fix (2026-07-27): a swallowed timeout used to log
+    // nothing at all, unlike the HTTP/parse-error branch just below it in
+    // WikidataClient — this made warm-player-cache's own aggregate summary
+    // ("N queried live") unable to distinguish "queried live and found
+    // nothing" from "queried live and silently timed out." This test proves
+    // the warning is now actually emitted, not just that the timeout is
+    // swallowed (already covered by the test above).
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_Timeout_LogsWarning()
+    {
+        var logger = new CapturingLogger<WikidataClient>();
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            logger: logger);
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(logger.Messages, Has.Exactly(1).Matches<string>(
+            m => m.Contains("country-club") && m.Contains(CountryQid) && m.Contains(ClubQid) && m.Contains("timed out")));
+    }
+
+    // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
+    // "don't over-mock") — captures only the formatted message text of each
+    // Log call, which is all this file's tests need to assert against.
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
     }
 
     // REQ-211 (2026-07-27 fix): throwOnTimeout defaults to false, so every

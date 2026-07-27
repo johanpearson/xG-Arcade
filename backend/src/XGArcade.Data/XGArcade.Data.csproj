@@ -12,6 +12,18 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- CI hygiene fix (2026-07-27): Npgsql.EntityFrameworkCore.PostgreSQL
+         10.0.3's own nuspec declares Microsoft.EntityFrameworkCore.Relational
+         "[10.0.4, 11.0.0)" (a floor, not a pin) — with nothing else in the
+         graph asking for a specific version, NuGet settles on that floor
+         (10.0.4) even though Microsoft.EntityFrameworkCore above is pinned
+         exactly at 10.0.10, producing MSB3277 "conflicts ... could not be
+         resolved" at build time (seen in warm-player-cache.yml/
+         backfill-player-photos.yml CI logs). EF Core's own relational
+         packages are always released in lockstep at the same version, so
+         pinning this one explicitly to match is correct, not a workaround —
+         Npgsql's declared range comfortably allows it (10.0.10 < 11.0.0). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 

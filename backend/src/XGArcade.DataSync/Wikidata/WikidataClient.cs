@@ -201,6 +201,18 @@ public class WikidataClient(
                     $"Wikidata {queryKind} intersection query for {qidA}/{qidB} timed out after {effectiveTimeout.TotalSeconds:0}s.");
             }
 
+            // Observability fix (2026-07-27): this branch previously logged
+            // nothing at all, unlike the HTTP/parse-error branch just below —
+            // warm-player-cache's own aggregate summary ("N queried live")
+            // couldn't distinguish "queried live and found nothing" from
+            // "queried live and silently timed out," making its per-pair
+            // outcome undiagnosable from the log alone. Same level/shape as
+            // the HTTP-error branch's warning, just without an exception to
+            // attach (a timeout is expected/swallowed here, not exceptional).
+            _logger.LogWarning(
+                "Wikidata {QueryKind} SPARQL query timed out after {TimeoutSeconds:0}s for {QidA}/{QidB}; treating as no match.",
+                queryKind, _queryTimeout.TotalSeconds, qidA, qidB);
+
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
