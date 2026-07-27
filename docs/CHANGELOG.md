@@ -14,7 +14,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-07-27 — `docs/architecture-document.md` (0.58 → 0.59),
-  `docs/requirements-document.md` (REQ-410, 1.13 → 1.14) — implemented
+  `docs/requirements-document.md` (REQ-410, 1.13 → 1.14),
+  `docs/implementation-document.md` (0.73 → 0.74) — implemented
   S-078 (ADR-0043): `ILeaderboardService.GetGlobalLeaderboardAsync` and
   `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` gained a
   required `gameKey` parameter, filtering the latter's existing
