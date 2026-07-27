@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/architecture-document.md` (0.59 → 0.60),
+  `docs/implementation-document.md` (0.74 → 0.75) — implemented S-079
+  (ADR-0042, already accepted; no change to the ADR itself): a new
+  `PlayerCareerStint` entity (COMP-06, alongside `PlayerAttribute`/
+  `PlayerAlias`/`PlayerOverride` in `XGArcade.Data`), a migration, and two
+  new `IPlayerStoreRepository` methods (`GetCareerStintsAsync`/
+  `AddCareerStintsAsync`). `WikidataClient`'s shared SPARQL query-building
+  helper now also captures P580/P582/P1350 statement qualifiers
+  (start year/end year/appearance count) already present on the existing
+  P54 club-membership statement — no new SPARQL query shape, no new
+  external call. `SequenceOrder` is resolved at write time across a
+  player's full stint set (existing rows plus newly discovered ones), so a
+  stint found later that chronologically precedes existing ones re-numbers
+  the whole sequence; `AppearanceCount` is `null`, never `0`, when
+  Wikidata's P1350 qualifier isn't present. Persisted only by
+  `WikidataLookupService.LookupAndPersistAsync` (the country/nationality x
+  club path) — a deliberate scope limit, not an oversight: the other three
+  `Lookup*Async` callers (club-club, trophy-country, trophy-club)
+  deliberately do not populate this table yet, extending that is a
+  separate future decision. No consumer yet — S-081 is the first reader;
+  this story is backend data-model plumbing only. `requirements-document.md`
+  §4.12 (REQ-1201-REQ-1206) is unchanged — those describe xG Path's
+  gameplay behavior, none of which this story implements, so their
+  "Not started (design only)" status is still accurate.
 - 2026-07-27 — `docs/architecture-document.md` (0.58 → 0.59),
   `docs/requirements-document.md` (REQ-410, 1.13 → 1.14),
   `docs/implementation-document.md` (0.73 → 0.74) — implemented
