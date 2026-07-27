@@ -73,6 +73,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   on `XGPathGameModuleTests` (same scope-note precedent S-079's own
   CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
   insufficient-pool/unknown-template/cell-id-lookup behavior.
+- 2026-07-27 — `docs/design-document.md` (0.54 → 0.55) — SCREEN-02's
+  autocomplete answer-leak fix: `nationality` removed from
+  `PlayerAutocompleteSuggestion`/`GET /players/autocomplete` (backend) and
+  from `GuessInput.tsx`'s suggestion caption line (frontend) — showing it
+  told the player which suggestions matched the target nationality before
+  they guessed, for nationality-based categories (e.g. Country × Club).
+  Only `birthYear` remains in the caption, since it isn't itself a
+  category and doesn't leak an answer. REQ-207/ADR-0007.
 - 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
   §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
   `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews

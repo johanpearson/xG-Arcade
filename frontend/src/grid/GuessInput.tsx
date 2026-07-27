@@ -320,9 +320,9 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
                     onClick={() => selectSuggestion(suggestion)}
                   >
                     <span className="guess-input__suggestion-name">{suggestion.name}</span>
-                    {(suggestion.nationality || suggestion.birthYear) && (
+                    {suggestion.birthYear && (
                       <span className="guess-input__suggestion-meta">
-                        {[suggestion.nationality, suggestion.birthYear].filter(Boolean).join(' · ')}
+                        {[suggestion.birthYear].filter(Boolean).join(' · ')}
                       </span>
                     )}
                   </li>

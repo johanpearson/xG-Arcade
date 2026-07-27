@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuessInput } from './GuessInput';
@@ -128,7 +128,7 @@ describe('GuessInput', () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation(() =>
       jsonResponse([
-        { playerId: 'p1', name: 'Thierry Henry', birthYear: 1977, nationality: 'France' },
+        { playerId: 'p1', name: 'Thierry Henry', birthYear: 1977 },
         { playerId: 'p2', name: 'Theo Hernandez' },
       ]),
     );
@@ -145,10 +145,16 @@ describe('GuessInput', () => {
     await vi.advanceTimersByTimeAsync(500);
 
     await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
-    expect(screen.getByText('Thierry Henry')).toBeInTheDocument();
-    expect(screen.getByText('Theo Hernandez')).toBeInTheDocument();
-    // Disambiguation context is shown, but never anything implying validity.
-    expect(screen.getByText('France · 1977')).toBeInTheDocument();
+    const list = within(screen.getByRole('listbox'));
+    expect(list.getByText('Thierry Henry')).toBeInTheDocument();
+    expect(list.getByText('Theo Hernandez')).toBeInTheDocument();
+    // Disambiguation context (birthYear) is shown, but never anything
+    // implying validity — and never nationality, since that leaks the
+    // answer for nationality-based categories (REQ-207/ADR-0007). Scoped to
+    // the suggestion list itself, since the cell's own category header
+    // (unrelated to this suggestion) legitimately shows "France" too.
+    expect(list.getByText('1977')).toBeInTheDocument();
+    expect(list.queryByText(/France/)).not.toBeInTheDocument();
   });
 
   it('REQ207_debouncesRapidTyping: waits for a pause in typing before firing a single suggestions request, not one per keystroke', async () => {
@@ -185,7 +191,7 @@ describe('GuessInput', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(() =>
-        jsonResponse([{ playerId: 'p1', name: 'Thierry Henry', nationality: 'France' }]),
+        jsonResponse([{ playerId: 'p1', name: 'Thierry Henry', birthYear: 1977 }]),
       ),
     );
 

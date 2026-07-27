@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.54"
+version: "0.55"
 status: draft
-last_updated: 2026-07-26
+last_updated: 2026-07-27
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -955,10 +955,22 @@ from v0.1, recolored for the light theme:
 
 **S-032 implementation note:** shipped without the photo/silhouette avatar
 described above — the `PlayerNameIndex`-backed contract this story builds
-against (ADR-0007) carries `name`/`birthYear`/`nationality` only, no photo
-field, so each suggestion row instead shows the name plus an optional
-`nationality · birthYear` caption line in `text-muted` for disambiguation.
-Avatar support stays an open item if/when the index gains a photo field.
+against (ADR-0007) carries `name`/`birthYear` only, no photo field, so each
+suggestion row instead shows the name plus an optional `birthYear` caption
+line in `text-muted` for disambiguation. Avatar support stays an open item
+if/when the index gains a photo field.
+
+**Nationality removed from the autocomplete contract (post-S-032 fix):**
+suggestion rows originally also carried `nationality`, shown alongside
+`birthYear` in the same caption line. That leaked the answer for
+nationality-based categories (e.g. Country × Club) — seeing which
+suggestions carried the target nationality told the player who was
+eligible before they'd even guessed, violating REQ-207/ADR-0007's "implies
+nothing about correctness" rule. `nationality` was removed entirely from
+`GET /players/autocomplete`'s response and from the suggestion row; only
+`birthYear` remains, since it doesn't align with any xG Grid category and
+so can't leak an answer the same way. If a future category is ever
+birth-year-based, this caption would need the same treatment.
 Judgment calls made without an existing spec to follow, recorded here
 rather than left as unreviewed implementation-only detail:
 - Suggestions list uses only neutral tokens — `surface-card` background,
