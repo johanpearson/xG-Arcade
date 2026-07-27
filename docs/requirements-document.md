@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.14"
+version: "1.15"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -5026,7 +5026,26 @@ not a claim about current behavior.
 > valid, revealable sequence of clues rather than one that runs out of
 > content partway through.
 
-- **Status: Not started (design only).**
+- **Status: Implemented (Tier 0, S-081, ADR-0045).** `XGPathGameModule.
+  GenerateInstanceAsync` (`XGArcade.Games.XGPath`) reads every player's
+  full `PlayerCareerStint` set in bulk
+  (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`) and applies
+  `IsEligible` per candidate. "At least 3 distinct documented career club
+  stints" is implemented as **≥3 stint rows**, not 3 distinct clubs — see
+  ADR-0045 for why (`PlayerCareerStint`'s own doc comment explicitly allows
+  two rows at the same club, e.g. a loan then a later return). "Chronological
+  order determinable from start/end dates" is implemented as: reject if any
+  two stints share an identical `(StartYear, EndYear)` pair, including two
+  simultaneously "ongoing" stints (`EndYear` both `null`) — see ADR-0045.
+  The "at least one seeded-club stint" check compares `PlayerCareerStint.
+  ClubName` against `ICategoryValueRepository.GetClubsAsync` (`ClubDefinition.
+  Name`), the same reference table GridGameModule already reads (REQ-109) —
+  never a second path to `ClubDefinition`. The REQ-112 pool-membership
+  criterion is met **by construction, not by a runtime check**: `Player` has
+  no `BirthYear`/`Gender` field at all — the restriction is enforced entirely
+  upstream at Wikidata-query time (ADR-0025), the same reasoning
+  `GridGameModule` already relies on for not re-checking this at runtime
+  either.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -5043,13 +5062,26 @@ not a claim about current behavior.
 
 **Test level:** Unit (eligibility check accepts/rejects fixtures covering
 each rule independently — fewer than 3 stints, an undeterminable stint
-order, no stint at a seeded club, a player outside REQ-112's pool)
+order, no stint at a seeded club, a player outside REQ-112's pool — the
+last of these confirmed by inspection/schema absence rather than a runtime
+fixture, since `Player` has no field that could represent "outside the
+pool"; see `XGPathGameModuleTests`'s own class doc comment)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number
 > of puzzles, so a round is a bounded, comparable challenge every time.
 
-- **Status: Not started (design only).**
+- **Status: Implemented (Tier 0, S-081).** `PathTemplate.PuzzleCount` is
+  `GenerateInstanceAsync`'s N (3-5) — no seeding/admin surface yet (round-
+  scheduling wiring for `"xg-path"` is S-084). `PickDistinct` selects N
+  eligible players uniformly at random, without replacement, persisting one
+  `PathPuzzle` per selected target inside a new `PathInstance`; an eligible
+  pool smaller than N throws `PathGenerationException` rather than
+  generating fewer puzzles. `PathPuzzle.Id` is the cell id
+  `GetCellIdsAsync` returns. `Round.GameKey`/`GameInstanceId` wiring is
+  unchanged — no new Core-side reference (ADR-0003 unaffected).
+  `ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync` (REQ-1204/1205) still
+  throw `NotImplementedException` — that's S-082.
 - Given an xG Path round is generated with a configured puzzle count N
   (3-5, configurable — the same spirit as REQ-102's configurable grid size)
 - When the round instance is created
@@ -5062,7 +5094,8 @@ order, no stint at a seeded club, a player outside REQ-112's pool)
   pair, unchanged from how xG Grid does this today; this REQ does not
   change how `Round` references any game instance
 
-**Test level:** Unit, API
+**Test level:** Unit, API (Unit built S-081 via `XGPathGameModuleTests`; no
+API route exposes this game yet — that's S-084)
 
 **REQ-1203 – Clue reveal order and content**
 > As a player, I want clues about the target player's career revealed one

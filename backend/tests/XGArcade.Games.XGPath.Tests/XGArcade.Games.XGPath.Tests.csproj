@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="10.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="NUnit" Version="4.6.1" />
     <PackageReference Include="NUnit.Analyzers" Version="4.14.0" />
@@ -22,6 +23,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\XGArcade.Games.XGPath\XGArcade.Games.XGPath.csproj" />
+    <!-- REQ-1201/1202 tests exercise XGPathGameModule against the real,
+         InMemory-backed repositories (this codebase's no-mocking-framework
+         pattern — see WikidataLookupServiceTests/GridGameModuleTests)
+         rather than hand-rolled repository fakes, so a direct reference to
+         XGArcade.Data's DbContext and repository implementations is needed
+         here, not just the transitive one XGArcade.Games.XGPath already
+         carries. -->
+    <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
   </ItemGroup>
 
 </Project>

@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.14 → 1.15),
+  `docs/architecture-document.md` (0.61 → 0.62),
+  `docs/implementation-document.md` (0.76 → 0.77), `docs/decisions/0045-xg-
+  path-puzzle-generation-model-and-eligibility.md` (new) — implemented
+  S-081 (REQ-1201/1202): `XGPathGameModule.GenerateInstanceAsync`/
+  `GetCellIdsAsync` (`XGArcade.Games.XGPath`) now do real work instead of
+  throwing `NotImplementedException`. New entities `PathTemplate`/
+  `PathInstance`/`PathPuzzle` (`XGArcade.Data`, migration
+  `20260727130000_AddPathInstance`) mirror `GridTemplate`/`GridInstance`/
+  `GridCell`'s shape; unlike `GridCell`, `PathPuzzle.TargetPlayerId` is a
+  real FK into `Player` — see ADR-0045 for why this doesn't cross
+  ADR-0003's Core/game boundary. New repository `IPathInstanceRepository`/
+  `PathInstanceRepository` (COMP-11's own persistence) and a new
+  `IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync` bulk read
+  (COMP-06) — the only new cross-component call, same "tolerate a
+  full-table-scale read at Tier 0's player-pool size" precedent
+  `GetPlayersMissingPhotoAsync` already sets. REQ-1201's eligibility check
+  reads two of its acceptance-criteria phrases in specific, documented ways
+  (ADR-0045): "≥3 distinct stints" as ≥3 stint *rows*, not 3 distinct
+  clubs; "chronological order determinable from start/end dates" as
+  rejecting any candidate with two stints sharing an identical
+  `(StartYear, EndYear)` pair (including two simultaneously "ongoing"
+  stints). REQ-112 pool membership is verified by construction (`Player`
+  has no `BirthYear`/`Gender` field), not a runtime check — same precedent
+  `GridGameModule` already established. `ScoreSubmissionAsync`/
+  `GetMaxAttemptsForCellAsync` (REQ-1204/1205) are untouched, still
+  throwing `NotImplementedException` — that's S-082. New
+  `XGPathGameModuleTests` (NUnit, real InMemory-backed repositories, no
+  fakes, same pattern as `GridGameModuleTests`) covers REQ-1201's four
+  independent rejection rules plus a positive "3 stints at the same club is
+  still eligible" control, and REQ-1202's exactly-N/insufficient-pool/
+  unknown-template/cell-id-lookup behavior.
 - 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
   §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
   `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews

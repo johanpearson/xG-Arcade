@@ -34,6 +34,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridTemplate> GridTemplates => Set<GridTemplate>();
     public DbSet<GridInstance> GridInstances => Set<GridInstance>();
     public DbSet<GridCell> GridCells => Set<GridCell>();
+    // COMP-11 (Games.XGPath) — S-081's puzzle generation. Same
+    // Template/Instance/Cell-equivalent shape as Games.XGGrid's own three
+    // entities above.
+    public DbSet<PathTemplate> PathTemplates => Set<PathTemplate>();
+    public DbSet<PathInstance> PathInstances => Set<PathInstance>();
+    public DbSet<PathPuzzle> PathPuzzles => Set<PathPuzzle>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -179,6 +185,34 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // cells at the same coordinates within one instance.
         modelBuilder.Entity<GridCell>()
             .HasIndex(gc => new { gc.GridInstanceId, gc.Row, gc.Col })
+            .IsUnique();
+
+        // PathPuzzle/PathInstance are Games.XGPath's (COMP-11) own entities
+        // — same normal owned-collection FK as GridCell/GridInstance above,
+        // no ADR-0003 boundary concern (that ADR is specifically about
+        // Round/Core never holding a game-specific FK).
+        modelBuilder.Entity<PathPuzzle>()
+            .HasOne<PathInstance>()
+            .WithMany(pi => pi.Puzzles)
+            .HasForeignKey(pp => pp.PathInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // PathPuzzle.TargetPlayerId crosses into Player's table (COMP-06) —
+        // see PathPuzzle's own doc comment for why this FK is meaningful
+        // here (unlike GridCell, which has no single fixed per-cell answer).
+        // Cascade mirrors every other Player-referencing FK above; there is
+        // no player-row-deletion pathway in the codebase today.
+        modelBuilder.Entity<PathPuzzle>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pp => pp.TargetPlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1202: "no two puzzles in the same round instance target the
+        // same player" — enforced at the DB level, same precedent as
+        // GridCell's (GridInstanceId, Row, Col) unique index above.
+        modelBuilder.Entity<PathPuzzle>()
+            .HasIndex(pp => new { pp.PathInstanceId, pp.TargetPlayerId })
             .IsUnique();
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on

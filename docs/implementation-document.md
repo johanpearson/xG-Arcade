@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.76"
+version: "0.77"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -210,10 +210,11 @@ misconfigured per-endpoint. See ADR-0006.
     /XGArcade.Api              -> Controllers, DTOs, Program.cs
     /XGArcade.Core             -> User, League, Round, Scoring, Notifications (shared domain)
     /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator
-    /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11, S-080: scaffold
-                                   only, every IGameModule method throws
-                                   NotImplementedException — real puzzle
-                                   generation/clue reveal/scoring is S-081+)
+    /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11). S-081 built
+                                   GenerateInstanceAsync/GetCellIdsAsync
+                                   (REQ-1201/1202, ADR-0045); ScoreSubmissionAsync/
+                                   GetMaxAttemptsForCellAsync (REQ-1204/1205)
+                                   still throw NotImplementedException — S-082
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -226,9 +227,11 @@ misconfigured per-endpoint. See ADR-0006.
   /tests
     /XGArcade.Core.Tests       -> NUnit unit tests (scoring, override merge)
     /XGArcade.Games.XGGrid.Tests -> NUnit unit tests (grid generation, validation)
-    /XGArcade.Games.XGPath.Tests -> NUnit unit tests (S-080: scaffold
-                                   verification only — GameKey, every stub
-                                   throws NotImplementedException)
+    /XGArcade.Games.XGPath.Tests -> NUnit unit tests. S-081 added real
+                                   REQ1201-/REQ1202-named tests against
+                                   InMemory-backed repositories (no fakes,
+                                   same pattern as GridGameModule.Tests);
+                                   GameKey/remaining-stub tests are unchanged
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP)
     /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
@@ -578,6 +581,39 @@ public class GridCell
     public string ColCategoryValue { get; set; }
 }
 
+// --- xG Path game entities (owned by Games.XGPath, COMP-11) ---
+// Built S-081 (REQ-1201/1202, ADR-0045). Same "conceptually owned by the
+// game module, physically defined in XGArcade.Data" note as the xG Grid
+// entities above (ADR-0014).
+//
+// Unlike GridCell, PathPuzzle.TargetPlayerId IS a real foreign key into
+// Player (COMP-06) — an xG Path puzzle has exactly one correct answer,
+// fixed at generation time, unlike a GridCell's dynamically-checked
+// category pair. This crosses from Games.XGPath into Player's table but is
+// NOT the boundary ADR-0003 protects (that ADR is specifically about
+// Round/Core never holding a game-specific FK) — see ADR-0045.
+
+public class PathTemplate
+{
+    public Guid Id { get; set; }
+    public int PuzzleCount { get; set; }      // 3-5 (REQ-1202)
+}
+
+public class PathInstance
+{
+    public Guid Id { get; set; }              // this is the value stored as Round.GameInstanceId
+    public Guid TemplateId { get; set; }
+    public List<PathPuzzle> Puzzles { get; set; }
+}
+
+public class PathPuzzle
+{
+    public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
+    public Guid PathInstanceId { get; set; }
+    public Guid TargetPlayerId { get; set; }  // FK to Player — see this section's own note above
+    // No clue/reveal fields yet — that's REQ-1203/S-082.
+}
+
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
 // Game-agnostic. Round deliberately holds no foreign key to GridInstance or
 // any other game-specific table — see ADR-0003. Like User below and the xG
@@ -732,6 +768,7 @@ public class LeagueMembership
 | `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
 | `PlayerCareerStint` | `(PlayerId)` | Built S-079 (ADR-0042): the "all of this player's stints" hot-path query every future reader (xG Path's puzzle generation, S-081+) needs |
+| `PathPuzzle` | `(PathInstanceId, TargetPlayerId)` unique | Built S-081 (REQ-1202): "no two puzzles in the same round instance target the same player," enforced at the DB level — same precedent as `GridCell`'s `(GridInstanceId, Row, Col)` unique index |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
 | `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
 | `PlayerNameIndexWord` | `(Word)`, plus `(PlayerId, Word)` composite primary key | Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per space-separated word in `PlayerNameIndex.NormalizedName`, cascade-deleted from `PlayerNameIndexEntries`. Lets `SearchByPrefixAsync` also match a surname-only query as a genuine, index-backed `StartsWith` on `Word`, instead of a leading-wildcard/`Contains()` scan against `NormalizedName` that couldn't use a B-tree index at this table's bulk-imported scale. `PlayerNameIndexRepository.UpsertManyAsync` reconciles each player's word rows in place on every re-import |

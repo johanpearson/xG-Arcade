@@ -378,4 +378,14 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         // ExecuteUpdateAsync (the InMemory test provider can't translate it).
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var stints = await dbContext.PlayerCareerStints.AsNoTracking().ToListAsync(cancellationToken);
+
+        return stints
+            .GroupBy(s => s.PlayerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerCareerStint>)g.ToList());
+    }
 }

@@ -554,12 +554,16 @@ builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 builder.Services.AddSingleton(new GridGenerationOptions());
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
-// COMP-11 (Games.XGPath) — S-080's module scaffold. Registered here so
-// IGameModuleResolver.Resolve("xg-path") returns a real module, same as
-// xG Grid above — but every IGameModule method on this one still throws
-// NotImplementedException (S-081+ builds the real logic). Deliberately no
+// COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202).
+// Registered here so IGameModuleResolver.Resolve("xg-path") returns a real
+// module, same as xG Grid above. ScoreSubmissionAsync/
+// GetMaxAttemptsForCellAsync still throw NotImplementedException (REQ-1204/
+// REQ-1205 — S-082 builds the real logic). Deliberately no
 // IScoringStrategy registration for "xg-path" yet (that's
-// ClueEfficiencyScoringStrategy, S-083) and no route exposes this game.
+// ClueEfficiencyScoringStrategy, S-083), no RoundSchedulingOptions
+// registration, and no route exposes this game (round-scheduling wiring is
+// S-084).
+builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
