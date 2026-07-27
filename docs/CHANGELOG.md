@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
+  §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
+  `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews
+  below didn't catch, found by `doc-sync`) — no other content change.
+- 2026-07-27 — `docs/architecture-document.md` (0.60 → 0.61) — S-080
+  scaffolded `XGArcade.Games.XGPath`: a new `XGArcade.Games.XGPath` project
+  (plus `XGArcade.Games.XGPath.Tests`) implementing `IGameModule`
+  (`GameKey = "xg-path"`), added to `backend/XGArcade.sln` and registered
+  in `Program.cs` (`AddScoped<IGameModule, XGPathGameModule>()`) alongside
+  the existing `GridGameModule` registration, so `IGameModuleResolver`
+  now resolves two implementations by `GameKey`. Every `IGameModule`
+  method (`GenerateInstanceAsync`, `ScoreSubmissionAsync`,
+  `GetCellIdsAsync`, `GetMaxAttemptsForCellAsync`) throws
+  `NotImplementedException` — no puzzle-generation or scoring logic yet;
+  that's S-081+. No `IScoringStrategy` is registered for `"xg-path"` and
+  no route exposes this game. This is the second `IGameModule`
+  implementation to exist, so it's also the first real exercise of
+  ADR-0003's stated follow-up ("when a second game module is actually
+  built, use it to verify this pattern holds") — it held: `Core.Rounds`
+  needed no change. The one incidental fix this forced:
+  `InternalGridEndpoints.cs`'s `/internal/grid/generate` endpoint took a
+  raw `IGameModule` by DI, which is only safe with exactly one
+  implementation registered — with two, ASP.NET Core resolves whichever
+  was registered last, an implementation detail rather than a documented
+  guarantee, silently pointing this xG-Grid-only debug endpoint at the
+  wrong module. Switched to `IGameModuleResolver.Resolve(GridGameModule.XGGridGameKey)`,
+  matching the pattern every other caller already uses. No new ADR: this
+  is a straight application of ADR-0002 (modular monolith, one project per
+  game) and ADR-0003 (generic `GameKey`/`GameInstanceId` reference), not a
+  new structural decision. `docs/requirements-document.md` REQ-1201–REQ-1206
+  are unchanged (still "Not started (design only)") — this story is
+  scaffold-only, no gameplay behavior was implemented.
 - 2026-07-27 — `docs/architecture-document.md` (0.59 → 0.60),
   `docs/implementation-document.md` (0.74 → 0.75) — implemented S-079
   (ADR-0042, already accepted; no change to the ADR itself): a new

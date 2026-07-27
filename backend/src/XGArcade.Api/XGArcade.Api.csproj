@@ -10,6 +10,7 @@
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
     <ProjectReference Include="..\XGArcade.Games.XGGrid\XGArcade.Games.XGGrid.csproj" />
+    <ProjectReference Include="..\XGArcade.Games.XGPath\XGArcade.Games.XGPath.csproj" />
     <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 

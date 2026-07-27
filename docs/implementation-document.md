@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.75"
+version: "0.76"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -210,6 +210,10 @@ misconfigured per-endpoint. See ADR-0006.
     /XGArcade.Api              -> Controllers, DTOs, Program.cs
     /XGArcade.Core             -> User, League, Round, Scoring, Notifications (shared domain)
     /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator
+    /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11, S-080: scaffold
+                                   only, every IGameModule method throws
+                                   NotImplementedException — real puzzle
+                                   generation/clue reveal/scoring is S-081+)
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -222,6 +226,9 @@ misconfigured per-endpoint. See ADR-0006.
   /tests
     /XGArcade.Core.Tests       -> NUnit unit tests (scoring, override merge)
     /XGArcade.Games.XGGrid.Tests -> NUnit unit tests (grid generation, validation)
+    /XGArcade.Games.XGPath.Tests -> NUnit unit tests (S-080: scaffold
+                                   verification only — GameKey, every stub
+                                   throws NotImplementedException)
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP)
     /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
