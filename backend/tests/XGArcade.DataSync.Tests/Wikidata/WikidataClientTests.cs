@@ -248,7 +248,7 @@ public class WikidataClientTests
     // data model story.
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
+    public async Task QueryCountryClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -263,7 +263,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_ParsesCareerStint_WhenStartAndEndTimeAndAppearanceCountPresent()
+    public async Task QueryCountryClubIntersectionAsync_ParsesCareerStint_WhenStartAndEndTimeAndAppearanceCountPresent()
     {
         const string json = """
             {
@@ -292,7 +292,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_CareerStintAppearanceCountIsNull_WhenP1350Absent()
+    public async Task QueryCountryClubIntersectionAsync_CareerStintAppearanceCountIsNull_WhenP1350Absent()
     {
         // Wikidata's P1350 coverage is inconsistent — a stint with a known
         // date range but no recorded appearance count must get null, never
@@ -321,7 +321,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_CareerStintEndYearIsNull_WhenOngoing()
+    public async Task QueryCountryClubIntersectionAsync_CareerStintEndYearIsNull_WhenOngoing()
     {
         const string json = """
             {
@@ -347,7 +347,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_NoCareerStint_WhenStartTimeAbsent()
+    public async Task QueryCountryClubIntersectionAsync_NoCareerStint_WhenStartTimeAbsent()
     {
         // A row with none of the three qualifiers bound carries zero
         // information — must not fabricate a stint (StartYear is
@@ -370,7 +370,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_DedupesDuplicateCareerStintTuplesAcrossMultipleRows()
+    public async Task QueryCountryClubIntersectionAsync_DedupesDuplicateCareerStintTuplesAcrossMultipleRows()
     {
         // SPARQL's OPTIONAL semantics mean a player with N aliases and M
         // distinct qualifier combinations can produce up to N×M rows —
@@ -404,7 +404,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryCountryClubIntersectionAsync_TwoDistinctCareerStints_BothParsed()
+    public async Task QueryCountryClubIntersectionAsync_TwoDistinctCareerStints_BothParsed()
     {
         // Two genuinely different stints (e.g. a loan, then a permanent
         // return) — must NOT collapse, since their tuples differ.
@@ -435,7 +435,7 @@ public class WikidataClientTests
     }
 
     [Test]
-    public async Task S079_QueryClubClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
     {
         // Present in the shared query text (BuildIntersectionQuery's
         // footer), but structurally never binds for this query shape — see

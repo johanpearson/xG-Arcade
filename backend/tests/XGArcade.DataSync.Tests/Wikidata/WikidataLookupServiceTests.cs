@@ -420,7 +420,7 @@ public class WikidataLookupServiceTests
     // Lookup*Async callers.
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_HitWithCareerStintQualifiers_PersistsOneOrderedPlayerCareerStintRow()
+    public async Task REQ103_LookupAndPersistAsync_HitWithCareerStintQualifiers_PersistsOneOrderedPlayerCareerStintRow()
     {
         var service = BuildService(SingleHenryMatchWithCareerStintJson);
 
@@ -445,7 +445,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_CareerStintMissingP1350_AppearanceCountIsNullNeverZero()
+    public async Task REQ103_LookupAndPersistAsync_CareerStintMissingP1350_AppearanceCountIsNullNeverZero()
     {
         var service = BuildService(SingleHenryMatchWithCareerStintNoAppearanceCountJson);
 
@@ -457,7 +457,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_HitWithNoCareerStintQualifiers_PersistsNoPlayerCareerStintRow()
+    public async Task REQ103_LookupAndPersistAsync_HitWithNoCareerStintQualifiers_PersistsNoPlayerCareerStintRow()
     {
         // SingleHenryMatchJson has no startTime/endTime/numberOfMatches
         // bindings at all — the normal "this Wikidata statement has no
@@ -471,7 +471,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_SequenceOrderReflectsChronologicalOrder_RegardlessOfResponseRowOrder()
+    public async Task REQ103_LookupAndPersistAsync_SequenceOrderReflectsChronologicalOrder_RegardlessOfResponseRowOrder()
     {
         // TwoCareerStintsOutOfResponseOrderJson returns the LATER stint
         // (2012-2014) as the first binding row and the EARLIER stint
@@ -494,7 +494,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_ReRunningSameQuery_CreatesZeroDuplicateCareerStintRows()
+    public async Task REQ103_LookupAndPersistAsync_ReRunningSameQuery_CreatesZeroDuplicateCareerStintRows()
     {
         var service = BuildService(SingleHenryMatchWithCareerStintJson);
 
@@ -507,7 +507,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistAsync_PlayerGainsChronologicallyEarlierStintLater_ResequencesWholeSet()
+    public async Task REQ103_LookupAndPersistAsync_PlayerGainsChronologicallyEarlierStintLater_ResequencesWholeSet()
     {
         // First cell (France x Arsenal) discovers the 2010-2015 stint;
         // second cell (France x Barcelona) later discovers a chronologically
@@ -540,7 +540,7 @@ public class WikidataLookupServiceTests
     }
 
     [Test]
-    public async Task S079_LookupAndPersistClubClubAsync_DoesNotPersistPlayerCareerStint()
+    public async Task REQ103_LookupAndPersistClubClubAsync_DoesNotPersistPlayerCareerStint()
     {
         // Scope decision (ADR-0042/S-079): only the country/nationality x
         // club path persists career stints in this story.
@@ -1003,5 +1003,26 @@ public class WikidataLookupServiceTests
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ADR-0042/S-079 scope decision: unlike LookupAndPersistClubClubAsync/
+    // LookupAndPersistTrophyCountryAsync (where match.CareerStints can never
+    // be non-empty — their query shapes structurally never bind the shared
+    // ?clubStatement variable the qualifier OPTIONALs key off), this query
+    // DOES share that variable name (BuildTrophyClubIntersectionQuery), so
+    // match.CareerStints CAN be genuinely non-empty here. Uses
+    // SingleHenryMatchWithCareerStintJson (real P580/P582/P1350 bindings) —
+    // not SingleHenryMatchJson — specifically so this proves the qualifier
+    // data was available and still deliberately not written, rather than
+    // passing vacuously because there was nothing to persist either way.
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_DoesNotPersistPlayerCareerStint_EvenWhenCareerStintQualifiersAreBound()
+    {
+        var service = BuildService(SingleHenryMatchWithCareerStintJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == player.Id), Is.EqualTo(0));
     }
 }

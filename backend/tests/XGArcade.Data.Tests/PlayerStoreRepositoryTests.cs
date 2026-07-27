@@ -645,7 +645,7 @@ public class PlayerStoreRepositoryTests
     // ---- ADR-0042/S-079: PlayerCareerStint (GetCareerStintsAsync/AddCareerStintsAsync) ----
 
     [Test]
-    public async Task S079_AddCareerStintsAsync_ThenGetCareerStintsAsync_ReturnsAddedStints()
+    public async Task AddCareerStintsAsync_ThenGetCareerStintsAsync_ReturnsAddedStints()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         await _repository.AddPlayerAsync(player);
@@ -662,7 +662,7 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
-    public async Task S079_AddCareerStintsAsync_ResequencesExistingStints_WhenNewStintIsChronologicallyEarlier()
+    public async Task AddCareerStintsAsync_ResequencesExistingStints_WhenNewStintIsChronologicallyEarlier()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         await _repository.AddPlayerAsync(player);
@@ -685,7 +685,7 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
-    public async Task S079_AddCareerStintsAsync_OngoingStint_SortsLastAmongStintsSharingTheSameStartYear()
+    public async Task AddCareerStintsAsync_OngoingStint_SortsLastAmongStintsSharingTheSameStartYear()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         await _repository.AddPlayerAsync(player);
@@ -702,13 +702,13 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
-    public void S079_AddCareerStintsAsync_EmptyNewStintsList_DoesNotThrow()
+    public void AddCareerStintsAsync_EmptyNewStintsList_DoesNotThrow()
     {
         Assert.DoesNotThrowAsync(() => _repository.AddCareerStintsAsync(Guid.NewGuid(), []));
     }
 
     [Test]
-    public async Task S079_GetCareerStintsAsync_ReturnsEmpty_WhenPlayerHasNoStints()
+    public async Task GetCareerStintsAsync_ReturnsEmpty_WhenPlayerHasNoStints()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         await _repository.AddPlayerAsync(player);
