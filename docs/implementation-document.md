@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.74"
+version: "0.75"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -365,6 +365,44 @@ public class PlayerAttribute      // effective, denormalized for fast querying
     public string AttributeValue { get; set; }
 }
 
+// Built S-079 (ADR-0042), COMP-06, alongside PlayerAttribute above — xG
+// Path's (COMP-11, REQ-1201-REQ-1206) ordered, dated career-stint log.
+// Structurally different from PlayerAttribute's flat membership set: a
+// surrogate Id primary key (not a natural composite key), because this is
+// an ordered, potentially-repeating log — a player can have two separate
+// stints at the same club (e.g. a loan, then a later permanent return),
+// which must be two distinct rows.
+//
+// Populated only by WikidataLookupService.LookupAndPersistAsync (the
+// country/nationality x club path) from the P580/P582/P1350 qualifiers on
+// the same P54 club-membership statement PlayerAttribute's "club" rows
+// already come from — alongside those rows, never instead of them. The
+// other three Lookup*Async callers (club-club, trophy-country, trophy-club)
+// deliberately do not populate this table as of S-079; extending that is a
+// separate future decision, not assumed here.
+//
+// xG Grid's correctness-checking path (HasEffectiveAttributeAsync or
+// anything upstream of it) must never read this table. Only xG Path's
+// puzzle generation/clue-reveal reads it, and never reads PlayerAttribute
+// for club data — see ADR-0042's "For AI agents" section.
+public class PlayerCareerStint
+{
+    public Guid Id { get; set; }
+    public Guid PlayerId { get; set; }
+    public string ClubName { get; set; }
+    public int StartYear { get; set; }
+    public int? EndYear { get; set; }        // null = an ongoing stint (no P582 qualifier yet)
+    // Chronological position (0-based) among this player's FULL stint set,
+    // resolved at write time by IPlayerStoreRepository.AddCareerStintsAsync
+    // — re-numbered across every row for the player (existing and
+    // newly-added) whenever a new stint is persisted, not just the new ones.
+    public int SequenceOrder { get; set; }
+    // Null, NEVER 0, when Wikidata's P1350 qualifier isn't present for this
+    // statement — REQ-1201-REQ-1206 renders this as "count unknown," which a
+    // placeholder 0 would misleadingly contradict.
+    public int? AppearanceCount { get; set; }
+}
+
 // Broad, bulk-imported, deliberately separate from PlayerAttribute above —
 // see ADR-0007. Used ONLY for autocomplete and name matching, NEVER for
 // correctness-checking. Refreshed periodically as a whole, not built
@@ -686,6 +724,7 @@ public class LeagueMembership
 | `LeagueMembership` | `(LeagueId, UserId)` composite/unique (also the primary key) | Leaderboard queries filter by league; also enforces no duplicate membership |
 | `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
+| `PlayerCareerStint` | `(PlayerId)` | Built S-079 (ADR-0042): the "all of this player's stints" hot-path query every future reader (xG Path's puzzle generation, S-081+) needs |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
 | `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
 | `PlayerNameIndexWord` | `(Word)`, plus `(PlayerId, Word)` composite primary key | Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per space-separated word in `PlayerNameIndex.NormalizedName`, cascade-deleted from `PlayerNameIndexEntries`. Lets `SearchByPrefixAsync` also match a surname-only query as a genuine, index-backed `StartsWith` on `Word`, instead of a leading-wildcard/`Contains()` scan against `NormalizedName` that couldn't use a B-tree index at this table's bulk-imported scale. `PlayerNameIndexRepository.UpsertManyAsync` reconciles each player's word rows in place on every re-import |

@@ -243,6 +243,214 @@ public class WikidataClientTests
             "P18 must be OPTIONAL, same as alias — a player with no photo must still match the rest of the query");
     }
 
+    // ---- ADR-0042/S-079: P580/P582/P1350 qualifiers on ?clubStatement, ----
+    // carried through the same intersection query — the "PlayerCareerStint"
+    // data model story.
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?clubStatement pq:P580 ?startTime. }"));
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?clubStatement pq:P582 ?endTime. }"));
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }"),
+            "all three qualifiers must be OPTIONAL — a stint with no P1350 (or even no P580/P582) must still match the rest of the query");
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ParsesCareerStint_WhenStartAndEndTimeAndAppearanceCountPresent()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" },
+                    "numberOfMatches": { "type": "literal", "value": "254" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints[0].StartYear, Is.EqualTo(1999));
+        Assert.That(result[0].CareerStints[0].EndYear, Is.EqualTo(2007));
+        Assert.That(result[0].CareerStints[0].AppearanceCount, Is.EqualTo(254));
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_CareerStintAppearanceCountIsNull_WhenP1350Absent()
+    {
+        // Wikidata's P1350 coverage is inconsistent — a stint with a known
+        // date range but no recorded appearance count must get null, never
+        // a placeholder 0 (ADR-0042).
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints[0].AppearanceCount, Is.Null);
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_CareerStintEndYearIsNull_WhenOngoing()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" },
+                    "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "startTime": { "type": "literal", "value": "2021-01-01T00:00:00Z" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints[0].StartYear, Is.EqualTo(2021));
+        Assert.That(result[0].CareerStints[0].EndYear, Is.Null);
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_NoCareerStint_WhenStartTimeAbsent()
+    {
+        // A row with none of the three qualifiers bound carries zero
+        // information — must not fabricate a stint (StartYear is
+        // non-nullable on the entity, so there is nothing valid to write).
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_DedupesDuplicateCareerStintTuplesAcrossMultipleRows()
+    {
+        // SPARQL's OPTIONAL semantics mean a player with N aliases and M
+        // distinct qualifier combinations can produce up to N×M rows —
+        // identical (start, end, count) tuples across different rows must
+        // collapse into one stint, the same way alias rows already dedupe.
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "alias": { "type": "literal", "value": "Titi" },
+                    "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" }, "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "254" }
+                  },
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "alias": { "type": "literal", "value": "TH14" },
+                    "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" }, "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "254" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].Aliases, Has.Count.EqualTo(2), "both aliases must still be captured");
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(1), "the identical stint tuple carried by both rows must collapse into one");
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_TwoDistinctCareerStints_BothParsed()
+    {
+        // Two genuinely different stints (e.g. a loan, then a permanent
+        // return) — must NOT collapse, since their tuples differ.
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "startTime": { "type": "literal", "value": "1999-08-03T00:00:00Z" }, "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "254" }
+                  },
+                  {
+                    "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                    "startTime": { "type": "literal", "value": "2012-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2013-01-01T00:00:00Z" }
+                  }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].CareerStints, Has.Count.EqualTo(2));
+        Assert.That(result[0].CareerStints, Has.Some.Matches<CareerStintQualifiers>(s => s.StartYear == 1999 && s.EndYear == 2007 && s.AppearanceCount == 254));
+        Assert.That(result[0].CareerStints, Has.Some.Matches<CareerStintQualifiers>(s => s.StartYear == 2012 && s.EndYear == 2013 && s.AppearanceCount == null));
+    }
+
+    [Test]
+    public async Task QueryClubClubIntersectionAsync_SentQuery_FetchesCareerStintQualifiersAsOptional()
+    {
+        // Present in the shared query text (BuildIntersectionQuery's
+        // footer), but structurally never binds for this query shape — see
+        // WikidataPlayerMatch.CareerStints' own doc comment.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("pq:P580"));
+        Assert.That(sentQuery, Does.Contain("pq:P582"));
+        Assert.That(sentQuery, Does.Contain("pq:P1350"));
+    }
+
     [Test]
     public void QueryCountryClubIntersectionAsync_RejectsNonQidCountryValue()
     {

@@ -338,4 +338,44 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<PlayerCareerStint>> GetCareerStintsAsync(
+        Guid playerId, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerCareerStints
+            .AsNoTracking()
+            .Where(s => s.PlayerId == playerId)
+            .ToListAsync(cancellationToken);
+
+    public async Task AddCareerStintsAsync(
+        Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default)
+    {
+        if (newStints.Count == 0)
+            return;
+
+        var existing = await dbContext.PlayerCareerStints
+            .Where(s => s.PlayerId == playerId)
+            .ToListAsync(cancellationToken);
+
+        dbContext.PlayerCareerStints.AddRange(newStints);
+
+        // ADR-0042/S-079: SequenceOrder is resolved here, across the
+        // player's FULL stint set (existing rows + newStints), not just the
+        // newly-added ones — a stint discovered later that chronologically
+        // precedes existing rows must still shift everyone else's
+        // SequenceOrder. Ongoing stints (EndYear null) sort last among
+        // stints sharing the same StartYear.
+        var chronological = existing
+            .Concat(newStints)
+            .OrderBy(s => s.StartYear)
+            .ThenBy(s => s.EndYear ?? int.MaxValue)
+            .ToList();
+
+        for (var i = 0; i < chronological.Count; i++)
+            chronological[i].SequenceOrder = i;
+
+        // One SaveChangesAsync call for the whole batch — load-then-
+        // SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

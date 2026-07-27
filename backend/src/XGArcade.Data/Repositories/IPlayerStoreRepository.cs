@@ -177,6 +177,30 @@ public interface IPlayerStoreRepository
     // already-cached data, not a correctness-critical write.
     Task UpdatePlayerPhotosAsync(
         IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default);
+
+    // ADR-0042/S-079: xG Path's (COMP-11) read of a player's full,
+    // chronologically-ordered career-stint log — never called from any
+    // correctness-checking path (xG Grid continues to read only
+    // PlayerAttribute/PlayerOverride via HasEffectiveAttributeAsync).
+    Task<IReadOnlyList<PlayerCareerStint>> GetCareerStintsAsync(
+        Guid playerId, CancellationToken cancellationToken = default);
+
+    // ADR-0042/S-079: adds newStints (each one's SequenceOrder is ignored —
+    // overwritten here) and re-sequences the player's FULL stint set
+    // (existing rows + newStints) chronologically by (StartYear ascending,
+    // then EndYear ascending with an ongoing/null stint sorted last), 0..N-1
+    // — a stint discovered later that chronologically precedes existing
+    // ones must still produce a correctly-ordered SequenceOrder for every
+    // row, not just the newly-added ones. One SaveChangesAsync call for the
+    // whole re-sequenced set (load-then-SaveChangesAsync,
+    // coding-guidelines.md), never ExecuteUpdateAsync. No-op (no
+    // SaveChangesAsync call at all) when newStints is empty — callers
+    // (WikidataLookupService) are expected to have already filtered out
+    // stints that already exist for this player via GetCareerStintsAsync,
+    // so idempotency is the caller's responsibility, same as
+    // PersistAttributeAsync/PersistAliasesAsync's existing pattern.
+    Task AddCareerStintsAsync(
+        Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default);
 }
 
 // REQ-503 (2026-07-20 extension): per-row outcome of

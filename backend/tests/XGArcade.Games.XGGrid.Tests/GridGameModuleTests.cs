@@ -1383,6 +1383,17 @@ public class GridGameModuleTests
         public Task UpdatePlayerPhotosAsync(
             IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default) =>
             inner.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
+
+        // ADR-0042/S-079: xG Grid's correctness path never calls either of
+        // these (see PlayerCareerStint's own doc comment) — delegated here
+        // only so this thin wrapper keeps compiling against the interface.
+        public Task<IReadOnlyList<PlayerCareerStint>> GetCareerStintsAsync(
+            Guid playerId, CancellationToken cancellationToken = default) =>
+            inner.GetCareerStintsAsync(playerId, cancellationToken);
+
+        public Task AddCareerStintsAsync(
+            Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default) =>
+            inner.AddCareerStintsAsync(playerId, newStints, cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
