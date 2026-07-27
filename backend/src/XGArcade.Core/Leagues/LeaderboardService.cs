@@ -18,12 +18,12 @@ public class LeaderboardService(
     private const int MinimumQualifyingRoundsForRanking = 5;
 
     public async Task<LeaderboardPage> GetGlobalLeaderboardAsync(
-        Guid requestingUserId, int cursor, int pageSize, CancellationToken cancellationToken = default)
+        Guid requestingUserId, string gameKey, int cursor, int pageSize, CancellationToken cancellationToken = default)
     {
         var globalLeague = await leagueRepository.GetOrCreateGlobalLeagueAsync(cancellationToken);
         var memberUserIds = await leagueRepository.GetMemberUserIdsAsync(globalLeague.Id, cancellationToken);
         var members = await userRepository.GetByIdsAsync(memberUserIds, cancellationToken);
-        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(memberUserIds, cancellationToken);
+        var perRoundTotalsByUserId = await guessRepository.GetPerRoundFinalPointsByUserIdsAsync(memberUserIds, gameKey, cancellationToken);
 
         // REQ-409: replaces REQ-401/404's old SUM(FinalPoints ?? 0) ranking
         // outright — see ILeaderboardService's own doc comment for the full

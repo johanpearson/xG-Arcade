@@ -40,6 +40,11 @@ namespace XGArcade.Api.Leagues;
 // auth, and paging contract stay exactly the same — this is a same-route
 // replacement, not a new endpoint. It no longer resolves "the active
 // round" before calling ILeaderboardService, unlike REQ-406/407 above.
+//
+// REQ-410 (2026-07-27, backlog S-078, ADR-0043): GetGlobalLeaderboardAsync
+// now takes a required gameKey — this route passes GridGameModule.XGGridGameKey
+// explicitly, same as REQ-406/407/408/405 above already do, rather than
+// leaving the ranking silently span every game.
 public static class LeaderboardEndpoints
 {
     // implementation-document.md §6's example (`pageSize=50`) as the
@@ -75,8 +80,12 @@ public static class LeaderboardEndpoints
             // old live-fold onto this same route is retired along with the
             // sum-based ranking it applied to; see ILeaderboardService's own
             // doc comment on GetGlobalLeaderboardAsync for the full reasoning).
+            // REQ-410/ADR-0043 (2026-07-27): gameKey is now required —
+            // hardcoding GridGameModule.XGGridGameKey here is fine, same
+            // Api-layer-only reasoning as every other route in this file
+            // (ADR-0003); Core.Leagues itself never references it.
             var page = await leaderboardService.GetGlobalLeaderboardAsync(
-                requestingUser.Id, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
+                requestingUser.Id, GridGameModule.XGGridGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             return Results.Ok(ToResponse(page));
         }).RequireAuthorization();

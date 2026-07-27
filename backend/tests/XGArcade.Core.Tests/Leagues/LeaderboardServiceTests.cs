@@ -26,6 +26,12 @@ namespace XGArcade.Core.Tests.Leagues;
 // no longer exists on this method at all, not merely renamed), and new
 // REQ409-named cases added in their place. REQ-407/408's own tests below are
 // unaffected — they exercise different methods this REQ doesn't touch.
+// REQ-410 (2026-07-27, backlog S-078, ADR-0043) added a required gameKey
+// parameter to GetGlobalLeaderboardAsync — every existing REQ401/409/717/607
+// call in this file now passes the shared `GameKey` constant below
+// explicitly (every seeded Round already carries that same GameKey, so this
+// is a same-behavior compile fix, not a new scoping test); dedicated
+// REQ410-named cross-game-isolation tests are added separately.
 // Same no-mocking-framework, real-InMemory-backed-repository pattern as
 // RoundCloseServiceScoringTests. Reuses FakeGameModule from
 // XGArcade.Core.Tests.Rounds (internal, same-assembly-visible) rather than
@@ -264,7 +270,7 @@ public class LeaderboardServiceTests
         // never-played member rank #1).
         var member = await SeedMemberAsync("Alex");
 
-        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -287,7 +293,7 @@ public class LeaderboardServiceTests
         // Sorted: 10, 20, 30, 40, 50 -> odd count (5), middle value is 30.
         await SeedQualifyingRoundsAsync(you.Id, 50, 10, 30, 20, 40);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
@@ -300,7 +306,7 @@ public class LeaderboardServiceTests
         // 29 and 30 -> average 29.5, rounds to 30 (MidpointRounding.AwayFromZero).
         await SeedQualifyingRoundsAsync(you.Id, 60, 10, 30, 50, 29, 20);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
@@ -311,7 +317,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -323,7 +329,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
@@ -341,7 +347,7 @@ public class LeaderboardServiceTests
         await SeedQualifyingRoundsAsync(sam.Id, 10, 20, 30, 40, 50);   // median 30
         await SeedQualifyingRoundsAsync(you.Id, 40, 45, 50, 55, 60);   // median 50
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "You", "Alex" }));
         Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 30, 50, 80 }));
@@ -360,7 +366,7 @@ public class LeaderboardServiceTests
         await SeedQualifyingRoundsAsync(zoe.Id, 10, 20, 30, 40, 50);
         await SeedQualifyingRoundsAsync(amy.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(zoe.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(zoe.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Amy", "Zoe" }), "REQ-404's display-name tie-break, reused here");
     }
@@ -376,7 +382,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 1, 2, 3, 4, 5, 6, 100);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(4));
     }
@@ -394,7 +400,7 @@ public class LeaderboardServiceTests
         var activeRound = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         await SeedGuessAsync(activeRound.Id, you.Id, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
     }
@@ -412,7 +418,7 @@ public class LeaderboardServiceTests
         var activeRound = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         await SeedGuessAsync(activeRound.Id, you.Id, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
     }
@@ -427,7 +433,7 @@ public class LeaderboardServiceTests
         // checked at all.
         await SeedQualifyingRoundsAsync(guest.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(guest.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(guest.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -444,7 +450,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 5; i++)
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(-1 - i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -465,7 +471,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 5; i++)
             await SeedLockedGuessAtAsync(you.Id, 10, claimedAt.AddDays(1 + i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
@@ -481,7 +487,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
@@ -507,7 +513,7 @@ public class LeaderboardServiceTests
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
         await SeedLockedGuessAtAsync(you.Id, 999, claimedAt);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -531,7 +537,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 3; i++)
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -596,7 +602,7 @@ public class LeaderboardServiceTests
             await SeedQualifyingRoundsAsync(member.Id, value, value, value, value, value);
         }
 
-        var page = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
+        var page = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: 0, pageSize: 2);
 
         Assert.That(page.Rows, Has.Count.EqualTo(2));
         Assert.That(page.HasMore, Is.True);
@@ -615,9 +621,9 @@ public class LeaderboardServiceTests
             await SeedQualifyingRoundsAsync(member.Id, value, value, value, value, value);
         }
 
-        var firstPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
-        var secondPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: firstPage.NextCursor!.Value, pageSize: 2);
-        var thirdPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: secondPage.NextCursor!.Value, pageSize: 2);
+        var firstPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: 0, pageSize: 2);
+        var secondPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: firstPage.NextCursor!.Value, pageSize: 2);
+        var thirdPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: secondPage.NextCursor!.Value, pageSize: 2);
 
         Assert.That(firstPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 1, 2 }));
         Assert.That(secondPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 3, 4 }));
@@ -643,7 +649,7 @@ public class LeaderboardServiceTests
 
         // Member4 has the highest median, so ranks last (5th) — outside a
         // pageSize=2 first page.
-        var page = await _service.GetGlobalLeaderboardAsync(members[4].Id, cursor: 0, pageSize: 2);
+        var page = await _service.GetGlobalLeaderboardAsync(members[4].Id, GameKey, cursor: 0, pageSize: 2);
 
         Assert.That(page.Rows.Any(r => r.IsRequestingUser), Is.False);
         Assert.That(page.RequestingUserEntry, Is.Not.Null);
@@ -661,7 +667,7 @@ public class LeaderboardServiceTests
         var member = await SeedMemberAsync("Alex");
         await SeedQualifyingRoundsAsync(member.Id, 10, 10, 10, 10, 10);
 
-        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 50, pageSize: 10);
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, GameKey, cursor: 50, pageSize: 10);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.HasMore, Is.False);

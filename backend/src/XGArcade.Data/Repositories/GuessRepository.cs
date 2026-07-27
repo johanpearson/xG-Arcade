@@ -79,11 +79,14 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
     // anything) for an account that was never a guest at all: IsGuest is
     // false and ClaimedAt is null from creation.
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
-        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default)
+        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default)
     {
         if (userIds.Count == 0)
             return new Dictionary<Guid, IReadOnlyList<int>>();
 
+        // REQ-410/ADR-0043: round.GameKey == gameKey added on top of the
+        // existing Guess-Round join — no new join, no change to the
+        // median/qualifying-round logic itself.
         var perUserPerRoundTotals = await (
             from guess in dbContext.Guesses.AsNoTracking()
             join round in dbContext.Rounds.AsNoTracking() on guess.RoundId equals round.Id
@@ -91,6 +94,7 @@ public class GuessRepository(XGArcadeDbContext dbContext) : IGuessRepository
             where guess.UserId != null
                 && userIds.Contains(guess.UserId.Value)
                 && round.ClosedAt != null
+                && round.GameKey == gameKey
                 && !user.IsGuest
                 && (user.ClaimedAt == null || round.ClosedAt > user.ClaimedAt)
             group guess by new { UserId = guess.UserId!.Value, guess.RoundId } into perRoundGroup
