@@ -44,6 +44,15 @@ something to invent.
   on xG Grid's guess-submission flow (§6.2) if the new game has an
   analogous "player submits something, gets scored" shape — adapt, don't
   copy blindly, if the new game's shape is genuinely different.
+- Once the new module is added as a `ProjectReference` in
+  `XGArcade.Api.csproj`, add a matching `COPY src/XGArcade.Games.<Name>/XGArcade.Games.<Name>.csproj src/XGArcade.Games.<Name>/`
+  line to `backend/Dockerfile`'s restore layer (alongside the existing
+  per-project COPY lines, before `RUN dotnet restore`). Skipping this
+  makes `dotnet restore` silently skip the new project ("Skipping
+  project ... because it was not found") and the deploy image build fails
+  at `dotnet publish` with `NETSDK1004`. This has already broken two
+  consecutive deploys (xG Path's scaffold) — treat it as a required step,
+  not an afterthought.
 
 ## What NOT to do
 

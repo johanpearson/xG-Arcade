@@ -27,6 +27,24 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-07-27 — `backend/Dockerfile` needs a `COPY` line per project, and it's easy to forget
+
+Two consecutive deploys (`deploy` runs #117, #118) failed at `dotnet publish`
+with `NETSDK1004: Assets file '.../XGArcade.Games.XGPath/obj/project.assets.json'
+not found`. Cause: `backend/Dockerfile` copies each project's `.csproj` file
+individually (for Docker layer caching) before running `dotnet restore`, so
+`dotnet restore` only sees projects that were explicitly `COPY`'d — it doesn't
+walk the filesystem. When `XGArcade.Games.XGPath` was scaffolded (S-080) and
+wired into `XGArcade.Api.csproj` as a `ProjectReference`, the Dockerfile
+wasn't updated to `COPY` its `.csproj` too, so restore silently skipped it
+("Skipping project ... because it was not found") and the later
+`dotnet publish --no-restore` failed. Fixed by adding the missing `COPY`
+line. Updated `.claude/agents/game-scaffolder.md` to call this out as a
+required scaffolding step so the next new game module doesn't repeat it —
+there's no build-time check that would otherwise catch a missing `COPY`
+line, since `dotnet build`/`dotnet test` outside Docker restore the whole
+solution and don't notice.
+
 ### 2026-07-25 — `AdminScreen.test.tsx`'s REQ-507 test is flaky under a full `npm run test` run
 
 Found while quality-gating REQ-719 (unrelated diff). Failed 1 of 3 full-suite
