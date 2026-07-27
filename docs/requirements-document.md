@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.17"
+version: "1.19"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -5153,7 +5153,8 @@ not a claim about current behavior.
 > valid, revealable sequence of clues rather than one that runs out of
 > content partway through.
 
-- **Status: Implemented (Tier 0, S-081, ADR-0045).** `XGPathGameModule.
+- **Status: Implemented (Tier 0, S-081, ADR-0045; appearance threshold
+  added 2026-07-27, ADR-0047).** `XGPathGameModule.
   GenerateInstanceAsync` (`XGArcade.Games.XGPath`) reads every player's
   full `PlayerCareerStint` set in bulk
   (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`) and applies
@@ -5167,7 +5168,12 @@ not a claim about current behavior.
   The "at least one seeded-club stint" check compares `PlayerCareerStint.
   ClubName` against `ICategoryValueRepository.GetClubsAsync` (`ClubDefinition.
   Name`), the same reference table GridGameModule already reads (REQ-109) —
-  never a second path to `ClubDefinition`. The REQ-112 pool-membership
+  never a second path to `ClubDefinition` — **and** that stint's
+  `AppearanceCount` must be either unknown (`null`) or at least 20
+  (`MinAppearancesAtSeededClub`, ADR-0047) — a known, sub-threshold count
+  (e.g. a one-off loan appearance) does not count toward eligibility, but
+  an unknown count still does, since Wikidata's P1350 qualifier being
+  absent isn't evidence of a fringe career. The REQ-112 pool-membership
   criterion is met **by construction, not by a runtime check**: `Player` has
   no `BirthYear`/`Gender` field at all — the restriction is enforced entirely
   upstream at Wikidata-query time (ADR-0025), the same reasoning
@@ -5181,6 +5187,10 @@ not a claim about current behavior.
 - And at least one of those stints must be at a club present in the
   existing `ClubDefinition` reference table (REQ-109) — v1 needs no new
   club curation beyond the existing seeded set
+- And that seeded-club stint's recorded appearance count, when known, must
+  be at least 20 — a known count below that does not make the candidate
+  eligible on the strength of that stint alone (ADR-0047); an unknown
+  appearance count is treated as passing this check, not failing it
 - And the player must already be a member of the existing player pool as
   restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
   population and defines no separate one of its own
@@ -5189,10 +5199,11 @@ not a claim about current behavior.
 
 **Test level:** Unit (eligibility check accepts/rejects fixtures covering
 each rule independently — fewer than 3 stints, an undeterminable stint
-order, no stint at a seeded club, a player outside REQ-112's pool — the
-last of these confirmed by inspection/schema absence rather than a runtime
-fixture, since `Player` has no field that could represent "outside the
-pool"; see `XGPathGameModuleTests`'s own class doc comment)
+order, no stint at a seeded club, a seeded-club stint below/at/unknown
+appearance count, a player outside REQ-112's pool — the last of these
+confirmed by inspection/schema absence rather than a runtime fixture,
+since `Player` has no field that could represent "outside the pool"; see
+`XGPathGameModuleTests`'s own class doc comment)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number
@@ -5225,31 +5236,41 @@ pool"; see `XGPathGameModuleTests`'s own class doc comment)
 API route exposes this game yet — that's S-084)
 
 **REQ-1203 – Clue reveal order and content**
-> As a player, I want clues about the target player's career revealed one
-> at a time in a fixed, least-narrowing-first order, so solving the puzzle
-> is a genuine progressive challenge rather than trivially easy or
-> unfairly hard from the start.
+> As a player, I want clues about the target player's career revealed in a
+> fixed, least-narrowing-first order — every documented club, then
+> progressively more identifying information — so solving the puzzle is a
+> genuine progressive challenge rather than trivially easy or unfairly hard
+> from the start.
 
-- **Status: Not started (design only).**
-- Given a puzzle targeting a specific eligible player (REQ-1201)
-- When clues are revealed for that puzzle, one at a time, with the player
-  able to guess after each reveal
-- Then club stints are revealed first, one at a time, in chronological
-  order (earliest first)
-- And each club-stint clue includes the player's appearance count (games
-  played) at that club when that data is known, bundled into the same
-  clue reveal, not a separate clue slot; when the appearance count is not
-  known, the club-stint clue is still revealed, without an appearance
-  count, rather than being delayed or skipped
-- And no more than 5 club-stint clues are ever revealed for a single
-  puzzle, even if the target player's real career has more documented
-  stints than that
-- And once `min(actual stint count, 5)` club-stint clues have been
-  revealed and the player has not yet guessed correctly, exactly one
-  further clue is revealed showing the start-end year range for every
-  club stint already revealed (e.g. "2012-15, 2015-19, 2019-present") —
-  one bundled clue covering all previously-revealed clubs at once, never
-  one clue per club
+- **Status: Not started (design only). Revised 2026-07-27 (see
+  `docs/CHANGELOG.md`): replaces the earlier "one club per clue, capped at
+  5" design — no code implements either version yet.**
+- Given a puzzle targeting a specific eligible player (REQ-1201), whose
+  documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
+  eligibility check, with no upper cap)
+- When clues are revealed for that puzzle, with the player able to guess
+  after each reveal
+- Then every one of the player's `N` documented club stints is revealed —
+  none are ever omitted for having "too many" clubs — spread across
+  exactly 3 club-reveal turns, in chronological order (earliest first)
+  overall and within each turn
+- And the 3 turns' club counts are `N` divided into 3 as evenly as
+  possible, smallest first: let `base = N div 3` and `remainder = N mod 3`;
+  the first `3 - remainder` turns each reveal `base` clubs, and the last
+  `remainder` turns each reveal `base + 1` clubs (e.g. `N=3` → 1-1-1;
+  `N=4` → 1-1-2; `N=5` → 1-2-2; `N=10` → 3-3-4; `N=11` → 3-4-4) — the
+  turn sizes are non-decreasing, so the first turn is never larger than
+  the last
+- And each club revealed in a turn includes the player's appearance count
+  (games played) at that club when that data is known, bundled into the
+  same turn, per club; when the appearance count is not known for a given
+  club, that club is still revealed, without an appearance count, rather
+  than being delayed or skipped
+- And once all 3 club-reveal turns have happened and the player has not
+  yet guessed correctly, exactly one further clue is revealed showing the
+  start-end year range for every club stint already revealed (e.g.
+  "2012-15, 2015-19, 2019-present") — one bundled clue covering all clubs
+  at once, never one clue per club
 - And if the player still hasn't guessed correctly, the following clues
   are then revealed one at a time, in this exact order and no other:
   position, then nationality, then age (or birth year)
@@ -5258,15 +5279,19 @@ API route exposes this game yet — that's S-084)
 - And a correct guess submitted at any point stops the reveal sequence
   immediately — no further clue is ever revealed once the puzzle is
   solved (mirrors xG Grid's immediate lock on a correct guess, REQ-210)
-- And a given puzzle's total clue count is therefore `min(club stint
-  count, 5) + 4` — a value specific to that puzzle's target player, never
-  a single global constant, and callers must treat it as per-puzzle
+- And a given puzzle's total clue count is therefore always **7** (3
+  club-reveal turns + 1 bundled year-range clue + 3 fixed clues) —
+  unlike the earlier design, this is now a fixed constant for every xG
+  Path puzzle regardless of `N`, not a value that varies by target player
 
-**Test level:** Unit (reveal order and content for target players with
-fewer than 5, exactly 5, and more than 5 documented stints; appearance
-count present vs. unknown; the bundled year-range clue's content; the
-fixed position/nationality/age order; the sequence halting immediately on
-a correct guess at every possible point)
+**Test level:** Unit (the 3-way club-count split for `N` at the minimum
+(3), a non-multiple-of-3 value below 10, and a value at or above 10, per
+the worked examples above; appearance count present vs. unknown within a
+multi-club turn; chronological order preserved both across and within
+turns; the bundled year-range clue's content; the fixed
+position/nationality/age order; the sequence halting immediately on a
+correct guess at every possible point, including after each of the 3 club
+turns individually)
 
 **REQ-1204 – Guess correctness resolution**
 > As a player, I want my guess for an xG Path puzzle checked against that
@@ -5296,24 +5321,28 @@ a correct guess at every possible point)
 > granted guesses beyond the puzzle's own content.
 
 - **Status: Not started (design only).**
-- Given an xG Path puzzle whose total clue count is `min(club stint
-  count, 5) + 4` (REQ-1203)
+- Given an xG Path puzzle whose total clue count is a fixed **7**
+  (REQ-1203) for every puzzle, regardless of its target player's stint
+  count `N`
 - When a player submits guesses for that puzzle
 - Then the maximum number of attempts allowed for that puzzle equals its
-  own total clue count — not xG Grid's fixed value of 2
+  own total clue count (7) — not xG Grid's fixed value of 2
   (`GuessRules.MaxAttemptsPerCell`); see ADR-0041 for the architectural
   change (the attempt cap resolved per-cell through `IGameModule`, rather
-  than one shared global constant) this depends on
+  than one shared global constant) this depends on — the value resolved
+  through that mechanism is now the same 7 for every xG Path puzzle, but
+  the per-cell resolution mechanism is unchanged and still the right shape
+  (a different game module could still return a genuinely variable value)
 - And the "at most one active guess per cell per round, subject to
   attempt cap and lock rules" shape of REQ-201/202/210 still applies
   conceptually: a correct guess locks the puzzle immediately regardless of
   how many attempts remain, and exhausting the puzzle's own attempt cap
   without a correct guess locks it as unsolved
 
-**Test level:** Unit (the resolved attempt cap matches each puzzle's own
-clue count for players with different stint counts; locks immediately on
-a correct guess; locks as unsolved only after that puzzle's own cap is
-reached, never after a fixed count of 2)
+**Test level:** Unit (the resolved attempt cap is 7 for puzzles with
+different stint counts `N`; locks immediately on a correct guess; locks as
+unsolved only after the 7-attempt cap is reached, never after a fixed
+count of 2)
 
 **REQ-1206 – Clue-efficiency scoring**
 > As a player, I want my xG Path score to reflect how few clues I needed
@@ -5321,12 +5350,15 @@ reached, never after a fixed count of 2)
 > rewarded.
 
 - **Status: Not started (design only).**
-- Given a puzzle with a per-puzzle maximum clue count (REQ-1203/1205) and
-  a correct guess submitted after `cluesUsed` clues have been revealed
+- Given a puzzle with a maximum clue count of 7 (REQ-1203/1205, fixed for
+  every xG Path puzzle) and a correct guess submitted after `cluesUsed`
+  clues have been revealed
 - When the round closes and this puzzle's score is locked
-- Then the awarded points equal `round(cluesUsed / maxCluesForThisPuzzle *
-  MaxPointsPerCell)` — golf-style, lower is better, consistent with
-  ADR-0021
+- Then the awarded points equal `round(cluesUsed / 7 * MaxPointsPerCell)`
+  — golf-style, lower is better, consistent with ADR-0021; the formula
+  keeps a `maxCluesForThisPuzzle` term (rather than inlining the literal
+  7) so `ClueEfficiencyScoringStrategy` still reads the cap through the
+  same `IGameModule` mechanism as REQ-1205, not a hardcoded literal
 - And a puzzle never solved before its attempt cap is exhausted (REQ-1205)
   scores the worst case, `MaxPointsPerCell` — the same
   "unanswered/incorrect scores worst" convention ADR-0021 already

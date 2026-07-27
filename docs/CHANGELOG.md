@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.18 → 1.19),
+  `docs/architecture-document.md` (0.65 → 0.66),
+  `docs/decisions/0047-xg-path-seeded-club-appearance-threshold.md` (new,
+  renumbered from a draft ADR-0046 during merge — ADR-0046 was already
+  claimed by the live-lookup-timeout ADR below, landed on `main` first),
+  `docs/backlog.md`, `backend/src/XGArcade.Games.XGPath/
+  XGPathGameModule.cs`, `backend/tests/XGArcade.Games.XGPath.Tests/
+  XGPathGameModuleTests.cs` — tightened REQ-1201's xG Path eligibility: a
+  candidate's seeded-club stint now also needs ≥20 recorded appearances
+  there (or an unknown count) to count, closing the gap where a single
+  loan/fringe appearance at a big club was enough to qualify an otherwise
+  obscure player as a target — ADR-0047. `IsEligible`'s seeded-club check
+  now also filters on `PlayerCareerStint.AppearanceCount`; 3 new REQ1201-
+  named tests cover below/at/unknown appearance count. `dotnet test` run
+  locally: 16/16 passing (13 existing + 3 new).
+- 2026-07-27 — `docs/requirements-document.md` (1.17 → 1.18),
+  `docs/architecture-document.md` (0.64 → 0.65), `docs/decisions/0041-
+  per-cell-attempt-cap.md`, `docs/backlog.md` — revised REQ-1203's xG Path
+  clue-reveal mechanic per a product decision: club stints are no longer
+  capped at 5 and revealed one-per-clue; every documented stint is now
+  revealed, split across exactly 3 club-reveal turns (`N` divided into 3
+  as evenly as possible, smallest turn first — e.g. `N=4` → 1-1-2, `N=10`
+  → 3-3-4, `N=11` → 3-4-4), each club still carrying its appearance count
+  when known. The bundled year-range clue and the fixed
+  position/nationality/age tail are unchanged. Net effect: a puzzle's
+  total clue count (REQ-1205/1206) becomes a fixed **7** for every xG Path
+  puzzle instead of the earlier `min(club stint count, 5) + 4`, which
+  varied by target player — updated the stale formula references in
+  ADR-0041 and `architecture-document.md` §COMP-04 to match (the ADR's
+  actual decision, per-cell resolution through `IGameModule`, is
+  unaffected). No code exists for REQ-1203/1205/1206 yet (still "design
+  only," S-082/S-083), so this is a pure documentation change.
+- 2026-07-27 — `docs/implementation-document.md` (0.77 → 0.78),
+  `docs/design-document.md` (0.55 → 0.56) — while merging the two entries
+  above against `main`, found two more stale references to the old
+  "club-stint clues capped at 5" design that the REQ-1203 revision above
+  had missed: `implementation-document.md`'s `IGameModule` interface
+  comment ("xG Path's varies per puzzle") and `design-document.md`'s
+  SCREEN-10 spec (an explicit "capped at 5" bullet, written before the
+  revision). Corrected both to describe the current design (a fixed
+  `MinAppearancesAtSeededClub`-independent 7-clue total; all stints shown
+  across 3 grouped reveal turns) — no behavior change, both docs were
+  already stale relative to `requirements-document.md`.
 - 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
   `docs/decisions/0046-live-lookup-timeout-exception-signal.md` — follow-up
   to #123: real usage showed guessing "Clarence Seedorf" for Ajax × AC Milan

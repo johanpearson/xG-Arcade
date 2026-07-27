@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.55"
+version: "0.56"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -1870,12 +1870,17 @@ system — no new color, typeface, or animation family introduced:
   regardless of how many clues have been revealed.
 - **Clue content and order**, exactly per REQ-1203 — this screen adds no
   new sequencing decision, only how it's rendered:
-  1. Club stints, chronological, one node each, each showing the club
-     name plus appearance count when known (never a placeholder like
-     "0 apps" when unknown — the count is simply omitted for that node)
-  2. Once every available club node (capped at 5) is shown, one further
-     node bundles every revealed club's own start–end year range
-     together (never one aggregate span across the whole career)
+  1. Every one of the target's documented club stints, chronological,
+     split across exactly 3 nodes ("turns") — the wireframe above shows
+     the 3-clubs case (one club per turn, since `N=3` splits 1-1-1); for a
+     longer career a single node bundles more than one club together
+     (e.g. `N=10` splits 3-3-4, so the last node alone shows 4 clubs), each
+     still showing its own name plus appearance count when known (never a
+     placeholder like "0 apps" when unknown — the count is simply omitted
+     for that club within the node)
+  2. Once all 3 club-reveal nodes are shown, one further node bundles
+     every revealed club's own start–end year range together (never one
+     aggregate span across the whole career)
   3. Then, if still unsolved: position, nationality, age — one node
      each, in that fixed order
   4. National team caps are never a clue (REQ-1203's explicit exclusion)

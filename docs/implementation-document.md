@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.77"
+version: "0.78"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -132,10 +132,10 @@ public interface IGameModule
     Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId);
     // ADR-0041 (S-077): a given cell's own max-attempts value, replacing
     // the old GuessRules.MaxAttemptsPerCell global constant — not every
-    // game has a fixed, uniform cap (xG Path's varies per puzzle), so this
-    // is resolved per cell through the owning module. xG Grid's
-    // implementation returns 2 unconditionally, identical to the constant
-    // it replaced.
+    // game shares xG Grid's cap (xG Path's is a fixed 7, REQ-1203, not
+    // xG Grid's 2), so this is resolved per cell through the owning
+    // module rather than one shared constant. xG Grid's implementation
+    // returns 2 unconditionally, identical to the constant it replaced.
     Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId);
 }
 ```
