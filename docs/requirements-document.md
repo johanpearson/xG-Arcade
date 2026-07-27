@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.15"
+version: "1.16"
 status: draft
 last_updated: 2026-07-27
 owner: Johan

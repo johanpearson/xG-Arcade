@@ -73,8 +73,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   on `XGPathGameModuleTests` (same scope-note precedent S-079's own
   CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
   insufficient-pool/unknown-template/cell-id-lookup behavior.
-- 2026-07-27 — `docs/requirements-document.md` (1.14 → 1.15),
-  `docs/architecture-document.md` (0.61 → 0.62),
+- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
+  `docs/architecture-document.md` (0.63 → 0.64),
   `docs/implementation-document.md` (0.76 → 0.77),
   `docs/design-document.md` (0.54 → 0.55, previously landed by the frontend
   half of this same bundle — folded in here rather than left as a separate

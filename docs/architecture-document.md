@@ -1432,6 +1432,7 @@ new ADR that references the old one.
 | ADR-0043 | Global League's all-time leaderboard ranking is scoped per `GameKey`, not merged across games | Accepted |
 | ADR-0044 | Per-word decomposition (`PlayerNameIndexWord`), not `pg_trgm`, for `PlayerNameIndex` surname-prefix matching | Accepted |
 | ADR-0045 | xG Path puzzle generation: `PathTemplate`/`PathInstance`/`PathPuzzle` entity shape, `PathPuzzle.TargetPlayerId` as a real FK to `Player`, and the settled reading of REQ-1201's two ambiguous eligibility phrases | Accepted |
+| ADR-0046 | A timeout during REQ-211's guess-time live lookup is a distinct, non-scoring exception signal (`LiveLookupUnavailableException`/`GuessSubmissionOutcome.LiveLookupUnavailable`/HTTP 503), not a swallowed empty result | Accepted |
 
 ## 11. Glossary
 
