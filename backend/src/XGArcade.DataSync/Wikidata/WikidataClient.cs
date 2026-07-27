@@ -187,8 +187,25 @@ public class WikidataClient(
     // best-rank semantics match product intent (current citizenship, the
     // best-supported date of birth) — see each caller's own comment for why
     // P54 (club membership) can't use the same truthy shortcut.
+    //
+    // ADR-0042/S-079: ?startTime/?endTime/?numberOfMatches are P580/P582/
+    // P1350 — qualifiers on the ?clubStatement variable, OPTIONAL so a
+    // player still matches the rest of the query when they're absent (same
+    // reasoning as alias/photo above). This is the one shared footer for
+    // every candidateClauses builder below, so it only "just works" for the
+    // three builders whose candidateClauses bind a club membership
+    // statement to that exact variable name (BuildCountryClubIntersectionQuery,
+    // BuildNationalTeamClubIntersectionQuery, BuildTrophyClubIntersectionQuery)
+    // — BuildClubClubIntersectionQuery uses two distinctly-named statement
+    // variables (?clubAStatement/?clubBStatement) and
+    // BuildTrophyCountryIntersectionQuery has no P54 clause at all, so
+    // ?clubStatement simply never binds for either and these three
+    // qualifiers are silently absent from their results — not a bug, just
+    // an empty binding (see WikidataLookupService's own scope note for why
+    // only the country/nationality x club path persists this data as of
+    // S-079).
     private static string BuildIntersectionQuery(string candidateClauses) => $$"""
-        SELECT ?player ?playerLabel ?alias ?photo WHERE {
+        SELECT ?player ?playerLabel ?alias ?photo ?startTime ?endTime ?numberOfMatches WHERE {
           ?player wdt:P106 wd:Q937857.
         {{candidateClauses}}
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
@@ -199,6 +216,9 @@ public class WikidataClient(
             FILTER(LANG(?alias) = "en")
           }
           OPTIONAL { ?player wdt:P18 ?photo. }
+          OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+          OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+          OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
           SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
         }
         """;
@@ -533,7 +553,7 @@ public class WikidataClient(
         if (response?.Results?.Bindings is null)
             return [];
 
-        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases, string? PhotoUrl)>();
+        var byQid = new Dictionary<string, (string FullName, HashSet<string> Aliases, string? PhotoUrl, HashSet<CareerStintQualifiers> CareerStints)>();
 
         foreach (var binding in response.Results.Bindings)
         {
@@ -545,7 +565,7 @@ public class WikidataClient(
             if (!byQid.TryGetValue(qid, out var entry))
             {
                 var label = binding.TryGetValue("playerLabel", out var labelValue) ? labelValue.Value : qid;
-                entry = (label, [], null);
+                entry = (label, [], null, []);
             }
 
             if (binding.TryGetValue("alias", out var aliasValue) && !string.IsNullOrWhiteSpace(aliasValue.Value))
@@ -562,11 +582,44 @@ public class WikidataClient(
                 && !string.IsNullOrWhiteSpace(photoValue.Value))
                 entry.PhotoUrl = photoValue.Value;
 
+            // ADR-0042/S-079: SPARQL's OPTIONAL semantics mean a player with
+            // N aliases and M distinct qualifier combinations can produce up
+            // to N×M result rows — dedupe qualifier tuples per player via
+            // the HashSet the same way Aliases is deduped above (records get
+            // structural equality for free). Only recorded when startTime is
+            // actually bound: a row where all three qualifiers are unbound
+            // carries zero information, and PlayerCareerStint.StartYear is
+            // non-nullable, so there is nothing valid to write.
+            if (binding.TryGetValue("startTime", out var startTimeValue) && TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
+            {
+                int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
+                    && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
+                        ? parsedEndYear
+                        : null;
+                int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue)
+                    && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
+                        ? parsedAppearanceCount
+                        : null;
+
+                entry.CareerStints.Add(new CareerStintQualifiers(startYear, endYear, appearanceCount));
+            }
+
             byQid[qid] = entry;
         }
 
-        return byQid.Select(kv => new WikidataPlayerMatch(kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl)).ToList();
+        return byQid
+            .Select(kv => new WikidataPlayerMatch(
+                kv.Key, kv.Value.FullName, kv.Value.Aliases.ToList(), kv.Value.PhotoUrl, kv.Value.CareerStints.ToList()))
+            .ToList();
     }
+
+    // ADR-0042/S-079: Wikidata's P580/P582 qualifiers come back as full
+    // xsd:dateTime strings (e.g. "2015-07-01T00:00:00Z") — REQ-1201-
+    // REQ-1206 only needs the year for chronological ordering and a
+    // displayable year range, never month/day precision, so this takes just
+    // the leading 4 digits rather than parsing the full timestamp.
+    private static bool TryParseXsdDateTimeYear(string xsdDateTime, out int year) =>
+        int.TryParse(xsdDateTime.AsSpan(0, Math.Min(4, xsdDateTime.Length)), out year);
 
     private sealed record SparqlResponse([property: JsonPropertyName("results")] SparqlResults? Results);
 

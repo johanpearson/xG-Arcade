@@ -61,8 +61,18 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             : await wikidataClient.QueryCountryClubIntersectionAsync(
                 country.WikidataQid, club.WikidataQid, cancellationToken);
 
-        return await PersistMatchesAsync(
+        var persisted = await PersistMatchesAsync(
             matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);
+
+        // ADR-0042/S-079: PlayerCareerStint is populated ALONGSIDE (never
+        // instead of) PlayerAttribute's "club" row above, from the same
+        // response — this is the only Lookup*Async entry point this story
+        // wires up (see LookupAndPersistClubClubAsync/
+        // LookupAndPersistTrophyCountryAsync/LookupAndPersistTrophyClubAsync
+        // below for the deliberate scope note on why they don't).
+        await PersistCareerStintsAsync(matches, persisted, club.Name, cancellationToken);
+
+        return persisted;
     }
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
@@ -77,6 +87,14 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         var matches = await wikidataClient.QueryClubClubIntersectionAsync(
             clubA.WikidataQid, clubB.WikidataQid, cancellationToken);
 
+        // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
+        // this story only wires up the country/nationality x club path
+        // (LookupAndPersistAsync above). Extending career-stint persistence
+        // to club-club is a separate future decision, not assumed here —
+        // note match.CareerStints is also structurally empty for this query
+        // shape anyway (BuildClubClubIntersectionQuery's two distinctly-
+        // named statement variables never bind the shared ?clubStatement
+        // the qualifier OPTIONALs key off, see WikidataClient's own comment).
         return await PersistMatchesAsync(
             matches, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, origin, cancellationToken);
     }
@@ -93,6 +111,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         var matches = await wikidataClient.QueryTrophyCountryIntersectionAsync(
             trophy.WikidataQid, country.WikidataQid, cancellationToken);
 
+        // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
+        // this query has no P54 clause at all (see
+        // BuildTrophyCountryIntersectionQuery's own comment), so
+        // match.CareerStints is always structurally empty here regardless.
+        // Extending career-stint persistence beyond the country/nationality
+        // x club path is a separate future decision, not assumed here.
         return await PersistMatchesAsync(
             matches, TrophyAttributeType, trophy.Name, NationalityAttributeType, country.Name, origin, cancellationToken);
     }
@@ -109,6 +133,12 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         var matches = await wikidataClient.QueryTrophyClubIntersectionAsync(
             trophy.WikidataQid, club.WikidataQid, cancellationToken);
 
+        // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint,
+        // even though this query shape DOES share the ?clubStatement
+        // variable name (so match.CareerStints may be non-empty here) —
+        // this story only wires up the country/nationality x club path
+        // (LookupAndPersistAsync above). Extending career-stint persistence
+        // to trophy-club is a separate future decision, not assumed here.
         return await PersistMatchesAsync(
             matches, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, origin, cancellationToken);
     }
@@ -219,6 +249,56 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
             await playerStore.AddPlayerAliasAsync(
                 new PlayerAlias { PlayerId = playerId, Alias = alias, NormalizedAlias = normalized },
                 cancellationToken);
+        }
+    }
+
+    // ADR-0042/S-079: only called from LookupAndPersistAsync (see that
+    // method's own comment) — matches and persistedPlayers are the same
+    // length and share the same index-for-index ordering, since
+    // PersistMatchesAsync's loop iterates `matches` once, in order, adding
+    // exactly one Player per match to its returned list.
+    private async Task PersistCareerStintsAsync(
+        IReadOnlyList<WikidataPlayerMatch> matches,
+        IReadOnlyList<Player> persistedPlayers,
+        string clubName,
+        CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var match = matches[i];
+            if (match.CareerStints.Count == 0)
+                continue;
+
+            var playerId = persistedPlayers[i].Id;
+
+            // Idempotency: re-running the same query must not create
+            // duplicate stint rows — skip a tuple that already exists for
+            // this player (same ClubName/StartYear/EndYear/AppearanceCount),
+            // mirroring PersistAttributeAsync/PersistAliasesAsync's existing
+            // "fetch once, HashSet.Add as the dedup+select gate" pattern.
+            var seenTuples = (await playerStore.GetCareerStintsAsync(playerId, cancellationToken))
+                .Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount))
+                .ToHashSet();
+
+            var newStints = match.CareerStints
+                .Where(q => seenTuples.Add((clubName, q.StartYear, q.EndYear, q.AppearanceCount)))
+                .Select(q => new PlayerCareerStint
+                {
+                    Id = Guid.NewGuid(),
+                    PlayerId = playerId,
+                    ClubName = clubName,
+                    StartYear = q.StartYear,
+                    EndYear = q.EndYear,
+                    AppearanceCount = q.AppearanceCount,
+                    // Resolved by IPlayerStoreRepository.AddCareerStintsAsync
+                    // across the player's full stint set — this placeholder
+                    // is always overwritten before SaveChangesAsync.
+                    SequenceOrder = 0,
+                })
+                .ToList();
+
+            if (newStints.Count > 0)
+                await playerStore.AddCareerStintsAsync(playerId, newStints, cancellationToken);
         }
     }
 }

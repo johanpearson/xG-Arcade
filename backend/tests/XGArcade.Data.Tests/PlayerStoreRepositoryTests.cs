@@ -641,4 +641,80 @@ public class PlayerStoreRepositoryTests
 
         Assert.That(outcomes, Is.Empty);
     }
+
+    // ---- ADR-0042/S-079: PlayerCareerStint (GetCareerStintsAsync/AddCareerStintsAsync) ----
+
+    [Test]
+    public async Task S079_AddCareerStintsAsync_ThenGetCareerStintsAsync_ReturnsAddedStints()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 },
+        ]);
+
+        var stints = await _repository.GetCareerStintsAsync(player.Id);
+
+        Assert.That(stints, Has.Count.EqualTo(1));
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stints[0].SequenceOrder, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task S079_AddCareerStintsAsync_ResequencesExistingStints_WhenNewStintIsChronologicallyEarlier()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Barcelona", StartYear = 2010, EndYear = 2015 },
+        ]);
+
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 },
+        ]);
+
+        var stints = (await _repository.GetCareerStintsAsync(player.Id)).OrderBy(s => s.SequenceOrder).ToList();
+
+        Assert.That(stints, Has.Count.EqualTo(2));
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stints[0].SequenceOrder, Is.EqualTo(0));
+        Assert.That(stints[1].ClubName, Is.EqualTo("Barcelona"));
+        Assert.That(stints[1].SequenceOrder, Is.EqualTo(1),
+            "the pre-existing Barcelona row must be re-sequenced to make room for the chronologically earlier Arsenal stint");
+    }
+
+    [Test]
+    public async Task S079_AddCareerStintsAsync_OngoingStint_SortsLastAmongStintsSharingTheSameStartYear()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.AddCareerStintsAsync(player.Id, [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Loan Club", StartYear = 2020, EndYear = 2021 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Parent Club", StartYear = 2020, EndYear = null },
+        ]);
+
+        var stints = (await _repository.GetCareerStintsAsync(player.Id)).OrderBy(s => s.SequenceOrder).ToList();
+
+        Assert.That(stints[0].ClubName, Is.EqualTo("Loan Club"));
+        Assert.That(stints[1].ClubName, Is.EqualTo("Parent Club"), "an ongoing (null EndYear) stint sorts last among stints sharing the same StartYear");
+    }
+
+    [Test]
+    public void S079_AddCareerStintsAsync_EmptyNewStintsList_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _repository.AddCareerStintsAsync(Guid.NewGuid(), []));
+    }
+
+    [Test]
+    public async Task S079_GetCareerStintsAsync_ReturnsEmpty_WhenPlayerHasNoStints()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        var stints = await _repository.GetCareerStintsAsync(player.Id);
+
+        Assert.That(stints, Is.Empty);
+    }
 }

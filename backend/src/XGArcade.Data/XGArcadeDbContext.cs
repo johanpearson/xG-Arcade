@@ -13,6 +13,10 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerOverride> PlayerOverrides => Set<PlayerOverride>();
     public DbSet<PlayerAttribute> PlayerAttributes => Set<PlayerAttribute>();
     public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
+    // ADR-0042/S-079 (COMP-06): xG Path's ordered, dated career-stint log —
+    // see PlayerCareerStint's own doc comment. Never read by
+    // IPlayerStoreRepository's correctness-checking methods (xG Grid).
+    public DbSet<PlayerCareerStint> PlayerCareerStints => Set<PlayerCareerStint>();
     // COMP-10 (Data.PlayerNameIndex) — see ADR-0007 and architecture-document.md
     // boundary rule 5. Deliberately never read by IPlayerStoreRepository
     // (COMP-06); only IPlayerNameIndexRepository queries this DbSet.
@@ -84,6 +88,17 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .WithMany()
             .HasForeignKey(pa => pa.PlayerId)
             .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlayerCareerStint>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pcs => pcs.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ADR-0042/S-079: every future reader (xG Path's puzzle generation,
+        // S-081+) needs "all of this player's stints" — the hot-path query
+        // this table exists to serve.
+        modelBuilder.Entity<PlayerCareerStint>()
+            .HasIndex(pcs => pcs.PlayerId);
 
         // COMP-10 (Data.PlayerNameIndex, ADR-0007): keyed on PlayerId (the
         // bulk importer upserts in place per player, never inserting a
