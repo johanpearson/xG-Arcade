@@ -201,6 +201,18 @@ public interface IPlayerStoreRepository
     // PersistAttributeAsync/PersistAliasesAsync's existing pattern.
     Task AddCareerStintsAsync(
         Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default);
+
+    // REQ-1201 (S-081): xG Path's puzzle-generation eligibility check reads
+    // every player's full stint set in one bulk read, grouped by PlayerId —
+    // same "tolerate a full-table-scale read at Tier 0's player-pool size (a
+    // few thousand rows)" precedent GetPlayersMissingPhotoAsync's own doc
+    // comment already establishes, rather than a per-candidate query or a
+    // SQL-side eligibility filter. A playerId with no stint rows at all is
+    // simply absent from the result (not present with an empty list) — same
+    // "absent means none" shape as GetPlayerAliasesByPlayerIdsAsync/
+    // GetPlayerAttributesByPlayerIdsAsync above.
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
+        CancellationToken cancellationToken = default);
 }
 
 // REQ-503 (2026-07-20 extension): per-row outcome of

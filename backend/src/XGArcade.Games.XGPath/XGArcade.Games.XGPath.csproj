@@ -2,13 +2,15 @@
 
   <ItemGroup>
     <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
-         ScoreResult) live in XGArcade.Core — nothing else is needed for a
-         stub whose method bodies only throw NotImplementedException. Real
-         generation/scoring logic (S-081+) will add XGArcade.Data (for
-         PlayerCareerStint, per COMP-11/ADR-0042) at that point, not before —
-         boundary rule 1: no ProjectReference beyond what the current code
-         actually uses. -->
+         ScoreResult) live in XGArcade.Core. -->
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- S-081 (REQ-1201/1202): COMP-06 (Data.PlayerStore) repositories
+         (IPlayerStoreRepository for PlayerCareerStint, ICategoryValueRepository
+         for ClubDefinition) and COMP-11's own persistence
+         (IPathInstanceRepository/PathTemplate/PathInstance/PathPuzzle) —
+         boundary rule 1: Games.XGPath reaches player/category/its-own data
+         only through these interfaces, never a DbContext directly. -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

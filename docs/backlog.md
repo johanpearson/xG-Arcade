@@ -4003,8 +4003,13 @@ seeded `ClubDefinition` club, drawn from REQ-112's existing player pool)
 — and persists a puzzle instance plus one cell per puzzle.
 `GetCellIdsAsync` returns those cell ids.
 *Accept:* REQ1201-named tests: a candidate with <3 stints, an
-undeterminable stint order, no stint at a seeded club, or outside
-REQ-112's pool is never selected. REQ1202-named tests: exactly `N`
+undeterminable stint order, or no stint at a seeded club is never
+selected. REQ-112 pool membership is satisfied by construction, not a
+runtime check — `Player` has no `BirthYear`/`Gender` field to violate,
+the same restriction `GridGameModule` already relies on being enforced
+upstream at Wikidata-query time (ADR-0025); this is confirmed by
+inspection, not a test case, the same scope-note precedent S-079's own
+CHANGELOG entry used. REQ1202-named tests: exactly `N`
 distinct-target puzzles are generated per instance; `Round.GameKey =
 "xg-path"`/`GameInstanceId` wiring is unchanged from ADR-0003's existing
 shape (no new Core-side reference). *Deps:* S-079 (career-stint data to

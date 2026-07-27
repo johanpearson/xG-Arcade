@@ -13,6 +13,66 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/backlog.md`, `docs/architecture-document.md`
+  (0.62 → 0.63), `docs/CHANGELOG.md` — doc-sync pass over S-081's diff
+  (REQ-1201/1202, ADR-0045). `docs/backlog.md`'s S-081 Accept-criteria
+  sentence previously read as if a test exists for "a candidate outside
+  REQ-112's pool" — no such fixture is possible (`Player` has no
+  `BirthYear`/`Gender` field), so the wording now matches what was
+  actually built: that criterion is satisfied by construction and
+  confirmed by inspection, same as `XGPathGameModuleTests`'s own class doc
+  comment and REQ-1201's status note already say (flagged independently by
+  `architecture-reviewer` and `quality-architect`). Corrected this same
+  entry's own prior wording ("REQ-1201's four independent rejection
+  rules") to say three rules covered by real fixtures (one, undeterminable
+  order, tested via two fixtures) plus the fourth confirmed by inspection.
+  `docs/architecture-document.md`'s §10 ADR index table was missing rows
+  for ADR-0040 through ADR-0044 as well as the new ADR-0045 (a pre-existing
+  gap predating this branch, not introduced by S-081) — added all five so
+  ADR-0045 is actually discoverable from the index. Verified
+  `docs/requirements-document.md`, `docs/implementation-document.md`, and
+  ADR-0045 itself were otherwise accurate against the code; no change to
+  `docs/legal/*.md` needed (no data collection/retention/third-party
+  change in this story).
+- 2026-07-27 — `docs/requirements-document.md` (1.14 → 1.15),
+  `docs/architecture-document.md` (0.61 → 0.62),
+  `docs/implementation-document.md` (0.76 → 0.77), `docs/decisions/0045-xg-
+  path-puzzle-generation-model-and-eligibility.md` (new) — implemented
+  S-081 (REQ-1201/1202): `XGPathGameModule.GenerateInstanceAsync`/
+  `GetCellIdsAsync` (`XGArcade.Games.XGPath`) now do real work instead of
+  throwing `NotImplementedException`. New entities `PathTemplate`/
+  `PathInstance`/`PathPuzzle` (`XGArcade.Data`, migration
+  `20260727130000_AddPathInstance`) mirror `GridTemplate`/`GridInstance`/
+  `GridCell`'s shape; unlike `GridCell`, `PathPuzzle.TargetPlayerId` is a
+  real FK into `Player` — see ADR-0045 for why this doesn't cross
+  ADR-0003's Core/game boundary. New repository `IPathInstanceRepository`/
+  `PathInstanceRepository` (COMP-11's own persistence) and a new
+  `IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync` bulk read
+  (COMP-06) — the only new cross-component call, same "tolerate a
+  full-table-scale read at Tier 0's player-pool size" precedent
+  `GetPlayersMissingPhotoAsync` already sets. REQ-1201's eligibility check
+  reads two of its acceptance-criteria phrases in specific, documented ways
+  (ADR-0045): "≥3 distinct stints" as ≥3 stint *rows*, not 3 distinct
+  clubs; "chronological order determinable from start/end dates" as
+  rejecting any candidate with two stints sharing an identical
+  `(StartYear, EndYear)` pair (including two simultaneously "ongoing"
+  stints). REQ-112 pool membership is verified by construction (`Player`
+  has no `BirthYear`/`Gender` field), not a runtime check — same precedent
+  `GridGameModule` already established. `ScoreSubmissionAsync`/
+  `GetMaxAttemptsForCellAsync` (REQ-1204/1205) are untouched, still
+  throwing `NotImplementedException` — that's S-082. New
+  `XGPathGameModuleTests` (NUnit, real InMemory-backed repositories, no
+  fakes, same pattern as `GridGameModuleTests`) covers three of REQ-1201's
+  four rejection criteria with real fixtures (fewer than 3 stints; an
+  undeterminable stint order, including the two-simultaneously-"ongoing"-
+  stints edge case; no stint at a seeded club) plus a positive "3 stints at
+  the same club is still eligible" control. The fourth criterion — a
+  candidate outside REQ-112's pool — has no corresponding fixture: `Player`
+  has no `BirthYear`/`Gender` field to construct a violation against, so
+  this is confirmed by inspection instead, per the class-level doc comment
+  on `XGPathGameModuleTests` (same scope-note precedent S-079's own
+  CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
+  insufficient-pool/unknown-template/cell-id-lookup behavior.
 - 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
   §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
   `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews
