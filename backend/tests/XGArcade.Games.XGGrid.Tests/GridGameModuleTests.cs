@@ -1394,6 +1394,15 @@ public class GridGameModuleTests
         public Task AddCareerStintsAsync(
             Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default) =>
             inner.AddCareerStintsAsync(playerId, newStints, cancellationToken);
+
+        // REQ-1201 (S-081): xG Path's puzzle-generation eligibility read —
+        // same "delegated here only so this thin wrapper keeps compiling
+        // against the interface" reasoning as GetCareerStintsAsync/
+        // AddCareerStintsAsync above; xG Grid's correctness path never
+        // calls this either.
+        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
+            CancellationToken cancellationToken = default) =>
+            inner.GetAllCareerStintsByPlayerAsync(cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
