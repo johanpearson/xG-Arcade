@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
+  `docs/decisions/0046-live-lookup-timeout-exception-signal.md` — follow-up
+  to #123: real usage showed guessing "Clarence Seedorf" for Ajax × AC Milan
+  consistently returned `LiveLookupUnavailable` (503) rather than ever
+  resolving, since `WikidataClient`'s 15s budget (REQ-103's own, reused
+  unmodified by #123's fix) doesn't cover the up-to-27s WDQS latency
+  ADR-0011 already documented for this club-club query shape. Added a
+  second, wider budget (`guessTimeFallbackQueryTimeout`, 28s) used only when
+  `throwOnTimeout` is set (i.e. only `WikidataLookupOrigin.GuessTimeFallback`)
+  — REQ-103/grid generation's 15s budget is completely unaffected. New
+  status notes on REQ-211 and ADR-0046 explain why this doesn't reopen
+  ADR-0046's own rejected "increase the timeout instead" alternative (that
+  alternative was rejected in the context of the fallback firing on every
+  unresolved guess; REQ-211's `PlayerNameIndex` gate, landed in the same
+  PR, already narrowed that to only real, indexed players before this
+  follow-up widened the budget further).
 - 2026-07-27 — `docs/backlog.md`, `docs/architecture-document.md`
   (0.62 → 0.63), `docs/CHANGELOG.md` — doc-sync pass over S-081's diff
   (REQ-1201/1202, ADR-0045). `docs/backlog.md`'s S-081 Accept-criteria

@@ -376,7 +376,11 @@ public class WikidataLookupServiceTests
         {
             BaseAddress = new Uri("https://query.wikidata.org/"),
         };
-        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        // ADR-0046 follow-up: GuessTimeFallback uses guessTimeFallbackQueryTimeout,
+        // not queryTimeout — must be set here too, or this test would wait
+        // out the real (28s default) budget.
+        var wikidataClient = new WikidataClient(
+            httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         Assert.ThrowsAsync<WikidataQueryException>(async () =>
@@ -393,7 +397,8 @@ public class WikidataLookupServiceTests
         {
             BaseAddress = new Uri("https://query.wikidata.org/"),
         };
-        var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
+        var wikidataClient = new WikidataClient(
+            httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(wikidataClient, _playerStore);
 
         Assert.ThrowsAsync<WikidataQueryException>(async () =>

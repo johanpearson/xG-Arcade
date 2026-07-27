@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.16"
+version: "1.17"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -1438,6 +1438,26 @@ an extra attempt), API
   `GuessEndpoints` maps to HTTP 503 — see the new acceptance-criterion
   bullet below, REQ-210's matching status note, and ADR-0046 for the full
   structural decision (including alternatives considered).
+- **Status note (2026-07-27, follow-up to the above — ADR-0046's own status
+  note has the full reasoning):** merging the two status notes above
+  surfaced a real, reported case (the same "Clarence Seedorf" guess) where
+  the guess-time fallback consistently returned `LiveLookupUnavailable`
+  rather than ever resolving — `BuildClubClubIntersectionQuery`'s two full
+  `P54` statement-path joins are exactly the query shape ADR-0011's own
+  evidence says can take up to 27 seconds under WDQS load, and REQ-103's
+  15-second budget (reused unmodified by the first status note above)
+  doesn't cover that. `WikidataClient` now uses a second, wider budget
+  (`guessTimeFallbackQueryTimeout`, 28s) whenever `throwOnTimeout` is set —
+  i.e. only for this guess-time fallback — while REQ-103/grid generation's
+  15-second budget is completely untouched. This does not reopen the
+  "increase the timeout instead of distinguishing timeout from no-match"
+  alternative ADR-0046 already rejected: that alternative was about
+  widening the timeout *instead of* the exception-based fix, back when the
+  fallback still ran on every unresolved guess; now that this REQ's own
+  `PlayerNameIndex` gate (previous status note) means the fallback only
+  ever runs for a guess that matched a real, indexed player, a wider budget
+  for just that narrower case has none of the downside the rejected
+  alternative had.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
