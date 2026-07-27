@@ -15,8 +15,8 @@ namespace XGArcade.Games.XGPath.Tests;
 // GameKey_IsXgPath below is unchanged from S-080's scaffold.
 // ScoreSubmissionAsync_ThrowsNotImplemented/GetMaxAttemptsForCellAsync_
 // ThrowsNotImplemented were removed by S-082, which implements both methods
-// for real (REQ-1204/REQ-1205) — a REQ1204/REQ1205-named test suite for
-// them is test-writer's follow-up, not added by this class.
+// for real (REQ-1204/REQ-1205) — this class carries the REQ1204-/
+// REQ1205-named test coverage for them directly, below.
 // GenerateInstanceAsync_ThrowsNotImplemented/GetCellIdsAsync_
 // ThrowsNotImplemented were likewise replaced with real REQ1201/REQ1202-named
 // tests by S-081, since those two methods are no longer stubs.
@@ -491,6 +491,56 @@ public class XGPathGameModuleTests
 
         Assert.That(result.IsCorrect, Is.True);
         Assert.That(result.PlayerAnswerId, Is.EqualTo(targetPlayerId));
+    }
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_NameResolvesToMultiplePlayersAndTargetIsOneOfThem_ReturnsCorrectWithTargetPlayerAnswerId()
+    {
+        // Pins down XGPathGameModule.ScoreSubmissionAsync's own structural
+        // claim, in its comment above: unlike GridGameModule's REQ-209
+        // disambiguation, an xG Path puzzle's correctness only ever cares
+        // whether the ONE specific target is among the name-matched
+        // candidates — a second, unrelated real player who happens to
+        // share the target's exact name must not trigger a disambiguation
+        // prompt (there is no DisambiguationCandidates equivalent set here)
+        // and must not change the outcome.
+        var target = SeedPlayer("Alex Multi");
+        // A second real Player row sharing the identical FullName/
+        // normalized name as the target, but NOT the target itself.
+        // Constructed directly here (rather than via SeedPlayer, which
+        // keys WikidataQid off `name` and would collide on a repeat call)
+        // so it gets its own distinct WikidataQid — the same "two players,
+        // one shared name" fixture technique GridGameModuleTests' own
+        // REQ-209 tests use via SeedPlayerAsync's per-call Guid.NewGuid()
+        // WikidataQid suffix.
+        _dbContext.Players.Add(new Player { Id = Guid.NewGuid(), FullName = "Alex Multi", WikidataQid = "Qplayer-Alex-Multi-2" });
+        _dbContext.SaveChanges();
+        var (instanceId, puzzleId, targetPlayerId) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Alex Multi"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(targetPlayerId));
+        Assert.That(result.DisambiguationCandidates, Is.Null,
+            "xG Path has no REQ-209-style disambiguation — a same-named non-target candidate resolving alongside the real target changes nothing about the outcome");
+    }
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_NameResolvesToMultiplePlayersAndTargetIsNoneOfThem_ReturnsIncorrect()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        // Two same-named candidates, neither of which is this puzzle's
+        // target — same duplicate-FullName fixture technique as the test
+        // above.
+        SeedPlayer("Alex Multi");
+        _dbContext.Players.Add(new Player { Id = Guid.NewGuid(), FullName = "Alex Multi", WikidataQid = "Qplayer-Alex-Multi-2" });
+        _dbContext.SaveChanges();
+        var (instanceId, puzzleId, _) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Alex Multi"));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
     }
 
     [Test]

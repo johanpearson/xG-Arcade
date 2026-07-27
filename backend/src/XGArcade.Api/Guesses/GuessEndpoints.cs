@@ -3,8 +3,6 @@ using XGArcade.Api.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Repositories;
-using XGArcade.Games.XGGrid;
-using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Guesses;
 
@@ -56,7 +54,7 @@ public static class GuessEndpoints
                 result = await guessSubmissionService.SubmitGuessAsync(
                     roundId, user.Id, cellId, request.SubmittedName, request.ChosenPlayerId, cancellationToken);
             }
-            catch (Exception ex) when (ex is GuessScoringException or PathScoringException)
+            catch (GameEntityNotFoundException ex)
             {
                 // The cellId didn't resolve to a real cell/puzzle in this
                 // round's game instance — a malformed/stale request, not an
@@ -69,19 +67,18 @@ public static class GuessEndpoints
                 // being a richer Problem body than the other for no real
                 // reason.
                 //
-                // Judgment call (flagged for architecture-reviewer): this
-                // endpoint (XGArcade.Api.Guesses, game-agnostic by design —
-                // routes through IGuessSubmissionService/
-                // IGameModuleResolver by round.GameKey) now has compile-time
-                // knowledge of both games' own scoring-exception types
-                // (GuessScoringException from Games.XGGrid, PathScoringException
-                // from Games.XGPath) to catch here. A cleaner fix — a shared
-                // "cell/puzzle not found" exception type living in
-                // Core.Games (the same cross-boundary precedent
-                // LiveLookupUnavailableException already sets) that both
-                // game-specific exceptions could derive from or be replaced
-                // by — is a real design option but a boundary decision, not
-                // one made silently here; flagged rather than built.
+                // This endpoint (XGArcade.Api.Guesses, game-agnostic by
+                // design — routes through IGuessSubmissionService/
+                // IGameModuleResolver by round.GameKey) previously needed
+                // compile-time knowledge of both games' own scoring-exception
+                // types (GuessScoringException from Games.XGGrid,
+                // PathScoringException from Games.XGPath) to catch here.
+                // Resolved by having both derive from the shared
+                // Core.Games.GameEntityNotFoundException — the same
+                // cross-boundary precedent LiveLookupUnavailableException
+                // already set — so this catch clause depends only on a type
+                // Core already owns, with no per-game `using` needed for this
+                // purpose.
                 logger.LogError(ex, "Guess submission failed: cell not found.");
                 return Results.NotFound();
             }
