@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-26 — `docs/architecture-document.md` (0.57 → 0.58),
+  `docs/implementation-document.md` (0.72 → 0.73),
+  `docs/requirements-document.md` (REQ-210, 1.12 → 1.13) — implemented
+  S-077 (ADR-0041): `IGameModule` gained
+  `GetMaxAttemptsForCellAsync(instanceId, cellId)`, resolved through
+  `IGameModuleResolver` the same way `GetCellIdsAsync` already is. xG
+  Grid's `GridGameModule` implementation returns `2` unconditionally,
+  identical to the old `GuessRules.MaxAttemptsPerCell` global constant it
+  replaces, which is now deleted outright (not left as dead code, per
+  ADR-0041's own follow-up). `GuessSubmissionService` (REQ-210's lock/cap
+  check), `LiveRoundContributionService`, and `RoundEndpoints` all now
+  read the cap through the module instead of the deleted constant. Pure
+  extraction — no REQ-210 acceptance criteria changed; new tests prove no
+  call site hardcodes `2` (a module reporting a non-standard cap is
+  actually honored) and that the cap is resolved exactly once per
+  submission attempt.
 - 2026-07-26 — `docs/architecture-document.md` (0.56 → 0.57),
   `docs/implementation-document.md` (0.71 → 0.72) — implemented S-076
   (ADR-0040): `Core.Scoring` now resolves an `IScoringStrategy` per

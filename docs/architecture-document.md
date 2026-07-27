@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.57"
+version: "0.58"
 status: draft
 last_updated: 2026-07-26
 owner: Johan
@@ -261,6 +261,25 @@ it still runs before any strategy is consulted and stays
 `FinalPoints = MaxPointsPerCell`/`FinalUniquenessScore = null`,
 strategy-agnostic. This is a pure extraction — every existing REQ-204/205
 acceptance criterion still holds for xG Grid unchanged.
+
+**COMP-04 status (S-077, ADR-0041 — built, not just designed):** the second
+of the two ADR-0040/ADR-0041 refactors above is now real code too, ahead of
+xG Path itself (S-079+). `IGameModule` gained
+`Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken)`,
+resolved through `IGameModuleResolver` the same way `GetCellIdsAsync`
+already is. `GridGameModule`'s implementation returns `2` unconditionally
+for every cell — no repository lookup, no branching on `instanceId` or
+`cellId` — deliberately identical to the behavior it replaces. The old
+`GuessRules.MaxAttemptsPerCell` global constant no longer exists.
+`GuessSubmissionService` (REQ-210's lock/cap check),
+`LiveRoundContributionService` (the locked-incorrect live-contribution
+branch), and `RoundEndpoints` (`GET /rounds/current`'s `Locked` field on
+each cell's guess) all now read the cap through the module instead of the
+deleted constant. This is a pure extraction — every existing REQ-210 acceptance
+criterion still holds for xG Grid unchanged; new tests cover
+`GridGameModule.GetMaxAttemptsForCellAsync` directly plus call-count
+assertions on `GuessSubmissionService`/`LiveRoundContributionService`'s
+resolution of it.
 
 **COMP-02 status (S-011):** `ILeaderboardService`/`LeaderboardService`
 (`XGArcade.Core.Leagues`) is COMP-02's first real code — REQ-401's
@@ -771,7 +790,18 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   `Games.XGGrid` is ever called at all — `Games.XGGrid` is only reached
   once REQ-210's checks have already passed. Matches the acceptance
   criteria's substance ("checked before any name resolution work"), just
-  not this diagram's component attribution.
+  not this diagram's component attribution. **S-077/ADR-0041 addendum
+  (2026-07-26):** since S-077, `GuessSubmissionService` *does* call into
+  `Games.XGGrid` before that rejection decision — `IGameModule
+  .GetMaxAttemptsForCellAsync(instanceId, cellId)`, resolved through
+  `IGameModuleResolver` to read this cell's own attempt cap. This is not
+  the exception the paragraph above is about (`ScoreSubmissionAsync`, the
+  name-resolution call, still only runs after every REQ-210 check passes)
+  — `GetMaxAttemptsForCellAsync` is a narrow, side-effect-free read of a
+  per-cell configuration value, not name-resolution work. The rejection
+  *decision* itself is still made entirely in `GuessSubmissionService`;
+  `Games.XGGrid` only answers "what's this cell's cap," never "should this
+  guess be rejected."
 - Name resolution is real but much narrower than described: `normalize +
   alias + fuzzy match against Data.PlayerNameIndex (REQ-208)` should read
   "normalize (lowercase/diacritics/punctuation only) and look up exact
