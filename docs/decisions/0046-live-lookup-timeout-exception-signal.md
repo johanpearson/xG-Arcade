@@ -92,6 +92,44 @@ and no attempt is consumed. `GuessEndpoints.cs` maps this outcome to HTTP
   generic enough to reuse as-is before introducing a second, similarly-named
   type in `Core.Games`.
 
+## Status note (2026-07-27, follow-up)
+
+Real usage after merge (#123) surfaced a gap this ADR's own evidence had
+already predicted: guessing "Clarence Seedorf" for Ajax × AC Milan
+consistently returned the `LiveLookupUnavailable` 503 this ADR introduces,
+never resolving — a genuinely correct guess that Wikidata could answer, but
+not within 15s. `BuildClubClubIntersectionQuery`'s two full `P54`
+statement-path joins (needed to preserve "ever played for," not "currently
+plays for" — see that method's own comment) are exactly the query shape
+ADR-0011's evidence names as capable of taking up to 27s under WDQS load.
+
+This does **not** reverse the "Increase `WikidataClient`'s intersection-query
+timeout" alternative rejected in the table above — that alternative was
+about widening the timeout *instead of* adding the exception-based
+distinction, which really would have traded one bug for a worse one (a
+slower failure mode on every guess, at a time when the live fallback still
+fired on every unresolved guess, not just ones worth a live call). REQ-211's
+`PlayerNameIndex` gate (landed in the same PR as this ADR) already
+eliminated that cost for ordinary wrong guesses — the live fallback now
+only ever runs for a guess that matched a real, indexed player. Given that,
+widening *only* the guess-time-fallback budget — leaving REQ-103/grid
+generation's 15s completely untouched — has none of the downside the
+rejected alternative had, and directly fixes the "correct guess can never
+be verified" gap this status note describes.
+
+`WikidataClient` gained a second constructor parameter,
+`guessTimeFallbackQueryTimeout` (default 28s — comfortably covering
+ADR-0011's documented 27s worst case with a small margin), selected instead
+of the original `queryTimeout` (still 15s, still REQ-103's only budget)
+whenever `throwOnTimeout` is `true` — i.e. only for
+`WikidataLookupOrigin.GuessTimeFallback`. Verified this doesn't reintroduce
+the "failed to fetch" network-level failure this ADR's own Context section
+describes: no Azure Container Apps ingress timeout is configured in
+`infra/bicep/modules/backend-container-app.bicep`, and the frontend's guess
+submission has no client-side `AbortSignal`/timeout of its own, so a 28s
+round trip completes as an ordinary (if slow) HTTP response, not a dropped
+connection.
+
 ## For AI agents
 
 `LiveLookupUnavailableException` (`XGArcade.Core.Games`) exists specifically
@@ -106,4 +144,11 @@ on a Wikidata failure" guarantee still holds. Don't add a new
 `GuessSubmissionOutcome` branch that skips the "return before touching
 guessRepository" shape this one and REQ-209's disambiguation branch both
 use — an attempt must never be consumed for an outcome that isn't a real,
-evaluated guess.
+evaluated guess. `WikidataClient` has two separate timeout fields —
+`queryTimeout`/`_queryTimeout` (15s, REQ-103/grid generation, always used
+when `throwOnTimeout` is `false`) and `guessTimeFallbackQueryTimeout`/
+`_guessTimeFallbackQueryTimeout` (28s, used only when `throwOnTimeout` is
+`true`) — don't collapse these back into one field, and when writing a test
+that exercises `throwOnTimeout: true`'s timeout branch, set
+`guessTimeFallbackQueryTimeout` (not just `queryTimeout`) to a short value,
+or the test will wait out the real 28s default.

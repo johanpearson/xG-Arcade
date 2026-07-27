@@ -118,12 +118,42 @@ public class WikidataClientTests
     [Test]
     public void QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_Timeout_ThrowsWikidataQueryException()
     {
+        // ADR-0046 follow-up: throwOnTimeout: true uses
+        // guessTimeFallbackQueryTimeout, not queryTimeout — must be set here
+        // too, or this test would wait out the real (28s default) budget.
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
-            queryTimeout: TimeSpan.FromMilliseconds(50));
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
 
         Assert.ThrowsAsync<WikidataQueryException>(async () =>
             await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true));
+    }
+
+    // ADR-0046 follow-up (2026-07-27): a real report (guessing "Clarence
+    // Seedorf" for Ajax x AC Milan) showed a throwOnTimeout: true call
+    // reusing queryTimeout would fail every retry for a query shape that
+    // legitimately needs longer than 15s (ADR-0011's documented 9-27s WDQS
+    // range) — this proves the two budgets are genuinely independent, not
+    // just that a timeout eventually throws: a short queryTimeout must NOT
+    // cut a throwOnTimeout: true call off early once guessTimeFallbackQueryTimeout
+    // is set wider than it.
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_UsesGuessTimeFallbackBudget_NotQueryTimeout()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(400));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, throwOnTimeout: true));
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short queryTimeout (50ms) must not cut this call off before the wider guessTimeFallbackQueryTimeout (400ms) elapses");
+        Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (guessTimeFallback) budget used, not queryTimeout");
     }
 
     // A non-timeout failure (HTTP error/malformed JSON) must still swallow
