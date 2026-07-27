@@ -777,6 +777,64 @@ public class PlayerStoreRepositoryTests
         Assert.That(result, Is.Empty);
     }
 
+    // ---- REQ-1207/S-082: Position/BirthYear, set once at Player creation --
+
+    [Test]
+    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_UnknownQid_SetsPositionAndBirthYearFromTheRequest()
+    {
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
+            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
+
+        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"));
+        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
+    }
+
+    [Test]
+    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_UnknownQid_NoPositionOrBirthYearGiven_BothAreNull()
+    {
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
+            [new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
+
+        Assert.That(result["Q1519"].Position, Is.Null);
+        Assert.That(result["Q1519"].BirthYear, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_ExistingQid_LeavesItsPositionAndBirthYearCompletelyUntouched_EvenWhenTheNewRequestDisagrees()
+    {
+        // Set-once contract, direct at the repository level (this method
+        // never touches an existing Player row at all — see its own
+        // "if (result.ContainsKey(...)) continue;" comment) — a second call
+        // for the same QID carrying different Position/BirthYear values must
+        // have zero effect on the already-persisted row.
+        var existing = await _repository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519", Position = "forward", BirthYear = 1977 });
+
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
+            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "midfielder", 1980)]);
+
+        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"), "the new request's 'midfielder' must never overwrite the existing row");
+        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977), "the new request's 1980 must never overwrite the existing row");
+    }
+
+    [Test]
+    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_ExistingQidWithNullPositionAndBirthYear_LaterRequestWithRealValues_LeavesThemNull()
+    {
+        // The set-once rule applies regardless of whether the existing row's
+        // CURRENT value is null or already set (REQ-1207's own text) — not
+        // just the "overwriting a real value" case above.
+        var existing = await _repository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
+
+        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
+            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
+
+        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
+        Assert.That(result["Q1519"].Position, Is.Null, "a null already on the existing row is never backfilled by a later request");
+        Assert.That(result["Q1519"].BirthYear, Is.Null, "a null already on the existing row is never backfilled by a later request");
+    }
+
     [Test]
     public async Task AddPlayerDataBatchAsync_PersistsEveryRow_InOneCall()
     {

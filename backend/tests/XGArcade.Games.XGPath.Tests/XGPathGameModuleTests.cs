@@ -402,10 +402,148 @@ public class XGPathGameModuleTests
         Assert.That(XGPathGameModule.XGPathGameKey, Is.EqualTo("xg-path"));
     }
 
-    // ScoreSubmissionAsync_ThrowsNotImplemented/GetMaxAttemptsForCellAsync_
-    // ThrowsNotImplemented (S-080's scaffold) removed here — S-082
-    // implements both methods for real (REQ-1204/REQ-1205); a real
-    // REQ1204/REQ1205-named test suite for them is test-writer's follow-up,
-    // not added in this change (see this class's own class-doc-comment note
-    // on scope).
+    // ---- REQ-1204/REQ-1205 (S-082) fixtures --------------------------------
+    // Builds a PathInstance/PathPuzzle directly via the repository (like
+    // GridGameModuleTests' own SeedGridInstanceAsync), rather than going
+    // through GenerateInstanceAsync — gives these tests exact, explicit
+    // control over which player is the puzzle's target, independent of
+    // REQ-1201's eligibility rules or REQ-1202's random selection.
+    private async Task<(Guid InstanceId, Guid PuzzleId, Guid TargetPlayerId)> SeedPathInstanceAsync(Guid targetPlayerId)
+    {
+        var instanceId = Guid.NewGuid();
+        var puzzleId = Guid.NewGuid();
+        var instance = new PathInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Puzzles = [new PathPuzzle { Id = puzzleId, PathInstanceId = instanceId, TargetPlayerId = targetPlayerId }],
+        };
+        await _pathInstanceRepository.AddInstanceAsync(instance);
+        return (instanceId, puzzleId, targetPlayerId);
+    }
+
+    // ---- REQ-1204: guess correctness resolution ----------------------------
+    // "correctness is a direct PlayerId match, not a category check" —
+    // xG Path has no category concept at all, unlike GridGameModule's own
+    // REQ203_ScoreSubmissionAsync_* tests, which always seed a cell with two
+    // categories a candidate must satisfy.
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_ResolvedCandidateIsTheTarget_ReturnsCorrectWithPlayerAnswerId()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        var (instanceId, puzzleId, targetPlayerId) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Kylian Mbappe"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(targetPlayerId));
+    }
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_ResolvedCandidateIsARealPlayerButNotTheTarget_ReturnsIncorrect()
+    {
+        // No category-membership check exists for this game (unlike
+        // GridGameModule's REQ-203 check) — a guess that resolves to a real,
+        // known player is still incorrect unless that player IS this
+        // puzzle's own target.
+        var target = SeedPlayer("Kylian Mbappe");
+        var someoneElse = SeedPlayer("Erling Haaland");
+        var (instanceId, puzzleId, _) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Erling Haaland"));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
+        Assert.That(someoneElse.Id, Is.Not.EqualTo(target.Id), "sanity check: the two seeded players must be genuinely distinct");
+    }
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_GuessDoesNotResolveToAnyPlayerNameIndexCandidate_ReturnsIncorrect()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        var (instanceId, puzzleId, _) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Nobody Real At All"));
+
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.PlayerAnswerId, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1204_ScoreSubmissionAsync_AliasMatchingTheTarget_ReturnsCorrect()
+    {
+        // REQ-1204: "using the same name-matching/autocomplete pipeline
+        // (PlayerNameIndex, ADR-0007) xG Grid guesses already use" — the
+        // alias path is checked only when the primary-name path finds no
+        // candidate (IPlayerStoreRepository.GetPlayersByNormalizedAliasAsync's
+        // own doc comment).
+        var target = SeedPlayer("Edson Arantes do Nascimento");
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias
+        {
+            PlayerId = target.Id,
+            Alias = "Pele",
+            NormalizedAlias = PlayerNameNormalizer.Normalize("Pele"),
+        });
+        var (instanceId, puzzleId, targetPlayerId) = await SeedPathInstanceAsync(target.Id);
+
+        var result = await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(puzzleId, "Pele"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(targetPlayerId));
+    }
+
+    [Test]
+    public void ScoreSubmissionAsync_UnknownInstanceId_ThrowsPathScoringException()
+    {
+        Assert.ThrowsAsync<PathScoringException>(
+            async () => await _module.ScoreSubmissionAsync(Guid.NewGuid(), Guid.NewGuid(), new GuessSubmission(Guid.NewGuid(), "Anyone")));
+    }
+
+    [Test]
+    public async Task ScoreSubmissionAsync_UnknownPuzzleId_ThrowsPathScoringException()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        var (instanceId, _, _) = await SeedPathInstanceAsync(target.Id);
+
+        Assert.ThrowsAsync<PathScoringException>(
+            async () => await _module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(Guid.NewGuid(), "Anyone")));
+    }
+
+    // ---- REQ-1205: per-puzzle attempt cap, fixed at 7 ----------------------
+
+    [Test]
+    public async Task REQ1205_GetMaxAttemptsForCellAsync_ReturnsSeven()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        var (instanceId, puzzleId, _) = await SeedPathInstanceAsync(target.Id);
+
+        var maxAttempts = await _module.GetMaxAttemptsForCellAsync(instanceId, puzzleId);
+
+        Assert.That(maxAttempts, Is.EqualTo(7));
+    }
+
+    [Test]
+    public async Task REQ1205_GetMaxAttemptsForCellAsync_ReturnsSeven_ForPuzzlesWithDifferentTargetStintCounts_NeverGridsFixedTwo()
+    {
+        // REQ-1205: the resolved cap is a fixed 7 for every xG Path puzzle,
+        // regardless of its target's own stint count N — unlike
+        // GridGameModule's fixed 2, and unlike a value that would vary by N.
+        var shortCareerPlayer = SeedPlayer("ShortCareer");
+        SeedStints(shortCareerPlayer.Id,
+            (2010, 2013, "Club A"), (2013, 2016, "Club B"), (2016, (int?)null, "Club C"));
+        var longCareerPlayer = SeedPlayer("LongCareer");
+        SeedStints(longCareerPlayer.Id,
+            Enumerable.Range(0, 11).Select(i => (2000 + i, (int?)(2001 + i), $"Club {i}")).ToArray());
+
+        var (shortInstanceId, shortPuzzleId, _) = await SeedPathInstanceAsync(shortCareerPlayer.Id);
+        var (longInstanceId, longPuzzleId, _) = await SeedPathInstanceAsync(longCareerPlayer.Id);
+
+        var shortCareerMaxAttempts = await _module.GetMaxAttemptsForCellAsync(shortInstanceId, shortPuzzleId);
+        var longCareerMaxAttempts = await _module.GetMaxAttemptsForCellAsync(longInstanceId, longPuzzleId);
+
+        Assert.That(shortCareerMaxAttempts, Is.EqualTo(7));
+        Assert.That(longCareerMaxAttempts, Is.EqualTo(7));
+        Assert.That(shortCareerMaxAttempts, Is.Not.EqualTo(2), "must never be xG Grid's fixed cap of 2");
+    }
 }
