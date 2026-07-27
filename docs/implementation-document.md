@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.73"
+version: "0.74"
 status: draft
-last_updated: 2026-07-26
+last_updated: 2026-07-27
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1272,6 +1272,19 @@ outright; no other caller referenced them. `GET
 architecture-document.md §6.2a for the corrected full flow, including the
 new `/window/{resolution}` route (REQ-405, S-027), which keeps its own
 plain within-window sum and is likewise unaffected by the median change.
+
+**2026-07-27/S-078, REQ-410/ADR-0043 — adds a required `gameKey` filter on
+top of the above, formula unchanged:** `GetGlobalLeaderboardAsync` and
+`GetPerRoundFinalPointsByUserIdsAsync` both gained a required `gameKey`
+parameter; the per-round query's existing `Guess`-`Round` join (still the
+same database-side `GROUP BY`) gained a `round.GameKey == gameKey`
+predicate — no new join, no schema change. `GET
+/leagues/global/leaderboard` passes `GridGameModule.XGGridGameKey`
+explicitly (the Api-layer composition-root pattern ADR-0003 already
+establishes for every other route in this file), so behavior for xG
+Grid, the only shipped game, is unchanged. No route query parameter
+exists yet for a caller to request a second game's ranking — that's
+S-087's frontend game-switcher, tracked separately.
 
 Two deliberate MVP-scale choices, not gaps, both still true post-REQ-409:
 (1) ranking/median computation and the `cursor`/`pageSize` slice happen in

@@ -56,8 +56,18 @@ public interface ILeaderboardService
     // shape the pre-REQ-409 zero-guess exclusion already established —
     // never ranked with a default score of 0, which ADR-0021's lowest-wins
     // model would otherwise treat as the *best* possible score.
+    //
+    // REQ-410/ADR-0043 (2026-07-27): gained a required gameKey parameter,
+    // matching the shape GetActiveRoundLeaderboardAsync/GetClosedRoundsAsync/
+    // GetClosedRoundLeaderboardAsync/GetWindowedLeaderboardAsync already had
+    // — only rounds whose Round.GameKey matches count towards the median,
+    // qualifying-round count, and 5-round minimum. Filters on top of REQ-409's
+    // formula, does not change it. gameKey is an opaque string the API layer
+    // supplies, same as GetClosedRoundsAsync/GetWindowedLeaderboardAsync
+    // (ADR-0003).
     Task<LeaderboardPage> GetGlobalLeaderboardAsync(
         Guid requestingUserId,
+        string gameKey,
         int cursor,
         int pageSize,
         CancellationToken cancellationToken = default);

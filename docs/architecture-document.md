@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.58"
+version: "0.59"
 status: draft
-last_updated: 2026-07-26
+last_updated: 2026-07-27
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -370,7 +370,7 @@ above: REQ-405 keeps its own plain-sum-within-the-window ranking, since
 across all history" are different questions with different natural
 formulas.
 
-**COMP-02 status (design only, 2026-07-26, ADR-0043):** planning xG Path's
+**COMP-02 status (2026-07-27, S-078, ADR-0043):** planning xG Path's
 platform integration (not just its own game logic, COMP-11) found that
 three of `ILeaderboardService`'s four scopes were already `GameKey`-scoped
 (`GetActiveRoundLeaderboardAsync` via the specific `Round` passed in;
@@ -378,16 +378,19 @@ three of `ILeaderboardService`'s four scopes were already `GameKey`-scoped
 `GetWindowedLeaderboardAsync` via an explicit `gameKey` parameter,
 S-054/S-027 above) — only `GetGlobalLeaderboardAsync` (REQ-409's all-time
 median) was not, silently blending every game's rounds into one ranking.
-ADR-0043 closes that one remaining gap: `GetGlobalLeaderboardAsync` and
-`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` both gain a
+ADR-0043 closed that one remaining gap: `GetGlobalLeaderboardAsync` and
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` both gained a
 required `gameKey` parameter (the latter's existing `Guess`-`Round` join
-just gains a `round.GameKey == gameKey` filter, no schema change). `League`
+just gained a `round.GameKey == gameKey` filter, no schema change). `League`
 membership itself is untouched — one Global League, auto-joined at signup
-(REQ-401) — only which game's rounds count toward the *ranking* becomes an
+(REQ-401) — only which game's rounds count toward the *ranking* is now an
 explicit parameter, consistent with the other three scopes. See
-`docs/requirements-document.md` §4.4 for the corresponding REQ addition.
-Not yet implemented — xG Grid is still the only game, so there is nothing
-to scope against in practice yet.
+`docs/requirements-document.md` §4.4 for the corresponding REQ (REQ-410).
+`LeaderboardEndpoints` (the Api/outer-composition layer) passes
+`GridGameModule.XGGridGameKey` explicitly, same convention as the other
+three scopes' routes — xG Grid is still the only shipped game, so behavior
+is unchanged in practice; the frontend game-switcher UI this eventually
+needs (SCREEN-03) is a separate, not-yet-built follow-up (S-087).
 
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index

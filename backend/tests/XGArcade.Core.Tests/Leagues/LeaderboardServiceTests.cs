@@ -26,6 +26,15 @@ namespace XGArcade.Core.Tests.Leagues;
 // no longer exists on this method at all, not merely renamed), and new
 // REQ409-named cases added in their place. REQ-407/408's own tests below are
 // unaffected — they exercise different methods this REQ doesn't touch.
+// REQ-410 (2026-07-27, backlog S-078, ADR-0043) added a required gameKey
+// parameter to GetGlobalLeaderboardAsync — every existing REQ401/409/717/607
+// call in this file now passes the shared `GameKey` constant below
+// explicitly (every seeded Round already carries that same GameKey, so this
+// is a same-behavior compile fix, not a new scoping test). The dedicated
+// REQ410-named cross-game-isolation tests (a second, real "xg-path" GameKey,
+// confirming rankings never blend) live in their own section below, using a
+// second SeedQualifyingRoundsAsync overload and SeedLockedGuessAsync's new
+// optional gameKey parameter.
 // Same no-mocking-framework, real-InMemory-backed-repository pattern as
 // RoundCloseServiceScoringTests. Reuses FakeGameModule from
 // XGArcade.Core.Tests.Rounds (internal, same-assembly-visible) rather than
@@ -96,12 +105,17 @@ public class LeaderboardServiceTests
     // (see e.g. the pre-existing "a second closed round's points" comment
     // below) — this just makes that literally true instead of only summing
     // as if it were.
-    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints)
+    // REQ-410 (2026-07-27, backlog S-078, ADR-0043): optional trailing
+    // gameKey parameter, defaulting to the shared GameKey constant so every
+    // pre-existing call site (all implicitly "xg-grid") is unchanged — only
+    // the new REQ410-named cross-game-isolation tests below pass a second,
+    // different GameKey ("xg-path") explicitly.
+    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints, string? gameKey = null)
     {
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GameKey,
+            GameKey = gameKey ?? GameKey,
             GameInstanceId = Guid.NewGuid(),
             StartTime = DateTime.UtcNow.AddDays(-2),
             EndTime = DateTime.UtcNow.AddDays(-1),
@@ -133,6 +147,17 @@ public class LeaderboardServiceTests
     {
         foreach (var finalPoints in finalPointsPerRound)
             await SeedLockedGuessAsync(userId, finalPoints);
+    }
+
+    // REQ-410: same as SeedQualifyingRoundsAsync above, but for a
+    // caller-chosen GameKey other than the file's default — lets a
+    // cross-game-isolation test build a player's qualifying-round history
+    // under a second game without touching the many existing single-game
+    // callers of the overload above.
+    private async Task SeedQualifyingRoundsAsync(Guid userId, string gameKey, params int[] finalPointsPerRound)
+    {
+        foreach (var finalPoints in finalPointsPerRound)
+            await SeedLockedGuessAsync(userId, finalPoints, gameKey);
     }
 
     // REQ-717/ADR-0036: same shape as SeedLockedGuessAsync above, but with a
@@ -264,7 +289,7 @@ public class LeaderboardServiceTests
         // never-played member rank #1).
         var member = await SeedMemberAsync("Alex");
 
-        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -287,7 +312,7 @@ public class LeaderboardServiceTests
         // Sorted: 10, 20, 30, 40, 50 -> odd count (5), middle value is 30.
         await SeedQualifyingRoundsAsync(you.Id, 50, 10, 30, 20, 40);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
@@ -300,7 +325,7 @@ public class LeaderboardServiceTests
         // 29 and 30 -> average 29.5, rounds to 30 (MidpointRounding.AwayFromZero).
         await SeedQualifyingRoundsAsync(you.Id, 60, 10, 30, 50, 29, 20);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
     }
@@ -311,7 +336,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -323,7 +348,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
@@ -341,7 +366,7 @@ public class LeaderboardServiceTests
         await SeedQualifyingRoundsAsync(sam.Id, 10, 20, 30, 40, 50);   // median 30
         await SeedQualifyingRoundsAsync(you.Id, 40, 45, 50, 55, 60);   // median 50
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam", "You", "Alex" }));
         Assert.That(page.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 30, 50, 80 }));
@@ -360,7 +385,7 @@ public class LeaderboardServiceTests
         await SeedQualifyingRoundsAsync(zoe.Id, 10, 20, 30, 40, 50);
         await SeedQualifyingRoundsAsync(amy.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(zoe.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(zoe.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Amy", "Zoe" }), "REQ-404's display-name tie-break, reused here");
     }
@@ -376,7 +401,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 1, 2, 3, 4, 5, 6, 100);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(4));
     }
@@ -394,7 +419,7 @@ public class LeaderboardServiceTests
         var activeRound = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         await SeedGuessAsync(activeRound.Id, you.Id, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid());
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
     }
@@ -412,9 +437,101 @@ public class LeaderboardServiceTests
         var activeRound = await SeedRoundAsync(DateTime.UtcNow.AddHours(-1), DateTime.UtcNow.AddHours(1));
         await SeedGuessAsync(activeRound.Id, you.Id, cellId, isCorrect: true, attemptCount: 1, playerAnswerId: Guid.NewGuid(), finalPoints: 999);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
+    }
+
+    // ---- REQ-410/ADR-0043: all-time ranking scoped per game (2026-07-27) ----
+    // GetGlobalLeaderboardAsync/GetPerRoundFinalPointsByUserIdsAsync gained a
+    // required gameKey parameter — every round seeded via
+    // SeedQualifyingRoundsAsync's second overload above carries an explicit,
+    // caller-chosen GameKey (distinct from the file's "xg-grid" default),
+    // exercised through the real EF InMemory provider's round.GameKey ==
+    // gameKey filter (GuessRepository.GetPerRoundFinalPointsByUserIdsAsync),
+    // not a fake/mock. GetGlobalLeaderboardAsync itself never touches
+    // GameModuleResolver/FakeGameModule, so no second FakeGameModule
+    // registration is needed for these tests — only the Guess-Round join's
+    // GameKey column matters here.
+    private const string OtherGameKey = "xg-path";
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_QualifyingRoundsInAnotherGame_NeverCountTowardThisGamesRanking()
+    {
+        // 5 qualifying xg-grid rounds (clears REQ-409's floor), zero
+        // xg-path rounds — requesting xg-grid's ranking must include this
+        // player; requesting xg-path's ranking must not, since none of
+        // those rounds carry GameKey == "xg-path".
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows, Has.Count.EqualTo(1));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+        Assert.That(xgPathPage.Rows, Is.Empty);
+        Assert.That(xgPathPage.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_FiveQualifyingRoundsInOneGame_RankedForThatGameAloneNeverInTheOther()
+    {
+        // Mirrors the acceptance criterion's own example: 5+ qualifying
+        // rounds in game A, zero in game B — ranked (or excluded, per
+        // REQ-409) independently per game, never combined into one number.
+        var alex = await SeedMemberAsync("Alex");
+        await SeedQualifyingRoundsAsync(alex.Id, 60, 70, 80, 90, 100); // xg-grid median 80.
+        var sam = await SeedMemberAsync("Sam");
+        await SeedQualifyingRoundsAsync(sam.Id, OtherGameKey, 10, 20, 30, 40, 50); // xg-path median 30.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(alex.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(sam.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex" }));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(80));
+        Assert.That(xgPathPage.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Sam" }));
+        Assert.That(xgPathPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_FiveQualifyingRoundsInGameA_ThreeSubThresholdRoundsInGameB_RankedInAOnlyExcludedFromB()
+    {
+        // The REQ-409 5-round minimum applies independently per game: this
+        // player clears it for xg-grid (5 rounds) but not for xg-path (only
+        // 3 rounds) — must be ranked for xg-grid and entirely absent from
+        // xg-path's response, not present there with a placeholder/zero.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50); // xg-grid: 5 rounds, median 30.
+        await SeedQualifyingRoundsAsync(you.Id, OtherGameKey, 900, 900, 900); // xg-path: only 3 rounds.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows, Has.Count.EqualTo(1));
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(30));
+        Assert.That(xgGridPage.Rows.Single().Rank, Is.EqualTo(1));
+        Assert.That(xgPathPage.Rows, Is.Empty);
+        Assert.That(xgPathPage.RequestingUserEntry, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ410_GetGlobalLeaderboardAsync_SamePlayerQualifiesInBothGames_MediansComputedIndependentlyNeverBlended()
+    {
+        // If the two games' rounds were ever combined into one median, this
+        // player's 10-round pool (5 low xg-grid values + 5 high xg-path
+        // values) would compute a single blended median that matches
+        // neither game's own, independently-correct median. Asserting both
+        // per-game medians separately proves no blending occurred.
+        var you = await SeedMemberAsync("You");
+        await SeedQualifyingRoundsAsync(you.Id, 10, 10, 10, 10, 10); // xg-grid median 10.
+        await SeedQualifyingRoundsAsync(you.Id, OtherGameKey, 90, 90, 90, 90, 90); // xg-path median 90.
+
+        var xgGridPage = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
+        var xgPathPage = await _service.GetGlobalLeaderboardAsync(you.Id, OtherGameKey, cursor: 0, pageSize: 50);
+
+        Assert.That(xgGridPage.Rows.Single().TotalPoints, Is.EqualTo(10));
+        Assert.That(xgPathPage.Rows.Single().TotalPoints, Is.EqualTo(90));
     }
 
     // ---- REQ-717/ADR-0036: guest exclusion + claimed-account cutoff ----
@@ -427,7 +544,7 @@ public class LeaderboardServiceTests
         // checked at all.
         await SeedQualifyingRoundsAsync(guest.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(guest.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(guest.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -444,7 +561,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 5; i++)
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(-1 - i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -465,7 +582,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 5; i++)
             await SeedLockedGuessAtAsync(you.Id, 10, claimedAt.AddDays(1 + i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(10));
@@ -481,7 +598,7 @@ public class LeaderboardServiceTests
         var you = await SeedMemberAsync("You");
         await SeedQualifyingRoundsAsync(you.Id, 10, 20, 30, 40, 50);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Has.Count.EqualTo(1));
         Assert.That(page.Rows.Single().TotalPoints, Is.EqualTo(30));
@@ -507,7 +624,7 @@ public class LeaderboardServiceTests
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
         await SeedLockedGuessAtAsync(you.Id, 999, claimedAt);
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -531,7 +648,7 @@ public class LeaderboardServiceTests
         for (var i = 0; i < 3; i++)
             await SeedLockedGuessAtAsync(you.Id, 10 * (i + 1), claimedAt.AddDays(1 + i));
 
-        var page = await _service.GetGlobalLeaderboardAsync(you.Id, cursor: 0, pageSize: 50);
+        var page = await _service.GetGlobalLeaderboardAsync(you.Id, GameKey, cursor: 0, pageSize: 50);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.RequestingUserEntry, Is.Null);
@@ -596,7 +713,7 @@ public class LeaderboardServiceTests
             await SeedQualifyingRoundsAsync(member.Id, value, value, value, value, value);
         }
 
-        var page = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
+        var page = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: 0, pageSize: 2);
 
         Assert.That(page.Rows, Has.Count.EqualTo(2));
         Assert.That(page.HasMore, Is.True);
@@ -615,9 +732,9 @@ public class LeaderboardServiceTests
             await SeedQualifyingRoundsAsync(member.Id, value, value, value, value, value);
         }
 
-        var firstPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: 0, pageSize: 2);
-        var secondPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: firstPage.NextCursor!.Value, pageSize: 2);
-        var thirdPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, cursor: secondPage.NextCursor!.Value, pageSize: 2);
+        var firstPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: 0, pageSize: 2);
+        var secondPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: firstPage.NextCursor!.Value, pageSize: 2);
+        var thirdPage = await _service.GetGlobalLeaderboardAsync(members[0].Id, GameKey, cursor: secondPage.NextCursor!.Value, pageSize: 2);
 
         Assert.That(firstPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 1, 2 }));
         Assert.That(secondPage.Rows.Select(r => r.Rank), Is.EqualTo(new[] { 3, 4 }));
@@ -643,7 +760,7 @@ public class LeaderboardServiceTests
 
         // Member4 has the highest median, so ranks last (5th) — outside a
         // pageSize=2 first page.
-        var page = await _service.GetGlobalLeaderboardAsync(members[4].Id, cursor: 0, pageSize: 2);
+        var page = await _service.GetGlobalLeaderboardAsync(members[4].Id, GameKey, cursor: 0, pageSize: 2);
 
         Assert.That(page.Rows.Any(r => r.IsRequestingUser), Is.False);
         Assert.That(page.RequestingUserEntry, Is.Not.Null);
@@ -661,7 +778,7 @@ public class LeaderboardServiceTests
         var member = await SeedMemberAsync("Alex");
         await SeedQualifyingRoundsAsync(member.Id, 10, 10, 10, 10, 10);
 
-        var page = await _service.GetGlobalLeaderboardAsync(member.Id, cursor: 50, pageSize: 10);
+        var page = await _service.GetGlobalLeaderboardAsync(member.Id, GameKey, cursor: 50, pageSize: 10);
 
         Assert.That(page.Rows, Is.Empty);
         Assert.That(page.HasMore, Is.False);
