@@ -40,6 +40,15 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
     private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
+    // REQ-211 (2026-07-27 fix): simulates the real WikidataLookupService's
+    // guess-time-fallback-only "throw instead of swallow on timeout"
+    // contract (WikidataQueryException) — lets GridGameModuleTests exercise
+    // its catch-and-translate-to-LiveLookupUnavailableException behavior
+    // without any real HTTP/timeout machinery. Only wired up for the
+    // Country x Club pair (the only pairing this bug bundle's tests need to
+    // cover); extend to the other three dictionaries below if a future test
+    // needs it for Club x Club/Trophy pairings.
+    private readonly HashSet<(string Country, string Club)> _timeoutFailures = new();
     // ADR-0029: the most recent WikidataLookupOrigin each pair was called
     // with — lets a test assert GetMatchCountAsync (generation-time) and
     // RefreshCellFromLiveLookupAsync (REQ-211 guess-time fallback) each pass
@@ -72,6 +81,12 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
+
+    // REQ-211 (2026-07-27 fix): the next LookupAndPersistAsync call for this
+    // pair throws WikidataQueryException instead of returning a result —
+    // simulates a guess-time-fallback timeout.
+    public void FailWithTimeout(string countryName, string clubName) =>
+        _timeoutFailures.Add((countryName, clubName));
 
     public void SetClubClubMatches(string clubAName, string clubBName, IReadOnlyList<Player> players) =>
         _clubClubMatches[(clubAName, clubBName)] = players.ToList();
@@ -120,6 +135,9 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
         _lastOrigin[(country.Name, club.Name)] = origin;
         _lastUsesCountryForSportProperty[(country.Name, club.Name)] = country.UsesCountryForSportProperty;
+
+        if (_timeoutFailures.Contains((country.Name, club.Name)))
+            throw new WikidataQueryException($"simulated guess-time-fallback timeout for {country.Name}/{club.Name}");
 
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];

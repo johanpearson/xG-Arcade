@@ -117,14 +117,18 @@ export interface LoginResponse {
 // (COMP-10) only — a name appearing here implies nothing about whether
 // it's correct for the current cell. Never merge this shape/path with
 // PlayerAttribute/PlayerOverride correctness data (ADR-0007's boundary
-// rule). birthYear/nationality are optional disambiguation context only
-// (e.g. two players sharing a name), not a correctness signal, and must
-// never be styled to suggest one is "more right" than another.
+// rule). birthYear is optional disambiguation context only (e.g. two
+// players sharing a name), not a correctness signal, and must never be
+// styled to suggest one is "more right" than another. `nationality` was
+// removed from this shape (and the API response) entirely — unlike
+// birthYear, it can directly leak the answer for nationality-based xG
+// Grid categories (e.g. Country × Club), since seeing which suggestions
+// carry the target nationality tells the player who's eligible before
+// they even guess.
 export interface PlayerAutocompleteSuggestion {
   playerId: string;
   name: string;
   birthYear?: number;
-  nationality?: string;
 }
 
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).

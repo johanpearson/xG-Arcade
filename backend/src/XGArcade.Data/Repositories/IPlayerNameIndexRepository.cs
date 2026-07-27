@@ -18,6 +18,17 @@ public interface IPlayerNameIndexRepository
     Task<IReadOnlyList<PlayerNameIndex>> SearchByPrefixAsync(
         string normalizedQuery, int limit, CancellationToken cancellationToken = default);
 
+    // REQ-211 (2026-07-27 fix): the guess-time live-lookup fallback's own
+    // narrow trigger condition — CLAUDE.md's boundary rule ("only trigger a
+    // live lookup when the guess matched a real PlayerNameIndex candidate")
+    // — needs a cheap, index-backed EXACT match against NormalizedName, not
+    // SearchByPrefixAsync's prefix scan (a correctness-narrowing gate like
+    // this must never itself become a source of false positives from a
+    // partial prefix hit that isn't the guessed name at all).
+    // normalizedQuery/normalizedName is expected to already be normalized by
+    // the caller — same convention as SearchByPrefixAsync's own parameter.
+    Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default);
+
     // PlayerNameIndexImporter's bulk-refresh write path. Upserts keyed on
     // PlayerId — an entry for a player already in the index is corrected in
     // place, not duplicated (same "correct in place, don't just blindly

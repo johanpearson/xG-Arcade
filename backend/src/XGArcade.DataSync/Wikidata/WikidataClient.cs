@@ -54,6 +54,7 @@ public class WikidataClient(
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(countryWikidataQid))
@@ -62,7 +63,7 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
@@ -70,6 +71,7 @@ public class WikidataClient(
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(nationalTeamWikidataQid))
@@ -78,12 +80,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(clubAWikidataQid))
@@ -92,12 +95,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
-        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
@@ -106,12 +110,13 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
 
         var query = BuildTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
@@ -120,11 +125,11 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
-        string queryKind, string qidA, string qidB, string query, CancellationToken cancellationToken)
+        string queryKind, string qidA, string qidB, string query, bool throwOnTimeout, CancellationToken cancellationToken)
     {
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
@@ -144,11 +149,26 @@ public class WikidataClient(
 
             return ParseBindings(parsed);
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // Timeout — treated as "no match," never surfaced as a failure.
-            // REQ-103: falls through to the API-Football fallback (Tier 1)
-            // or the combination is discarded (REQ-101), same as a genuine miss.
+            // Timeout — treated as "no match," never surfaced as a failure,
+            // UNLESS throwOnTimeout (REQ-211, 2026-07-27 fix): see this
+            // method's own throwOnTimeout parameter doc comment (on the
+            // interface) for the full reasoning. REQ-103: for every other
+            // caller, this falls through to the API-Football fallback
+            // (Tier 1) or the combination is discarded (REQ-101), same as a
+            // genuine miss. The added `!cancellationToken.IsCancellationRequested`
+            // guard (matching QueryPlayerPoolBirthYearAsync's own pattern
+            // below) makes sure a genuine caller-initiated cancellation
+            // (e.g. request aborted) is never mistaken for this client's own
+            // timeout and propagates as an ordinary OperationCanceledException
+            // instead, regardless of throwOnTimeout.
+            if (throwOnTimeout)
+            {
+                throw new WikidataQueryException(
+                    $"Wikidata {queryKind} intersection query for {qidA}/{qidB} timed out after {_queryTimeout.TotalSeconds:0}s.");
+            }
+
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)

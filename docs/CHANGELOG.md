@@ -73,6 +73,69 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   on `XGPathGameModuleTests` (same scope-note precedent S-079's own
   CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
   insufficient-pool/unknown-template/cell-id-lookup behavior.
+- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
+  `docs/architecture-document.md` (0.63 → 0.64),
+  `docs/implementation-document.md` (0.76 → 0.77),
+  `docs/design-document.md` (0.54 → 0.55, previously landed by the frontend
+  half of this same bundle — folded in here rather than left as a separate
+  entry), `docs/decisions/0046-live-lookup-timeout-exception-signal.md`
+  (new) — doc sync for the `claude/xg-grid-perf-search-r0q708` bug-fix
+  bundle (commits f5d10da/f6d06e3), which fixed slow/unreliable guessing,
+  stale name-index words, and an autocomplete answer leak:
+  - **REQ-211** (requirements-document.md): the guess-time live-lookup
+    fallback now gates on a real `IPlayerNameIndexRepository` match before
+    calling Wikidata — closing a stale "Tier 1, not built" gap in this
+    REQ's own status text (`PlayerNameIndex` has existed since S-032,
+    2026-07-17; the un-gated trigger was the dominant cost of the reported
+    "guessing is slow" symptom, not a deliberate simplification). Also adds
+    a new `GuessSubmissionOutcome.LiveLookupUnavailable` branch (HTTP 503,
+    no `Guess` row written, no REQ-210 attempt consumed) so a Wikidata
+    timeout during this fallback is distinguishable from a confirmed
+    incorrect guess (previously conflated — the reported "guessed Clarence
+    Seedorf, got a fetch error, retried, scored incorrect" symptom). New
+    acceptance-criterion bullet added. See ADR-0046.
+  - **REQ-210** (requirements-document.md): status note cross-referencing
+    the new `LiveLookupUnavailable` branch as a fourth "doesn't consume an
+    attempt" case, alongside REQ-209's existing disambiguation branch.
+  - **REQ-207** (requirements-document.md): 2026-07-27 correction recording
+    that the shipped `PlayerAutocompleteSuggestion` DTO leaked
+    `Nationality` — a real violation of this REQ's "implies nothing about
+    correctness" criterion for nationality-based categories — now removed
+    from both the backend DTO and the frontend suggestion type/caption
+    (`GuessInput.tsx`, already fixed in this bundle's frontend half,
+    f5d10da); `BirthYear` stays, since no xG Grid category is
+    birth-year-based.
+  - **REQ-208** (requirements-document.md): addendum recording that
+    pre-2026-07-26-migration `PlayerNameIndex` rows had no
+    `PlayerNameIndexWord` rows (so surname-only search still failed for
+    them, e.g. "Seedorf") — fixed by a new, idempotent
+    `PlayerNameIndexWordBackfiller` wired into `migrate-and-seed`.
+  - **New ADR-0046**: the structural decision behind the
+    `LiveLookupUnavailableException`/`GuessSubmissionOutcome
+    .LiveLookupUnavailable`/503 signal — a new, narrow exception-based
+    cross-boundary contract between `Games.XGGrid` (COMP-05) and
+    `Core.Scoring` (COMP-04), kept inside `Core.Games` per ADR-0003, so a
+    live-lookup infra failure is never conflated with a confirmed-incorrect
+    guess. Covers the alternatives considered (result-type/nullable signal,
+    a longer timeout, accepting the false-negative rate) and why the
+    exception-based signal was chosen instead.
+  - **architecture-document.md** §6.2: corrected the REQ-211 guess-time
+    fallback's trigger-condition description (now matches the diagram's
+    full shape, per the fix above) and added a note on the new
+    exception-based signal crossing the `Games.XGGrid` → `Core.Scoring`
+    boundary.
+  - **implementation-document.md**: fixed two now-stale references to
+    `WikidataLookupService.GetOrCreatePlayerAsync` (replaced by
+    `IPlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`,
+    called from the newly-batched `PersistMatchesAsync` — root cause #2 of
+    this bundle, one `SaveChangesAsync` per batch instead of per player,
+    per `docs/coding-guidelines.md`'s own rule), and corrected the
+    intersection-queries'-never-throw claim to note the new opt-in
+    `throwOnTimeout` parameter (REQ-211/ADR-0046 only; REQ-103's default
+    behavior is unchanged).
+  - Not touched: `docs/design-document.md` was already updated correctly by
+    this bundle's frontend commit (f5d10da) — reviewed and left as-is,
+    consolidated into this entry rather than duplicated as its own.
 - 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
   §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
   `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews

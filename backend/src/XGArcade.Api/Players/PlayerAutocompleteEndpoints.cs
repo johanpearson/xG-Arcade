@@ -43,7 +43,7 @@ public static class PlayerAutocompleteEndpoints
             var matches = await playerNameIndexRepository.SearchByPrefixAsync(normalizedQuery, effectiveLimit, cancellationToken);
 
             var suggestions = matches
-                .Select(m => new PlayerAutocompleteSuggestion(m.PlayerId, m.PrimaryName, m.BirthYear, m.PrimaryNationality))
+                .Select(m => new PlayerAutocompleteSuggestion(m.PlayerId, m.PrimaryName, m.BirthYear))
                 .ToList();
 
             return Results.Ok(suggestions);
@@ -51,4 +51,14 @@ public static class PlayerAutocompleteEndpoints
     }
 }
 
-public record PlayerAutocompleteSuggestion(Guid PlayerId, string Name, int? BirthYear, string? Nationality);
+// Nationality removed (bug-bundle fix, 2026-07-27): PlayerNameIndex.
+// PrimaryNationality must never reach this response. When the current grid
+// cell's category is nationality-based (Country x Club), showing which
+// suggested names carry the target nationality tells the player who's
+// eligible before they even guess — exactly the "autocomplete implies
+// correctness" leak ADR-0007/REQ-207 exists to prevent (architecture-
+// document.md boundary rule 5, this file's own doc comment above).
+// BirthYear stays: no xG Grid category is birth-year-based (categories are
+// Country/Club/Trophy only — CategoryPairingRules), so it can't leak a
+// category match the same way.
+public record PlayerAutocompleteSuggestion(Guid PlayerId, string Name, int? BirthYear);

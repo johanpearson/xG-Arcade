@@ -12,10 +12,32 @@ public interface IWikidataClient
 {
     // Never LIMITs the underlying SPARQL query — see implementation-document.md
     // §6a: the result set IS the cell's complete answer key. Returns an empty
-    // list (never throws) on timeout, HTTP error, or genuinely no match.
+    // list (never throws) on timeout, HTTP error, or genuinely no match —
+    // UNLESS throwOnTimeout is true, in which case a timeout specifically
+    // throws WikidataQueryException instead (see that parameter's own doc
+    // comment below). HTTP/parse errors still always swallow to [],
+    // regardless of throwOnTimeout.
+    //
+    // throwOnTimeout (REQ-211, 2026-07-27 fix): defaults to false, which
+    // preserves this method's original swallow-to-[] contract completely
+    // unchanged for grid generation (REQ-103's "never block grid generation
+    // on a Wikidata failure," ADR-0011) — every existing caller is
+    // unaffected. Set to true ONLY by REQ-211's guess-time fallback
+    // (WikidataLookupOrigin.GuessTimeFallback), which needs to distinguish
+    // "Wikidata timed out, this cell's correctness is genuinely unknown"
+    // from "Wikidata answered and found no match" — the two were
+    // indistinguishable before this fix, so a slow-but-correct guess (e.g.
+    // "Clarence Seedorf" for Ajax x AC Milan) could be wrongly scored
+    // incorrect and consume a real REQ-210 attempt. This follows the same
+    // "swallowing would be semantically wrong here" precedent
+    // QueryPlayerPoolBirthYearAsync/QueryPlayerPhotosByQidsAsync already
+    // established below, just made conditional per-call instead of
+    // per-method, since this method (unlike those two) has a legitimate
+    // caller on each side of the distinction.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default);
 
     // REQ-114/ADR-0035: the P1532 ("country for sport") counterpart of
@@ -32,15 +54,19 @@ public interface IWikidataClient
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default);
 
     // S-030: "ever played for both clubs" — same P54-based "any point in
     // their career" semantics as QueryCountryClubIntersectionAsync's P54
     // half, just checked twice against two different clubs instead of once
-    // against a P27 citizenship. Same no-LIMIT/never-throws contract.
+    // against a P27 citizenship. Same no-LIMIT/never-throws-unless-
+    // throwOnTimeout contract as QueryCountryClubIntersectionAsync — see
+    // that method's own doc comment for throwOnTimeout.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default);
 
     // S-031/REQ-108: "received this individual award AND holds this
@@ -48,20 +74,23 @@ public interface IWikidataClient
     // of QueryCountryClubIntersectionAsync's P27+P54 shape. Uses the truthy
     // wdt:P166 shortcut (unlike P54) — see BuildIntersectionQuery's Trophy
     // comment in WikidataClient for why that's safe here. Same
-    // no-LIMIT/never-throws contract as every other intersection query.
+    // no-LIMIT/never-throws-unless-throwOnTimeout contract as
+    // QueryCountryClubIntersectionAsync above.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default);
 
     // S-031/REQ-108: "received this individual award AND ever played for
     // this club" — P166 (truthy) + P54 (full statement path, same
     // non-truthy reasoning as QueryCountryClubIntersectionAsync/
     // QueryClubClubIntersectionAsync's P54 halves). Same
-    // no-LIMIT/never-throws contract.
+    // no-LIMIT/never-throws-unless-throwOnTimeout contract.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
         CancellationToken cancellationToken = default);
 
     // S-032/ADR-0007/REQ-207: PlayerNameIndexImporter's bulk-import query —
@@ -90,12 +119,13 @@ public interface IWikidataClient
 
     // REQ-214 backfill (S-045): PlayerPhotoBackfillService's batched,
     // direct-by-QID lookup for `Player` rows that predate the P18 addition
-    // to the two intersection queries above (WikidataLookupService.
-    // GetOrCreatePlayerAsync only ever sets PhotoUrl at row-creation time,
-    // never on a later lookup — see Player.cs's own comment — so every
-    // Player created before REQ-214 shipped has PhotoUrl permanently NULL
-    // with no code-path that will ever revisit it). A fundamentally
-    // different query shape from the intersection queries: a SPARQL
+    // to the two intersection queries above
+    // (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync only ever
+    // sets PhotoUrl at row-creation time, never on a later lookup — see
+    // Player.cs's own comment — so every Player created before REQ-214
+    // shipped has PhotoUrl permanently NULL with no code-path that will
+    // ever revisit it). A fundamentally different query shape from the
+    // intersection queries above: a SPARQL
     // `VALUES` clause over a bounded batch of QIDs
     // (`SELECT ?player ?photo WHERE { VALUES ?player { wd:Q1 wd:Q2 ... }
     // OPTIONAL { ?player wdt:P18 ?photo. } }`), not a candidate-matching

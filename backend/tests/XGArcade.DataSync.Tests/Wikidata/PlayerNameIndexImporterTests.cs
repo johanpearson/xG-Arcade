@@ -217,6 +217,12 @@ public class PlayerNameIndexImporterTests
             string normalizedQuery, int limit, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
 
+        // Bug-bundle fix (2026-07-27): same "not exercised" reasoning as
+        // SearchByPrefixAsync above — this fake is only used for
+        // UpsertManyAsync's throw-propagation test.
+        public Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
+
         public Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("simulated DB write failure");
     }

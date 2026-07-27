@@ -649,6 +649,53 @@ public class GuessSubmissionServiceTests
         return user.Id;
     }
 
+    // ---- REQ-211 (2026-07-27 fix): live-lookup-unavailable outcome ---------
+    // The owning game module signals "we don't know yet" (a live-lookup
+    // timeout) by throwing LiveLookupUnavailableException from
+    // ScoreSubmissionAsync — GuessSubmissionService must catch it and return
+    // before ever touching guessRepository, same shape as REQ-209's
+    // disambiguation branch.
+
+    [Test]
+    public async Task REQ211_SubmitGuess_GameModuleThrowsLiveLookupUnavailable_RejectedWithoutPersistingGuessRow_OrConsumingAnAttempt()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.ScoreSubmissionResult = (_, _, _) =>
+            throw new LiveLookupUnavailableException("simulated Wikidata timeout");
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.LiveLookupUnavailable));
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.AttemptCount, Is.EqualTo(0), "no attempt is consumed when correctness is genuinely unknown");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Null, "no Guess row must be written for a live-lookup-unavailable outcome");
+    }
+
+    [Test]
+    public async Task REQ211_SubmitGuess_GameModuleThrowsLiveLookupUnavailable_ASecondAttemptIsStillAvailable()
+    {
+        // The player gets a genuine retry, not a wasted one — a later,
+        // successful submission for the same cell must still see a full set
+        // of attempts remaining.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.ScoreSubmissionResult = (_, _, _) =>
+            throw new LiveLookupUnavailableException("simulated Wikidata timeout");
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.AttemptCount, Is.EqualTo(1), "the earlier live-lookup-unavailable response must not have consumed an attempt");
+    }
+
     [Test]
     public async Task REQ717_SubmitGuess_ForGuestUser_LocksAfterTwoWrongAttempts_IdenticallyToAnyOtherAccount()
     {
