@@ -146,7 +146,7 @@ public class PlayerAutocompleteEndpointTests
         var rawJson = await response.Content.ReadAsStringAsync();
         Assert.That(rawJson, Does.Not.Contain("Norway"),
             "a nationality value must never be serialized into the autocomplete response — it leaks correctness for a nationality-based cell");
-        Assert.That(rawJson, Does.Not.Contain("nationality", StringComparison.OrdinalIgnoreCase),
+        Assert.That(rawJson, Does.Not.Contain("nationality").IgnoreCase,
             "the field itself must be gone from the response shape, not merely null");
     }
 
