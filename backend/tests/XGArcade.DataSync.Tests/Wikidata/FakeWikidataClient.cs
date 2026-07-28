@@ -78,8 +78,14 @@ internal sealed class FakeWikidataClient : IWikidataClient
     public void CancelCallerTokenWhileQuerying(int year, CancellationTokenSource source) =>
         _cancelCallerTokenByYear[year] = source;
 
+    // onTechnicalFailure/timeoutTier (REQ-110): never exercised by
+    // PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests — added
+    // only so this fake still satisfies IWikidataClient's signature, same
+    // "never touched by either caller" reasoning as throwOnTimeout below.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
-        string countryWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default) =>
+        string countryWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     // REQ-114/ADR-0035: never touched by PlayerNameIndexImporterTests/
@@ -87,11 +93,15 @@ internal sealed class FakeWikidataClient : IWikidataClient
     // caller" reasoning as the other intersection methods below — stays
     // stubbed to an empty result.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
-        string nationalTeamWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default) =>
+        string nationalTeamWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
-        string clubAWikidataQid, string clubBWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default) =>
+        string clubAWikidataQid, string clubBWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     // S-031/REQ-108: neither Trophy intersection is touched by
@@ -99,11 +109,15 @@ internal sealed class FakeWikidataClient : IWikidataClient
     // "never touched by either caller" reasoning as the two intersection
     // methods above — stays stubbed to an empty result.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
-        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default) =>
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
-        string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default) =>
+        string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(

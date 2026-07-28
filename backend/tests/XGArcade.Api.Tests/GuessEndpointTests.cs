@@ -654,11 +654,15 @@ public class GuessEndpointTests
     private sealed class ThrowingWikidataLookupService : IWikidataLookupService
     {
         public Task<IReadOnlyList<Player>> LookupAndPersistAsync(
-            CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default) =>
+            CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
             throw new WikidataQueryException("simulated Wikidata timeout");
 
         public Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
-            ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default) =>
+            ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
             throw new WikidataQueryException("simulated Wikidata timeout");
 
         public Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(

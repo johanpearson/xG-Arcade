@@ -512,6 +512,14 @@ public class GridGameModuleTests
         // as ground truth — distinct from REQ-211's guess-time fallback,
         // which stays reviewable (see GridGameModuleTests' REQ211_* tests).
         Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.Sync));
+        // REQ-110 (2026-07-28 "cache-warming-specific timeout" extension):
+        // round generation's own live-lookup call site must keep passing (or
+        // omitting, which defaults to) WikidataQueryTimeoutTier.Default —
+        // only PlayerCacheWarmingService opts into the wider CacheWarming
+        // budget (see PlayerCacheWarmingServiceTests' own coverage of that).
+        // A regression guard: this test would fail if GridGameModule ever
+        // started passing CacheWarming here by accident.
+        Assert.That(_wikidataLookupService.GetLastTimeoutTier("France", "Arsenal"), Is.EqualTo(WikidataQueryTimeoutTier.Default));
     }
 
     [Test]
@@ -1206,6 +1214,12 @@ public class GridGameModuleTests
         // assertion; this only confirms GridGameModule passes the right
         // origin through.
         Assert.That(_wikidataLookupService.GetLastOrigin("France", "Arsenal"), Is.EqualTo(WikidataLookupOrigin.GuessTimeFallback));
+        // REQ-110 (2026-07-28 "cache-warming-specific timeout" extension):
+        // REQ-211's own guess-time fallback call site must also keep passing
+        // (or omitting) WikidataQueryTimeoutTier.Default — the wider 45s
+        // CacheWarming budget is scoped to PlayerCacheWarmingService only,
+        // never to a real player waiting on a guess.
+        Assert.That(_wikidataLookupService.GetLastTimeoutTier("France", "Arsenal"), Is.EqualTo(WikidataQueryTimeoutTier.Default));
     }
 
     [Test]
@@ -1526,6 +1540,23 @@ public class GridGameModuleTests
         public Task AddCareerStintsBatchAsync(
             IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default) =>
             inner.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+
+        // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension):
+        // xG Grid's correctness path never calls either of these (only
+        // PlayerCacheWarmingService does) — same "delegated here only so
+        // this thin wrapper keeps compiling against the interface"
+        // reasoning as the career-stint methods above.
+        public Task<bool> IsConfirmedLowAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.IsConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        public Task RecordConfirmedLowAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            int matchCount, CancellationToken cancellationToken = default) =>
+            inner.RecordConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, matchCount, cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]

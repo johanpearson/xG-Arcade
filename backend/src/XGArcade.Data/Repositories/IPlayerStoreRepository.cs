@@ -274,6 +274,33 @@ public interface IPlayerStoreRepository
     // idempotency-is-the-caller's-job contract as AddCareerStintsAsync.
     Task AddCareerStintsBatchAsync(
         IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default);
+
+    // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension):
+    // PlayerCacheWarmingService.WarmAsync's skip check, alongside the
+    // existing cachedCount >= MinValidAnswers check — see
+    // ConfirmedLowMatchPair's own doc comment for the full "why" and why
+    // this shares CountPlayersWithBothAttributesAsync's exact parameter
+    // shape. A straight composite-PK lookup, no join.
+    Task<bool> IsConfirmedLowAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
+
+    // REQ-110: the write side of IsConfirmedLowAsync above — called only
+    // after a live Wikidata lookup returns a real (possibly zero-match)
+    // answer below MinValidAnswers, never after a technical failure (the
+    // caller — PlayerCacheWarmingService — is responsible for that
+    // distinction; this method has no way to tell a genuine zero from a
+    // swallowed failure itself). Upserts: re-confirming an already-marked
+    // pair (e.g. a later run finds the same pair still below threshold with
+    // a different real count) updates MatchCount/ConfirmedAt in place rather
+    // than throwing on a duplicate key, since the composite key already
+    // uniquely identifies "this pair," not "this specific confirmation
+    // event."
+    Task RecordConfirmedLowAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        int matchCount, CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.22"
+version: "1.24"
 status: draft
 last_updated: 2026-07-28
 owner: Johan
@@ -362,11 +362,119 @@ without erroring), API
 - And a pair cached *below* `MinValidAnswers` is **not** distinguished from
   a never-checked pair and is re-queried on every run — a known, accepted
   gap for this first pass (there's no persisted "checked, genuinely low"
-  signal yet), not a correctness bug
+  signal yet), not a correctness bug. **Superseded by the "Extended
+  (2026-07-28) — persisted confirmed-low signal" criterion below**: this
+  is no longer accepted as a permanent gap, only as the state prior to
+  that criterion being implemented. Left here, marked superseded rather
+  than deleted, so the run of REQ-110's history stays legible.
+- **Extended (2026-07-28) — technical-failure visibility in the run
+  summary.** Three consecutive `warm-player-cache.yml` runs
+  (2026-07-26/27) produced byte-identical summaries ("2064 pairs checked,
+  1214 queried live, 850 already valid") with zero net cache expansion.
+  Most of that is the accepted "below-threshold, re-queried every run" gap
+  above and is not changing. But `WikidataClient`'s sync-path intersection
+  queries (used only by this cache-warming path, `throwOnTimeout: false`)
+  silently swallow real technical failures — WDQS timeouts, HTTP errors,
+  and JSON parse errors all return an empty match list, logged only as a
+  per-pair warning — so a pair that is "confirmed genuinely below
+  `MinValidAnswers`" and a pair the run simply failed to get a clean
+  answer for are recorded identically in `CacheWarmingResult`. One run
+  alone (2026-07-27 19:29) had 133 such swallowed failures out of 1214
+  live queries (11%), invisible in the summary. Given a cache-warming run
+  where at least one live-queried pair's Wikidata lookup ends in a
+  technical failure (timeout, HTTP error, or parse error) rather than a
+  successful response (with or without matches), when the run completes,
+  then the final summary reports a count of how many live-queried pairs
+  hit a technical failure, distinct from `PairsQueriedLive`, and lists the
+  specific failing pairs (by category-value name or QID pair) so an
+  operator can tell "genuinely below `MinValidAnswers`" apart from "failed
+  to get a clean answer, worth re-running." This changes only
+  `PlayerCacheWarmingService`'s own result/summary and does **not**
+  change: (a) the accepted gap above — a below-threshold pair, technical
+  failure or not, is still re-queried every run, there is still no
+  persisted "checked, genuinely low" signal; (b) `WikidataClient`'s
+  fail-open/swallow-and-return-empty contract for any other caller —
+  round generation's own REQ-103 path and REQ-211's guess-time fallback
+  (ADR-0046) must keep failing open exactly as today, this is
+  observability for the cache-warming path only.
+- **Extended (2026-07-28) — cache-warming-specific timeout and same-run
+  retry.** Follow-up to the technical-failure-visibility extension above:
+  of the 133 pairs that showed up as technical failures in the
+  2026-07-27 19:29 run, a real portion are recoverable — a WDQS query
+  timing out at round-generation's 15s budget (`_queryTimeout`, shared
+  today because cache warming calls `WikidataLookupOrigin.Sync`, the same
+  origin round generation uses) even though nobody is waiting
+  synchronously for a cache-warming run the way REQ-101/103's own player
+  is waiting for a grid. ADR-0046 already widened the timeout for a
+  different caller in the same query-shape class (28s for REQ-211's
+  guess-time fallback, justified by ADR-0011's documented 9-27s worst
+  case) — this is the same fix for a second caller, not a new pattern.
+  Given a live Wikidata query issued by the cache-warming path (REQ-110),
+  when that query would otherwise time out at round-generation's 15s
+  budget, then it uses a longer, cache-warming-specific timeout instead of
+  that 15s budget. And when a pair's live lookup hits a technical failure
+  (timeout, HTTP error, or parse error), it is retried at least once
+  within the same cache-warming run before being counted as a technical
+  failure in the run summary — a transient WDQS 502 or a momentary
+  timeout may well succeed on a same-run retry a few seconds later. This
+  is explicitly a **third, cache-warming-only timeout tier**: it must not
+  change round generation's own 15s budget (REQ-103) or the guess-time
+  fallback's 28s (ADR-0046) — those two remain exactly as documented. The
+  specific timeout value and retry mechanics (backoff, count) are
+  implementation details for `backend-implementer` to pick and justify,
+  not specified here.
+- **Extended (2026-07-28) — persisted confirmed-low signal.** Direct
+  follow-up to the same diagnosis: the bulk of stuck pairs (1207 of 1214
+  live-queried pairs in one measured run) are not failures at all — they
+  are pairs Wikidata answered successfully, genuinely below
+  `MinValidAnswers`, re-queried on every single run for zero possible
+  benefit because nothing distinguishes "confirmed checked, genuinely
+  low, as of this reference-data/query-shape state" from "never checked."
+  This was an accepted gap when cache warming ran occasionally; it now
+  runs roughly daily and burns real CI minutes re-querying the same
+  ~1200 confirmed-low pairs every time. Given a pair queried live by the
+  cache-warming path that returns a real (possibly zero-match) answer
+  below `MinValidAnswers`, when that happens, then the system persists
+  enough information to recognize, on a future cache-warming run, that
+  this specific pair was already checked against the current
+  reference-data/query-shape state and confirmed low — so it is not
+  re-queried again unless the reference data or query shape has changed
+  since. This directly supersedes this REQ's own earlier "known, accepted
+  gap" criterion above (marked superseded there, not deleted). It must
+  preserve every existing recovery-ordering rule that currently relies on
+  "warming after a data/query-shape change re-checks everything from
+  scratch": REQ-111's stale-QID cleanup (both the named and `--all-clubs`
+  modes), the 2026-07-17 truthy-`wdt:P54` incident's "clean before warm"
+  ordering (NOTES.md), and REQ-112/S-038's `purge-player-pool` flow.
+  Whatever mechanism persists the confirmed-low signal must be something
+  those existing purge/clean tools already touch, or must be extended to
+  touch, when they run — a "purge and re-warm" cycle must still mean a
+  real, full re-check of every affected pair, never a warm run that
+  trusts confirmed-low markers left over from before the purge. The exact
+  persistence mechanism (new table, new column, reuse of an existing
+  one) is an implementation detail for `backend-implementer`, not
+  specified here — but this invariant is not.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
-below-threshold pair is re-queried, not skipped)
+below-threshold pair not yet confirmed-low is re-queried, not skipped; a
+simulated `WikidataClient` technical failure — timeout, HTTP error, or
+parse error — on a live-queried pair is counted separately from a
+successful zero-match response and the failing pair is listed in the run
+result, while REQ-103/REQ-211's own callers are unaffected by the change;
+the cache-warming query timeout is distinct from and longer than
+round-generation's own 15s budget, verified by a test that would fail if
+the two timeouts were collapsed back into one; a pair whose first attempt
+in a run hits a simulated technical failure succeeds on a same-run retry
+and is not counted as a technical failure in the summary; a pair
+previously persisted as confirmed-low is skipped on a subsequent run
+without issuing a live query, verified by asserting the mocked
+`IWikidataLookupService`/`IWikidataClient` receives zero calls for that
+pair). Also: a regression test proving that running REQ-111's stale-QID
+cleanup (named or `--all-clubs`) or REQ-112/S-038's `purge-player-pool`
+against a pair previously marked confirmed-low, followed by a
+cache-warming run, re-queries that pair live rather than trusting the
+stale confirmed-low marker.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched

@@ -354,6 +354,16 @@ if (args is ["clean-stale-club-attributes", ..])
 // XGArcadeDbContext.cs's OnModelCreating), so an old Guess whose answer was
 // one of the purged players keeps its already-computed IsCorrect/score, it
 // just can no longer display which player that answer was.
+//
+// REQ-110 (2026-07-28 "persisted confirmed-low signal" extension): also
+// clears every ConfirmedLowMatchPair row — same hard invariant as
+// clean-stale-club-attributes above (a "purge and re-warm" cycle must force
+// a real, full re-check, never a warm run trusting a stale confirmed-low
+// marker), just unscoped here since this verb's own purge is unscoped too.
+// ConfirmedLowMatchPair has no FK to Player (see its own doc comment — a
+// confirmed-low pair often has no Player rows to reference at all), so
+// deleting Players above doesn't cascade into it; it needs its own explicit
+// delete.
 if (args is ["purge-player-pool", ..])
 {
     const string requiredConfirmationPhrase = "delete all player data";
@@ -375,8 +385,15 @@ if (args is ["purge-player-pool", ..])
 
     await using var purgeDbContext = new XGArcadeDbContext(purgeDbContextOptions);
     var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
+    // Same established exception as purge-player-pool's own Players
+    // ExecuteDeleteAsync above (see this verb's own doc comment referencing
+    // it) — a standalone operational CLI verb never exercised by the
+    // InMemory-provider unit tests that load-then-SaveChangesAsync exists to
+    // protect.
+    var purgedConfirmedLowCount = await purgeDbContext.ConfirmedLowMatchPairs.ExecuteDeleteAsync();
 
-    Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows).");
+    Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows), " +
+        $"and {purgedConfirmedLowCount} ConfirmedLowMatchPair row(s).");
     return;
 }
 

@@ -37,7 +37,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         CountryDefinition country,
         ClubDefinition club,
         WikidataLookupOrigin origin,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         // REQ-109: an unresolved QID isn't an error, it just means Wikidata
         // is skipped for this value — the API-Football fallback (Tier 1)
@@ -64,9 +66,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // the match.
         var matches = country.UsesCountryForSportProperty
             ? await wikidataClient.QueryNationalTeamClubIntersectionAsync(
-                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken)
+                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier)
             : await wikidataClient.QueryCountryClubIntersectionAsync(
-                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken);
+                country.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
         var persisted = await PersistMatchesAsync(
             matches, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, origin, cancellationToken);
@@ -86,7 +88,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         ClubDefinition clubA,
         ClubDefinition clubB,
         WikidataLookupOrigin origin,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
             return [];
@@ -96,7 +100,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
 
         var matches = await wikidataClient.QueryClubClubIntersectionAsync(
-            clubA.WikidataQid, clubB.WikidataQid, throwOnTimeout, cancellationToken);
+            clubA.WikidataQid, clubB.WikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
         // this story only wires up the country/nationality x club path

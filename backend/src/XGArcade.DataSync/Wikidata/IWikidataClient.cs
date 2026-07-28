@@ -34,11 +34,50 @@ public interface IWikidataClient
     // established below, just made conditional per-call instead of
     // per-method, since this method (unlike those two) has a legitimate
     // caller on each side of the distinction.
+    // onTechnicalFailure (REQ-110, 2026-07-28): an optional, purely-additive
+    // observation hook — invoked (with no arguments) exactly when this call
+    // ends in a technical failure that the throwOnTimeout=false path still
+    // swallows to [] (a WDQS timeout, an HTTP error, or a JSON parse error;
+    // see RunIntersectionQueryAsync's own catch blocks in WikidataClient).
+    // Never invoked for a genuine "queried successfully, zero real matches"
+    // outcome — that distinction is exactly the point. Deliberately a
+    // trailing optional parameter (default null) rather than a return-type
+    // change (e.g. wrapping the match list): every existing caller of these
+    // five methods — REQ-103 grid generation and REQ-211's guess-time
+    // fallback via WikidataLookupService, plus every assertion in
+    // WikidataClientTests.cs — reads the bare match list today, and this
+    // keeps all of that completely untouched. Only PlayerCacheWarmingService
+    // (via WikidataLookupService.LookupAndPersistAsync/
+    // LookupAndPersistClubClubAsync) supplies a non-null hook, to build its
+    // run summary's technical-failure count/list — see that class's own doc
+    // comment. Not invoked on the throwOnTimeout=true timeout path (that
+    // path throws WikidataQueryException instead, which is itself an
+    // observable failure signal — see throwOnTimeout's own doc comment
+    // below).
+    // timeoutTier (REQ-110, 2026-07-28 "cache-warming-specific timeout"
+    // extension): a second, independent trailing optional parameter, same
+    // additive/default-preserves-behavior shape as onTechnicalFailure above.
+    // Selects which of WikidataClient's three timeout budgets applies —
+    // see WikidataQueryTimeoutTier's own doc comment for the full "why a
+    // second selector alongside throwOnTimeout" reasoning. Defaults to
+    // WikidataQueryTimeoutTier.Default, which resolves exactly as this
+    // method always has (throwOnTimeout picks between the 15s/28s budgets);
+    // only PlayerCacheWarmingService (via WikidataLookupService) passes
+    // WikidataQueryTimeoutTier.CacheWarming, always alongside
+    // throwOnTimeout: false — cache warming's fail-open/swallow contract is
+    // unaffected by this parameter, it only changes how long the client
+    // waits before swallowing. This is the intersection method
+    // PlayerCacheWarmingService's Country x Club loop actually passes
+    // WikidataQueryTimeoutTier.CacheWarming to (via
+    // WikidataLookupService.LookupAndPersistAsync) — or, for a national-team
+    // country row, QueryNationalTeamClubIntersectionAsync below instead.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // REQ-114/ADR-0035: the P1532 ("country for sport") counterpart of
     // QueryCountryClubIntersectionAsync's P27 ("country of citizenship")
@@ -51,11 +90,17 @@ public interface IWikidataClient
     // (WikidataLookupService), never both for the same row. Same P54
     // full-statement-path club-membership half and no-LIMIT/never-throws
     // contract as every other intersection query in this interface.
+    // onTechnicalFailure: see QueryCountryClubIntersectionAsync's own doc
+    // comment — same purely-additive, default-null observation hook.
+    // timeoutTier: see QueryCountryClubIntersectionAsync's own doc comment
+    // — same purely-additive, default-preserves-behavior selector.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-030: "ever played for both clubs" — same P54-based "any point in
     // their career" semantics as QueryCountryClubIntersectionAsync's P54
@@ -63,11 +108,20 @@ public interface IWikidataClient
     // against a P27 citizenship. Same no-LIMIT/never-throws-unless-
     // throwOnTimeout contract as QueryCountryClubIntersectionAsync — see
     // that method's own doc comment for throwOnTimeout.
+    // onTechnicalFailure: see QueryCountryClubIntersectionAsync's own doc
+    // comment — same purely-additive, default-null observation hook.
+    // timeoutTier: see QueryCountryClubIntersectionAsync's own doc comment
+    // — same purely-additive, default-preserves-behavior selector. This is
+    // the intersection method PlayerCacheWarmingService's Club x Club loop
+    // actually passes WikidataQueryTimeoutTier.CacheWarming to (via
+    // WikidataLookupService.LookupAndPersistClubClubAsync).
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-031/REQ-108: "received this individual award AND holds this
     // citizenship" — P166 ("award received") + P27, the Trophy counterpart
@@ -76,22 +130,40 @@ public interface IWikidataClient
     // comment in WikidataClient for why that's safe here. Same
     // no-LIMIT/never-throws-unless-throwOnTimeout contract as
     // QueryCountryClubIntersectionAsync above.
+    // onTechnicalFailure: see QueryCountryClubIntersectionAsync's own doc
+    // comment — same purely-additive, default-null observation hook. Not
+    // currently wired up by any caller (REQ-110's cache-warming path doesn't
+    // cover Trophy pairings), added for interface symmetry with the other
+    // four intersection methods rather than special-casing this one.
+    // timeoutTier: same interface-symmetry reasoning — see
+    // QueryCountryClubIntersectionAsync's own doc comment. Not currently
+    // passed anything but Default by any caller, same as onTechnicalFailure.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-031/REQ-108: "received this individual award AND ever played for
     // this club" — P166 (truthy) + P54 (full statement path, same
     // non-truthy reasoning as QueryCountryClubIntersectionAsync/
     // QueryClubClubIntersectionAsync's P54 halves). Same
     // no-LIMIT/never-throws-unless-throwOnTimeout contract.
+    // onTechnicalFailure: see QueryCountryClubIntersectionAsync's own doc
+    // comment — same purely-additive, default-null observation hook, added
+    // for interface symmetry (same rationale as
+    // QueryTrophyCountryIntersectionAsync's own comment).
+    // timeoutTier: same interface-symmetry reasoning as
+    // QueryTrophyCountryIntersectionAsync's own comment.
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-032/ADR-0007/REQ-207: PlayerNameIndexImporter's bulk-import query —
     // "association football player" (P106=Q937857) broadly, no country/club

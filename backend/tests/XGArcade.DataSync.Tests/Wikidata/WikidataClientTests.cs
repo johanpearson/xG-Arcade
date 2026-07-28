@@ -195,6 +195,134 @@ public class WikidataClientTests
         Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (guessTimeFallback) budget used, not queryTimeout");
     }
 
+    // ---- REQ-110 (2026-07-28 "cache-warming-specific timeout + same-run ---
+    // retry" extension): WikidataQueryTimeoutTier.CacheWarming resolves to a
+    // THIRD, distinct budget — never queryTimeout (round generation's 15s)
+    // or guessTimeFallbackQueryTimeout (REQ-211's 28s) — used only alongside
+    // throwOnTimeout: false (cache warming never throws).
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_TimeoutTierCacheWarming_UsesCacheWarmingBudget_NotQueryTimeout()
+    {
+        // A short queryTimeout (50ms) alongside a much wider
+        // cacheWarmingQueryTimeout (400ms) — would fail fast under
+        // queryTimeout, so this test would fail if the two timeouts were
+        // ever collapsed back into one (this REQ's own explicit "Test
+        // level" requirement).
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            cacheWarmingQueryTimeout: TimeSpan.FromMilliseconds(400));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await client.QueryCountryClubIntersectionAsync(
+            CountryQid, ClubQid, throwOnTimeout: false, timeoutTier: WikidataQueryTimeoutTier.CacheWarming);
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short queryTimeout (50ms) must not cut a CacheWarming-tier call off before the wider cacheWarmingQueryTimeout (400ms) elapses");
+        Assert.That(result, Is.Empty, "cache warming never throws on timeout (throwOnTimeout: false) — it swallows to an empty match list");
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_TimeoutTierDefault_IgnoresCacheWarmingBudget_UsesQueryTimeout()
+    {
+        // The reverse of the test above: a Default-tier call (the implicit
+        // choice for every existing caller — round generation, guess-time
+        // fallback) must keep using queryTimeout even when a much wider
+        // cacheWarmingQueryTimeout happens to be configured — proves the
+        // selection is genuinely driven by timeoutTier, not by "whichever
+        // budget is currently the widest."
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            cacheWarmingQueryTimeout: TimeSpan.FromMilliseconds(2000));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await client.QueryCountryClubIntersectionAsync(
+            CountryQid, ClubQid, throwOnTimeout: false, timeoutTier: WikidataQueryTimeoutTier.Default);
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.LessThan(1000),
+            "a Default-tier call must time out at queryTimeout (50ms), not wait out the much wider cacheWarmingQueryTimeout (2000ms)");
+        Assert.That(result, Is.Empty);
+    }
+
+    // ---- REQ-110 (2026-07-28 "technical-failure visibility" extension): ---
+    // onTechnicalFailure fires on a timeout and on an HTTP/JSON-parse error,
+    // and never on a genuine successful response (with or without matches).
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_Timeout_InvokesOnTechnicalFailure()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+        var invoked = false;
+
+        await client.QueryCountryClubIntersectionAsync(
+            CountryQid, ClubQid, throwOnTimeout: false, onTechnicalFailure: () => invoked = true);
+
+        Assert.That(invoked, Is.True, "a swallowed timeout is a technical failure, distinct from a successful zero-match response");
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_HttpErrorStatus_InvokesOnTechnicalFailure()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+        var invoked = false;
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, onTechnicalFailure: () => invoked = true);
+
+        Assert.That(invoked, Is.True);
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_MalformedJson_InvokesOnTechnicalFailure()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+        var invoked = false;
+
+        await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, onTechnicalFailure: () => invoked = true);
+
+        Assert.That(invoked, Is.True);
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_SuccessfulZeroMatchResponse_DoesNotInvokeOnTechnicalFailure()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+        var invoked = false;
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, onTechnicalFailure: () => invoked = true);
+
+        Assert.That(result, Is.Empty, "a genuine zero-match answer, not a failure");
+        Assert.That(invoked, Is.False,
+            "a query that answered successfully and simply found nothing must never be reported as a technical failure");
+    }
+
+    [Test]
+    public async Task QueryCountryClubIntersectionAsync_SuccessfulResponseWithMatches_DoesNotInvokeOnTechnicalFailure()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+        var invoked = false;
+
+        var result = await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid, onTechnicalFailure: () => invoked = true);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(invoked, Is.False);
+    }
+
     // A non-timeout failure (HTTP error/malformed JSON) must still swallow
     // to [] even with throwOnTimeout: true — that parameter only ever
     // changes the TIMEOUT branch's behavior, never the HTTP/parse-error
