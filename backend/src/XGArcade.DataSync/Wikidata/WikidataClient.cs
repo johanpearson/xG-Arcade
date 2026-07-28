@@ -82,7 +82,8 @@ public class WikidataClient(
         string countryWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         if (!WikidataQid.IsValid(countryWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
@@ -90,7 +91,7 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
+        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure);
     }
 
     // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
@@ -99,7 +100,8 @@ public class WikidataClient(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         if (!WikidataQid.IsValid(nationalTeamWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{nationalTeamWikidataQid}'", nameof(nationalTeamWikidataQid));
@@ -107,14 +109,15 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
+        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         if (!WikidataQid.IsValid(clubAWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubAWikidataQid}'", nameof(clubAWikidataQid));
@@ -122,14 +125,15 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
 
         var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
-        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, throwOnTimeout, cancellationToken);
+        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
@@ -137,14 +141,15 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
 
         var query = BuildTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure);
     }
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         if (!WikidataQid.IsValid(trophyWikidataQid))
             throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
@@ -152,11 +157,12 @@ public class WikidataClient(
             throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
 
         var query = BuildTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken);
+        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
-        string queryKind, string qidA, string qidB, string query, bool throwOnTimeout, CancellationToken cancellationToken)
+        string queryKind, string qidA, string qidB, string query, bool throwOnTimeout, CancellationToken cancellationToken,
+        Action? onTechnicalFailure = null)
     {
         var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
 
@@ -213,6 +219,11 @@ public class WikidataClient(
                 "Wikidata {QueryKind} SPARQL query timed out after {TimeoutSeconds:0}s for {QidA}/{QidB}; treating as no match.",
                 queryKind, _queryTimeout.TotalSeconds, qidA, qidB);
 
+            // REQ-110 (2026-07-28): a genuine technical failure, distinct
+            // from a successful-but-empty response — see onTechnicalFailure's
+            // own doc comment on IWikidataClient for why this is a callback
+            // rather than a return-type change.
+            onTechnicalFailure?.Invoke();
             return [];
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
@@ -226,6 +237,10 @@ public class WikidataClient(
             _logger.LogWarning(ex,
                 "Wikidata {QueryKind} SPARQL query failed for {QidA}/{QidB}; treating as no match.",
                 queryKind, qidA, qidB);
+
+            // REQ-110 (2026-07-28): same technical-failure signal as the
+            // timeout branch above.
+            onTechnicalFailure?.Invoke();
             return [];
         }
     }

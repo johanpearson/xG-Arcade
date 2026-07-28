@@ -49,6 +49,16 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     // cover); extend to the other three dictionaries below if a future test
     // needs it for Club x Club/Trophy pairings.
     private readonly HashSet<(string Country, string Club)> _timeoutFailures = new();
+    // REQ-110 (2026-07-28): simulates WikidataClient's throwOnTimeout=false
+    // technical-failure path (WDQS timeout, HTTP error, or JSON parse
+    // error) — distinct from _timeoutFailures above, which simulates the
+    // throwOnTimeout=true (guess-time fallback) path that throws instead.
+    // A configured pair returns an empty match list (same shape as a
+    // genuine zero-match success) but invokes onTechnicalFailure, mirroring
+    // the real WikidataLookupService/WikidataClient contract this fake
+    // stands in for.
+    private readonly HashSet<(string Country, string Club)> _technicalFailures = new();
+    private readonly HashSet<(string ClubA, string ClubB)> _clubClubTechnicalFailures = new();
     // ADR-0029: the most recent WikidataLookupOrigin each pair was called
     // with — lets a test assert GetMatchCountAsync (generation-time) and
     // RefreshCellFromLiveLookupAsync (REQ-211 guess-time fallback) each pass
@@ -87,6 +97,16 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     // simulates a guess-time-fallback timeout.
     public void FailWithTimeout(string countryName, string clubName) =>
         _timeoutFailures.Add((countryName, clubName));
+
+    // REQ-110: the next LookupAndPersistAsync call for this pair invokes
+    // onTechnicalFailure and returns an empty match list, instead of
+    // whatever SetMatches configured — see _technicalFailures' own comment.
+    public void FailWithTechnicalFailure(string countryName, string clubName) =>
+        _technicalFailures.Add((countryName, clubName));
+
+    // REQ-110: the Club x Club counterpart of FailWithTechnicalFailure above.
+    public void FailClubClubWithTechnicalFailure(string clubAName, string clubBName) =>
+        _clubClubTechnicalFailures.Add((clubAName, clubBName));
 
     public void SetClubClubMatches(string clubAName, string clubBName, IReadOnlyList<Player> players) =>
         _clubClubMatches[(clubAName, clubBName)] = players.ToList();
@@ -129,7 +149,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         _trophyClubLastOrigin.TryGetValue((trophyName, clubName), out var origin) ? origin : null;
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
-        CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+        CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
@@ -141,6 +162,14 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
+
+        // REQ-110: mirrors WikidataClient's throwOnTimeout=false contract —
+        // a technical failure still returns an empty list, but observably so.
+        if (_technicalFailures.Contains((country.Name, club.Name)))
+        {
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
 
         if (!_matches.TryGetValue((country.Name, club.Name), out var players))
             return [];
@@ -155,7 +184,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     }
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
-        ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+        ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null)
     {
         onCalled?.Invoke();
         _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;
@@ -163,6 +193,13 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
             return [];
+
+        // REQ-110: see LookupAndPersistAsync's own comment on this same check.
+        if (_clubClubTechnicalFailures.Contains((clubA.Name, clubB.Name)))
+        {
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
 
         if (!_clubClubMatches.TryGetValue((clubA.Name, clubB.Name), out var players))
             return [];

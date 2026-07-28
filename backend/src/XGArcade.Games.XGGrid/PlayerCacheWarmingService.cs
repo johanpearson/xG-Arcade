@@ -43,6 +43,21 @@ namespace XGArcade.Games.XGGrid;
 // pool is a few hundred pairs, and this is meant to be run after a
 // reference-data change, not on a tight recurring schedule, so the
 // re-querying cost is bounded and infrequent, not a real problem yet.
+//
+// REQ-110 (2026-07-28 extension) — technical-failure visibility: three
+// consecutive runs (2026-07-26/27) produced byte-identical summaries with
+// zero visible progress. Most of that is the accepted re-querying gap
+// above, but a real, separate contributor was WikidataClient's
+// throwOnTimeout=false sync path swallowing genuine technical failures
+// (WDQS timeout, HTTP error, JSON parse error) into the exact same empty
+// match list a real "queried successfully, genuinely below threshold"
+// pair produces — one run alone had 133/1214 live queries (11%) end this
+// way, invisible in the summary. WikidataLookupService.LookupAndPersistAsync/
+// LookupAndPersistClubClubAsync now accept an optional onTechnicalFailure
+// callback (threaded from WikidataClient's own RunIntersectionQueryAsync)
+// that this class supplies per pair, purely to build PairsWithTechnicalFailure/
+// FailingPairs below — it does not change which pairs get skipped or
+// re-queried, that logic is untouched.
 public class PlayerCacheWarmingService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
@@ -75,6 +90,8 @@ public class PlayerCacheWarmingService(
         var pairsQueriedLive = 0;
         var pairsAlreadyValid = 0;
         var pairsProcessed = 0;
+        var pairsWithTechnicalFailure = 0;
+        var failingPairs = new List<string>();
 
         foreach (var country in countries)
         {
@@ -91,9 +108,23 @@ public class PlayerCacheWarmingService(
                 }
                 else
                 {
+                    // REQ-110: hadTechnicalFailure is set by
+                    // WikidataClient's own catch blocks (via
+                    // WikidataLookupService's pass-through), never by
+                    // reading the returned match list — a technical failure
+                    // and a genuine zero-match success both return an empty
+                    // `matches` list, so this callback is the only way to
+                    // tell them apart.
+                    var hadTechnicalFailure = false;
                     var matches = await wikidataLookupService.LookupAndPersistAsync(
-                        country, club, WikidataLookupOrigin.Sync, cancellationToken);
+                        country, club, WikidataLookupOrigin.Sync, cancellationToken,
+                        onTechnicalFailure: () => hadTechnicalFailure = true);
                     pairsQueriedLive++;
+                    if (hadTechnicalFailure)
+                    {
+                        pairsWithTechnicalFailure++;
+                        failingPairs.Add($"{country.Name} x {club.Name}");
+                    }
                     logger.LogDebug("{Country} x {Club}: {MatchCount} matches (was {CachedCount} cached).",
                         country.Name, club.Name, matches.Count, cachedCount);
                 }
@@ -117,9 +148,18 @@ public class PlayerCacheWarmingService(
                 }
                 else
                 {
+                    // REQ-110: see the Country x Club loop's own comment on
+                    // hadTechnicalFailure above — same reasoning here.
+                    var hadTechnicalFailure = false;
                     var matches = await wikidataLookupService.LookupAndPersistClubClubAsync(
-                        clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken);
+                        clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken,
+                        onTechnicalFailure: () => hadTechnicalFailure = true);
                     pairsQueriedLive++;
+                    if (hadTechnicalFailure)
+                    {
+                        pairsWithTechnicalFailure++;
+                        failingPairs.Add($"{clubs[i].Name} x {clubs[j].Name}");
+                    }
                     logger.LogDebug("{ClubA} x {ClubB}: {MatchCount} matches (was {CachedCount} cached).",
                         clubs[i].Name, clubs[j].Name, matches.Count, cachedCount);
                 }
@@ -128,10 +168,20 @@ public class PlayerCacheWarmingService(
             }
         }
 
-        var result = new CacheWarmingResult(totalPairs, pairsQueriedLive, pairsAlreadyValid);
+        var result = new CacheWarmingResult(totalPairs, pairsQueriedLive, pairsAlreadyValid, pairsWithTechnicalFailure, failingPairs);
+
+        // REQ-110: the failing-pairs list is logged in full here, at
+        // Information level, exactly once per run — not per-pair (each
+        // pair's own failure was already logged as a Warning inside
+        // WikidataClient when it happened; see RunIntersectionQueryAsync).
+        // A comma-joined string rather than one log call per pair, matching
+        // this method's existing "coarse summary, not a per-pair stream"
+        // logging shape (see ProgressLogInterval's own comment).
         logger.LogInformation(
-            "Player cache warming complete: {TotalPairs} pairs checked, {PairsQueriedLive} queried live, {PairsAlreadyValid} already valid.",
-            result.TotalPairs, result.PairsQueriedLive, result.PairsAlreadyValid);
+            "Player cache warming complete: {TotalPairs} pairs checked, {PairsQueriedLive} queried live, {PairsAlreadyValid} already valid, " +
+            "{PairsWithTechnicalFailure} of the queried-live pairs hit a technical failure (timeout/HTTP/parse error) rather than a clean answer.{FailingPairsSuffix}",
+            result.TotalPairs, result.PairsQueriedLive, result.PairsAlreadyValid, result.PairsWithTechnicalFailure,
+            result.FailingPairs.Count > 0 ? $" Failing pairs: {string.Join(", ", result.FailingPairs)}." : string.Empty);
 
         return result;
     }
