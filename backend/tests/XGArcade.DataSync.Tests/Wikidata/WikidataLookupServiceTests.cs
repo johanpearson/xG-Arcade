@@ -141,6 +141,34 @@ public class WikidataLookupServiceTests
         }
         """;
 
+    // REQ-1207/S-082: same single-match shape as SingleHenryMatchJson, plus
+    // P413 (position) and a P569 (dateOfBirth) binding to derive BirthYear
+    // from.
+    private const string SingleHenryMatchWithPositionAndBirthYearJson = """
+        {
+          "results": {
+            "bindings": [
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "position": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } }
+            ]
+          }
+        }
+        """;
+
+    // REQ-1207: a DIFFERENT position/birth year for the SAME player
+    // (Q1519) — used only by the set-once test below, to prove a later sync
+    // never overwrites an already-persisted Player row's Position/BirthYear,
+    // even when the later sync's own response disagrees with what's already
+    // stored.
+    private const string SingleHenryMatchWithDifferentPositionAndBirthYearJson = """
+        {
+          "results": {
+            "bindings": [
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "position": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1980-01-01T00:00:00Z" } }
+            ]
+          }
+        }
+        """;
+
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStore = null!;
 
@@ -249,6 +277,74 @@ public class WikidataLookupServiceTests
 
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         Assert.That(player.PhotoUrl, Is.Null);
+    }
+
+    // ---- REQ-1207/S-082: Player.Position/BirthYear sourced from Wikidata --
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_HitWithPositionAndDateOfBirth_PersistsPositionAndBirthYearOnNewPlayer()
+    {
+        var service = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.EqualTo("forward"));
+        Assert.That(player.BirthYear, Is.EqualTo(1977));
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_HitWithoutPosition_PlayerPositionIsNull()
+    {
+        // SingleHenryMatchJson has no "position" binding at all — the
+        // normal, error-free "no Wikidata P413 statement" case.
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_ExistingPlayer_LaterSyncWithDifferentPositionAndBirthYear_LeavesOriginalValuesCompletelyUntouched()
+    {
+        // The set-once contract: Position/BirthYear are written only at
+        // Player-row creation, mirroring PhotoUrl's own "never re-synced on
+        // a later lookup" rule (PlayerStoreRepository.
+        // GetOrCreatePlayersByWikidataQidAsync). Two genuinely separate
+        // LookupAndPersistAsync calls for the SAME player (Q1519), the
+        // second one's response disagreeing with the first — the second
+        // call's Position/BirthYear must be silently ignored.
+        var firstSyncService = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+        var secondSyncService = BuildService(SingleHenryMatchWithDifferentPositionAndBirthYearJson);
+
+        await firstSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await secondSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        Assert.That(await _dbContext.Players.CountAsync(p => p.WikidataQid == "Q1519"), Is.EqualTo(1), "still exactly one Player row, upserted, not duplicated");
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.EqualTo("forward"), "the SECOND sync's 'midfielder' must never overwrite the value set at creation");
+        Assert.That(player.BirthYear, Is.EqualTo(1977), "the SECOND sync's 1980 must never overwrite the value set at creation");
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_ExistingPlayerCreatedWithNullPositionAndBirthYear_LaterSyncWithRealValues_LeavesThemNull()
+    {
+        // The set-once rule applies regardless of whether the existing row's
+        // current value is null or already set (REQ-1207's own text) — a
+        // player first synced with no P413/dateOfBirth data stays null
+        // forever unless a future dedicated backfill is built, the same way
+        // PhotoUrl does.
+        var firstSyncService = BuildService(SingleHenryMatchJson);
+        var secondSyncService = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+
+        await firstSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await secondSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.Null, "a null set at creation is never backfilled by a later sync");
+        Assert.That(player.BirthYear, Is.Null, "a null set at creation is never backfilled by a later sync");
     }
 
     [Test]

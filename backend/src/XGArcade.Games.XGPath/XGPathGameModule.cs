@@ -1,18 +1,19 @@
 using XGArcade.Core.Games;
+using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
 namespace XGArcade.Games.XGPath;
 
 // COMP-11: IGameModule implementation for xG Path, the second game hosted
-// on the platform. S-080 scaffolded the module boundary only; S-081 (this
-// story) implements REQ-1201 (target-player eligibility) and REQ-1202
-// (round structure — a small, fixed set of distinct-target puzzles),
-// mirroring GridGameModule's (COMP-05) established
-// "assemble instance, persist via repository, return GameInstance"
-// shape. ScoreSubmissionAsync (REQ-1204) and GetMaxAttemptsForCellAsync
-// (REQ-1205) still throw NotImplementedException — that's S-082, not this
-// story.
+// on the platform. S-080 scaffolded the module boundary only; S-081
+// implemented REQ-1201 (target-player eligibility) and REQ-1202 (round
+// structure — a small, fixed set of distinct-target puzzles). This story
+// (S-082) implements REQ-1204 (guess correctness resolution) and REQ-1205
+// (per-puzzle attempt cap, fixed at 7), mirroring GridGameModule's
+// (COMP-05) established "assemble instance, persist via repository, return
+// GameInstance" shape for generation, and its
+// GuessSubmission-cast/name-resolution shape for scoring.
 public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
     IPlayerStoreRepository playerStoreRepository,
@@ -26,6 +27,12 @@ public class XGPathGameModule(
     // fringe appearance — see the ADR for why 20 and why an unknown count
     // still passes rather than being rejected.
     private const int MinAppearancesAtSeededClub = 20;
+
+    // REQ-1205/ADR-0041: xG Path's fixed per-puzzle attempt cap — matches
+    // REQ-1203's fixed 7-turn clue sequence 1:1, regardless of the target
+    // player's own stint count N. Mirrors GridGameModule.MaxAttemptsPerCell's
+    // naming precedent for the equivalent xG Grid constant.
+    private const int MaxAttemptsPerPuzzle = 7;
 
     // REQ-1202: N distinct targets, no repeats, picked uniformly at random
     // — mirrors GridGameModule's optional constructor Random? param
@@ -75,11 +82,62 @@ public class XGPathGameModule(
         return new GameInstance { Id = instance.Id };
     }
 
-    public Task<ScoreResult> ScoreSubmissionAsync(
-        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default) =>
-        // REQ-1204 (guess correctness resolution) — see S-082.
-        Task.FromException<ScoreResult>(
-            new NotImplementedException("xG Path guess scoring not yet implemented — see REQ-1204 (S-082)."));
+    // REQ-1204: correctness is a direct PlayerId match against this puzzle's
+    // one specific target — no category-membership check, unlike
+    // GridGameModule.ScoreSubmissionAsync (REQ-203). userId is unused here,
+    // same as it's effectively unused as a correctness input in
+    // GridGameModule.ScoreSubmissionAsync too (only used there for a
+    // disambiguation log line) — xG Path's correctness never depends on
+    // which user is guessing.
+    //
+    // Judgment call (flagged for architecture-reviewer): deliberately no
+    // fuzzy-matching stage and no REQ-209-style disambiguation prompt here,
+    // unlike GridGameModule.FindMatchAsync's three-stage (exact/alias/fuzzy)
+    // pipeline. Grid's fuzzy stage bounds its candidate pool via
+    // GetPlayersWithEitherAttributeAsync — players already known (via a
+    // cached PlayerAttribute row) to satisfy one of the cell's two
+    // *categories*. xG Path has no category concept to bound a fuzzy search
+    // by: building an equivalent bound would mean either a new,
+    // category-less repository method (real new matching infrastructure,
+    // which REQ-1204's own text and docs/backlog.md's S-082 entry both rule
+    // out — "no new matching infrastructure for this game") or an unbounded
+    // full-table fuzzy scan on every guess, which this codebase's existing
+    // fuzzy pass deliberately avoids for Grid too. Disambiguation is also
+    // unnecessary here for a structural reason, not just a scope cut:
+    // unlike Grid (where multiple *different* players can each
+    // independently satisfy both of a cell's categories), an xG Path
+    // puzzle's correctness only ever cares whether the ONE specific target
+    // is among the name-matched candidates — additional same-named
+    // non-target players resolving alongside the real target changes
+    // nothing about the outcome, so there is nothing to disambiguate.
+    public async Task<ScoreResult> ScoreSubmissionAsync(
+        Guid instanceId, Guid userId, object submission, CancellationToken cancellationToken = default)
+    {
+        var guessSubmission = (GuessSubmission)submission;
+
+        var instance = await pathInstanceRepository.GetInstanceByIdAsync(instanceId, cancellationToken)
+            ?? throw new PathScoringException($"PathInstance '{instanceId}' not found.");
+
+        var puzzle = instance.Puzzles.FirstOrDefault(p => p.Id == guessSubmission.CellId)
+            ?? throw new PathScoringException($"Puzzle '{guessSubmission.CellId}' not found in path instance '{instanceId}'.");
+
+        // REQ-1204/ADR-0007: same PlayerNameIndex-adjacent matching pipeline
+        // xG Grid guesses use for correctness resolution — Player.
+        // NormalizedFullName first, then PlayerAlias.NormalizedAlias, same
+        // order/normalization GridGameModule.FindMatchAsync uses (minus the
+        // fuzzy stage, see this method's own comment above).
+        var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
+
+        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken);
+        if (candidates.Count == 0)
+            candidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken);
+
+        var isCorrect = candidates.Any(c => c.Id == puzzle.TargetPlayerId);
+
+        return isCorrect
+            ? new ScoreResult { IsCorrect = true, PlayerAnswerId = puzzle.TargetPlayerId }
+            : new ScoreResult { IsCorrect = false };
+    }
 
     // ADR-0021-equivalent: round-close's unanswered-cell penalty needs
     // every cell id for the instance, regardless of whether anyone ever
@@ -93,10 +151,12 @@ public class XGPathGameModule(
         return instance.Puzzles.Select(p => p.Id).ToList();
     }
 
+    // ADR-0041/REQ-1205: every xG Path puzzle shares the same fixed
+    // allowance (7, matching REQ-1203's fixed 7-turn clue sequence 1:1) —
+    // no repository lookup, no branching on instanceId or cellId, same
+    // "pure extraction" shape as GridGameModule.GetMaxAttemptsForCellAsync.
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
-        // REQ-1205 (per-puzzle attempt cap, fixed at 7) — see S-082.
-        Task.FromException<int>(
-            new NotImplementedException("xG Path per-puzzle attempt cap not yet implemented — see REQ-1205 (S-082)."));
+        Task.FromResult(MaxAttemptsPerPuzzle);
 
     // REQ-1201: candidate eligibility. Reads only PlayerCareerStint (via
     // IPlayerStoreRepository, boundary rule 1 — Games.XGPath never touches
@@ -108,9 +168,12 @@ public class XGPathGameModule(
     // correctness-checking path must NEVER read this table").
     //
     // REQ-112 pool membership (male, born 1939 or later) is deliberately
-    // NOT checked here: Player has no BirthYear/Gender field at all (see
-    // Player.cs) — the restriction is enforced entirely upstream, at
-    // Wikidata-query time (WikidataClient's
+    // NOT re-checked here: Player has no Gender field at all, and while
+    // Player.BirthYear now exists (REQ-1207/S-082, for xG Path's own
+    // age/birth-year clue, not for pool filtering), re-deriving REQ-112's
+    // pool membership from it here would duplicate a check that's already
+    // structurally guaranteed — the restriction is enforced entirely
+    // upstream, at Wikidata-query time (WikidataClient's
     // BuildCountryClubIntersectionQuery/BuildClubClubIntersectionQuery/
     // BuildPlayerPoolBirthYearQuery, all filtering on P21/P569 before
     // anything is ever persisted as a Player row — ADR-0025). Every

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.19"
+version: "1.21"
 status: draft
 last_updated: 2026-07-27
 owner: Johan
@@ -5174,11 +5174,14 @@ not a claim about current behavior.
   (e.g. a one-off loan appearance) does not count toward eligibility, but
   an unknown count still does, since Wikidata's P1350 qualifier being
   absent isn't evidence of a fringe career. The REQ-112 pool-membership
-  criterion is met **by construction, not by a runtime check**: `Player` has
-  no `BirthYear`/`Gender` field at all — the restriction is enforced entirely
-  upstream at Wikidata-query time (ADR-0025), the same reasoning
-  `GridGameModule` already relies on for not re-checking this at runtime
-  either.
+  criterion is met **by construction, not by a runtime check**: at the time
+  this eligibility check was built, `Player` had no `BirthYear`/`Gender`
+  field at all to check against — `Player.BirthYear` was added later
+  (REQ-1207, S-082) for xG Path's own age clue, not for pool filtering, and
+  this eligibility check still does not read it — the restriction is
+  enforced entirely upstream at Wikidata-query time (ADR-0025), the same
+  reasoning `GridGameModule` already relies on for not re-checking this at
+  runtime either.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -5218,8 +5221,8 @@ since `Player` has no field that could represent "outside the pool"; see
   generating fewer puzzles. `PathPuzzle.Id` is the cell id
   `GetCellIdsAsync` returns. `Round.GameKey`/`GameInstanceId` wiring is
   unchanged — no new Core-side reference (ADR-0003 unaffected).
-  `ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync` (REQ-1204/1205) still
-  throw `NotImplementedException` — that's S-082.
+  `ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync` (REQ-1204/1205) are now
+  implemented too (S-082) — see those REQs' own status notes.
 - Given an xG Path round is generated with a configured puzzle count N
   (3-5, configurable — the same spirit as REQ-102's configurable grid size)
 - When the round instance is created
@@ -5232,8 +5235,12 @@ since `Player` has no field that could represent "outside the pool"; see
   pair, unchanged from how xG Grid does this today; this REQ does not
   change how `Round` references any game instance
 
-**Test level:** Unit, API (Unit built S-081 via `XGPathGameModuleTests`; no
-API route exposes this game yet — that's S-084)
+**Test level:** Unit (built S-081 via `XGPathGameModuleTests`; this REQ is
+about round *structure*, not the read endpoint — REQ-1203's own `GET
+/path/current` (S-082) now exposes puzzle/clue data over the API, but no
+`RoundSchedulingOptions`/scheduled generation exists for `"xg-path"` yet,
+so no round-structure-level API test coverage exists for this REQ — that's
+still S-084)
 
 **REQ-1203 – Clue reveal order and content**
 > As a player, I want clues about the target player's career revealed in a
@@ -5242,9 +5249,27 @@ API route exposes this game yet — that's S-084)
 > genuine progressive challenge rather than trivially easy or unfairly hard
 > from the start.
 
-- **Status: Not started (design only). Revised 2026-07-27 (see
-  `docs/CHANGELOG.md`): replaces the earlier "one club per clue, capped at
-  5" design — no code implements either version yet.**
+- **Status: Implemented (Tier 0, S-082, 2026-07-27).** `PathClueSequenceBuilder`/
+  `PathClueTurn` (`XGArcade.Games.XGPath`) build the full 7-turn sequence
+  described below; `GET /path/current` (`XGArcade.Api.Path.PathEndpoints`)
+  is the new client-facing read path, returning only the turns the
+  requesting player's own attempt count has unlocked so far — see
+  `docs/architecture-document.md` COMP-11/§6.2b for the endpoint's shape and
+  ADR-0016/ADR-0048 for why it reads `PathInstance`/`PathPuzzle` directly
+  rather than through `IGameModule`.
+- **Status note (2026-07-27): position/nationality/age data prerequisite —
+  now resolved.** This REQ's position, nationality, and age clues assumed
+  `Player.Position`/`Player.BirthYear` (and, for nationality, an existing
+  `PlayerAttribute` "nationality" row) would be populated — REQ-1207
+  (folded into S-082) built the Position/BirthYear sourcing from Wikidata,
+  their set-once persistence rule, and the "null renders as 'not
+  available,' never skips a turn" contract this REQ's implementation
+  honors, so a data gap never shrinks a puzzle's clue count below the fixed
+  7 (REQ-1205/1206). The pre-existing nationality-row gap REQ-1207's own
+  scope note flags (a player who only ever entered via Club×Club sync has
+  no `PlayerAttribute` "nationality" row) is unchanged by S-082 — that
+  clue still renders as "not available" for such a player, per the same
+  contract.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -5284,21 +5309,38 @@ API route exposes this game yet — that's S-084)
   unlike the earlier design, this is now a fixed constant for every xG
   Path puzzle regardless of `N`, not a value that varies by target player
 
-**Test level:** Unit (the 3-way club-count split for `N` at the minimum
-(3), a non-multiple-of-3 value below 10, and a value at or above 10, per
-the worked examples above; appearance count present vs. unknown within a
-multi-club turn; chronological order preserved both across and within
-turns; the bundled year-range clue's content; the fixed
+**Test level:** Unit, API (Unit: the 3-way club-count split for `N` at the
+minimum (3), a non-multiple-of-3 value below 10, and a value at or above
+10, per the worked examples above; appearance count present vs. unknown
+within a multi-club turn; chronological order preserved both across and
+within turns; the bundled year-range clue's content; the fixed
 position/nationality/age order; the sequence halting immediately on a
 correct guess at every possible point, including after each of the 3 club
-turns individually)
+turns individually — `PathClueSequenceBuilderTests`. API: `GET
+/path/current` end to end, including auth, no-active-round 404, and the
+"only the requesting player's own unlocked turns are returned" contract —
+`PathEndpointTests`, S-082)
 
 **REQ-1204 – Guess correctness resolution**
 > As a player, I want my guess for an xG Path puzzle checked against that
 > puzzle's one specific target player, so I know unambiguously whether
 > I've solved it.
 
-- **Status: Not started (design only).**
+- **Status: Implemented (Tier 0, S-082, 2026-07-27).**
+  `XGPathGameModule.ScoreSubmissionAsync` (`XGArcade.Games.XGPath`)
+  implements this via `Player.NormalizedFullName`/`PlayerAlias
+  .NormalizedAlias` — the same exact/alias matching order
+  `GridGameModule.FindMatchAsync` uses, minus its fuzzy-matching stage and
+  REQ-209-style disambiguation prompt, both deliberately omitted here (no
+  category concept to bound a fuzzy search by, and disambiguation is moot
+  when only one target player is ever correct) — reviewed and confirmed
+  "fine as-is" by `architecture-reviewer` during S-082's quality gate; see
+  `docs/architecture-document.md` COMP-11 for the full reasoning. A guess
+  that doesn't resolve to a real cell/puzzle throws `PathScoringException`,
+  which derives from the shared `XGArcade.Core.Games
+  .GameEntityNotFoundException` base (also used by xG Grid's
+  `GuessScoringException`) so `GuessEndpoints` — game-agnostic by design —
+  needs no compile-time knowledge of either game's own exception type.
 - Given a submitted guess for an xG Path puzzle
 - When the guess is resolved to a candidate player, using the same
   name-matching/autocomplete pipeline (`PlayerNameIndex`, ADR-0007) xG
@@ -5320,7 +5362,12 @@ turns individually)
 > never denied a guess for a clue I've already been shown, and never
 > granted guesses beyond the puzzle's own content.
 
-- **Status: Not started (design only).**
+- **Status: Implemented (Tier 0, S-082, 2026-07-27).**
+  `XGPathGameModule.GetMaxAttemptsForCellAsync` returns the fixed constant
+  7 unconditionally for every puzzle — no repository lookup, no branching
+  on `instanceId`/`cellId`, the same "pure extraction" shape
+  `GridGameModule.GetMaxAttemptsForCellAsync` already established for its
+  own fixed `2` (ADR-0041).
 - Given an xG Path puzzle whose total clue count is a fixed **7**
   (REQ-1203) for every puzzle, regardless of its target player's stint
   count `N`
@@ -5373,6 +5420,91 @@ count of 2)
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
 never solved; no uniqueness score of any kind is computed by this game's
 scoring strategy)
+
+**REQ-1207 – Player position and birth year sourced from Wikidata**
+> As a player, I want the position, nationality, and age clues at the end
+> of an xG Path puzzle's reveal sequence (REQ-1203) to be backed by real
+> Wikidata data about the target player, not fields with no way to ever be
+> populated, so those clues are as trustworthy as the club and appearance-
+> count clues already are.
+
+- **Status: Implemented (S-082).** `Player.Position`/`Player.BirthYear`
+  (nullable, migration `20260727140000_AddPlayerPositionAndBirthYear`) are
+  populated by `WikidataClient.BuildIntersectionQuery`'s new OPTIONAL P413
+  binding and the existing P569 binding, threaded through
+  `WikidataPlayerMatch`/`PlayerCreationRequest` into
+  `PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`, which
+  already only ever sets fields at row creation — the set-once contract
+  below falls out of that method's existing shape, no new logic needed.
+  REQ1207-named tests cover the OPTIONAL binding's presence across all five
+  intersection query builders, `ParseBindings`' Position/BirthYear
+  extraction, and the set-once persistence contract (including the
+  "existing row's null is never backfilled" and "existing row's value is
+  never overwritten by a disagreeing later sync" cases) at both the
+  `WikidataLookupService` and `PlayerStoreRepository` layers.
+- **Scope note:** this REQ covers `Player.Position` and `Player.BirthYear`
+  only — two new nullable scalar columns on `Player` (COMP-06, the same
+  table `PhotoUrl`/`WikidataQid`/`FullName` already live on), not new
+  `PlayerAttribute` rows, since neither value has club-style multiplicity
+  (a player has at most one position and one birth year, unlike club/
+  nationality/trophy membership, which is inherently one-row-per-value).
+  It is not a new external data source — still Wikidata, the already-
+  approved provider (ADR-0008's terms-of-service review does not need
+  repeating for a new property on an already-approved source). Separately:
+  REQ-1203's nationality clue depends on a `PlayerAttribute` "nationality"
+  row, which this REQ does not add — that row only exists for a player who
+  entered the system via a query shape that queries a country side
+  (Country×Club, National-team×Club, Trophy×Country); a player who only
+  ever entered via Club×Club sync has no such row today. This is a
+  pre-existing gap this REQ did not create and does not fix — flagged here
+  for visibility, since REQ-1203's nationality clue depends on it, but
+  resolving it is out of this REQ's scope.
+- Given the existing Wikidata intersection queries that create or enrich
+  `Player` rows during xG Grid/xG Path player sync (Country×Club,
+  National-team×Club, Club×Club, Trophy×Country, Trophy×Club — every query
+  built on `WikidataClient`'s shared query-building predicates, including
+  REQ-211's guess-time live lookup, which routes through the same query
+  builders)
+- When a player match is fetched from one of those queries
+- Then the query additionally requests Wikidata's P413 ("position played
+  on team / speciality") as an OPTIONAL binding alongside the existing
+  SELECT — no new query, no new round-trip, no new HTTP request — mirroring
+  how `Player.PhotoUrl`/P18 already rides along the same existing SELECT
+  (see `Player.PhotoUrl`'s own doc comment) and how `PlayerCareerStint`'s
+  P580/P582/P1350 qualifiers ride along the existing P54 statement fetch
+  (ADR-0042)
+- And `Player.BirthYear` is derived from the P569 ("date of birth")
+  binding those same queries already require for every matched player
+  (ADR-0025's male/born-1939-or-later pool filter) — extracting just the
+  year, with no new binding added to the query for this field at all
+- And both values are persisted onto `Player.Position`/`Player.BirthYear`
+  only at the moment a `Player` row is first created — never written or
+  overwritten on a `Player` row that already exists, regardless of whether
+  that row's current value is null or already set, mirroring `PhotoUrl`'s
+  existing "set once, at creation, never re-synced" rule
+  (`PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`)
+- And a player with no P413 statement on Wikidata has a permanently null
+  `Position` unless a future dedicated backfill (mirroring
+  `PlayerPhotoBackfillService`, REQ-214's addendum) is built and run — this
+  REQ does not itself define or require that backfill, the same way
+  REQ-214's original scope didn't either
+- And null is a valid, expected value for both columns, never an error
+  condition — REQ-1203's position/nationality/age clues are expected to
+  treat a null `Position`/`BirthYear` the same way REQ-1203 already treats
+  an unknown club appearance count: the clue is still revealed, rendered as
+  "not available," never delayed, skipped, or silently dropped from the
+  fixed 7-clue sequence, so a data gap here never changes a puzzle's total
+  clue count away from the fixed 7 that REQ-1205's attempt cap and
+  REQ-1206's scoring formula depend on
+
+**Test level:** Unit (`WikidataClient` query construction — the OPTIONAL
+P413 binding is present in the generated SPARQL for every one of the five
+intersection query builders, with no additional query or HTTP call added;
+`WikidataLookupService`/`PlayerStoreRepository` persistence — Position/
+BirthYear are set from the query response when a `Player` row is first
+created, and left completely untouched on a `Player` row that already
+exists on a later sync, whether or not its current value is null; both
+columns are correctly null when their source Wikidata data is absent)
 
 ---
 

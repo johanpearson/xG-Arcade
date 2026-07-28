@@ -1,6 +1,9 @@
 # ADR-0016: Read-only display queries against an already-generated instance may bypass IGameModule
 
-- **Status:** Accepted
+- **Status:** Accepted — this ADR's own Follow-up trigger ("when a second
+  game module is actually built...") fired 2026-07-27 (S-082, xG Path's
+  `GET /path/current`); see ADR-0048 for the resulting decision, which
+  confirms this ADR's pattern rather than superseding it
 - **Date:** 2026-07-10
 - **Related requirements:** REQ-303
 - **Related components:** COMP-03 (Core.Rounds), COMP-05 (Games.XGGrid, and any future game module)

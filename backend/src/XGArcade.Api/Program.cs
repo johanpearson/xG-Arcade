@@ -12,6 +12,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Leagues;
+using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
 using XGArcade.Core.Auth;
@@ -558,15 +559,16 @@ builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 builder.Services.AddSingleton(new GridGenerationOptions());
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
-// COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202).
-// Registered here so IGameModuleResolver.Resolve("xg-path") returns a real
-// module, same as xG Grid above. ScoreSubmissionAsync/
-// GetMaxAttemptsForCellAsync still throw NotImplementedException (REQ-1204/
-// REQ-1205 — S-082 builds the real logic). Deliberately no
-// IScoringStrategy registration for "xg-path" yet (that's
-// ClueEfficiencyScoringStrategy, S-083), no RoundSchedulingOptions
-// registration, and no route exposes this game (round-scheduling wiring is
-// S-084).
+// COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202),
+// S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
+// endpoint (REQ-1203, GET /path/current). Registered here so
+// IGameModuleResolver.Resolve("xg-path") returns a real module, same as xG
+// Grid above. Deliberately no IScoringStrategy registration for "xg-path"
+// yet (that's ClueEfficiencyScoringStrategy, S-083) and no
+// RoundSchedulingOptions registration yet (round-scheduling wiring is
+// S-084) — GET /path/current can read an xg-path round once one exists
+// (e.g. via the test-data endpoints, REQ-806), but nothing generates one on
+// a schedule until S-084.
 builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
@@ -792,6 +794,11 @@ app.MapInternalRoundEndpoints();
 // bearer-token /internal/* pattern as MapInternalRoundEndpoints above.
 app.MapInternalGuestCleanupEndpoints();
 app.MapRoundEndpoints();
+// REQ-1203/S-082: xg-path's own read-only display endpoint (GET
+// /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below
+// remains the only write path for both games (already game-agnostic, see
+// PathEndpoints.cs's own doc comment).
+app.MapPathEndpoints();
 app.MapGuessEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapLeagueEndpoints();

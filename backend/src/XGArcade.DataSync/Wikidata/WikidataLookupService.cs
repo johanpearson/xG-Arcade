@@ -197,7 +197,7 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // ParseBindings groups by qid), so this request list has no
         // duplicate keys to worry about.
         var playersByQid = await playerStore.GetOrCreatePlayersByWikidataQidAsync(
-            matches.Select(m => new PlayerCreationRequest(m.WikidataQid, m.FullName, m.PhotoUrl)).ToList(),
+            matches.Select(m => new PlayerCreationRequest(m.WikidataQid, m.FullName, m.PhotoUrl, m.Position, m.BirthYear)).ToList(),
             cancellationToken);
 
         // Fetched once for the whole batch rather than re-queried per

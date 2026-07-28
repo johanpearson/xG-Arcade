@@ -281,7 +281,13 @@ public interface IPlayerStoreRepository
 // already have one for this WikidataQid — mirrors the three Player fields
 // WikidataLookupService's old per-player GetOrCreatePlayerAsync used to set
 // at creation time.
-public record PlayerCreationRequest(string WikidataQid, string FullName, string? PhotoUrl);
+//
+// Position/BirthYear (REQ-1207/S-082): trailing optional params, defaulted
+// to null so every existing 3-arg call site keeps compiling — same
+// set-once-at-creation contract as PhotoUrl (GetOrCreatePlayersByWikidataQidAsync
+// never writes these on a Player row that already exists).
+public record PlayerCreationRequest(
+    string WikidataQid, string FullName, string? PhotoUrl, string? Position = null, int? BirthYear = null);
 
 // REQ-503 (2026-07-20 extension): per-row outcome of
 // IPlayerStoreRepository.ApprovePlayerDataAsync — the shape that lets a

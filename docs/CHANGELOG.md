@@ -13,6 +13,51 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-27 — `docs/requirements-document.md` (1.19 → 1.21),
+  `docs/architecture-document.md` (0.66 → 0.67),
+  `docs/implementation-document.md` (0.78 → 0.79), `docs/backlog.md`,
+  `docs/decisions/0048-per-game-display-read-endpoints-confirmed.md` (new),
+  `docs/decisions/0016-display-reads-bypass-igamemodule.md` (status line) —
+  S-082 implemented (REQ-1203 clue reveal, REQ-1204 guess correctness,
+  REQ-1205 fixed 7-attempt cap) end to end: `PathClueSequenceBuilder`/
+  `PathClueTurn`, the new `GET /path/current` read endpoint
+  (`XGArcade.Api.Path.PathEndpoints`), and
+  `XGPathGameModule.ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync`
+  (no longer `NotImplementedException`). REQ-1207 (Wikidata P413/P569
+  sourcing for `Player.Position`/`Player.BirthYear`) was drafted and folded
+  into this same story mid-session, after REQ-1203's position/nationality/
+  age clues turned out to depend on `Player` fields that didn't exist yet.
+  Quality-gate follow-up: `GuessScoringException` (`Games.XGGrid`) and
+  `PathScoringException` (`Games.XGPath`) now both derive from a new shared
+  `XGArcade.Core.Games.GameEntityNotFoundException`, mirroring
+  `LiveLookupUnavailableException`'s existing cross-boundary precedent, so
+  the game-agnostic `GuessEndpoints` no longer needs compile-time knowledge
+  of either game's own exception type; also closed a test coverage gap and
+  fixed a stale test comment found during the same pass. Guess submission
+  added **no new write endpoint** — xG Path guesses reuse the existing
+  generic `POST /rounds/{roundId}/cells/{cellId}/guesses`. Added ADR-0048,
+  confirming ADR-0016's direct-repository-read pattern (`GET /path/current`
+  reading `PathInstance`/`PathPuzzle` directly, same as `GET /rounds/current`
+  reads `GridInstance`/`GridCell`) as the platform's permanent shape for
+  read-only display endpoints rather than a Tier-0 stopgap awaiting a
+  generic `IGameModule` read method; ADR-0016's own status line now
+  cross-references it. Architecture doc: COMP-11's status note updated to
+  reflect both previously-stubbed methods now being implemented, a new
+  §6.2b data-flow entry covers `GET /path/current` and the reused guess-
+  submission path, and xG Path's deliberate lack of a fuzzy-matching stage/
+  REQ-209-style disambiguation prompt is recorded as a reviewed, confirmed
+  scope decision (not a gap to "fix" later). Requirements doc: REQ-1203's
+  Test level note now reads "Unit, API" (new `PathEndpointTests`); REQ-1202's
+  stale "no API route exposes this game yet" note corrected without
+  implying REQ-1202 itself has API-level coverage (it doesn't — that
+  endpoint is REQ-1203's); REQ-1201's eligibility status note corrected,
+  since `Player` no longer has "no BirthYear field at all" now that
+  REQ-1207 added it (the eligibility check still doesn't read it — same
+  correction applied to `docs/backlog.md`'s matching S-081 note). Backlog:
+  S-082's entry now names REQ-1207 and why it was folded in.
+  REQ-1203/1204/1205 status notes moved from "Not started (design only)" to
+  "Implemented." Refs: REQ-1203, REQ-1204, REQ-1205, REQ-1207, ADR-0016,
+  ADR-0048.
 - 2026-07-27 — `docs/requirements-document.md` (1.18 → 1.19),
   `docs/architecture-document.md` (0.65 → 0.66),
   `docs/decisions/0047-xg-path-seeded-club-appearance-threshold.md` (new,
