@@ -1497,6 +1497,28 @@ contract for REQ-103/REQ-211 (ADR-0046) — cache-warming's own
 summary/observability only. Not yet implemented — flagged for
 `backend-implementer`.
 
+**Further follow-up (2026-07-28, REQ-110):** the technical-failure
+visibility work above diagnosed but didn't fix the two root causes of
+"zero net cache expansion, byte-identical summaries." REQ-110 amended
+with two more acceptance-criteria blocks, both flagged for
+`backend-implementer`, neither implemented yet: (1) cache warming's
+sync-path queries currently share round generation's 15s
+`_queryTimeout` (`WikidataLookupOrigin.Sync`) even though nobody is
+waiting synchronously on this unattended CLI job — a
+cache-warming-specific, longer timeout (same class of fix as ADR-0046's
+28s guess-time-fallback precedent, exact value left to
+`backend-implementer`) plus a same-run retry on a technical failure,
+without touching REQ-103's 15s or ADR-0046's 28s; (2) the 1207-of-1214
+"genuinely below `MinValidAnswers`, not a failure" pairs from that same
+diagnosis are re-queried on every run for zero benefit — REQ-110 now
+requires a persisted "confirmed checked, genuinely low, as of this
+reference-data/query-shape state" signal, explicitly required to be
+respected (i.e. bypassed/reset) by REQ-111's stale-QID cleanup and
+REQ-112/S-038's `purge-player-pool` so a purge-and-rewarm cycle stays a
+real full re-check. **Flagged for a new ADR** (new persisted state, a
+real "could have gone another way" choice on mechanism) — not decided
+here, routed separately per the user's request.
+
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked
 S-036's new club QIDs against live Wikidata pages (this sandbox can't —
