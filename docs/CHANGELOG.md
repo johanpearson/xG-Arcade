@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-28 — `docs/requirements-document.md` (1.21 → 1.22),
+  `docs/architecture-document.md` (0.67 → 0.68),
+  `docs/implementation-document.md` (0.79 → 0.80), `docs/backlog.md`,
+  `docs/decisions/0049-scoring-strategy-guess-and-max-attempts-parameter-shape.md`
+  (new), `docs/decisions/0040-per-game-scoring-strategy.md` (status line) —
+  S-083 implemented (REQ-1206, xG Path's clue-efficiency scoring):
+  `ClueEfficiencyScoringStrategy` (`XGArcade.Core.Scoring`) computes
+  `round(cluesUsed / maxAttemptsForCell * MaxPointsPerCell)` for a correct
+  guess (`cluesUsed` read from the winning `Guess.AttemptCount`, no new
+  column) and always reports a null `FinalUniquenessScore`; registered
+  against `XGPathGameModule.XGPathGameKey` in `Program.cs`, mirroring
+  `UniquenessScoringStrategy`'s `"xg-grid"` registration. Building this for
+  real resolved ADR-0040's own deferred "parameter shape" follow-up: added
+  ADR-0049, which changes `IScoringStrategy.ScoreCorrectGuess`'s signature
+  to take the whole `Guess` being scored plus a plain `int
+  maxAttemptsForCell` (resolved once per cell, not per guess, by
+  `ScoreLockingService` via ADR-0041's existing `IGameModule
+  .GetMaxAttemptsForCellAsync`) rather than giving `IScoringStrategy` a
+  direct dependency on `IGameModule`; `UniquenessScoringStrategy` was
+  adapted to the new signature with no formula/behavior change. ADR-0040's
+  own status line now cross-references ADR-0049 as closing its follow-up,
+  same precedent as ADR-0016/ADR-0048. Architecture doc: COMP-11's status
+  note and COMP-04's S-083 status note both updated to reflect
+  `ClueEfficiencyScoringStrategy` being registered and implemented (no
+  longer stubbed); new ADR-0049 row added to the ADR table. Requirements
+  doc: REQ-1206's status changed from "Not started (design only)" to
+  "Implemented," with an implementation note naming the strategy class,
+  how `cluesUsed`/`maxCluesForThisPuzzle` are sourced, and the covering
+  `REQ1206_...`-named tests. Implementation doc: the stale "No
+  IScoringStrategy registration yet — S-083" project-structure note
+  corrected, and a new S-083 correction note added alongside the existing
+  S-076 `IScoringStrategy` note describing the signature change. Backlog:
+  S-083's entry corrected to describe the actual parameter shape
+  (`Guess` + per-cell `maxAttemptsForCell`, resolved once per cell) rather
+  than leaving it undescribed. Refs: REQ-1206, ADR-0040, ADR-0049.
 - 2026-07-27 — `docs/requirements-document.md` (1.19 → 1.21),
   `docs/architecture-document.md` (0.66 → 0.67),
   `docs/implementation-document.md` (0.78 → 0.79), `docs/backlog.md`,
