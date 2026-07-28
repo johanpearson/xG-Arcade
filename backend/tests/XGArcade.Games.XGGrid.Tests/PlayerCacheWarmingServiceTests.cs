@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.Data.Seeding;
 using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.Games.XGGrid.Tests;
@@ -359,5 +360,117 @@ public class PlayerCacheWarmingServiceTests
         // 1 country x 1 club = 1 Country x Club pair; C(1,2) = 0 Club x Club
         // pairs — a single club can never pair with itself.
         Assert.That(result.TotalPairs, Is.EqualTo(1));
+    }
+
+    // ---- REQ-110's own "Test level" note (docs/requirements-document.md,
+    // lines ~473-477): a regression test proving that running REQ-111's
+    // stale-QID cleanup (named or --all-clubs) or REQ-112/S-038's
+    // purge-player-pool against a pair previously marked confirmed-low,
+    // followed by a cache-warming run, re-queries that pair LIVE rather than
+    // trusting the stale confirmed-low marker. StaleClubAttributeCleanerTests.cs
+    // and this file's own REQ110_WarmAsync_PreviouslyConfirmedLowPair_
+    // SkippedWithoutLiveQuery test each cover one half in isolation (the
+    // cleaner deletes the right ConfirmedLowMatchPair rows; WarmAsync skips a
+    // pair while one still exists) — neither chains "invalidate, THEN warm"
+    // against the same pair, so a future change to either invalidation tool
+    // that forgets to clear ConfirmedLowMatchPair would slip through both
+    // suites with zero signal. See ADR-0049's Consequences section, which
+    // names this exact risk.
+
+    [Test]
+    public async Task REQ110_StaleClubAttributeCleanerCleanAsync_ThenWarmAsync_ReQueriesPreviouslyConfirmedLowPairLive()
+    {
+        SeedCountry("France");
+        SeedClub("Napoli");
+        // Seed the state a prior WarmAsync run would have left behind: a
+        // real confirmed-low marker for this exact pair, mirroring
+        // PlayerCacheWarmingService's own nationality-then-club ordering.
+        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 1);
+
+        // REQ-111 named-mode cleanup — e.g. after Napoli's WikidataQid was
+        // corrected — must clear the stale marker alongside the stale
+        // PlayerAttribute/PlayerData rows (already covered in isolation by
+        // StaleClubAttributeCleanerTests.cs's own REQ110_CleanAsync_
+        // RemovesConfirmedLowMatchPair_OnACountryClubPairsClubSide).
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        // Configure the fake so a live query for this pair would actually
+        // return a real answer if (and only if) WarmAsync issues one.
+        _wikidataLookupService.SetMatches("France", "Napoli", BuildFakePlayers("France", "Napoli", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
+            "cleaning the stale confirmed-low marker must make WarmAsync re-query this pair live, not trust the marker left over from before the cleanup");
+        Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ110_StaleClubAttributeCleanerCleanAllSeededClubsAsync_ThenWarmAsync_ReQueriesPreviouslyConfirmedLowPairLive()
+    {
+        SeedCountry("France");
+        var napoli = SeedClub("Napoli");
+        // CleanAllSeededClubsAsync resolves its club-name list from
+        // ClubDefinition — SeedClub above already adds the ClubDefinition
+        // row, so no separate seeding step is needed here (unlike
+        // StaleClubAttributeCleanerTests.cs's SeedClubDefinitionAsync helper,
+        // which exists there only because that file's other tests seed
+        // players without a matching ClubDefinition row at all).
+        Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Id == napoli.Id), Is.True);
+        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
+
+        // REQ-111 --all-clubs mode — e.g. after the 2026-07-17 truthy-wdt:P54
+        // incident tainted every seeded club's cached data at once — must
+        // also clear the stale marker (isolation coverage:
+        // StaleClubAttributeCleanerTests.cs's REQ110_CleanAllSeededClubsAsync_
+        // RemovesConfirmedLowMatchPairsForEverySeededClub).
+        await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(_dbContext);
+
+        _wikidataLookupService.SetMatches("France", "Napoli", BuildFakePlayers("France", "Napoli", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
+            "--all-clubs cleanup must make WarmAsync re-query this pair live, not trust the marker left over from before the cleanup");
+        Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ110_PurgePlayerPoolConfirmedLowMatchPairsDelete_ThenWarmAsync_ReQueriesPreviouslyConfirmedLowPairLive()
+    {
+        // purge-player-pool is a CLI verb inside Program.cs's top-level
+        // statements (Npgsql-only — it builds its own DbContextOptions with
+        // .UseNpgsql(...) and requires the exact confirmation-phrase
+        // argument), so it can't be invoked directly from a unit test. Its
+        // ConfirmedLowMatchPair-clearing logic itself is exactly one line:
+        //   await purgeDbContext.ConfirmedLowMatchPairs.ExecuteDeleteAsync();
+        // (see Program.cs's `if (args is ["purge-player-pool", ..])` block).
+        // ExecuteDeleteAsync is a relational-provider bulk operation not
+        // supported by the InMemory provider this test (and this whole file)
+        // uses, so RemoveRange + SaveChangesAsync below is used as a faithful
+        // proxy for it — both leave the table in the exact same end state
+        // (zero ConfirmedLowMatchPair rows), which is the only thing this
+        // regression test or WarmAsync's downstream behavior can observe.
+        SeedCountry("France");
+        SeedClub("Napoli");
+        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
+
+        var staleConfirmedLow = await _dbContext.ConfirmedLowMatchPairs.ToListAsync();
+        _dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow);
+        await _dbContext.SaveChangesAsync();
+
+        _wikidataLookupService.SetMatches("France", "Napoli", BuildFakePlayers("France", "Napoli", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
+            "purge-player-pool's unscoped ConfirmedLowMatchPair delete must make WarmAsync re-query this pair live, not trust a marker left over from before the purge");
+        Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
     }
 }
