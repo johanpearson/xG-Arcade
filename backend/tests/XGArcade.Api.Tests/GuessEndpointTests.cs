@@ -655,12 +655,14 @@ public class GuessEndpointTests
     {
         public Task<IReadOnlyList<Player>> LookupAndPersistAsync(
             CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null) =>
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
             throw new WikidataQueryException("simulated Wikidata timeout");
 
         public Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
             ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
-            Action? onTechnicalFailure = null) =>
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
             throw new WikidataQueryException("simulated Wikidata timeout");
 
         public Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(

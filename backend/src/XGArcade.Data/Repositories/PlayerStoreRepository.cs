@@ -521,4 +521,54 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         // (docs/coding-guidelines.md), never ExecuteUpdateAsync.
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<bool> IsConfirmedLowAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default) =>
+        await dbContext.ConfirmedLowMatchPairs
+            .AsNoTracking()
+            .AnyAsync(c =>
+                c.FirstAttributeType == firstAttributeType && c.FirstAttributeValue == firstAttributeValue &&
+                c.SecondAttributeType == secondAttributeType && c.SecondAttributeValue == secondAttributeValue,
+                cancellationToken);
+
+    public async Task RecordConfirmedLowAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        int matchCount, CancellationToken cancellationToken = default)
+    {
+        var existing = await dbContext.ConfirmedLowMatchPairs.FirstOrDefaultAsync(c =>
+            c.FirstAttributeType == firstAttributeType && c.FirstAttributeValue == firstAttributeValue &&
+            c.SecondAttributeType == secondAttributeType && c.SecondAttributeValue == secondAttributeValue,
+            cancellationToken);
+
+        var confirmedAt = DateTime.UtcNow;
+
+        if (existing is not null)
+        {
+            // Re-confirmation of an already-marked pair (see this method's
+            // own interface doc comment) — update in place rather than
+            // inserting a duplicate composite-key row.
+            existing.MatchCount = matchCount;
+            existing.ConfirmedAt = confirmedAt;
+        }
+        else
+        {
+            dbContext.ConfirmedLowMatchPairs.Add(new ConfirmedLowMatchPair
+            {
+                FirstAttributeType = firstAttributeType,
+                FirstAttributeValue = firstAttributeValue,
+                SecondAttributeType = secondAttributeType,
+                SecondAttributeValue = secondAttributeValue,
+                MatchCount = matchCount,
+                ConfirmedAt = confirmedAt,
+            });
+        }
+
+        // Load-then-SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync/upsert — the InMemory test provider can't
+        // translate either.
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

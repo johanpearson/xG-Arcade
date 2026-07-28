@@ -19,10 +19,26 @@ public interface IPlayerCacheWarmingService
 // existing per-pair log convention) so an operator reading the run summary
 // can tell which pairs are worth re-running versus which are confirmed
 // low. See docs/requirements-document.md's REQ-110 "Extended (2026-07-28)"
-// entry for the full incident this responds to.
+// entry for the full incident this responds to. A pair counted here has
+// already been retried once within the same run (PlayerCacheWarmingService's
+// own same-run retry) and STILL failed — a pair that failed once but
+// succeeded on retry is not counted here at all, and is otherwise
+// indistinguishable from a pair that succeeded on the first attempt.
+//
+// PairsSkippedConfirmedLow (REQ-110, 2026-07-28 "persisted confirmed-low
+// signal" extension): pairs skipped without any live query because a prior
+// run already confirmed them genuinely below MinValidAnswers (see
+// ConfirmedLowMatchPair's own doc comment). A separate counter from
+// PairsAlreadyValid — that one means "already has enough real matches
+// cached to answer a grid," this one means "cached-but-confirmed-low, not
+// worth re-checking yet." TotalPairs still equals
+// PairsQueriedLive + PairsAlreadyValid + PairsSkippedConfirmedLow, same
+// exhaustive-partition shape the result already had before this field
+// existed.
 public record CacheWarmingResult(
     int TotalPairs,
     int PairsQueriedLive,
     int PairsAlreadyValid,
     int PairsWithTechnicalFailure,
-    IReadOnlyList<string> FailingPairs);
+    IReadOnlyList<string> FailingPairs,
+    int PairsSkippedConfirmedLow = 0);

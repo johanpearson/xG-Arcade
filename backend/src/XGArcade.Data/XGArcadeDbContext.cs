@@ -13,6 +13,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerOverride> PlayerOverrides => Set<PlayerOverride>();
     public DbSet<PlayerAttribute> PlayerAttributes => Set<PlayerAttribute>();
     public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
+    // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension) —
+    // COMP-06 (Data.PlayerStore), same boundary as PlayerAttribute/PlayerData
+    // above: only reachable from Games.XGGrid via IPlayerStoreRepository,
+    // never a direct DbContext query. See ConfirmedLowMatchPair's own doc
+    // comment for the full "why a new table" reasoning.
+    public DbSet<ConfirmedLowMatchPair> ConfirmedLowMatchPairs => Set<ConfirmedLowMatchPair>();
     // ADR-0042/S-079 (COMP-06): xG Path's ordered, dated career-stint log —
     // see PlayerCareerStint's own doc comment. Never read by
     // IPlayerStoreRepository's correctness-checking methods (xG Grid).
@@ -68,6 +74,29 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // inserts a duplicate alias row for the same player.
         modelBuilder.Entity<PlayerAlias>()
             .HasKey(pa => new { pa.PlayerId, pa.NormalizedAlias });
+
+        // REQ-110 (2026-07-28): composite key mirrors
+        // CountPlayersWithBothAttributesAsync's own four-argument shape
+        // exactly (see ConfirmedLowMatchPair's own doc comment) — a pair is
+        // either marked confirmed-low or it isn't, so the natural-key lookup
+        // this repository does (IsConfirmedLowAsync) is a straight PK hit,
+        // no separate surrogate id/unique-index pair needed. No FK to
+        // Player: unlike PlayerAttribute, a confirmed-low row often has NO
+        // corresponding Player rows at all (the zero-match case this table
+        // exists for) — there is nothing to reference.
+        modelBuilder.Entity<ConfirmedLowMatchPair>()
+            .HasKey(c => new { c.FirstAttributeType, c.FirstAttributeValue, c.SecondAttributeType, c.SecondAttributeValue });
+
+        // StaleClubAttributeCleaner/purge-player-pool's clearing queries
+        // filter by a single side's (AttributeType, AttributeValue) — e.g.
+        // "every confirmed-low row involving this club, on either side of
+        // the pair" — so both sides get their own index, same shape as
+        // PlayerAttribute's (AttributeType, AttributeValue) index above. The
+        // composite PK above already covers a First-side-only filter as a
+        // leftmost-prefix match, but the Second side needs its own index to
+        // avoid a full scan.
+        modelBuilder.Entity<ConfirmedLowMatchPair>()
+            .HasIndex(c => new { c.SecondAttributeType, c.SecondAttributeValue });
 
         // PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias all live
         // inside COMP-06 alongside Player, so (unlike ADR-0003's deliberate

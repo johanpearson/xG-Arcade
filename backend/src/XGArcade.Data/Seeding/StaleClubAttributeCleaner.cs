@@ -62,6 +62,24 @@ public static class StaleClubAttributeCleaner
             .ToListAsync(cancellationToken);
         dbContext.PlayerAttributes.RemoveRange(staleAttributes);
 
+        // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension):
+        // the hard invariant that extension's REQ text calls out — a
+        // "purge and re-warm" cycle (this cleaner is exactly that cycle's
+        // "purge" half for a named set of clubs) must still force a real,
+        // full re-check of every affected pair, never a warm run that
+        // trusts a confirmed-low marker left over from before the
+        // correction. A confirmed-low pair involving one of these clubs on
+        // EITHER side (Country x Club's Club side, or either side of
+        // Club x Club) is stale in exactly the same way the PlayerAttribute
+        // rows above are — clear it too, or PlayerCacheWarmingService.WarmAsync
+        // would skip re-checking it on the very next run.
+        var staleConfirmedLow = await dbContext.ConfirmedLowMatchPairs
+            .Where(c =>
+                (c.FirstAttributeType == ClubAttributeType && clubNames.Contains(c.FirstAttributeValue)) ||
+                (c.SecondAttributeType == ClubAttributeType && clubNames.Contains(c.SecondAttributeValue)))
+            .ToListAsync(cancellationToken);
+        dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (staleAttributes.Count, stalePlayerData.Count);

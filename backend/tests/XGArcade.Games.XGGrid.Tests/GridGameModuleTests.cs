@@ -1526,6 +1526,23 @@ public class GridGameModuleTests
         public Task AddCareerStintsBatchAsync(
             IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default) =>
             inner.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+
+        // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension):
+        // xG Grid's correctness path never calls either of these (only
+        // PlayerCacheWarmingService does) — same "delegated here only so
+        // this thin wrapper keeps compiling against the interface"
+        // reasoning as the career-stint methods above.
+        public Task<bool> IsConfirmedLowAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.IsConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        public Task RecordConfirmedLowAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            int matchCount, CancellationToken cancellationToken = default) =>
+            inner.RecordConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, matchCount, cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]

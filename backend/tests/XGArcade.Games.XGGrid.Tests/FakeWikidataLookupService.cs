@@ -150,7 +150,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
-        Action? onTechnicalFailure = null)
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
@@ -185,7 +186,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
-        Action? onTechnicalFailure = null)
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         onCalled?.Invoke();
         _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;

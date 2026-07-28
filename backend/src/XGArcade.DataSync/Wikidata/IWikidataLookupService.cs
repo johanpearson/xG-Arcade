@@ -39,12 +39,20 @@ public interface IWikidataLookupService
     // genuine zero-match success). Only PlayerCacheWarmingService supplies
     // one today — every other caller (GridGameModule, both REQ-103 and
     // REQ-211 paths) is completely unaffected by this parameter's addition.
+    // timeoutTier (REQ-110, 2026-07-28 "cache-warming-specific timeout"
+    // extension): same purely-additive, default-preserves-behavior shape as
+    // onTechnicalFailure above — threaded straight through to whichever
+    // IWikidataClient query this dispatches to. Only PlayerCacheWarmingService
+    // passes WikidataQueryTimeoutTier.CacheWarming; every other caller keeps
+    // the default (WikidataQueryTimeoutTier.Default), which resolves exactly
+    // as before this parameter existed.
     Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country,
         ClubDefinition club,
         WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default,
-        Action? onTechnicalFailure = null);
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-030: the Club x Club counterpart, same empty-on-unresolved-QID/
     // never-throws contract, EXCEPT a GuessTimeFallback-origin timeout —
@@ -53,12 +61,15 @@ public interface IWikidataLookupService
     // clubB.Name), never the same value twice.
     // onTechnicalFailure: see LookupAndPersistAsync's own doc comment above
     // — same purely-additive, default-null observation hook.
+    // timeoutTier: see LookupAndPersistAsync's own doc comment above — same
+    // purely-additive, default-preserves-behavior selector.
     Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
         ClubDefinition clubA,
         ClubDefinition clubB,
         WikidataLookupOrigin origin,
         CancellationToken cancellationToken = default,
-        Action? onTechnicalFailure = null);
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
 
     // S-031/REQ-108: the Trophy x Country counterpart, same
     // empty-on-unresolved-QID/never-throws contract. Persists matched
