@@ -572,20 +572,27 @@ builder.Services.AddScoped<ILeagueService, LeagueService>();
 builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(ConfigureWikidataHttpClient);
 builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 
-// COMP-05 (Games.XGGrid) — S-007's grid generation.
-builder.Services.AddSingleton(new GridGenerationOptions());
+// COMP-05 (Games.XGGrid) — S-007's grid generation. GridSize now lives here
+// (S-084/REQ-1202 follow-up), not on Core.Rounds' RoundSchedulingOptions —
+// see that type's own doc comment for why.
+builder.Services.AddSingleton(new GridGenerationOptions { GridSize = 3 });
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
 // COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202),
 // S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
 // endpoint (REQ-1203, GET /path/current). Registered here so
 // IGameModuleResolver.Resolve("xg-path") returns a real module, same as xG
-// Grid above. Still no RoundSchedulingOptions registration yet
-// (round-scheduling wiring is S-084) — GET /path/current can read an
-// xg-path round once one exists (e.g. via the test-data endpoints,
-// REQ-806), but nothing generates one on a schedule until S-084.
+// Grid above. S-084 adds the RoundSchedulingOptions registration below (a
+// second instance, keyed by GameKey via IRoundSchedulingOptionsResolver) so
+// "xg-path" rounds are now actually generated on a schedule, same as
+// "xg-grid"'s.
 builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
+// S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
+// GridGenerationOptions' role/precedent above for xG Path's own generation
+// config (deliberately not a field on RoundSchedulingOptions; see that
+// type's own doc comment).
+builder.Services.AddSingleton(new PathGenerationOptions());
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
 // Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
@@ -628,6 +635,24 @@ builder.Services.AddSingleton(new RoundSchedulingOptions
     GameKey = GridGameModule.XGGridGameKey,
     RoundDuration = TimeSpan.FromHours(roundDurationHours),
 });
+// S-084/REQ-1202: xG Path's own RoundSchedulingOptions instance, resolved
+// independently of xG Grid's via IRoundSchedulingOptionsResolver
+// (registered below) — a distinct config key
+// (RoundScheduling:XGPath:RoundDurationHours) so a lasting change to one
+// game's RoundDuration never affects the other's. Existing
+// RoundScheduling:RoundDurationHours (xG Grid's) is left untouched for
+// back-compat with any already-deployed Container App env var. Default is
+// also 48h — no product reason yet for xG Path to run on a different
+// cadence than xG Grid; change independently via this key (or the
+// deployed Container App's RoundScheduling__XGPath__RoundDurationHours env
+// var) if that changes.
+var xgPathRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGPath:RoundDurationHours") ?? 48;
+builder.Services.AddSingleton(new RoundSchedulingOptions
+{
+    GameKey = XGPathGameModule.XGPathGameKey,
+    RoundDuration = TimeSpan.FromHours(xgPathRoundDurationHours),
+});
+builder.Services.AddScoped<IRoundSchedulingOptionsResolver, RoundSchedulingOptionsResolver>();
 builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
 builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();

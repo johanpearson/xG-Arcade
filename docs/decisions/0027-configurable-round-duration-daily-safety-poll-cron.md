@@ -110,3 +110,26 @@ changes `generate-round.yml`'s cron away from daily), the "`RoundDuration
 hand the same way `NOTES.md`'s 2026-07-10 entry did for the old cadence —
 don't assume the current 24h/48h numbers stay safe under a different
 cadence or a much shorter duration without redoing that check.
+
+### 2026-07-28 addendum (S-084, REQ-1202): a second GameKey, the same cron
+
+S-084 added `"xg-path"` round scheduling alongside `"xg-grid"`'s. The
+`RoundDuration >= cron's max gap` invariant this ADR establishes is now
+checked **per-GameKey**, independently, against the **same shared daily
+cron** — not a second cron. `"xg-path"` got its own
+`RoundSchedulingOptions` instance (own `RoundDuration`, resolved via the new
+`IRoundSchedulingOptionsResolver`), but `generate-round.yml`'s single `0 6
+* * *` trigger now calls `/internal/generate-round` once per GameKey in the
+same job step, each with its own independent 3-attempt retry.
+
+This is exactly why S-084 extended the existing job instead of adding a
+second `on.schedule` entry or a matrix strategy: a second cron would mean
+re-deriving this ADR's max-gap arithmetic by hand for a new cadence, for no
+real benefit — both games' `RoundDuration`s only need to individually stay
+`>= 24h` (the one, constant, shared cron's max gap) for the invariant to
+hold for each of them independently. There is no cross-GameKey coupling to
+verify: each GameKey's `RoundDuration >= 24h` check is entirely separate
+from the other's, the same way `RoundGenerationService`'s idempotency check
+already operates per-GameKey. If a third game is added later, the same
+reasoning applies — add it to the existing job's loop, not a new
+`on.schedule` entry, as long as its own `RoundDuration` stays `>= 24h`.

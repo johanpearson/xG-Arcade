@@ -4140,19 +4140,41 @@ confirm `ScoreLockingService` resolves this strategy (not
 (the resolver/interface), S-082 (guesses carrying enough information —
 clues used at time of correct guess — for this strategy to compute from).
 
-**S-084 · xG Path round scheduling (REQ-1202)**
+**S-084 · xG Path round scheduling (REQ-1202, ADR-0051) — done, 2026-07-28**
 A second `RoundSchedulingOptions` instance for `GameKey = "xg-path"` (its
-own duration/config, independent of xG Grid's), wired into
-`generate-round.yml`/`RoundGenerationService` the same per-`GameKey` way
-xG Grid's is today. Whether this extends the existing scheduled job to
-loop over multiple `GameKey`s or adds a second scheduled invocation is an
-implementation judgment call — flag the choice to `architecture-reviewer`
-rather than deciding silently.
+own configured `RoundDuration`, independent of xG Grid's), resolved via a
+new `IRoundSchedulingOptionsResolver`/`RoundSchedulingOptionsResolver`
+(`XGArcade.Core.Rounds`) mirroring `IScoringStrategyResolver`'s per-`GameKey`
+shape, rather than a single directly-injected singleton.
+`RoundGenerationService.GenerateNextRoundIfNeededAsync` now takes a leading
+`gameKey` parameter. `POST /internal/generate-round` gained an optional
+`gameKey` query parameter (default `"xg-grid"` for back-compat with any
+caller that omits it), dispatching narrowly to either the existing
+`GridTemplateResolver` or a new `PathTemplateResolver`
+(`XGArcade.Api.Path`) to produce the round's opaque `TemplateId`; an
+unrecognized `gameKey` returns 400 "Invalid gameKey" (validated up front,
+same discipline as the existing `roundDurationHours` check — a
+quality-gate follow-up correcting an initial 500). `GridSize` moved off
+`RoundSchedulingOptions` onto `Games.XGGrid.GridGenerationOptions`
+(xG-Grid-specific generation config, not a generic scheduling concern); a
+new `Games.XGPath.PathGenerationOptions.PuzzleCount` (default 4) holds
+xG Path's own equivalent. Architecture-reviewer was consulted on the
+scheduled-job wiring choice before implementation, as this story's own
+text called for — recommended extending the existing job rather than
+adding a second scheduled invocation: `generate-round.yml`'s single daily
+cron now generates both `GameKey`s' rounds, each with its own independent
+3-attempt retry loop. See ADR-0051 for the full decision (four related
+changes made together) and its own addendum to ADR-0027.
 *Accept:* a scheduled run generates an "xg-path" round independent of
 xG Grid's own round timing/duration; REQ-301's "one round ahead"
 generation and REQ-302's round-lifecycle rules hold for `"xg-path"`
-exactly as they do for `"xg-grid"`, proven by test, not by inspection
-alone. *Deps:* S-081 (instance generation to actually schedule).
+exactly as they do for `"xg-grid"`, proven by test
+(`RoundGenerationServiceTests.cs`'s new two-`GameKey` coverage,
+`RoundSchedulingOptionsResolverTests.cs`, and `RoundEndpointTests.cs`'s
+end-to-end `POST /internal/generate-round?gameKey=xg-path` coverage,
+omitted-`gameKey` regression, and unrecognized-`gameKey` 400), not by
+inspection alone. *Deps:* S-081 (instance generation to actually
+schedule).
 
 **S-085 · Frontend: SCREEN-09 multi-tile game select**
 `GameSelectScreen.tsx` gains a second tile (xG Path), per SCREEN-09's

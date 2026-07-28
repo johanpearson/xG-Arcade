@@ -14,6 +14,7 @@ using XGArcade.Core.Rounds;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Tests;
 
@@ -62,19 +63,29 @@ public class RoundEndpointTests
                     // MinValidAnswers=1 so a single seeded PlayerAttribute pair
                     // is enough — avoids depending on the real Wikidata HTTP
                     // client (same reasoning as GridEndpointTests.SetUp).
+                    // GridSize=3 lives here now (S-084/REQ-1202 follow-up),
+                    // not on RoundSchedulingOptions — see that type's own doc
+                    // comment for why.
                     services.RemoveAll<GridGenerationOptions>();
-                    services.AddSingleton(new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 50 });
+                    services.AddSingleton(new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 50, GridSize = 3 });
 
                     // A tiny round duration keeps REQ-301's "one round ahead"
                     // assertions (start-at-previous-round's-end-time) exact
                     // and fast without a special test-only branch in
-                    // RoundGenerationService itself.
+                    // RoundGenerationService itself. RemoveAll<RoundSchedulingOptions>()
+                    // removes BOTH Program.cs registrations (xg-grid's and
+                    // xg-path's — S-084), and only xg-grid's is re-added
+                    // below — fine, since every test in this class exercises
+                    // "xg-grid" only (the endpoint's default gameKey when
+                    // omitted); no test here calls generate-round with
+                    // gameKey=xg-path, so an xg-path RoundSchedulingOptions
+                    // being unregistered in this test factory is never
+                    // exercised.
                     services.RemoveAll<RoundSchedulingOptions>();
                     services.AddSingleton(new RoundSchedulingOptions
                     {
                         GameKey = GridGameModule.XGGridGameKey,
                         RoundDuration = TimeSpan.FromDays(3),
-                        GridSize = 3,
                     });
                 });
             });
@@ -106,6 +117,33 @@ public class RoundEndpointTests
                 dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = country.Name });
                 dbContext.PlayerAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club.Name });
             }
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    // S-084/REQ-1202: eligible xG Path target players (REQ-1201 — at least 3
+    // ordered career stints, one at a seeded club) — mirrors
+    // XGPathGameModuleTests.SeedEligiblePlayer's exact fixture shape (3
+    // well-ordered stints, one at a seeded club) rather than reinventing it,
+    // since that's the file that already established what "eligible" means
+    // for this game at a fixture level.
+    private async Task SeedEligiblePathPlayersAsync(int count, WebApplicationFactory<Program>? factory = null)
+    {
+        using var scope = (factory ?? _factory).Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        const string seededClubName = "Seeded FC";
+        dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = seededClubName, WikidataQid = "Qclub-seeded-fc" });
+
+        for (var i = 0; i < count; i++)
+        {
+            var player = new Player { Id = Guid.NewGuid(), FullName = $"Eligible Path Player {i}", WikidataQid = $"Qpathplayer-{i}-{Guid.NewGuid()}" };
+            dbContext.Players.Add(player);
+            dbContext.PlayerCareerStints.AddRange(
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = seededClubName, StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Some Unseeded Club", StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
+                new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Another Unseeded Club", StartYear = 2016, EndYear = null, SequenceOrder = 2 });
         }
 
         await dbContext.SaveChangesAsync();
@@ -385,8 +423,103 @@ public class RoundEndpointTests
 
     private sealed class ThrowingRoundGenerationService : IRoundGenerationService
     {
-        public Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
+        public Task<Round> GenerateNextRoundIfNeededAsync(string gameKey, RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("simulated DB failure");
+    }
+
+    // ---- S-084/REQ-1202: generate-round is genuinely GameKey-parameterized --
+    // for "xg-path" too, end-to-end through the real endpoint --------------
+
+    [Test]
+    public async Task REQ1202_GenerateRound_Post_WithGameKeyXgPath_GeneratesAnXgPathRound_UsingItsOwnConfiguredRoundDuration()
+    {
+        // A dedicated layered factory adds xg-path's own RoundSchedulingOptions
+        // (30h — deliberately distinct from SetUp's xg-grid 72h) and a smaller
+        // PathGenerationOptions.PuzzleCount so only 3 eligible target players
+        // need seeding, mirroring the GridGenerationOptions.GridSize=3 override
+        // SetUp already does for xg-grid. This is the API-level proof of
+        // REQ-1202's "independent of xG Grid's own round timing/duration" —
+        // not just the unit-level proof in RoundGenerationServiceTests, but the
+        // real endpoint, real DI graph, real PathTemplateResolver find-or-create
+        // path, and a real XGPathGameModule.GenerateInstanceAsync run.
+        var xgPathFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<PathGenerationOptions>();
+                services.AddSingleton(new PathGenerationOptions { PuzzleCount = 3 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPathGameModule.XGPathGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        await SeedEligiblePathPlayersAsync(count: 3, factory: xgPathFactory);
+        var client = xgPathFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.GameKey, Is.EqualTo(XGPathGameModule.XGPathGameKey));
+        Assert.That(body.EndTime - body.StartTime, Is.EqualTo(TimeSpan.FromHours(30)),
+            "must use xg-path's own configured RoundDuration (30h), never xg-grid's (72h, per this class's SetUp)");
+
+        using var scope = xgPathFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.EqualTo(1));
+        var template = await dbContext.PathTemplates.SingleAsync();
+        Assert.That(template.PuzzleCount, Is.EqualTo(3), "PathTemplateResolver's find-or-create path must use PathGenerationOptions.PuzzleCount");
+        var instance = await dbContext.PathInstances.Include(pi => pi.Puzzles).SingleAsync();
+        Assert.That(instance.Puzzles, Has.Count.EqualTo(3), "REQ-1202: exactly PuzzleCount puzzles, each targeting a distinct eligible player");
+        Assert.That(instance.Puzzles.Select(p => p.TargetPlayerId).Distinct().Count(), Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ1202_GenerateRound_Post_OmittingGameKey_StillDefaultsToXgGrid()
+    {
+        // Regression check, not new behavior: S-084 added the optional
+        // gameKey query parameter — an existing caller (or a stray/older
+        // manual workflow_dispatch run) that never passes it must keep
+        // generating xg-grid rounds exactly as before.
+        await SeedFullyMatchedReferenceDataAsync(size: 3);
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.GameKey, Is.EqualTo(GridGameModule.XGGridGameKey));
+    }
+
+    [Test]
+    public async Task REQ1202_GenerateRound_Post_WithUnrecognizedGameKey_ReturnsProblemDetails_NotAnUnhandledException()
+    {
+        // Quality-gate follow-up (S-084): an unrecognized gameKey is
+        // malformed caller input (a bad query-string value), not a round-
+        // generation failure, so InternalRoundEndpoints validates it up
+        // front and returns 400 Bad Request via Results.Problem — the same
+        // discipline the roundDurationHours check in that handler already
+        // uses — rather than letting the gameKey switch's defensive throw
+        // fall through into the generic 500 catch-all. This asserts that
+        // 400 path, not the earlier 500 behavior it replaced.
+        var client = CreateAuthorizedClient();
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-nonexistent", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid gameKey"));
+        Assert.That(problem.Detail, Does.Contain("Unknown gameKey 'xg-nonexistent'"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an unrecognized gameKey must not generate any round");
     }
 
     // ---- REQ-806: force-close-round is a non-Production-only test control --
