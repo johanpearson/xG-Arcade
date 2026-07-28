@@ -17,11 +17,13 @@ public class RoundGenerationService(
     IRoundRepository roundRepository,
     IGameModuleResolver gameModuleResolver,
     IRoundCloseService roundCloseService,
-    RoundSchedulingOptions options,
+    IRoundSchedulingOptionsResolver roundSchedulingOptionsResolver,
     TimeProvider timeProvider) : IRoundGenerationService
 {
-    public async Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
+    public async Task<Round> GenerateNextRoundIfNeededAsync(string gameKey, RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
     {
+        var options = roundSchedulingOptionsResolver.Resolve(gameKey);
+
         var latest = await roundRepository.GetLatestByGameKeyAsync(options.GameKey, cancellationToken);
         var now = timeProvider.GetUtcNow().UtcDateTime;
 

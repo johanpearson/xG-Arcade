@@ -62,19 +62,29 @@ public class RoundEndpointTests
                     // MinValidAnswers=1 so a single seeded PlayerAttribute pair
                     // is enough — avoids depending on the real Wikidata HTTP
                     // client (same reasoning as GridEndpointTests.SetUp).
+                    // GridSize=3 lives here now (S-084/REQ-1202 follow-up),
+                    // not on RoundSchedulingOptions — see that type's own doc
+                    // comment for why.
                     services.RemoveAll<GridGenerationOptions>();
-                    services.AddSingleton(new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 50 });
+                    services.AddSingleton(new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 50, GridSize = 3 });
 
                     // A tiny round duration keeps REQ-301's "one round ahead"
                     // assertions (start-at-previous-round's-end-time) exact
                     // and fast without a special test-only branch in
-                    // RoundGenerationService itself.
+                    // RoundGenerationService itself. RemoveAll<RoundSchedulingOptions>()
+                    // removes BOTH Program.cs registrations (xg-grid's and
+                    // xg-path's — S-084), and only xg-grid's is re-added
+                    // below — fine, since every test in this class exercises
+                    // "xg-grid" only (the endpoint's default gameKey when
+                    // omitted); no test here calls generate-round with
+                    // gameKey=xg-path, so an xg-path RoundSchedulingOptions
+                    // being unregistered in this test factory is never
+                    // exercised.
                     services.RemoveAll<RoundSchedulingOptions>();
                     services.AddSingleton(new RoundSchedulingOptions
                     {
                         GameKey = GridGameModule.XGGridGameKey,
                         RoundDuration = TimeSpan.FromDays(3),
-                        GridSize = 3,
                     });
                 });
             });
@@ -385,7 +395,7 @@ public class RoundEndpointTests
 
     private sealed class ThrowingRoundGenerationService : IRoundGenerationService
     {
-        public Task<Round> GenerateNextRoundIfNeededAsync(RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
+        public Task<Round> GenerateNextRoundIfNeededAsync(string gameKey, RoundConfig config, TimeSpan? roundDurationOverride = null, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("simulated DB failure");
     }
 

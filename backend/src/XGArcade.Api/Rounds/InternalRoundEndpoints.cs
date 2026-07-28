@@ -1,10 +1,12 @@
 using XGArcade.Api.Grid;
 using XGArcade.Api.Internal;
+using XGArcade.Api.Path;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Rounds;
 
@@ -23,11 +25,21 @@ public static class InternalRoundEndpoints
             HttpContext httpContext,
             IConfiguration configuration,
             IGridInstanceRepository gridInstanceRepository,
+            IPathInstanceRepository pathInstanceRepository,
             IRoundGenerationService roundGenerationService,
-            RoundSchedulingOptions options,
+            GridGenerationOptions gridGenerationOptions,
+            PathGenerationOptions pathGenerationOptions,
             ILogger<RoundGenerationLogCategory> logger,
             double? roundDurationHours,
-            CancellationToken cancellationToken) =>
+            // S-084/REQ-1202: defaults to xG Grid's GameKey when omitted so
+            // any existing caller that doesn't pass it keeps today's
+            // behavior unchanged — generate-round.yml (updated in this same
+            // story) always passes it explicitly for both GameKeys going
+            // forward, but a stray/older manual call (e.g. a bookmarked
+            // workflow_dispatch run) must not silently start generating an
+            // unexpected game's rounds.
+            string gameKey = GridGameModule.XGGridGameKey,
+            CancellationToken cancellationToken = default) =>
         {
             if (!InternalJobAuthorization.IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
@@ -61,23 +73,45 @@ public static class InternalRoundEndpoints
 
             try
             {
-                // Tier 0 has no admin-driven template management yet — same
-                // find-or-create-by-size pattern /internal/grid/generate
-                // uses. Moved inside the try (previously ran unguarded
-                // before it) so a DB failure here gets the same
-                // problem-details treatment as everything below instead of
-                // an opaque, empty 500.
-                var template = await GridTemplateResolver.GetOrCreateBySizeAsync(
-                    gridInstanceRepository, options.GridSize, cancellationToken);
+                // Tier 0 has no admin-driven template management yet for
+                // either game — same find-or-create-by-config-value pattern
+                // /internal/grid/generate uses. Moved inside the try
+                // (previously ran unguarded before it) so a DB failure here
+                // gets the same problem-details treatment as everything
+                // below instead of an opaque, empty 500.
+                //
+                // S-084/REQ-1202: this switch is the ONLY place that branches
+                // on gameKey in this handler — its sole job is producing the
+                // opaque TemplateId RoundConfig carries; everything else
+                // below (auth, duration validation, calling
+                // roundGenerationService, exception handling, response
+                // shape) is unchanged and generic across every GameKey.
+                var templateId = gameKey switch
+                {
+                    GridGameModule.XGGridGameKey => (await GridTemplateResolver.GetOrCreateBySizeAsync(
+                        gridInstanceRepository, gridGenerationOptions.GridSize, cancellationToken)).Id,
+                    XGPathGameModule.XGPathGameKey => (await PathTemplateResolver.GetOrCreateByPuzzleCountAsync(
+                        pathInstanceRepository, pathGenerationOptions.PuzzleCount, cancellationToken)).Id,
+                    _ => throw new ArgumentException($"Unknown gameKey '{gameKey}'."),
+                };
 
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
-                    new RoundConfig { TemplateId = template.Id }, roundDurationOverride, cancellationToken);
+                    gameKey, new RoundConfig { TemplateId = templateId }, roundDurationOverride, cancellationToken);
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.GameKey, round.StartTime, round.EndTime));
             }
-            catch (GridGenerationException ex)
+            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException)
             {
-                // REQ-101's abort path, surfacing through round generation.
+                // REQ-101/REQ-1202's abort paths, surfacing through round
+                // generation — GridGenerationException (xg-grid) and
+                // PathGenerationException (xg-path) don't share a base type
+                // (unlike GameEntityNotFoundException, which only covers the
+                // scoring-side "id doesn't resolve" failure mode), so both are
+                // caught here via a type-pattern filter rather than two
+                // near-identical catch blocks — same precedent as
+                // XGArcade.DataSync.Wikidata.WikidataClient's
+                // `catch (Exception ex) when (ex is HttpRequestException or
+                // JsonException)`.
                 logger.LogError(ex, "Round generation aborted.");
 
                 return Results.Problem(
