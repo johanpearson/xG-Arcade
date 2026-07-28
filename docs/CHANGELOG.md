@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-28 — `docs/architecture-document.md` (0.67 → 0.68),
+  `docs/implementation-document.md` (0.79 → 0.80), `docs/backlog.md` —
+  synced docs to the shipped code for REQ-110's three same-day extensions
+  (`docs/requirements-document.md` 1.21 → 1.23 and
+  `docs/decisions/0049-confirmed-low-match-pair-persistence.md` were
+  already updated earlier this session by `requirements-writer`, verified
+  here against final code, not re-touched): `CacheWarmingResult
+  .PairsWithTechnicalFailure`/`FailingPairs` and `IWikidataClient`/
+  `IWikidataLookupService`'s new `onTechnicalFailure` callback (COMP-05,
+  COMP-07); the new `WikidataQueryTimeoutTier.CacheWarming` (45s) budget
+  and `PlayerCacheWarmingService.LookupWithSameRunRetryAsync` same-run
+  retry (COMP-07); and the new `ConfirmedLowMatchPair` table (COMP-06,
+  `IPlayerStoreRepository.IsConfirmedLowAsync`/`RecordConfirmedLowAsync`,
+  ADR-0049), invalidated by `StaleClubAttributeCleaner` (REQ-111) and
+  `purge-player-pool` (REQ-112/S-038). Architecture doc: updated the
+  COMP-05/COMP-06/COMP-07 table rows to name the new table/enum/callback
+  and confirm boundary rule 1 was respected (COMP-05 reaches
+  `ConfirmedLowMatchPair` only via `IPlayerStoreRepository`); no data-flow
+  diagram change needed (cache warming isn't one of §6's diagrammed
+  request flows). Implementation doc: added `ConfirmedLowMatchPair` to
+  the §5 data model, updated §6/§6a's Wikidata-timeout and
+  CLI-verb (`warm-player-cache`/`clean-stale-club-attributes`/
+  `purge-player-pool`) descriptions. Backlog: appended a short "Resolved
+  same day" note to the two 2026-07-28 REQ-110 follow-up entries so they
+  no longer read as still-pending. No new ADR written (ADR-0049 already
+  covers the one structural decision here, confirmed by
+  `architecture-reviewer`). `docs/legal/*.md` checked and left
+  unchanged — `ConfirmedLowMatchPair` holds only category-value names/an
+  int/a timestamp, no user or player-identifying data, so no data
+  collection/retention/third-party-sharing text is affected. REQ-110,
+  ADR-0049.
 - 2026-07-27 — `docs/requirements-document.md` (1.19 → 1.21),
   `docs/architecture-document.md` (0.66 → 0.67),
   `docs/implementation-document.md` (0.78 → 0.79), `docs/backlog.md`,

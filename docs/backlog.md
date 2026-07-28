@@ -1497,6 +1497,13 @@ contract for REQ-103/REQ-211 (ADR-0046) — cache-warming's own
 summary/observability only. Not yet implemented — flagged for
 `backend-implementer`.
 
+**Resolved same day.** Implemented as described:
+`CacheWarmingResult.PairsWithTechnicalFailure`/`FailingPairs`, threaded
+via a new `onTechnicalFailure` callback on `IWikidataClient`/
+`IWikidataLookupService`. See `docs/requirements-document.md`'s REQ-110
+"Extended (2026-07-28)" text and `PlayerCacheWarmingServiceTests.cs` for
+the shipped behavior and its regression tests.
+
 **Further follow-up (2026-07-28, REQ-110):** the technical-failure
 visibility work above diagnosed but didn't fix the two root causes of
 "zero net cache expansion, byte-identical summaries." REQ-110 amended
@@ -1518,6 +1525,15 @@ REQ-112/S-038's `purge-player-pool` so a purge-and-rewarm cycle stays a
 real full re-check. **Flagged for a new ADR** (new persisted state, a
 real "could have gone another way" choice on mechanism) — not decided
 here, routed separately per the user's request.
+
+**Resolved same day.** Implemented as described:
+`WikidataQueryTimeoutTier.CacheWarming` (45s) plus
+`PlayerCacheWarmingService.LookupWithSameRunRetryAsync` (2 attempts) for
+part (1); the new `ConfirmedLowMatchPair` table
+(`IPlayerStoreRepository.IsConfirmedLowAsync`/`RecordConfirmedLowAsync`),
+invalidated by `StaleClubAttributeCleaner` and `purge-player-pool`, for
+part (2). The flagged ADR is
+`docs/decisions/0049-confirmed-low-match-pair-persistence.md`.
 
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked

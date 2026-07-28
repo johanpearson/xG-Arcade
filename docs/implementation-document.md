@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.79"
+version: "0.80"
 status: draft
-last_updated: 2026-07-27
+last_updated: 2026-07-28
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -490,6 +490,50 @@ public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
     public Guid PlayerId { get; set; }
     public string Alias { get; set; }
     public string NormalizedAlias { get; set; }
+}
+
+// Added 2026-07-28 (REQ-110's "persisted confirmed-low signal" extension,
+// ADR-0049), COMP-06 — Migration AddConfirmedLowMatchPair. Closes the gap
+// PlayerCacheWarmingService.WarmAsync (COMP-05) had no way to close on its
+// own: a pair cached BELOW MinValidAnswers was, until this table existed,
+// indistinguishable from a never-checked pair, because
+// WikidataLookupService.PersistMatchesAsync persists nothing at all when a
+// query finds truly zero matches — so a genuinely-confirmed-zero pair left
+// no trace anywhere. One row per checked-and-confirmed-low pair, deliberately
+// a new table rather than a column on PlayerAttribute/PlayerData — see
+// ADR-0049's alternatives-considered table for why a sentinel row on either
+// of those would corrupt their existing "a real match was found" meaning.
+// Deliberately no FK into Player (the zero-match case has none to reference).
+// Composite PK mirrors IPlayerStoreRepository.CountPlayersWithBothAttributesAsync's
+// own four-argument shape exactly, since that's the read this table's
+// presence/absence short-circuits.
+//
+// Read/written only through IPlayerStoreRepository.IsConfirmedLowAsync
+// (read) / RecordConfirmedLowAsync (write, upsert) — never a direct
+// DbContext query from Games.XGGrid (boundary rule 1,
+// architecture-document.md §5). Written only after a live query returns a
+// real (possibly zero-match) answer still below MinValidAnswers — never
+// after a technical failure (WikidataClient timeout/HTTP/parse error),
+// which is a separate signal (onTechnicalFailure) that must not be
+// conflated with a genuine low-match confirmation.
+//
+// Not self-expiring: cleared by StaleClubAttributeCleaner (REQ-111, both
+// named-club and --all-clubs modes) and the purge-player-pool CLI verb
+// (REQ-112/S-038) alongside the PlayerAttribute/PlayerData rows they
+// already clear, so a "purge and re-warm" cycle stays a real full
+// re-check. Not eligible for infra/scripts/lib/game-data-tables.sh's
+// prod/dev sync allowlist (ADR-0009) — see ADR-0049 for why.
+public class ConfirmedLowMatchPair
+{
+    public required string FirstAttributeType { get; set; }
+    public required string FirstAttributeValue { get; set; }
+    public required string SecondAttributeType { get; set; }
+    public required string SecondAttributeValue { get; set; }
+    // The real match count observed at confirmation time (0 for the
+    // genuine-zero case) — diagnostic only, not read by the skip check
+    // itself (row presence is the only signal that matters).
+    public int MatchCount { get; set; }
+    public DateTime ConfirmedAt { get; set; }
 }
 
 // v1 category types are Country, Club, Trophy (REQ-108). Trophy is
@@ -1018,13 +1062,25 @@ invoked via a second `dotnet run --` CLI verb in `Program.cs`
 run by its own `warm-player-cache.yml` workflow — deliberately not an HTTP
 endpoint, and deliberately not a fire-and-forget background task inside
 the deployed app: this job can take a long time (every reference pair, up
-to a real ~15-27s live Wikidata call each per ADR-0011), which would hit
+to a real ~15-45s live Wikidata call each — see §6a's 2026-07-28 addition
+for the third, cache-warming-specific timeout tier), which would hit
 the same ~240s ingress wall ADR-0023 fixed round generation against if run
 synchronously inside a request, and this Container App's `minReplicas: 0`
 scale-to-zero (NOTES.md, 2026-07-09) would silently drop a background
 task's progress on a scale-down mid-run. A plain foreground CI-runner
 process, bounded only by the workflow's own job timeout, has neither
 problem.
+
+**2026-07-28 extensions (ADR-0049), same verb:** `WarmAsync`'s run summary
+(`CacheWarmingResult`) now also reports `PairsWithTechnicalFailure`/
+`FailingPairs` (a live-queried pair whose Wikidata lookup ended in a
+technical failure — timeout, HTTP error, or parse error — after one
+same-run retry, distinct from a successful zero-match answer) and
+`PairsSkippedConfirmedLow` (a pair skipped without any live query because
+`IPlayerStoreRepository.IsConfirmedLowAsync` reports it as already
+confirmed genuinely below `MinValidAnswers`, per the new
+`ConfirmedLowMatchPair` table, §5). See §6a's 2026-07-28 addition for the
+`WikidataQueryTimeoutTier`/`onTechnicalFailure` mechanics this relies on.
 
 **REQ-109 correction/recovery path (S-037):** `ReferenceDataSeeder.SeedAsync`
 (`XGArcade.Data.Seeding`) is no longer purely additive — a `Countries`/
@@ -1054,7 +1110,12 @@ given names, querying `XGArcadeDbContext` directly rather than through
 `IPlayerStoreRepository` — acceptable here because this code lives inside
 `XGArcade.Data` itself (COMP-06), the same direct-DbContext precedent
 `ReferenceDataSeeder` already sets for reference tables, not an external
-caller reaching around COMP-06's interface. Unlike `migrate-and-seed`'s
+caller reaching around COMP-06's interface. **2026-07-28 addition
+(REQ-110, ADR-0049):** it also deletes every `ConfirmedLowMatchPair` row
+naming one of the given clubs on either side — the same hard invariant
+this table's own doc comment calls out: a "purge and re-warm" cycle must
+force a real, full re-check, never a warm run trusting a confirmed-low
+marker left over from before the correction. Unlike `migrate-and-seed`'s
 other backfillers (`PlayerNormalizedFullNameBackfiller`,
 `UserDisplayNameBackfiller`, `LeagueMembershipBackfiller`), this is
 deliberately **not** wired into `migrate-and-seed`'s automatic,
@@ -1111,6 +1172,12 @@ filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 `XGArcadeDbContext.cs`'s `OnModelCreating`), so an old `Guess` whose
 answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
+**2026-07-28 addition (REQ-110, ADR-0049):** the verb also runs an
+unscoped `ConfirmedLowMatchPairs.ExecuteDeleteAsync()` — `Player`'s
+cascade delete doesn't reach this table (it has no FK into `Player`, see
+its own doc comment in §5), so it needs its own explicit clear, for the
+same "a purge-and-rewarm cycle must be a real full re-check" reason
+`clean-stale-club-attributes` above now clears it too.
 
 **REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
 moment a `Player` row is first created (`IPlayerStoreRepository
@@ -1610,6 +1677,38 @@ deliberate and load-bearing:
   path (grid generation) is unaffected; only REQ-211's guess-time fallback
   sets it `true`, to distinguish a timeout from a genuine no-match on that
   one call site. See REQ-211's 2026-07-27 status notes and ADR-0046 for why.
+- **2026-07-28 addition (REQ-110's cache-warming extensions, ADR-0049):**
+  a third timeout budget, `WikidataQueryTimeoutTier.CacheWarming` (45s),
+  now sits alongside `throwOnTimeout`'s existing two-way split
+  (15s/`_queryTimeout` for REQ-103's `Sync` origin, 28s/
+  `_guessTimeFallbackQueryTimeout` for ADR-0046's guess-time fallback).
+  `RunIntersectionQueryAsync`'s timeout resolution changed from a plain
+  `throwOnTimeout ? 28s : 15s` ternary to a `timeoutTier` switch (`Default`
+  preserves that exact ternary; `CacheWarming` — always paired with
+  `throwOnTimeout: false`, since cache warming's fail-open/swallow contract
+  is unchanged — selects 45s instead), because `throwOnTimeout` alone could
+  no longer double as the tier selector once a caller needed the longer
+  budget *without* throwing. 45s follows the same ADR-0011 9-27s WDQS
+  evidence the 28s guess-time budget already leans on, with a wider margin
+  since nothing is synchronously waiting on a cache-warming run (a CLI verb
+  inside a bounded GitHub Actions job, ADR-0024) the way a real player waits
+  on REQ-211's fallback. Every intersection query method also gained an
+  optional `onTechnicalFailure` callback (`Action?`, additive/backward
+  compatible, defaults to a no-op), invoked from both the timeout branch and
+  the `HttpRequestException`/`JsonException` branch of
+  `RunIntersectionQueryAsync`'s catch handling — this is how
+  `PlayerCacheWarmingService` (COMP-05) distinguishes a genuine technical
+  failure from a successful-but-empty response for its `PairsWithTechnicalFailure`/
+  `FailingPairs` run-summary fields, without changing the swallow-to-`[]`
+  return value any caller sees. `PlayerCacheWarmingService.WarmAsync` also
+  now retries a technical failure once within the same run
+  (`LookupWithSameRunRetryAsync`, `MaxAttemptsPerPair = 2`, colocated in
+  `PlayerCacheWarmingService` itself rather than in `WikidataClient`/
+  `WikidataLookupService`, which stay single-attempt and stateless per
+  call), and skips a pair entirely — no live query at all — when
+  `IPlayerStoreRepository.IsConfirmedLowAsync` reports it was already
+  confirmed genuinely below `MinValidAnswers` on a prior run (new
+  `ConfirmedLowMatchPair` table, §5, ADR-0049).
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice
