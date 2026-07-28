@@ -335,21 +335,6 @@ public class PlayerCacheWarmingServiceTests
         Assert.That(tier, Is.EqualTo(WikidataQueryTimeoutTier.CacheWarming));
     }
 
-    private static List<Player> BuildFakePlayers(string countryName, string clubName, int count)
-    {
-        var players = new List<Player>();
-        for (var i = 0; i < count; i++)
-        {
-            players.Add(new Player
-            {
-                Id = Guid.NewGuid(),
-                FullName = $"{countryName}-{clubName}-Player{i}",
-                WikidataQid = $"Qlive-{countryName}-{clubName}-{i}",
-            });
-        }
-        return players;
-    }
-
     [Test]
     public async Task REQ110_WarmAsync_NoCountriesOrClubs_ReturnsZeroTotalPairs()
     {

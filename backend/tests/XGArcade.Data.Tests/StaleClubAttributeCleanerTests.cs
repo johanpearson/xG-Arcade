@@ -208,4 +208,78 @@ public class StaleClubAttributeCleanerTests
         // row in place on the intended database.
         Assert.ThrowsAsync<InvalidOperationException>(() => StaleClubAttributeCleaner.CleanAllSeededClubsAsync(_dbContext));
     }
+
+    // ---- REQ-110 (2026-07-28 "persisted confirmed-low signal" extension): -
+    // CleanAsync/CleanAllSeededClubsAsync must also clear any
+    // ConfirmedLowMatchPair row touching a cleaned club — on EITHER side of
+    // the composite key (Country x Club's Club side, or either side of
+    // Club x Club) — or PlayerCacheWarmingService.WarmAsync would skip
+    // re-checking a pair using leftover data from before the correction.
+
+    private async Task SeedConfirmedLowAsync(
+        string firstAttributeType, string firstAttributeValue, string secondAttributeType, string secondAttributeValue, int matchCount = 0)
+    {
+        _dbContext.ConfirmedLowMatchPairs.Add(new ConfirmedLowMatchPair
+        {
+            FirstAttributeType = firstAttributeType,
+            FirstAttributeValue = firstAttributeValue,
+            SecondAttributeType = secondAttributeType,
+            SecondAttributeValue = secondAttributeValue,
+            MatchCount = matchCount,
+            ConfirmedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_RemovesConfirmedLowMatchPair_OnACountryClubPairsClubSide()
+    {
+        // Mirrors PlayerCacheWarmingService's own Country x Club ordering
+        // (nationality first, club second).
+        await SeedConfirmedLowAsync("nationality", "France", "club", "Napoli");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.CountAsync(), Is.EqualTo(0),
+            "a stale confirmed-low marker for a corrected club must not survive its own cleanup — a later warm-player-cache run would otherwise wrongly skip re-checking it");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_RemovesConfirmedLowMatchPair_OnEitherSideOfAClubClubPair()
+    {
+        await SeedConfirmedLowAsync("club", "Napoli", "club", "Arsenal");
+        await SeedConfirmedLowAsync("club", "Arsenal", "club", "Napoli");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.CountAsync(), Is.EqualTo(0),
+            "a stale Club x Club confirmed-low marker must be cleared regardless of which side (first or second) the corrected club appears on");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_LeavesConfirmedLowMatchPairsForOtherClubsUntouched()
+    {
+        await SeedConfirmedLowAsync("nationality", "France", "club", "Napoli");
+        await SeedConfirmedLowAsync("nationality", "Spain", "club", "Arsenal");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.CountAsync(), Is.EqualTo(1),
+            "cleaning one club's stale confirmed-low markers must never touch another club's real ones");
+        Assert.That((await _dbContext.ConfirmedLowMatchPairs.SingleAsync()).SecondAttributeValue, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ110_CleanAllSeededClubsAsync_RemovesConfirmedLowMatchPairsForEverySeededClub()
+    {
+        await SeedClubDefinitionAsync("Napoli");
+        await SeedClubDefinitionAsync("AC Milan");
+        await SeedConfirmedLowAsync("nationality", "France", "club", "Napoli");
+        await SeedConfirmedLowAsync("club", "AC Milan", "club", "Arsenal");
+
+        await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(_dbContext);
+
+        Assert.That(await _dbContext.ConfirmedLowMatchPairs.CountAsync(), Is.EqualTo(0),
+            "the --all-clubs mode's 'purge and re-warm must force a real re-check' invariant applies to ConfirmedLowMatchPair the same as PlayerAttribute/PlayerData");
+    }
 }
