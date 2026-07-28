@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.24"
+version: "1.25"
 status: draft
 last_updated: 2026-07-28
 owner: Johan
@@ -2106,7 +2106,16 @@ real-browser rendering)
   `RoundDuration >= 24h` (including the 48h default) is safe by
   construction rather than needing hand-verification every time either
   value changes. See ADR-0027 for the full reasoning, including why a
-  cron cadence that fires exactly every N days was rejected. What's
+  cron cadence that fires exactly every N days was rejected. **As of
+  S-084 (ADR-0051):** this same mechanism — one `RoundSchedulingOptions`
+  instance per `GameKey`, resolved via the new
+  `IRoundSchedulingOptionsResolver` rather than a single directly-injected
+  singleton — now also serves `GameKey = "xg-path"`, with its own
+  independently-configured `RoundDuration`; `RoundGenerationServiceTests.cs`
+  proves both this REQ's "one round ahead" rule and REQ-302's lifecycle
+  rules hold for `"xg-path"` exactly as they do for `"xg-grid"`, and neither
+  `GameKey`'s generation touches the other's. See REQ-1202's own status
+  note for the xG-Path-specific template-resolution detail. What's
   **still not built**, relative to this requirement's full long-term
   acceptance criteria below: an admin-facing configuration surface — "a
   cron expression configured in the system" still means editing
@@ -5320,9 +5329,18 @@ since `Player` has no field that could represent "outside the pool"; see
 > As a player, I want each xG Path round to contain a small, fixed number
 > of puzzles, so a round is a bounded, comparable challenge every time.
 
-- **Status: Implemented (Tier 0, S-081).** `PathTemplate.PuzzleCount` is
-  `GenerateInstanceAsync`'s N (3-5) — no seeding/admin surface yet (round-
-  scheduling wiring for `"xg-path"` is S-084). `PickDistinct` selects N
+- **Status: Implemented (Tier 0, S-081; round-scheduling wiring added
+  2026-07-28, S-084, ADR-0051).** `PathTemplate.PuzzleCount` is
+  `GenerateInstanceAsync`'s N (3-5) — still no admin-facing seeding surface,
+  but round generation itself is now scheduled: a second
+  `RoundSchedulingOptions` instance (`GameKey = "xg-path"`, its own
+  configured `RoundDuration`) is resolved via the new
+  `IRoundSchedulingOptionsResolver`, and `POST /internal/generate-round`
+  (with `gameKey=xg-path`) produces a real `PathTemplate` via the new
+  `PathTemplateResolver`'s find-or-create-by-`PuzzleCount` (defaulting to 4,
+  `Games.XGPath.PathGenerationOptions`) — the same `generate-round.yml`
+  daily cron xG Grid uses, not a second scheduled job. See ADR-0051 for the
+  full decision. `PickDistinct` selects N
   eligible players uniformly at random, without replacement, persisting one
   `PathPuzzle` per selected target inside a new `PathInstance`; an eligible
   pool smaller than N throws `PathGenerationException` rather than
@@ -5345,10 +5363,15 @@ since `Player` has no field that could represent "outside the pool"; see
 
 **Test level:** Unit (built S-081 via `XGPathGameModuleTests`; this REQ is
 about round *structure*, not the read endpoint — REQ-1203's own `GET
-/path/current` (S-082) now exposes puzzle/clue data over the API, but no
-`RoundSchedulingOptions`/scheduled generation exists for `"xg-path"` yet,
-so no round-structure-level API test coverage exists for this REQ — that's
-still S-084)
+/path/current` (S-082) now exposes puzzle/clue data over the API). As of
+S-084, round-structure-level API test coverage exists too:
+`RoundGenerationServiceTests.cs` proves REQ-301/REQ-302 hold for
+`"xg-path"` resolved through the same service instance with its own
+configured `RoundDuration`, and `RoundEndpointTests.cs` covers real
+end-to-end `POST /internal/generate-round?gameKey=xg-path` generation
+(own `RoundDuration`, `PathTemplateResolver` find-or-create, correct
+puzzle count), an omitted-`gameKey` regression, and the unrecognized-
+`gameKey` 400.
 
 **REQ-1203 – Clue reveal order and content**
 > As a player, I want clues about the target player's career revealed in a

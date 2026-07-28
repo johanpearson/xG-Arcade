@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.80"
+version: "0.81"
 status: draft
 last_updated: 2026-07-28
 owner: Johan
@@ -208,8 +208,19 @@ misconfigured per-endpoint. See ADR-0006.
 /backend
   /src
     /XGArcade.Api              -> Controllers, DTOs, Program.cs
-    /XGArcade.Core             -> User, League, Round, Scoring, Notifications (shared domain)
-    /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator
+    /XGArcade.Core             -> User, League, Round, Scoring, Notifications
+                                   (shared domain). S-084 added
+                                   Rounds/IRoundSchedulingOptionsResolver
+                                   (REQ-1202, ADR-0051), resolving one
+                                   RoundSchedulingOptions per GameKey
+                                   ("xg-grid", "xg-path") instead of a single
+                                   directly-injected singleton; GridSize moved
+                                   off RoundSchedulingOptions
+    /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator.
+                                   S-084 added GridGenerationOptions.GridSize
+                                   (moved off Core.Rounds.RoundSchedulingOptions,
+                                   ADR-0051) — xG-Grid-specific generation
+                                   config, not a generic scheduling concern
     /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11). S-081 built
                                    GenerateInstanceAsync/GetCellIdsAsync
                                    (REQ-1201/1202, ADR-0045); S-082 built
@@ -221,7 +232,13 @@ misconfigured per-endpoint. See ADR-0006.
                                    with Games.XGGrid's GuessScoringException).
                                    S-083 built ClueEfficiencyScoringStrategy
                                    (Core.Scoring, REQ-1206), registered against
-                                   this module's own GameKey in Program.cs
+                                   this module's own GameKey in Program.cs.
+                                   S-084 added PathGenerationOptions.PuzzleCount
+                                   (default 4), xG Path's own equivalent of
+                                   GridGenerationOptions.GridSize, feeding the
+                                   new PathTemplateResolver
+                                   (XGArcade.Api.Path) used by
+                                   POST /internal/generate-round?gameKey=xg-path
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications

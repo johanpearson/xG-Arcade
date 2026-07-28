@@ -13,6 +13,62 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-07-28 — `docs/decisions/0051-per-gamekey-round-scheduling.md`
+  renumbered from `0050-per-gamekey-round-scheduling.md` while rebasing onto
+  `main`, which had independently assigned ADR-0050 to
+  `docs/decisions/0050-confirmed-low-match-pair-persistence.md` (REQ-110,
+  below) on a diverged branch. Every `ADR-0050` reference belonging to the
+  round-scheduling decision (this file, `architecture-document.md`,
+  `requirements-document.md`, `implementation-document.md`, `backlog.md`)
+  was updated to `ADR-0051`; the cache-warming ADR keeps 0050 unchanged,
+  having merged to `main` first. No content change to either decision, only
+  the number — same renumbering precedent as ADR-0049's own entry below.
+- 2026-07-28 — `docs/requirements-document.md` (1.24 → 1.25),
+  `docs/architecture-document.md` (0.68 → 0.69),
+  `docs/implementation-document.md` (0.80 → 0.81), `docs/backlog.md` —
+  S-084 implemented (REQ-1202's round-scheduling half, ADR-0051): `"xg-path"`
+  rounds are now generated on the same schedule `"xg-grid"`'s already are.
+  New `IRoundSchedulingOptionsResolver`/`RoundSchedulingOptionsResolver`
+  (`XGArcade.Core.Rounds`) resolves one `RoundSchedulingOptions` instance
+  per `GameKey` — mirroring `IScoringStrategyResolver`'s per-`GameKey`
+  shape (ADR-0040) — rather than a single directly-injected singleton; two
+  instances are now registered (`"xg-grid"`, `"xg-path"`), each with its own
+  configured `RoundDuration`. `RoundGenerationService
+  .GenerateNextRoundIfNeededAsync` gained a leading `gameKey` parameter.
+  `POST /internal/generate-round` gained an optional `gameKey` query
+  parameter (default `"xg-grid"` for back-compat), dispatching narrowly to
+  either the existing `GridTemplateResolver` or a new `PathTemplateResolver`
+  (`XGArcade.Api.Path`) to produce the round's opaque `TemplateId`; an
+  unrecognized `gameKey` returns 400 "Invalid gameKey" (a quality-gate
+  follow-up correcting an initial fall-through 500). `GridSize` moved off
+  `RoundSchedulingOptions` onto `Games.XGGrid.GridGenerationOptions`; new
+  `Games.XGPath.PathGenerationOptions.PuzzleCount` (default 4) holds
+  xG Path's own equivalent. Per the story's own flagged judgment call,
+  architecture-reviewer was consulted before implementation and recommended
+  extending the existing scheduled job rather than adding a second one:
+  `generate-round.yml`'s single daily cron now generates both `GameKey`s'
+  rounds, each with its own independent 3-attempt retry loop (ADR-0027's
+  own new S-084 addendum). Test coverage:
+  `RoundSchedulingOptionsResolverTests.cs` (new, per-`GameKey` resolution
+  and isolation, unregistered-`GameKey` failure); extended
+  `RoundGenerationServiceTests.cs` (proves REQ-301/REQ-302 hold for
+  `"xg-path"` exactly as for `"xg-grid"`, with no cross-`GameKey`
+  interference); extended `RoundEndpointTests.cs` (end-to-end
+  `POST /internal/generate-round?gameKey=xg-path`, an omitted-`gameKey`
+  regression, and the unrecognized-`gameKey` 400). Requirements doc:
+  REQ-1202's status note updated from "no round-scheduling wiring yet" to
+  implemented, and REQ-301's status note extended to note the same
+  per-`GameKey` resolver mechanism now also serves `"xg-path"`. Architecture
+  doc: COMP-11's status note and §6.1's round-generation flow description
+  both updated to describe `IRoundSchedulingOptionsResolver` and the
+  endpoint's `gameKey` dispatch. Implementation doc: project-structure
+  entries for `XGArcade.Core`, `XGArcade.Games.XGGrid`, and
+  `XGArcade.Games.XGPath` updated to name the new/moved files. Backlog:
+  S-084's entry corrected from forward-looking to record what was actually
+  decided and built, matching the precedent set correcting S-083's entry.
+  New ADR-0051 (already added to architecture doc's ADR table; not
+  duplicated here) records the four-part decision. Refs: REQ-1202,
+  REQ-301, REQ-302, ADR-0051, ADR-0027.
 - 2026-07-28 — `docs/decisions/0049-confirmed-low-match-pair-persistence.md`
   renumbered to `docs/decisions/0050-confirmed-low-match-pair-persistence.md`
   while resolving a merge conflict with the concurrently-merged
