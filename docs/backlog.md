@@ -1480,6 +1480,23 @@ original pass had missed:
    table (ADR-0023 itself already existed from S-035 but was never added
    to that table — a pre-existing gap, fixed here opportunistically).
 
+**Follow-up (2026-07-28, REQ-110):** three consecutive `warm-player-cache.yml`
+runs produced byte-identical summaries ("2064 pairs checked, 1214 queried
+live, 850 already valid"), diagnosed from the workflow's own CI logs. Most
+of it is the already-accepted "below-threshold pairs re-queried every run"
+gap from this entry, not new. But one run alone had 133 of 1214 live
+queries (11%) end in a `WikidataClient` technical failure (WDQS timeout,
+HTTP error, or parse error) silently swallowed and returned as an empty
+match list — indistinguishable in `CacheWarmingResult` from a genuine
+zero-match answer. REQ-110 amended to require the run summary to report a
+technical-failure count (distinct from `PairsQueriedLive`) and list the
+specific failing pairs, so an operator can tell "genuinely below
+`MinValidAnswers`" apart from "worth re-running." Does not change the
+accepted re-query gap, and does not change `WikidataClient`'s fail-open
+contract for REQ-103/REQ-211 (ADR-0046) — cache-warming's own
+summary/observability only. Not yet implemented — flagged for
+`backend-implementer`.
+
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked
 S-036's new club QIDs against live Wikidata pages (this sandbox can't —

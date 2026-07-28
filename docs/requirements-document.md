@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.21"
+version: "1.22"
 status: draft
-last_updated: 2026-07-27
+last_updated: 2026-07-28
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -363,10 +363,44 @@ without erroring), API
   a never-checked pair and is re-queried on every run — a known, accepted
   gap for this first pass (there's no persisted "checked, genuinely low"
   signal yet), not a correctness bug
+- **Extended (2026-07-28) — technical-failure visibility in the run
+  summary.** Three consecutive `warm-player-cache.yml` runs
+  (2026-07-26/27) produced byte-identical summaries ("2064 pairs checked,
+  1214 queried live, 850 already valid") with zero net cache expansion.
+  Most of that is the accepted "below-threshold, re-queried every run" gap
+  above and is not changing. But `WikidataClient`'s sync-path intersection
+  queries (used only by this cache-warming path, `throwOnTimeout: false`)
+  silently swallow real technical failures — WDQS timeouts, HTTP errors,
+  and JSON parse errors all return an empty match list, logged only as a
+  per-pair warning — so a pair that is "confirmed genuinely below
+  `MinValidAnswers`" and a pair the run simply failed to get a clean
+  answer for are recorded identically in `CacheWarmingResult`. One run
+  alone (2026-07-27 19:29) had 133 such swallowed failures out of 1214
+  live queries (11%), invisible in the summary. Given a cache-warming run
+  where at least one live-queried pair's Wikidata lookup ends in a
+  technical failure (timeout, HTTP error, or parse error) rather than a
+  successful response (with or without matches), when the run completes,
+  then the final summary reports a count of how many live-queried pairs
+  hit a technical failure, distinct from `PairsQueriedLive`, and lists the
+  specific failing pairs (by category-value name or QID pair) so an
+  operator can tell "genuinely below `MinValidAnswers`" apart from "failed
+  to get a clean answer, worth re-running." This changes only
+  `PlayerCacheWarmingService`'s own result/summary and does **not**
+  change: (a) the accepted gap above — a below-threshold pair, technical
+  failure or not, is still re-queried every run, there is still no
+  persisted "checked, genuinely low" signal; (b) `WikidataClient`'s
+  fail-open/swallow-and-return-empty contract for any other caller —
+  round generation's own REQ-103 path and REQ-211's guess-time fallback
+  (ADR-0046) must keep failing open exactly as today, this is
+  observability for the cache-warming path only.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
-below-threshold pair is re-queried, not skipped)
+below-threshold pair is re-queried, not skipped; a simulated
+`WikidataClient` technical failure — timeout, HTTP error, or parse error —
+on a live-queried pair is counted separately from a successful
+zero-match response and the failing pair is listed in the run result,
+while REQ-103/REQ-211's own callers are unaffected by the change)
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
