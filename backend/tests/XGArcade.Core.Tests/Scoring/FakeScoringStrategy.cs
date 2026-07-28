@@ -12,9 +12,9 @@ internal class FakeScoringStrategy(string gameKey) : IScoringStrategy
 {
     public string GameKey { get; } = gameKey;
 
-    public Func<IReadOnlyCollection<Guess>, Guid, ScoringResult> ScoreCorrectGuessResult { get; set; } =
-        (_, _) => throw new NotImplementedException("Not exercised by resolver tests.");
+    public Func<Guess, IReadOnlyCollection<Guess>, int, ScoringResult> ScoreCorrectGuessResult { get; set; } =
+        (_, _, _) => throw new NotImplementedException("Not exercised by resolver tests.");
 
-    public ScoringResult ScoreCorrectGuess(IReadOnlyCollection<Guess> correctGuessesForCell, Guid myAnswerPlayerId) =>
-        ScoreCorrectGuessResult(correctGuessesForCell, myAnswerPlayerId);
+    public ScoringResult ScoreCorrectGuess(Guess guess, IReadOnlyCollection<Guess> correctGuessesForCell, int maxAttemptsForCell) =>
+        ScoreCorrectGuessResult(guess, correctGuessesForCell, maxAttemptsForCell);
 }

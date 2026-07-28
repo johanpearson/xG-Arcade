@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.79"
+version: "0.80"
 status: draft
-last_updated: 2026-07-27
+last_updated: 2026-07-28
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -219,7 +219,9 @@ misconfigured per-endpoint. See ADR-0006.
                                    and PathScoringException (now derives from
                                    Core.Games.GameEntityNotFoundException, shared
                                    with Games.XGGrid's GuessScoringException).
-                                   No IScoringStrategy registration yet — S-083
+                                   S-083 built ClueEfficiencyScoringStrategy
+                                   (Core.Scoring, REQ-1206), registered against
+                                   this module's own GameKey in Program.cs
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -1333,6 +1335,23 @@ REQ-204/205 acceptance criterion still holds for xG Grid unchanged — this
 groundwork exists so a second game (xG Path, ADR-0040's motivating case)
 can register its own `IScoringStrategy` without editing this file's
 control flow at all.
+
+**S-083 correction (ADR-0049 — resolves ADR-0040's own deferred
+parameter-shape follow-up):** `IScoringStrategy.ScoreCorrectGuess`'s
+signature changed from `(IReadOnlyCollection<Guess>
+correctGuessesForCell, Guid myAnswerPlayerId)` to `(Guess guess,
+IReadOnlyCollection<Guess> correctGuessesForCell, int
+maxAttemptsForCell)`. `ScoreLockingService` now resolves
+`maxAttemptsForCell` once per cell present in the round's correct-guess
+population (not once per guess) via the existing `IGameModule
+.GetMaxAttemptsForCellAsync` (ADR-0041) before invoking whichever strategy
+is resolved. `UniquenessScoringStrategy` was adapted to the new signature
+with no formula change; `ClueEfficiencyScoringStrategy` (xG Path,
+REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
+`guess.AttemptCount` and computes `round(cluesUsed / maxAttemptsForCell *
+MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
+in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
+on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
 
 **Leaderboard pagination (REQ-607)**
 

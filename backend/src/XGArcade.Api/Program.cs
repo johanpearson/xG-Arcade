@@ -563,12 +563,10 @@ builder.Services.AddScoped<IGameModule, GridGameModule>();
 // S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
 // endpoint (REQ-1203, GET /path/current). Registered here so
 // IGameModuleResolver.Resolve("xg-path") returns a real module, same as xG
-// Grid above. Deliberately no IScoringStrategy registration for "xg-path"
-// yet (that's ClueEfficiencyScoringStrategy, S-083) and no
-// RoundSchedulingOptions registration yet (round-scheduling wiring is
-// S-084) — GET /path/current can read an xg-path round once one exists
-// (e.g. via the test-data endpoints, REQ-806), but nothing generates one on
-// a schedule until S-084.
+// Grid above. Still no RoundSchedulingOptions registration yet
+// (round-scheduling wiring is S-084) — GET /path/current can read an
+// xg-path round once one exists (e.g. via the test-data endpoints,
+// REQ-806), but nothing generates one on a schedule until S-084.
 builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
@@ -579,6 +577,14 @@ builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
 builder.Services.AddScoped<IScoringStrategy>(_ => new UniquenessScoringStrategy
 {
     GameKey = GridGameModule.XGGridGameKey,
+});
+// S-083/REQ-1206/ADR-0040 follow-up: xG Path's clue-efficiency formula,
+// registered against "xg-path" the same way UniquenessScoringStrategy is
+// registered against "xg-grid" above — GameKey supplied here, never
+// hardcoded inside XGArcade.Core (ADR-0003).
+builder.Services.AddScoped<IScoringStrategy>(_ => new ClueEfficiencyScoringStrategy
+{
+    GameKey = XGPathGameModule.XGPathGameKey,
 });
 builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
 

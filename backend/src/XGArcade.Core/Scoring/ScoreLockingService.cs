@@ -29,12 +29,26 @@ public class ScoreLockingService(
             .ToDictionary(group => group.Key, group => (IReadOnlyCollection<Guess>)group.ToList());
 
         // ADR-0040: only resolved when at least one correct guess exists in
-        // this round — an empty round never needs a strategy at all,
-        // matching this method's pre-ADR-0040 behavior.
+        // this round — an empty round never needs a strategy (or, as of
+        // S-083/ADR-0041, a per-cell max-attempts lookup) at all, matching
+        // this method's pre-ADR-0040 behavior.
         IScoringStrategy? scoringStrategy = null;
+        // S-083/ADR-0041: resolved once per cell present in
+        // correctGuessesByCell (never per guess) — mirrors
+        // LiveRoundContributionService's own maxAttemptsByCellId pass, and
+        // avoids an avoidable N-per-guess cost. Only strategies that
+        // actually use maxAttemptsForCell (ClueEfficiencyScoringStrategy)
+        // depend on this being correct; UniquenessScoringStrategy ignores it.
+        var maxAttemptsByCell = new Dictionary<Guid, int>();
         if (correctGuessesByCell.Count > 0)
         {
             scoringStrategy = scoringStrategyResolver.Resolve(round!.GameKey);
+
+            var gameModule = gameModuleResolver.Resolve(round.GameKey);
+            foreach (var cellId in correctGuessesByCell.Keys)
+            {
+                maxAttemptsByCell[cellId] = await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, cellId, cancellationToken);
+            }
         }
 
         foreach (var guess in guesses)
@@ -44,10 +58,11 @@ public class ScoreLockingService(
                 // Safe: ScoreSubmissionAsync never returns IsCorrect = true
                 // without also setting PlayerAnswerId (ScoreResult's own doc
                 // comment), and this guess is necessarily a member of its own
-                // cell's correct-guesses group. scoringStrategy is
-                // necessarily non-null here too, since correctGuessesByCell
-                // is non-empty whenever any guess.IsCorrect is true.
-                var result = scoringStrategy!.ScoreCorrectGuess(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
+                // cell's correct-guesses group. scoringStrategy/
+                // maxAttemptsByCell[guess.CellId] are necessarily populated
+                // here too, since correctGuessesByCell is non-empty whenever
+                // any guess.IsCorrect is true.
+                var result = scoringStrategy!.ScoreCorrectGuess(guess, correctGuessesByCell[guess.CellId], maxAttemptsByCell[guess.CellId]);
                 guess.FinalUniquenessScore = result.FinalUniquenessScore;
                 guess.FinalPoints = result.FinalPoints;
             }

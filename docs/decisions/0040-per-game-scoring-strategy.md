@@ -1,6 +1,8 @@
 # ADR-0040: Core.Scoring resolves a scoring strategy per GameKey
 
-- **Status:** Accepted
+- **Status:** Accepted — this ADR's own Follow-up note (the `IScoringStrategy`
+  parameter shape left unfixed) was resolved 2026-07-28 (S-083,
+  `ClueEfficiencyScoringStrategy`); see ADR-0049 for the resulting decision
 - **Date:** 2026-07-26
 - **Related requirements:** REQ-204, REQ-205, REQ-1201-REQ-1206 (xG Path)
 - **Related components:** COMP-04 (Core.Scoring), COMP-05 (Games.XGGrid), COMP-11 (Games.XGPath)
