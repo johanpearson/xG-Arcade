@@ -4123,7 +4123,15 @@ attempt cap is exhausted scores `MaxPointsPerCell` (the same
 "unanswered/incorrect scores worst" convention as xG Grid, ADR-0021).
 Registered against `"xg-path"` in `IScoringStrategyResolver` (S-076).
 Computes no `FinalUniquenessScore` at all (null) — this game has no
-uniqueness concept, per ADR-0040's own reasoning.
+uniqueness concept, per ADR-0040's own reasoning. Building this for real
+also resolved ADR-0040's own deferred parameter-shape follow-up (new
+ADR-0049): `IScoringStrategy.ScoreCorrectGuess` now takes the whole `Guess`
+being scored (not just its `PlayerAnswerId`) plus a plain
+`maxAttemptsForCell`, which `ScoreLockingService` resolves once per cell
+(never once per guess) via the existing `IGameModule
+.GetMaxAttemptsForCellAsync` (ADR-0041) and passes into whichever strategy
+is resolved for the round's `GameKey`; `cluesUsed` is read directly off the
+winning `Guess.AttemptCount`, no new column.
 *Accept:* REQ1206-named tests: points formula across a range of
 `cluesUsed`/`maxCluesForThisPuzzle` combinations; worst-case score when
 never solved; `FinalUniquenessScore` is always null for this strategy;

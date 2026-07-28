@@ -11,20 +11,32 @@ namespace XGArcade.Core.Scoring;
 // ScoreLockingService.LockRoundScoresAsync (ADR-0021), untouched by this
 // abstraction.
 //
-// Only xG Grid's inputs are modeled today (a cell's other correct guesses
-// + the answer given). xG Path's clue-efficiency formula needs a
-// different input shape (clues used, not other guessers) — ADR-0040's
-// "Consequences"/follow-up note explicitly leaves that parameter shape
-// unfixed for now, not something this story needs to pre-solve.
+// S-083/REQ-1206 resolved ADR-0040's follow-up: xG Grid's uniqueness
+// formula and xG Path's clue-efficiency formula share this one parameter
+// shape. guess carries everything path-specific (PlayerAnswerId,
+// AttemptCount) that used to need its own bare parameter, and
+// maxAttemptsForCell reuses ADR-0041's existing per-cell concept
+// (IGameModule.GetMaxAttemptsForCellAsync) rather than inventing a
+// path-specific one — so this interface stays plain-data-in, with no
+// compile-time dependency on any specific game's types.
 public interface IScoringStrategy
 {
     string GameKey { get; }
 
-    // correctGuessesForCell/myAnswerPlayerId: same contract as
-    // UniquenessCalculator.Calculate — every Guess for the cell where
-    // IsCorrect is true, and the PlayerAnswerId of the guess being scored
-    // (itself a member of correctGuessesForCell).
-    ScoringResult ScoreCorrectGuess(IReadOnlyCollection<Guess> correctGuessesForCell, Guid myAnswerPlayerId);
+    // guess: the specific correct Guess row being scored (IsCorrect is
+    // always true for every call — ScoreLockingService never calls this
+    // for an incorrect/unanswered guess, see ScoreLockingService's own
+    // ADR-0021 branch). A member of correctGuessesForCell.
+    //
+    // correctGuessesForCell: same contract as UniquenessCalculator.Calculate
+    // — every Guess for the cell where IsCorrect is true. Ignored by
+    // strategies with no uniqueness concept (e.g. ClueEfficiencyScoringStrategy).
+    //
+    // maxAttemptsForCell: the cell's max-attempts value (ADR-0041),
+    // resolved once per cell by ScoreLockingService itself (never by the
+    // strategy) and passed in as a plain int. Ignored by strategies with
+    // no attempt-cap concept (e.g. UniquenessScoringStrategy).
+    ScoringResult ScoreCorrectGuess(Guess guess, IReadOnlyCollection<Guess> correctGuessesForCell, int maxAttemptsForCell);
 }
 
 // Minimal result shape for a single correct guess's locked score.

@@ -374,7 +374,7 @@ public class PlayerCacheWarmingServiceTests
     // pair while one still exists) — neither chains "invalidate, THEN warm"
     // against the same pair, so a future change to either invalidation tool
     // that forgets to clear ConfirmedLowMatchPair would slip through both
-    // suites with zero signal. See ADR-0049's Consequences section, which
+    // suites with zero signal. See ADR-0050's Consequences section, which
     // names this exact risk.
 
     [Test]

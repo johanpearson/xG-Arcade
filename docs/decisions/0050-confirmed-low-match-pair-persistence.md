@@ -1,4 +1,4 @@
-# ADR-0049: Persist a "confirmed genuinely low" signal for cache-warming pairs in a new ConfirmedLowMatchPair table
+# ADR-0050: Persist a "confirmed genuinely low" signal for cache-warming pairs in a new ConfirmedLowMatchPair table
 
 - **Status:** Accepted
 - **Date:** 2026-07-28

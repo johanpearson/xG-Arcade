@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.23"
+version: "1.24"
 status: draft
 last_updated: 2026-07-28
 owner: Johan
@@ -5504,7 +5504,36 @@ count of 2)
 > before guessing correctly, so guessing early with less information is
 > rewarded.
 
-- **Status: Not started (design only).**
+- **Status: Implemented (Tier 0, S-083, 2026-07-28).**
+  `ClueEfficiencyScoringStrategy` (`XGArcade.Core.Scoring`) implements the
+  formula below, registered against `GameKey = XGPathGameModule.XGPathGameKey`
+  ("xg-path") in `Program.cs`, mirroring `UniquenessScoringStrategy`'s own
+  `"xg-grid"` registration (ADR-0040). `cluesUsed` is not a new field —
+  it's read directly off the winning `Guess.AttemptCount`, since
+  `XGPathGameModule`/`GuessSubmissionService` already increment
+  `AttemptCount` by exactly 1 per submission for a cell, so a correct
+  guess's `AttemptCount` at the moment it's submitted already equals the
+  number of clues that had been revealed. `maxCluesForThisPuzzle` is
+  `maxAttemptsForCell`, resolved once per cell (not once per guess) by
+  `ScoreLockingService` via the existing `IGameModule
+  .GetMaxAttemptsForCellAsync` (ADR-0041/REQ-1205) and passed into
+  whichever `IScoringStrategy` is resolved for the round's `GameKey` — this
+  also resolved ADR-0040's own deferred "what parameter shape does a
+  strategy receive" follow-up; see the new ADR-0049 for the reasoning
+  (`IScoringStrategy.ScoreCorrectGuess` now takes the whole `Guess` plus a
+  plain `int maxAttemptsForCell`, never a direct `IGameModule` dependency).
+  A puzzle never solved before its attempt cap is exhausted scores
+  `MaxPointsPerCell` via `ScoreLockingService`'s existing
+  unanswered/incorrect branch (ADR-0021) — `ClueEfficiencyScoringStrategy`
+  is only ever invoked for a correct guess, so that case isn't
+  special-cased inside the strategy itself. REQ1206-named tests
+  (`ClueEfficiencyScoringStrategyTests`, `ScoringStrategyResolverTests`,
+  `PathScoreLockingServiceTests`) cover the rounded points formula across a
+  range of `cluesUsed`/`maxAttemptsForCell` combinations, `FinalUniquenessScore`
+  always being null, `correctGuessesForCell` being ignored, resolver
+  selection of this strategy (not `UniquenessScoringStrategy`) for
+  `"xg-path"`, and the worst-case/never-solved score end to end through
+  `ScoreLockingService.LockRoundScoresAsync`.
 - Given a puzzle with a maximum clue count of 7 (REQ-1203/1205, fixed for
   every xG Path puzzle) and a correct guess submitted after `cluesUsed`
   clues have been revealed

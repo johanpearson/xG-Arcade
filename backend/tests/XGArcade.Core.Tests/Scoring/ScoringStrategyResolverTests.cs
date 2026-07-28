@@ -19,6 +19,26 @@ public class ScoringStrategyResolverTests
         Assert.That(resolved, Is.InstanceOf<UniquenessScoringStrategy>());
     }
 
+    // REQ-1206/S-083/ADR-0040: proves the resolver picks
+    // ClueEfficiencyScoringStrategy (not UniquenessScoringStrategy) for
+    // "xg-path" — mirrors Resolve_ReturnsTheRegisteredUniquenessScoringStrategy_ForXgGrid
+    // above, but with both real strategies registered together, so this
+    // doesn't just prove "the only registered strategy comes back" but
+    // that GameKey matching actually discriminates between the two.
+    [Test]
+    public void REQ1206_Resolve_ReturnsTheRegisteredClueEfficiencyScoringStrategy_ForXgPath()
+    {
+        var gridStrategy = new UniquenessScoringStrategy { GameKey = "xg-grid" };
+        var pathStrategy = new ClueEfficiencyScoringStrategy { GameKey = "xg-path" };
+        var resolver = new ScoringStrategyResolver([gridStrategy, pathStrategy]);
+
+        var resolved = resolver.Resolve("xg-path");
+
+        Assert.That(resolved, Is.SameAs(pathStrategy));
+        Assert.That(resolved, Is.InstanceOf<ClueEfficiencyScoringStrategy>());
+        Assert.That(resolved, Is.Not.InstanceOf<UniquenessScoringStrategy>());
+    }
+
     [Test]
     public void Resolve_PicksTheMatchingStrategy_AmongSeveralRegistered()
     {

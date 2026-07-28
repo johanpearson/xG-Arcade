@@ -15,9 +15,13 @@ public class UniquenessScoringStrategy : IScoringStrategy
 {
     public required string GameKey { get; init; }
 
-    public ScoringResult ScoreCorrectGuess(IReadOnlyCollection<Guess> correctGuessesForCell, Guid myAnswerPlayerId)
+    // maxAttemptsForCell: no uniqueness-scoring use for this (xG Grid's
+    // attempt cap doesn't factor into REQ-204/205's formula) — ignored,
+    // same as ScoringResult.FinalUniquenessScore being non-null here is
+    // this strategy's own concept, not maxAttemptsForCell's.
+    public ScoringResult ScoreCorrectGuess(Guess guess, IReadOnlyCollection<Guess> correctGuessesForCell, int maxAttemptsForCell)
     {
-        var uniqueScore = UniquenessCalculator.Calculate(correctGuessesForCell, myAnswerPlayerId);
+        var uniqueScore = UniquenessCalculator.Calculate(correctGuessesForCell, guess.PlayerAnswerId!.Value);
         return new ScoringResult(uniqueScore, ScoringRules.PointsFromUniqueScore(uniqueScore));
     }
 }

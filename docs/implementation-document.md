@@ -219,7 +219,9 @@ misconfigured per-endpoint. See ADR-0006.
                                    and PathScoringException (now derives from
                                    Core.Games.GameEntityNotFoundException, shared
                                    with Games.XGGrid's GuessScoringException).
-                                   No IScoringStrategy registration yet — S-083
+                                   S-083 built ClueEfficiencyScoringStrategy
+                                   (Core.Scoring, REQ-1206), registered against
+                                   this module's own GameKey in Program.cs
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -493,7 +495,7 @@ public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
 }
 
 // Added 2026-07-28 (REQ-110's "persisted confirmed-low signal" extension,
-// ADR-0049), COMP-06 — Migration AddConfirmedLowMatchPair. Closes the gap
+// ADR-0050), COMP-06 — Migration AddConfirmedLowMatchPair. Closes the gap
 // PlayerCacheWarmingService.WarmAsync (COMP-05) had no way to close on its
 // own: a pair cached BELOW MinValidAnswers was, until this table existed,
 // indistinguishable from a never-checked pair, because
@@ -501,7 +503,7 @@ public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
 // query finds truly zero matches — so a genuinely-confirmed-zero pair left
 // no trace anywhere. One row per checked-and-confirmed-low pair, deliberately
 // a new table rather than a column on PlayerAttribute/PlayerData — see
-// ADR-0049's alternatives-considered table for why a sentinel row on either
+// ADR-0050's alternatives-considered table for why a sentinel row on either
 // of those would corrupt their existing "a real match was found" meaning.
 // Deliberately no FK into Player (the zero-match case has none to reference).
 // Composite PK mirrors IPlayerStoreRepository.CountPlayersWithBothAttributesAsync's
@@ -522,7 +524,7 @@ public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
 // (REQ-112/S-038) alongside the PlayerAttribute/PlayerData rows they
 // already clear, so a "purge and re-warm" cycle stays a real full
 // re-check. Not eligible for infra/scripts/lib/game-data-tables.sh's
-// prod/dev sync allowlist (ADR-0009) — see ADR-0049 for why.
+// prod/dev sync allowlist (ADR-0009) — see ADR-0050 for why.
 public class ConfirmedLowMatchPair
 {
     public required string FirstAttributeType { get; set; }
@@ -1071,7 +1073,7 @@ task's progress on a scale-down mid-run. A plain foreground CI-runner
 process, bounded only by the workflow's own job timeout, has neither
 problem.
 
-**2026-07-28 extensions (ADR-0049), same verb:** `WarmAsync`'s run summary
+**2026-07-28 extensions (ADR-0050), same verb:** `WarmAsync`'s run summary
 (`CacheWarmingResult`) now also reports `PairsWithTechnicalFailure`/
 `FailingPairs` (a live-queried pair whose Wikidata lookup ended in a
 technical failure — timeout, HTTP error, or parse error — after one
@@ -1111,7 +1113,7 @@ given names, querying `XGArcadeDbContext` directly rather than through
 `XGArcade.Data` itself (COMP-06), the same direct-DbContext precedent
 `ReferenceDataSeeder` already sets for reference tables, not an external
 caller reaching around COMP-06's interface. **2026-07-28 addition
-(REQ-110, ADR-0049):** it also deletes every `ConfirmedLowMatchPair` row
+(REQ-110, ADR-0050):** it also deletes every `ConfirmedLowMatchPair` row
 naming one of the given clubs on either side — the same hard invariant
 this table's own doc comment calls out: a "purge and re-warm" cycle must
 force a real, full re-check, never a warm run trusting a confirmed-low
@@ -1172,7 +1174,7 @@ filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 `XGArcadeDbContext.cs`'s `OnModelCreating`), so an old `Guess` whose
 answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
-**2026-07-28 addition (REQ-110, ADR-0049):** the verb also runs an
+**2026-07-28 addition (REQ-110, ADR-0050):** the verb also runs an
 unscoped `ConfirmedLowMatchPairs.ExecuteDeleteAsync()` — `Player`'s
 cascade delete doesn't reach this table (it has no FK into `Player`, see
 its own doc comment in §5), so it needs its own explicit clear, for the
@@ -1400,6 +1402,23 @@ REQ-204/205 acceptance criterion still holds for xG Grid unchanged — this
 groundwork exists so a second game (xG Path, ADR-0040's motivating case)
 can register its own `IScoringStrategy` without editing this file's
 control flow at all.
+
+**S-083 correction (ADR-0049 — resolves ADR-0040's own deferred
+parameter-shape follow-up):** `IScoringStrategy.ScoreCorrectGuess`'s
+signature changed from `(IReadOnlyCollection<Guess>
+correctGuessesForCell, Guid myAnswerPlayerId)` to `(Guess guess,
+IReadOnlyCollection<Guess> correctGuessesForCell, int
+maxAttemptsForCell)`. `ScoreLockingService` now resolves
+`maxAttemptsForCell` once per cell present in the round's correct-guess
+population (not once per guess) via the existing `IGameModule
+.GetMaxAttemptsForCellAsync` (ADR-0041) before invoking whichever strategy
+is resolved. `UniquenessScoringStrategy` was adapted to the new signature
+with no formula change; `ClueEfficiencyScoringStrategy` (xG Path,
+REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
+`guess.AttemptCount` and computes `round(cluesUsed / maxAttemptsForCell *
+MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
+in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
+on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
 
 **Leaderboard pagination (REQ-607)**
 
@@ -1677,7 +1696,7 @@ deliberate and load-bearing:
   path (grid generation) is unaffected; only REQ-211's guess-time fallback
   sets it `true`, to distinguish a timeout from a genuine no-match on that
   one call site. See REQ-211's 2026-07-27 status notes and ADR-0046 for why.
-- **2026-07-28 addition (REQ-110's cache-warming extensions, ADR-0049):**
+- **2026-07-28 addition (REQ-110's cache-warming extensions, ADR-0050):**
   a third timeout budget, `WikidataQueryTimeoutTier.CacheWarming` (45s),
   now sits alongside `throwOnTimeout`'s existing two-way split
   (15s/`_queryTimeout` for REQ-103's `Sync` origin, 28s/
@@ -1708,7 +1727,7 @@ deliberate and load-bearing:
   call), and skips a pair entirely — no live query at all — when
   `IPlayerStoreRepository.IsConfirmedLowAsync` reports it was already
   confirmed genuinely below `MinValidAnswers` on a prior run (new
-  `ConfirmedLowMatchPair` table, §5, ADR-0049).
+  `ConfirmedLowMatchPair` table, §5, ADR-0050).
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice
