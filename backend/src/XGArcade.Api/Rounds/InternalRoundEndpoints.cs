@@ -69,6 +69,21 @@ public static class InternalRoundEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
+            // S-084/REQ-1202 (quality-gate follow-up): an unrecognized
+            // gameKey is malformed caller input (a bad query-string value),
+            // not a round-generation failure — validated up front via
+            // Results.Problem at 400, the same discipline the
+            // roundDurationHours check above already uses, rather than
+            // relying on the switch below's defensive throw to fall through
+            // into the generic 500 catch-all.
+            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
+            {
+                return Results.Problem(
+                    title: "Invalid gameKey",
+                    detail: $"Unknown gameKey '{gameKey}'.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
             var roundDurationOverride = roundDurationHours is { } hours ? TimeSpan.FromHours(hours) : (TimeSpan?)null;
 
             try
@@ -85,7 +100,11 @@ public static class InternalRoundEndpoints
                 // opaque TemplateId RoundConfig carries; everything else
                 // below (auth, duration validation, calling
                 // roundGenerationService, exception handling, response
-                // shape) is unchanged and generic across every GameKey.
+                // shape) is unchanged and generic across every GameKey. The
+                // guard above already rules out any unrecognized gameKey
+                // reaching here, so this default arm is defensive only
+                // ("should never happen"), not a real "unrecognized value"
+                // path.
                 var templateId = gameKey switch
                 {
                     GridGameModule.XGGridGameKey => (await GridTemplateResolver.GetOrCreateBySizeAsync(

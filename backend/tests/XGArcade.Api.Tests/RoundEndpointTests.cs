@@ -500,25 +500,21 @@ public class RoundEndpointTests
     [Test]
     public async Task REQ1202_GenerateRound_Post_WithUnrecognizedGameKey_ReturnsProblemDetails_NotAnUnhandledException()
     {
-        // NOTE (flagged, not silently "fixed" — see this story's own test
-        // report): InternalRoundEndpoints' gameKey switch throws a plain
-        // ArgumentException for an unrecognized value, which is NOT matched
-        // by the `catch (Exception ex) when (ex is GridGenerationException or
-        // PathGenerationException)` filter — it falls through to the generic
-        // catch-all below, so the caller still gets a Problem Details body
-        // (never an opaque empty 500), but as a 500 "failed unexpectedly"
-        // rather than a 400 client-error response a bad *input* value would
-        // usually warrant. This test pins down today's actual behavior;
-        // whether the endpoint should instead validate gameKey up front and
-        // return 400 is a design question for architecture-reviewer, not
-        // something this test silently corrects.
+        // Quality-gate follow-up (S-084): an unrecognized gameKey is
+        // malformed caller input (a bad query-string value), not a round-
+        // generation failure, so InternalRoundEndpoints validates it up
+        // front and returns 400 Bad Request via Results.Problem — the same
+        // discipline the roundDurationHours check in that handler already
+        // uses — rather than letting the gameKey switch's defensive throw
+        // fall through into the generic 500 catch-all. This asserts that
+        // 400 path, not the earlier 500 behavior it replaced.
         var client = CreateAuthorizedClient();
 
         var response = await client.PostAsync("/internal/generate-round?gameKey=xg-nonexistent", content: null);
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.That(problem!.Title, Is.EqualTo("Round generation failed unexpectedly"));
+        Assert.That(problem!.Title, Is.EqualTo("Invalid gameKey"));
         Assert.That(problem.Detail, Does.Contain("Unknown gameKey 'xg-nonexistent'"));
 
         using var scope = _factory.Services.CreateScope();
