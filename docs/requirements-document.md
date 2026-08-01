@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.29"
+version: "1.30"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -493,6 +493,27 @@ without erroring), API
   real, full re-check" reason. The exact threshold (how many consecutive
   run failures before skipping) is an implementation detail for
   `backend-implementer` to pick and justify, not specified here.
+- **Status note (2026-08-01, live-incident follow-up to ADR-0052).** The
+  first real `warm-player-cache.yml` runs under the extension above
+  produced exactly the intended effect — 125 Club x Club pairs correctly
+  identified as structural, persistent technical failures (a combinatorial
+  WDQS row-explosion query shape) and stopped from being retried — but
+  exposed a missing recovery path: there was no tool to clear a
+  `PairLookupFailure` marker without also being `clean-stale-club-attributes`'s
+  much broader club-name scope (every pair touching a named club on either
+  side). Since the 125 stuck pairs collectively touched all 32 seeded
+  clubs, using that tool to clear them would have wiped roughly 850 other
+  pairs' worth of perfectly good cached `PlayerAttribute`/`PlayerData`
+  data along with them. Added `PairLookupFailureCleaner`
+  (`XGArcade.Data.Seeding`) and its `clear-pair-lookup-failures` CLI verb —
+  pair-scoped, not club-name-scoped: it reads `PairLookupFailure` directly
+  for every row at or above `PersistentFailureThreshold` and removes only
+  those rows, touching no other table. This is a narrower sibling to
+  REQ-111's `clean-stale-club-attributes`/`purge-player-pool`, not a
+  replacement for either — the "purge and re-warm forces a real, full
+  re-check" invariant those two already satisfy for a QID/query-shape
+  correction is unaffected; this tool instead exists for the case where
+  the failure marker itself is the only thing that needs clearing.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -516,7 +537,12 @@ pair). Also: a regression test proving that running REQ-111's stale-QID
 cleanup (named or `--all-clubs`) or REQ-112/S-038's `purge-player-pool`
 against a pair previously marked confirmed-low OR a persistent technical
 failure, followed by a cache-warming run, re-queries that pair live rather
-than trusting the stale marker.
+than trusting the stale marker. `PairLookupFailureCleanerTests.cs`
+(2026-08-01): a pair at `PersistentFailureThreshold` is removed; a pair
+above it is removed; a pair below it is left alone; a mix of both only
+removes the ones at/above threshold, leaving the rest untouched; an empty
+table is a no-op that doesn't throw; running it twice in a row is safe
+(the second run removes nothing).
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched
