@@ -15,9 +15,19 @@
   gap: var(--space-2);
 }
 
-.path-guess-input__field {
+/* REQ-207 (S-091): positions the suggestion list against the field itself,
+   the same way GuessInput.css's version does (that one doesn't need a
+   wrapper since the field is the only thing in its own column already —
+   here the field shares a row with the Guess button, so this wrapper keeps
+   the list's absolute positioning scoped to just the field's width). */
+.path-guess-input__field-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+
+.path-guess-input__field {
+  width: 100%;
   min-height: var(--touch-target-min);
   padding: var(--space-3);
   border: 1px solid var(--color-border-hairline);
@@ -29,6 +39,58 @@
 
 .path-guess-input__field:disabled {
   opacity: 0.6;
+}
+
+/* REQ-207/ADR-0007 (S-091): mirrors GuessInput.css's
+   .guess-input__suggestions treatment — neutral tokens only, deliberately,
+   since this list must never look like it's vouching for a name being the
+   correct answer (see PathGuessInput.tsx's own comment). Positioned to drop
+   below the field rather than pushing the rest of the form down. */
+.path-guess-input__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.path-guess-input__suggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.path-guess-input__suggestion:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.path-guess-input__suggestion--highlighted {
+  background: var(--color-surface-sunken);
+}
+
+.path-guess-input__suggestion-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.path-guess-input__suggestion-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 .path-guess-input__submit {

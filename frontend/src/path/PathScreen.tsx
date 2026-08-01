@@ -183,6 +183,7 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
         key={`${puzzle.puzzleId}-guess`}
         clueCount={puzzle.clues.length}
         guess={puzzle.guess}
+        accessToken={accessToken}
         onSubmit={handleSubmitGuess}
       />
 
