@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md` (v1.29 → v1.30),
+  `docs/architecture-document.md` (v0.70 → v0.71), `docs/backlog.md`,
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (2026-08-01 status note added) — Live-incident follow-up to ADR-0052:
+  added `PairLookupFailureCleaner` (`XGArcade.Data.Seeding`) and its
+  `clear-pair-lookup-failures` CLI verb (`Program.cs`,
+  `.github/workflows/clear-pair-lookup-failures.yml`) — a pair-scoped
+  alternative to `clean-stale-club-attributes` for clearing
+  `PairLookupFailure` rows stuck at/above `PersistentFailureThreshold`,
+  after the first real run under ADR-0052's tracking left 125 Club x Club
+  pairs stuck across all 32 seeded clubs, where the existing club-name-
+  scoped tool would have wiped ~850 other pairs' worth of good cached data
+  to clear them. Touches only `PairLookupFailure`, never
+  `PlayerAttribute`/`PlayerData`/`ConfirmedLowMatchPair`. Added a REQ-110
+  status note and test-level addendum covering `PairLookupFailureCleanerTests.cs`
+  (6 NUnit tests: at-threshold removed, above-threshold removed,
+  below-threshold left alone, mixed set only removes the stuck ones,
+  empty-table no-op, safe to re-run). No new ADR number — but ADR-0052's
+  own "For AI agents" section explicitly required updating that ADR before
+  adding a third `PairLookupFailure` invalidation path, so it was amended
+  in place (a dated status note, same pattern as ADR-0046's 2026-07-27
+  amendment) rather than left to silently drift out of sync — caught by
+  `architecture-reviewer` before this was considered done. Backend claims
+  were hand-traced against existing patterns, not built or run against a
+  live `dotnet` SDK — unavailable in this sandbox; confirm in CI.
 - 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.57 →
   v0.58), `docs/requirements-document.md` (v1.29 → v1.30),
   `docs/implementation-document.md` (v0.82 → v0.83) — Doc-sync for S-085

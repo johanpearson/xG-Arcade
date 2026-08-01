@@ -1,0 +1,34 @@
+name: clear-pair-lookup-failures
+
+# 2026-08-01 live-incident follow-up to ADR-0052: manual, one-off
+# maintenance tool (PairLookupFailureCleaner's own doc comment has the full
+# reasoning) for clearing PairLookupFailure rows stuck at or above
+# PlayerCacheWarmingService.PersistentFailureThreshold — PlayerCacheWarmingService
+# skips such a pair forever, with no live query ever re-attempted, until an
+# operator runs this.
+#
+# Low-risk and easily re-run: unlike clean-stale-club-attributes.yml, this
+# never touches PlayerAttribute/PlayerData/ConfirmedLowMatchPair — only the
+# PairLookupFailure marker itself, which the next warm-player-cache.yml run
+# simply repopulates if the pair still genuinely fails. No confirmation
+# input is required for that reason (contrast purge-player-pool's required
+# exact-phrase confirmation for its much more destructive, unscoped write).
+# Takes no input — the verb reads the stuck-pair list from the database
+# itself rather than an operator-supplied one (see PairLookupFailureCleaner's
+# own comment on why a hand-derived list from CI logs is unreliable).
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  clear-pair-lookup-failures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Clear persistent pair lookup failures
+        run: dotnet run --project backend/src/XGArcade.Api -- clear-pair-lookup-failures
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

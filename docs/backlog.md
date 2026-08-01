@@ -1570,6 +1570,29 @@ instead of a plain join; `WikidataClient`'s two per-pair failure logs
 moved from `Warning` to `Debug`. The flagged ADR is
 `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`.
 
+**Further follow-up (2026-08-01) — the first real runs under ADR-0052's
+tracking exposed a missing recovery path.** `warm-player-cache.yml` runs
+correctly identified 125 Club×Club pairs as persistent, structural
+technical failures and stopped retrying them — but there was no way to
+clear a `PairLookupFailure` marker without reaching for
+`clean-stale-club-attributes`, whose scope is every pair touching a named
+club on either side. Since the 125 stuck pairs collectively touched all
+32 seeded clubs, using that tool would have wiped roughly 850 other
+pairs' worth of good cached `PlayerAttribute`/`PlayerData` data just to
+clear 125 broken failure markers. *Resolved same session:* added
+`PairLookupFailureCleaner` (`XGArcade.Data.Seeding`) and its
+`clear-pair-lookup-failures` CLI verb (`Program.cs`,
+`.github/workflows/clear-pair-lookup-failures.yml`) — reads
+`PairLookupFailure` directly for every row at/above
+`PersistentFailureThreshold` and removes only those rows, touching no
+other table. Same entity, narrower scope than ADR-0052's existing
+invalidation surface — but ADR-0052 itself explicitly names
+`StaleClubAttributeCleaner`/`purge-player-pool` as the *only* two paths and
+says not to add a third without updating it, so this required amending
+ADR-0052 in place (a dated status note), not a new ADR number.
+`architecture-reviewer` caught the doc claiming otherwise before this was
+considered done.
+
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked
 S-036's new club QIDs against live Wikidata pages (this sandbox can't —

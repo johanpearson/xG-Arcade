@@ -336,6 +336,54 @@ if (args is ["clean-stale-club-attributes", ..])
     return;
 }
 
+// 2026-08-01 live-incident follow-up to ADR-0052: `dotnet run --
+// clear-pair-lookup-failures` is a seventh distinct CLI verb — see
+// PairLookupFailureCleaner's own doc comment for the full reasoning (why
+// this exists as a narrower, pair-scoped alternative to
+// clean-stale-club-attributes above, which is club-name-scoped and would
+// wipe far more cached data than intended for this specific incident).
+//
+// No required argument, unlike clean-stale-club-attributes: the whole point
+// of this tool is that it reads the stuck-pair list from the database
+// itself (every PairLookupFailure row at/above
+// PlayerCacheWarmingService.PersistentFailureThreshold), rather than
+// requiring an operator to hand-derive it — GitHub Actions log text only
+// ever names pairs that were queried and failed, never ones that were
+// skipped for already being past the threshold, so no log ever contains the
+// true full list.
+//
+// Matched on the verb alone (not exact-length) for the same reason as
+// clean-stale-club-attributes above: a malformed invocation should fail
+// loudly via an explicit exception rather than silently falling through to
+// WebApplication.CreateBuilder and starting the full server. This verb
+// takes no arguments, so any extra argument is itself the malformed case.
+if (args is ["clear-pair-lookup-failures", ..])
+{
+    if (args.Length > 1)
+        throw new InvalidOperationException(
+            $"clear-pair-lookup-failures takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
+
+    var clearFailuresConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var clearFailuresConnectionString = clearFailuresConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var clearFailuresDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(clearFailuresConnectionString)
+        .Options;
+
+    await using var clearFailuresDbContext = new XGArcadeDbContext(clearFailuresDbContextOptions);
+
+    var clearedPairNames = await PairLookupFailureCleaner.ClearPersistentFailuresAsync(clearFailuresDbContext);
+
+    Console.WriteLine(clearedPairNames.Count > 0
+        ? $"clear-pair-lookup-failures: removed {clearedPairNames.Count} PairLookupFailure row(s): {string.Join(", ", clearedPairNames)}."
+        : "clear-pair-lookup-failures: removed 0 PairLookupFailure row(s) — nothing was at or above the persistent-failure threshold.");
+    return;
+}
+
 // S-038 (ADR-0025): `dotnet run -- purge-player-pool "delete all player data"`
 // is a fourth CLI verb — deletes every Player row (and, via ON DELETE
 // CASCADE, every PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias row
