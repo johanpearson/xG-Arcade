@@ -4406,3 +4406,32 @@ no-match), UI (admin) levels, matching REQ-509/REQ-510's own Test level
 lines. *Deps:* S-089 (suggestions must exist to review, though REQ-510's
 manual-add half has no dependency on S-089 itself), ADR-0053 (the new
 separate-admin-view decision this story implements).
+
+**S-091 · Frontend: xG Path guess autocomplete (REQ-207 extension)**
+Pulled forward by deliberate product decision, 2026-08-01, immediately
+after S-086 shipped without it (SCREEN-10's own spec named no autocomplete
+requirement, so S-086 correctly left it out — this is new scope, not a
+gap in that story). Wires `PathGuessInput.tsx` into the existing, fully
+game-agnostic `GET /players/autocomplete` endpoint (REQ-207/ADR-0007) the
+same way `GuessInput.tsx` already does for xG Grid — no backend change:
+the endpoint queries `PlayerNameIndex` globally, with no `gameKey`/category
+scoping to extend. Deliberately **not** paired with a disambiguation
+picker (REQ-209): reviewed and rejected for xG Path specifically, since
+`XGPathGameModule.ScoreSubmissionAsync` (REQ-1204, S-082) already resolves
+correctness as "is the target player among the name-matched candidates,"
+not "which specific candidate did the player mean" — unlike xG Grid, where
+two different same-named players can each independently satisfy a cell's
+two categories, an xG Path puzzle has exactly one correct target, so which
+same-named candidate a picker would let the player choose never changes
+the scored outcome. A picker here would be purely cosmetic, not a
+correctness aid — out of scope for this story, not a deferred gap.
+*Accept:* REQ207-adjacent UI test: typing 2+ characters in the xG Path
+guess field surfaces suggestions from the same autocomplete endpoint xG
+Grid uses; selecting a suggestion fills the field without submitting;
+suggestions carry no `AttributeType`/category information that could leak
+correctness (matching REQ-207's own "implies nothing about whether it is
+correct" criterion — trivially satisfied here since xG Path's guess field
+has no category to leak in the first place, but the suggestion list itself
+must still be the shared, non-scored `PlayerNameIndex` source, never a
+narrower path-specific list). *Deps:* S-086 (the guess input this wires
+into must already exist).
