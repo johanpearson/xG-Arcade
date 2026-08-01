@@ -412,6 +412,33 @@ is written as something you can actually observe, not a vague feeling:
   on that distinct rejection, never on any other guest-sign-in failure.
   REQ-717/ADR-0037 is therefore complete end-to-end pending the manual
   Cloudflare/Supabase dashboard setup `SETUP.md` step 6 describes.
+- **Player-submitted answer suggestions + admin Wikidata search/commit**
+  (REQ-215/509/510, ADR-0052) — trigger: none fired; **pulled forward by
+  deliberate product decision, 2026-08-01**, same pattern as
+  REQ-108/REQ-214/REQ-402-403/REQ-717's own precedent (no observed
+  request from real play — the product owner asked for it directly, by
+  name). A new submission/review/commit pipeline: a logged-in, non-guest
+  player can suggest a correction after an incorrect guess or a REQ-211
+  live-lookup timeout (REQ-215); an admin reviews it against a fresh,
+  admin-triggered Wikidata lookup and commits or rejects it, or searches
+  and adds a player manually with no suggestion involved (REQ-509/510),
+  through the same `PlayerAttribute`/`PlayerOverride` write path REQ-501
+  already uses, never `PlayerNameIndex` (ADR-0007's boundary,
+  reconfirmed by ADR-0052). No retroactive rescoring of the guess that
+  prompted a suggestion — decided 2026-08-01, see REQ-215's own
+  acceptance criteria. **REQ-215's submission half built, 2026-08-01,
+  `docs/backlog.md` S-089:** `PlayerSuggestion`/`PlayerSuggestionClub`
+  entities, `POST /rounds/{roundId}/cells/{cellId}/suggestions`
+  (guest-rejected server-side), `SuggestionEntry.tsx` wired into
+  `GuessInput.tsx` at both trigger points (design-document.md SCREEN-02b).
+  Cell-metadata lookup goes through a new `IGameModule
+  .GetCellCategoryTypesAsync` method (an architecture-review fix,
+  same session — the original version read `GridCell` directly,
+  violating ADR-0003's boundary), implemented by `GridGameModule`; xG
+  Path's implementation throws `NotSupportedException` since nothing
+  wires this feature up for it yet. **REQ-509/REQ-510's admin
+  review/commit half remains queued, not yet built** — `docs/backlog.md`
+  S-090, blocked on no dependency other than session availability.
 
 ## Tier 2 — already deferred, unchanged
 

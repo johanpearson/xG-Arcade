@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.28"
+version: "1.29"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -2075,16 +2075,80 @@ unresolved guess**
 > incorrect or couldn't be verified in time, so a real gap in the data has
 > a chance to be fixed for everyone — not just re-scored for me.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement.
+**Status: Implemented (submission half only; REQ-509/510's admin review/
+commit half is S-090, still not built — 2026-08-01, S-089).** Backend:
+`POST /rounds/{roundId}/cells/{cellId}/suggestions`
+(`XGArcade.Api.Suggestions.SuggestionEndpoints`, `[RequireAuthorization]`)
+resolves the caller via `ClaimsPrincipal`/`IUserRepository
+.GetByAuthProviderUserIdAsync`, returns `401` for no/unmatched token,
+`400` if `playerName` is blank, `400` if `clubs` has no non-blank entry
+(blank strings trimmed and filtered, not counted), `400` if `nationality`
+is blank, and `403` if the resolved user's `IsGuest` is `true` — enforced
+server-side regardless of what the client sends, per this REQ's own
+"Guest vs. non-guest visibility" clause. On success it persists a new
+`PlayerSuggestion` row (`PlayerName`, `AssertedNationality`,
+`SubmittingUserId`, `CellId`, `RoundId`, `RowCategoryType`/
+`ColCategoryType`, `Status = Pending`, `CreatedAt`) plus one
+`PlayerSuggestionClub` child row per asserted club (`XGArcade.Data.Entities`,
+migration `20260801120000_AddPlayerSuggestion`), returning `201` with the
+created suggestion. Deliberately writes nothing to `PlayerAttribute`,
+`PlayerOverride`, or `PlayerNameIndex`, and never touches the triggering
+`Guess` row — both this REQ's "queued/pending state only" and "no
+retroactive rescoring" clauses. The row/col category types are resolved
+authoritatively server-side (never trusted from the request) via a new
+`IGameModule.GetCellCategoryTypesAsync(instanceId, cellId)` method,
+reached the standard `Round.GameKey → IGameModuleResolver` way
+(ADR-0003) — see `architecture-document.md`'s COMP-05/COMP-11 status
+note for this new cross-game-module contract method, added specifically
+for this endpoint after an architecture-review fix (the original commit
+read `GridCell` directly via `IGridInstanceRepository` from this Api-layer
+file, a boundary violation caught same-session and corrected before
+merge). Frontend: `SuggestionEntry.tsx` (`frontend/src/grid/`) renders the
+entry point/form and is mounted by `GuessInput.tsx` at exactly the two
+trigger points below — a guest sees it present-but-disabled with
+registration copy (`SUGGESTION_GUEST_LOCKED_COPY`), a non-guest sees it
+enabled, with client-side validation (empty clubs/nationality) before the
+API call. Test coverage: backend `SuggestionEndpointTests.cs` (11 NUnit
+tests, `REQ215_...` naming — unauthorized/guest-403/not-found/validation/
+persisted-pending-with-no-side-effect/category-types-from-the-seeded-cell/
+xG-Path-keyed-round-resolves-via-module-resolver) plus
+`GridGameModuleTests.cs`/`XGPathGameModuleTests.cs` additions pinning
+`GetCellCategoryTypesAsync`'s own behavior (returns the seeded cell's row/
+col types; throws `GuessScoringException`
+for an unknown cell; xG Path's implementation throws `NotSupportedException`
+unconditionally, matching this REQ's frontend never being wired up for
+`GameKey = "xg-path"`). Frontend: `SuggestionEntry.test.tsx` (9 tests) plus
+`GuessInput.test.tsx` additions (6 `REQ215_...` tests covering the new
+outcome-view-instead-of-immediate-close behavior on an incorrect guess,
+the `LiveLookupUnavailable` trigger, the guest-disabled entry point, and a
+regression guard that a correct result still closes immediately as
+before) — 382/382 Vitest tests passing, clean `tsc -b`, clean `oxlint`
+(all directly run, not just claimed). **Backend caveat: the `dotnet` SDK
+was unavailable in this build environment throughout** — the backend
+implementation and its tests were hand-traced against
+`GuessEndpoints`/`GuessSubmissionService`/`GridGameModule`/
+`XGPathGameModule`'s existing, already-verified patterns rather than
+actually built or run; confirm in CI before treating the backend half as
+independently verified. **Known, accepted, non-blocking gap:**
+`XGPathGameModule.GetCellCategoryTypesAsync`'s `NotSupportedException`
+currently falls through to ASP.NET's bare default `500` rather than an
+explicit `ProblemDetails` response — unreachable today since nothing
+wires this feature up for `GameKey = "xg-path"`, flagged by
+architecture-reviewer as worth a deliberate `501`/`409` response if/when
+xG Path ever does grow a suggestion entry point, not fixed now.
 
-**Tier framing (flagged, not resolved):** this is a new submission/review/
-commit pipeline end to end — not a small extension of an already-tiered
-item the way, say, REQ-211's timeout handling extended an existing live
-lookup. Per `MVP-SCOPE.md`'s own classification criteria this reads as
-Tier 1/2-sized new work; whether/when to pull it forward is a build-order
-decision for the product owner/orchestrator to make deliberately, not one
-this REQ's existence should be read as already having decided.
+**Tier framing — resolved 2026-08-01, pulled forward by deliberate product
+decision:** this is a new submission/review/commit pipeline end to end —
+not a small extension of an already-tiered item the way, say, REQ-211's
+timeout handling extended an existing live lookup. Per `MVP-SCOPE.md`'s
+own classification criteria this reads as Tier 1/2-sized new work. The
+product owner requested this feature directly, by name (not a trigger
+firing during normal play), the same basis REQ-108/REQ-214/REQ-402-403/
+REQ-717 were each pulled forward on before their own triggers fired — see
+`MVP-SCOPE.md`'s Tier 1 section for the matching entry recording this
+pull-forward. REQ-215's submission half (S-089) was built the same
+session; REQ-509/REQ-510's admin review/commit half remains queued as
+S-090, not yet pulled into an active session.
 
 **Scope note:** this is a genuinely new, player-initiated pipeline,
 distinct from REQ-501-503's existing admin review of auto-fetched,
@@ -6132,8 +6196,13 @@ retroactive rescoring" acceptance criteria.
 Two related items were flagged inline in REQ-215/509 rather than here,
 since they're build-order/architecture questions, not product decisions:
 (1) whether this Tier 1/2-sized new pipeline should be pulled forward ahead
-of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier framing" note) — still
-open, not resolved by this entry; and (2) whether REQ-509's
+of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier framing" note) —
+**resolved 2026-08-01:** pulled forward by deliberate product decision
+(the feature was requested directly, by name, the same basis
+REQ-108/REQ-214/REQ-402-403/REQ-717 were each pulled forward on), recorded
+in `MVP-SCOPE.md`'s Tier 1 section; REQ-215's submission half was built
+the same session (S-089), REQ-509/REQ-510's admin half remains queued
+(S-090); and (2) whether REQ-509's
 admin-reviewable suggestions should surface through REQ-503's existing
 (currently empty) review queue or a new, separate view, and whether a new
 ADR should record that choice (REQ-509's own status note) — **resolved

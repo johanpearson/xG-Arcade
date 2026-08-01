@@ -4224,7 +4224,7 @@ guess → round close → leaderboard, run against the same local-stack E2E
 setup `ci.yml` already uses for xG Grid. *Deps:* S-076 through S-087 (the
 complete feature).
 
-**S-089 · REQ-215: player-submitted answer suggestion**
+**S-089 · REQ-215: player-submitted answer suggestion — done, 2026-08-01**
 Backend: new `PlayerSuggestion` entity/migration (player name, asserted
 club(s), asserted nationality, submitting user id, originating
 cell/category types, timestamp, pending/resolved state) and a submission

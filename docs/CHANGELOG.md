@@ -13,6 +13,59 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md`, `MVP-SCOPE.md` — Closed a
+  gap the S-089 doc-sync flagged: REQ-215's "Tier framing" note still
+  read "flagged, not resolved" even though S-089 had already been built.
+  Resolved it explicitly — the player-suggestion pipeline (REQ-215/509/510)
+  was pulled forward by deliberate product decision (requested directly,
+  by name, same basis as REQ-108/REQ-214/REQ-402-403/REQ-717's own
+  precedent), recorded as a new `MVP-SCOPE.md` Tier 1 entry rather than
+  left as an unresolved §7 open question.
+- 2026-08-01 — `docs/requirements-document.md` (v1.28 → v1.29),
+  `docs/architecture-document.md` (v0.69 → v0.70), `docs/backlog.md` —
+  Doc-sync for S-089 (REQ-215: player-submitted answer suggestion),
+  covering the full session arc: backend (`52f213b`, `POST
+  /rounds/{roundId}/cells/{cellId}/suggestions` — guest rejected 403
+  server-side, validates playerName/clubs/nationality, persists a
+  `PlayerSuggestion`/`PlayerSuggestionClub` row as `Pending`, never writes
+  `PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex`/`Guess`), frontend
+  (`22608b2`, `SuggestionEntry.tsx` mounted by `GuessInput.tsx` at the two
+  REQ-215 trigger points — an incorrect scored guess now shows an outcome
+  view instead of closing immediately, and a `LiveLookupUnavailable`
+  timeout), test coverage (`ab93894`, `SuggestionEndpointTests.cs` — 11
+  NUnit tests — plus `SuggestionEntry.test.tsx`/updated `GuessInput.test.tsx`
+  — 382/382 Vitest passing, clean `tsc -b`, clean `oxlint`, all directly
+  run), and a same-session architecture fix (`e81189c`): the original
+  commit resolved a cell's row/col category types via a direct
+  `IGridInstanceRepository`/`GridCell` read from the Api layer, a boundary
+  rule 2 violation (ADR-0003) caught by `architecture-reviewer` before
+  merge; fixed by adding `IGameModule.GetCellCategoryTypesAsync`
+  (implemented by `GridGameModule` and, throwing `NotSupportedException`,
+  by `XGPathGameModule`), resolved via the standard `Round.GameKey →
+  IGameModuleResolver` path — re-verified as resolved. REQ-215's status
+  note now reads "Implemented (submission half only)"; REQ-509's status
+  note was checked and needs no change (still correctly "not yet
+  implemented," S-090). `architecture-document.md` gained: a COMP-05/
+  COMP-11 status note for the new `GetCellCategoryTypesAsync` method, a
+  `PlayerSuggestion`/`PlayerSuggestionClub` note on COMP-06's row
+  (ADR-0052's "COMP-06-adjacent" placement), and a new §6.2c data-flow
+  diagram — closing the gap that no architecture-doc pass happened when
+  the feature was first built. Backend claims in this entry (and in
+  REQ-215's own status note) were **hand-traced against existing patterns,
+  not built or run against a live `dotnet` SDK** — unavailable in this
+  sandbox throughout; confirm in CI. One minor, non-blocking gap recorded
+  as known-and-accepted, not fixed: `XGPathGameModule
+  .GetCellCategoryTypesAsync`'s `NotSupportedException` currently falls
+  through to ASP.NET's bare default `500` rather than an explicit
+  `ProblemDetails` response — unreachable today since nothing wires
+  REQ-215's frontend up for `GameKey = "xg-path"`, worth a deliberate
+  `501`/`409` response if that ever changes. `docs/backlog.md`'s S-089
+  entry marked "— done, 2026-08-01," matching the convention other
+  completed stories (e.g. S-084) already use. No change to
+  `docs/design-document.md` (SCREEN-02b already correctly added by the
+  frontend implementer) or to REQ-509/REQ-510/S-090, which remain
+  correctly not-yet-implemented. REQ/ADR refs: REQ-215, REQ-509, ADR-0003,
+  ADR-0052.
 - 2026-08-01 — `docs/requirements-document.md` (v1.27 → v1.28),
   `docs/decisions/0052-player-suggestions-separate-admin-view.md` (new),
   `docs/backlog.md` — Finalized the two product decisions the product
