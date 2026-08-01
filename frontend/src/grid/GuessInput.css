@@ -210,6 +210,45 @@
   margin: 0;
 }
 
+/* REQ-215 (S-089): the "not a match" outcome view — replaces the plain form
+   once a submission scores incorrect, carrying the suggestion entry point
+   (SuggestionEntry.css) below it. Same card/token discipline as the rest of
+   this file, no new tokens. */
+.guess-input__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guess-input__outcome-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.guess-input__outcome-icon {
+  color: var(--color-accent-red);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.guess-input__outcome-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.guess-input__outcome-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .guess-input__submit {
   min-height: var(--touch-target-min);
   padding: var(--space-3) var(--space-4);

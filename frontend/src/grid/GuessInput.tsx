@@ -1,29 +1,54 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { CategoryLabel } from './CategoryLabel';
-import { describeError, fetchPlayerAutocomplete } from '../lib/api';
+import { SuggestionEntry } from './SuggestionEntry';
+import { ApiError, describeError, fetchPlayerAutocomplete } from '../lib/api';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
-import type { CurrentRoundCell, DisambiguationCandidate, PlayerAutocompleteSuggestion } from '../lib/types';
+import type {
+  CurrentRoundCell,
+  DisambiguationCandidate,
+  PlayerAutocompleteSuggestion,
+  SubmitGuessResponse,
+} from '../lib/types';
 import './GuessInput.css';
 
 export interface GuessInputProps {
   cell: CurrentRoundCell;
+  // REQ-215 (S-089): needed to submit a suggestion (POST /rounds/{roundId}/
+  // cells/{cellId}/suggestions) from either trigger site below — not used
+  // for anything else in this component. Optional/defaulting to '' so
+  // existing direct-unit-test call sites that never exercise an incorrect-
+  // scored or live-lookup-timeout outcome (the only paths that ever mount
+  // SuggestionEntry) don't need updating just to satisfy this prop —
+  // GridScreen, the only real caller, always supplies the actual round id.
+  roundId?: string;
   accessToken: string;
-  // REQ-209: resolves to the disambiguation candidates when the submitted
-  // name matched more than one fitting player (SubmitGuessResponse.candidates
-  // non-null/non-empty) — GuessInput renders SCREEN-02a's picker instead of
-  // closing in that case. Resolves to `undefined` for every ordinary,
-  // already-scored result (correct or incorrect), same as this prop's
-  // original contract — GuessInput closes exactly as it always did.
-  onSubmit: (submittedName: string) => Promise<DisambiguationCandidate[] | undefined>;
-  // REQ-209/REQ-210: resolves the picker by resubmitting the same guess with
-  // the chosen candidate's playerId. Always a normal, scored response
-  // (never another disambiguation prompt) — resolving this promise closes
-  // the sheet exactly like a normal onSubmit success; rejecting it shows the
-  // error inline and leaves the picker open, same error-handling shape as
-  // the plain guess form. This never consumes a separate attempt — it's the
-  // same attempt REQ-210 already counted for the submission that triggered
-  // the prompt, per REQ-210's explicit clause.
-  onResolveDisambiguation: (chosenPlayerId: string, submittedName: string) => Promise<void>;
+  // REQ-717/REQ-215: whether the caller is a guest account — controls only
+  // the suggestion entry point's disabled/advertised state (SuggestionEntry
+  // itself), nothing else in this form. Defaults to false so existing
+  // direct-unit-test call sites that don't exercise guest gating don't need
+  // updating.
+  isGuest?: boolean;
+  // REQ-209/REQ-215 (S-089 revision): resolves to the full, unmodified
+  // SubmitGuessResponse for every submission that actually reaches the
+  // server — GuessInput itself now decides what to show from its fields
+  // (`candidates` non-null renders SCREEN-02a's picker; `isCorrect` decides
+  // whether to close immediately or show REQ-215's "not a match" outcome
+  // view with the suggestion entry point). Resolving to `undefined` is
+  // still supported as a defensive "close, nothing to show" fallback for a
+  // caller that genuinely has nothing to submit against (GridScreen's own
+  // guard clause), not a real scored outcome.
+  onSubmit: (submittedName: string) => Promise<SubmitGuessResponse | undefined>;
+  // REQ-209/REQ-210/REQ-215 (S-089 revision): resolves the picker by
+  // resubmitting the same guess with the chosen candidate's playerId —
+  // always a normal, scored response (never another disambiguation prompt).
+  // Same "GuessInput decides from the response's own fields" contract as
+  // onSubmit above: a correct result closes the sheet exactly as before; an
+  // incorrect one shows REQ-215's outcome view instead. This never consumes
+  // a separate attempt — it's the same attempt REQ-210 already counted for
+  // the submission that triggered the prompt, per REQ-210's explicit
+  // clause. Rejecting shows the error inline and leaves the picker open,
+  // same error-handling shape as the plain guess form.
+  onResolveDisambiguation: (chosenPlayerId: string, submittedName: string) => Promise<SubmitGuessResponse | undefined>;
   onClose: () => void;
 }
 
@@ -50,7 +75,15 @@ const SUGGESTION_LIMIT = 8;
 // answer. The suggestions fetch is a nice-to-have: a network failure here
 // is swallowed and just shows no suggestions, never blocking or erroring
 // the guess form itself.
-export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguation, onClose }: GuessInputProps) {
+export function GuessInput({
+  cell,
+  roundId = '',
+  accessToken,
+  isGuest = false,
+  onSubmit,
+  onResolveDisambiguation,
+  onClose,
+}: GuessInputProps) {
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +96,37 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
   const [candidates, setCandidates] = useState<DisambiguationCandidate[] | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
 
+  // REQ-215 (S-089): set once a submission (direct or via the REQ-209
+  // disambiguation resubmission) comes back scored *incorrect*, and never
+  // cleared while the sheet stays mounted (see the "Try another guess"
+  // handler below) — it's this component's only source of the latest known
+  // attemptCount/locked value, since the `cell` prop itself is a stale
+  // snapshot from when the sheet opened (GridScreen doesn't re-pass a fresh
+  // one while it stays mounted). `submittedName` is the specific player name
+  // this outcome is about — the raw typed text for a direct submission, or
+  // the chosen candidate's own canonical name for a disambiguation
+  // resubmission (more accurate than re-using the raw typed text in that
+  // case, since the player already confirmed exactly which real player they
+  // meant).
+  const [scoredResult, setScoredResult] = useState<{ response: SubmitGuessResponse; submittedName: string } | null>(
+    null,
+  );
+  // REQ-215 (S-089): whether the outcome view (vs. the plain form) is
+  // currently displayed — separate from `scoredResult` above so "Try
+  // another guess" can return to the plain form (for a genuine second
+  // attempt, still within the same sheet) without losing the latest known
+  // attemptCount/locked value `scoredResult` carries; a further incorrect
+  // submission sets both this and `scoredResult` again.
+  const [showOutcome, setShowOutcome] = useState(false);
+  // REQ-211/REQ-215: non-null only once a submission throws the
+  // "Live verification unavailable" 503 (GridScreen's existing inline-error
+  // handling for this case, unchanged) — REQ-215's second trigger
+  // condition. Holds the exact name that was submitted when the timeout
+  // happened, so the suggestion entry point (rendered alongside the
+  // existing inline error, below) has a stable player name even if the
+  // player keeps editing the field afterward.
+  const [liveLookupUnavailableFor, setLiveLookupUnavailableFor] = useState<string | null>(null);
+
   const [suggestions, setSuggestions] = useState<PlayerAutocompleteSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -72,8 +136,15 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
   // one re-trigger without needing to touch the debounce timing itself.
   const justSelectedRef = useRef(false);
 
-  const attemptCount = cell.guess?.attemptCount ?? 0;
-  const locked = cell.guess?.locked ?? false;
+  // REQ-215 (S-089): once a submission has scored an outcome this render
+  // (scoredResult), attemptCount/locked prefer that fresh response over the
+  // `cell` prop — `cell` is a snapshot from when the sheet was opened and
+  // GridScreen doesn't re-pass a fresh one while the sheet stays mounted
+  // (only relevant now that a scored-incorrect result no longer closes the
+  // sheet immediately; before this story the sheet always closed before
+  // this staleness could ever be visible).
+  const attemptCount = scoredResult?.response.attemptCount ?? cell.guess?.attemptCount ?? 0;
+  const locked = scoredResult?.response.locked ?? cell.guess?.locked ?? false;
   const listboxId = `guess-input-suggestions-${cell.cellId}`;
 
   useEffect(() => {
@@ -158,17 +229,38 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
     setShowSuggestions(false);
     setSubmitting(true);
     setError(null);
+    setLiveLookupUnavailableFor(null);
     try {
       const result = await onSubmit(trimmed);
-      if (result) {
-        // REQ-209: nothing was scored — show the picker instead of closing.
-        setCandidates(result);
-        setSelectedCandidateId(null);
-      } else {
+      if (!result) {
+        // Defensive fallback only (GridScreen's own guard clause) — not a
+        // real scored outcome, see this prop's own doc comment.
         onClose();
+      } else if (result.candidates) {
+        // REQ-209: nothing was scored — show the picker instead of closing.
+        setCandidates(result.candidates);
+        setSelectedCandidateId(null);
+      } else if (result.isCorrect) {
+        onClose();
+      } else {
+        // REQ-215 trigger condition 1: a submitted guess scored incorrect —
+        // stay open and show the outcome view with the suggestion entry
+        // point, instead of closing immediately as every other case above
+        // still does.
+        setScoredResult({ response: result, submittedName: trimmed });
+        setShowOutcome(true);
       }
     } catch (err) {
       setError(describeError(err));
+      // REQ-215 trigger condition 2: a REQ-211 live lookup for this same
+      // guess timed out (503, "Live verification unavailable") — no attempt
+      // was consumed and nothing was scored either way, so the form itself
+      // stays exactly as it already did before this story (untouched,
+      // resubmittable); this only adds the suggestion entry point alongside
+      // the existing inline error.
+      if (err instanceof ApiError && err.status === 503) {
+        setLiveLookupUnavailableFor(trimmed);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -180,12 +272,24 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
       setError('Choose a player to submit your guess.');
       return;
     }
+    const chosenCandidate = candidates?.find((candidate) => candidate.playerId === selectedCandidateId);
 
     setSubmitting(true);
     setError(null);
     try {
-      await onResolveDisambiguation(selectedCandidateId, name.trim());
-      onClose();
+      const result = await onResolveDisambiguation(selectedCandidateId, name.trim());
+      if (!result || result.isCorrect) {
+        onClose();
+      } else {
+        // REQ-215 trigger condition 1, via the disambiguation path — same
+        // outcome view as a direct incorrect submission, using the chosen
+        // candidate's own canonical name (the player already confirmed
+        // exactly who they meant) rather than the raw typed text.
+        setCandidates(null);
+        setSelectedCandidateId(null);
+        setScoredResult({ response: result, submittedName: chosenCandidate?.name ?? name.trim() });
+        setShowOutcome(true);
+      }
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -274,6 +378,59 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
               {submitting ? 'Submitting…' : 'Confirm'}
             </button>
           </form>
+        ) : showOutcome && scoredResult ? (
+          // REQ-215 (S-089): trigger condition 1 — a submitted guess (direct
+          // or via the REQ-209 disambiguation resubmission) scored
+          // incorrect. Replaces the plain form the same way the candidates
+          // branch above does; the header/Cancel button stay put, so
+          // dismissing this via Cancel/backdrop-click is still available at
+          // any point. Text-only "not a match"/attempts signal (§6: never
+          // color-only), and no wording anywhere here implies this guess's
+          // own score could still change (REQ-215's 2026-08-01 "no
+          // retroactive rescoring" decision) — SuggestionEntry's own intro
+          // text says so explicitly.
+          <div className="guess-input__outcome">
+            <p className="guess-input__outcome-result">
+              <span className="guess-input__outcome-icon" aria-hidden="true">
+                ✕
+              </span>
+              Not a match.
+            </p>
+            <p className="guess-input__outcome-hint">
+              {scoredResult.response.locked
+                ? 'No attempts remain for this cell.'
+                : 'You can try again, or suggest a correction below.'}
+            </p>
+            <SuggestionEntry
+              roundId={roundId}
+              cellId={cell.cellId}
+              accessToken={accessToken}
+              playerName={scoredResult.submittedName}
+              isGuest={isGuest}
+            />
+            <div className="guess-input__outcome-actions">
+              {!scoredResult.response.locked && (
+                <button
+                  type="button"
+                  className="guess-input__cancel"
+                  onClick={() => {
+                    // Returns to the plain form for a genuine second
+                    // attempt, still within the same sheet — deliberately
+                    // does NOT clear `scoredResult` itself, since
+                    // attemptCount/locked above keep reading it as the
+                    // latest known value until a fresher one replaces it.
+                    setShowOutcome(false);
+                    setName('');
+                  }}
+                >
+                  Try another guess
+                </button>
+              )}
+              <button type="button" className="guess-input__submit" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </div>
         ) : locked ? (
           <p className="guess-input__locked">
             This cell is locked — no attempts remain.
@@ -330,6 +487,20 @@ export function GuessInput({ cell, accessToken, onSubmit, onResolveDisambiguatio
               </ul>
             )}
             {error && <p className="guess-input__error">{error}</p>}
+            {/* REQ-215 (S-089): trigger condition 2 — a REQ-211 live lookup
+                for this same guess timed out. The form itself is untouched
+                (no attempt was consumed, GridScreen's own state is
+                unaffected either way) — this only adds the suggestion entry
+                point alongside the existing inline error above. */}
+            {liveLookupUnavailableFor && (
+              <SuggestionEntry
+                roundId={roundId}
+                cellId={cell.cellId}
+                accessToken={accessToken}
+                playerName={liveLookupUnavailableFor}
+                isGuest={isGuest}
+              />
+            )}
             <button type="submit" className="guess-input__submit" disabled={submitting}>
               {submitting ? 'Submitting…' : 'Submit guess'}
             </button>

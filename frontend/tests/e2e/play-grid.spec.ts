@@ -230,10 +230,14 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByLabel('Player name').fill('Definitely Not A Real Player')
     await page.getByRole('button', { name: 'Submit guess' }).click()
 
-    // REQ-201/203: correctness shown immediately, no reload — the dialog
-    // closes itself on a successfully-accepted (even if wrong) submission.
-    // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // REQ-201/203: correctness shown immediately, no reload — the cell's
+    // own state updates the instant the response comes back. This guess
+    // missed cache, so it also paid ADR-0018's live-lookup cost.
+    // REQ-215 (S-089): unlike a correct guess, the sheet no longer closes
+    // itself on an incorrect result — it stays open and shows a "not a
+    // match" outcome view carrying the suggestion entry point.
+    await expect(page.getByText('Not a match.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    await expect(page.getByTestId('suggestion-entry-point')).toBeVisible()
     // Frontend name-display fix (S-029): an incorrect guess shows no name at
     // all, not even the raw as-typed text — only the ✕ and attempt count.
     await expect(cell.getByText('Definitely Not A Real Player')).not.toBeVisible()
@@ -250,9 +254,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // check below.
     await expect(cell.locator('.cell-state--shake')).toBeVisible()
 
-    // Second attempt: the real correct player name from the seed response.
-    await cell.click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    // Second attempt: REQ-215's outcome view offers "Try another guess"
+    // instead of requiring the sheet to be closed and the cell reopened —
+    // continues within the same still-open sheet.
+    await page.getByRole('button', { name: 'Try another guess' }).click()
     await expect(page.getByText('1 of 2 attempts used')).toBeVisible()
     await page.getByLabel('Player name').fill(seed.correctPlayerName)
     await page.getByRole('button', { name: 'Submit guess' }).click()
@@ -384,19 +389,25 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByLabel('Player name').fill('Wrong Guess Number One')
     await page.getByRole('button', { name: 'Submit guess' }).click()
     // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // REQ-215 (S-089): the sheet stays open on an incorrect result — see
+    // the equivalent assertion in the test above for the full rationale.
+    await expect(page.getByText('Not a match.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
 
-    await cell.click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    // Second (and final) attempt, continuing within the same still-open
+    // sheet via "Try another guess" rather than reopening the cell.
+    await page.getByRole('button', { name: 'Try another guess' }).click()
     await page.getByLabel('Player name').fill('Wrong Guess Number Two')
     await page.getByRole('button', { name: 'Submit guess' }).click()
 
     // REQ-210: both attempts used without a correct answer locks the cell
     // as incorrect — shown as visible text, never color/icon-only. Same
-    // ADR-0018 live-lookup cost applies to this second miss too.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // ADR-0018 live-lookup cost applies to this second miss too. REQ-215:
+    // the outcome view now says the cell is locked instead of offering
+    // "Try another guess" — only "Close" remains.
+    await expect(page.getByText('No attempts remain for this cell.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    await expect(page.getByRole('button', { name: 'Try another guess' })).not.toBeVisible()
     // Frontend name-display fix (S-029): no name shown for an incorrect
     // guess, same as the single-wrong-guess case above.
     await expect(cell.getByText('Wrong Guess Number Two')).not.toBeVisible()
@@ -413,6 +424,11 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // S-020: the rejected-guess cue also fires on the guess that uses up
     // the last attempt (state 2 -> state 3), not just state 2 -> state 2.
     await expect(cell.locator('.cell-state--shake')).toBeVisible()
+
+    // REQ-215: closing the outcome view (only option left once locked) is
+    // still a normal, working dismissal.
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
   })
 
   // S-011 (docs/backlog.md): REQ-204 (denominator = correct guesses only,

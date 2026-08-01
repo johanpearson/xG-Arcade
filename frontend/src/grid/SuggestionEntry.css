@@ -1,0 +1,120 @@
+/* REQ-215 (S-089): tokens only, no new values — mirrors GuessInput.css's
+   own field/button/error treatment exactly, since this renders inside that
+   same card (design-document.md §2). */
+
+.suggestion-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.suggestion-entry__trigger {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.suggestion-entry__trigger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.suggestion-entry--guest .suggestion-entry__guest-copy {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.suggestion-entry__confirmation {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.suggestion-entry__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+}
+
+.suggestion-entry__intro {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.suggestion-entry__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.suggestion-entry__field input {
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+  color: var(--color-text-primary);
+  font-size: 15px;
+}
+
+.suggestion-entry__field input:disabled {
+  color: var(--color-text-muted);
+}
+
+.suggestion-entry__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.suggestion-entry__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.suggestion-entry__cancel {
+  min-height: var(--touch-target-min);
+  min-width: 44px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.suggestion-entry__submit {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.suggestion-entry__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

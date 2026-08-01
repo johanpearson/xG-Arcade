@@ -16,6 +16,7 @@ import type {
   RemovePlayerDataResponse,
   SignupResponse,
   SubmitGuessResponse,
+  SubmitSuggestionResponse,
   UnverifiedPlayerData,
   UpdateDisplayNameResponse,
 } from './types';
@@ -226,6 +227,43 @@ export async function submitGuess(
   );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SubmitGuessResponse;
+}
+
+// REQ-215 (S-089): submits a player-suggested correction for a specific
+// cell/round — the entry point only ever appears (GuessInput.tsx) after
+// that cell's triggering guess was scored incorrect or hit REQ-211's live
+// lookup timeout. `playerName` is the name already known from that
+// triggering guess (or the disambiguation candidate's own name, when the
+// trigger followed a REQ-209 resolution) — never re-typed by the player in
+// this form. Follows submitGuess's exact fetch/ApiError/auth-header
+// convention above. A guest is rejected server-side with 403 ("Guest
+// accounts cannot submit suggestions") regardless of what the client UI
+// shows (REQ-215's server-enforced guest restriction) — left to throw as an
+// ApiError like any other failure here, same as every other call in this
+// file; GuessInput/SuggestionEntry never special-case that status since the
+// UI already disables the entry point for a guest before this call could
+// ever be made through it.
+export async function submitSuggestion(
+  accessToken: string,
+  roundId: string,
+  cellId: string,
+  playerName: string,
+  clubs: string[],
+  nationality: string,
+): Promise<SubmitSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/suggestions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ playerName, clubs, nationality }),
+    },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as SubmitSuggestionResponse;
 }
 
 // REQ-401/404/607: the global leaderboard (SCREEN-03) — the only league

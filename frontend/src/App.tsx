@@ -430,7 +430,7 @@ function App() {
             // game module exists to switch on it.
             <GameSelectScreen onSelectGame={() => navigateTo('grid')} />
           ) : screen === 'grid' ? (
-            <GridScreen accessToken={accessToken} onAuthError={handleLogout} />
+            <GridScreen accessToken={accessToken} onAuthError={handleLogout} isGuest={isGuest} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (

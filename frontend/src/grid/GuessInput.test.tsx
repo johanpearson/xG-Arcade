@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuessInput } from './GuessInput';
-import type { CurrentRoundCell } from '../lib/types';
+import type { CurrentRoundCell, DisambiguationCandidate } from '../lib/types';
 
 function makeCell(overrides: Partial<CurrentRoundCell> = {}): CurrentRoundCell {
   return {
@@ -32,6 +32,21 @@ function jsonResponse(body: unknown, status = 200) {
 // something harmless to hit rather than a real network call.
 function stubNoSuggestions() {
   vi.stubGlobal('fetch', vi.fn().mockImplementation(() => jsonResponse([])));
+}
+
+// REQ-209/REQ-215 (S-089 revision): onSubmit/onResolveDisambiguation now
+// resolve to the full SubmitGuessResponse shape (GuessInput itself reads
+// `candidates`/`isCorrect` off it) rather than a bare candidates array —
+// this wraps a disambiguation-needed response the same shape the real API
+// contract (and GridScreen) actually produces.
+function disambiguationOutcome(candidates: DisambiguationCandidate[]) {
+  return {
+    isCorrect: false,
+    attemptCount: 0,
+    locked: false,
+    resolvedPlayerName: null,
+    candidates,
+  };
 }
 
 // SCREEN-02: bottom sheet on mobile / inline popover on desktop.
@@ -292,7 +307,7 @@ describe('GuessInput', () => {
     it('REQ209_rendersPickerWithAllCandidatesAndAttributes: shows every candidate and its distinguishing attributes, and does not close', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       const onClose = vi.fn();
       render(
         <GuessInput
@@ -320,10 +335,12 @@ describe('GuessInput', () => {
     it('REQ209_candidateWithNoDistinguishingAttributesRendersCleanly: a candidate with an empty distinguishingAttributes array shows no broken/empty meta line', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue([
-        { playerId: 'p1', name: 'Ronaldo', distinguishingAttributes: [] },
-        { playerId: 'p2', name: 'Ronaldo Nazário', distinguishingAttributes: ['1976'] },
-      ]);
+      const onSubmit = vi.fn().mockResolvedValue(
+        disambiguationOutcome([
+          { playerId: 'p1', name: 'Ronaldo', distinguishingAttributes: [] },
+          { playerId: 'p2', name: 'Ronaldo Nazário', distinguishingAttributes: ['1976'] },
+        ]),
+      );
       render(
         <GuessInput
           cell={makeCell()}
@@ -350,7 +367,7 @@ describe('GuessInput', () => {
     it('REQ209_pickingCandidateResolvesWithChosenPlayerIdAndCloses: choosing a candidate and confirming calls onResolveDisambiguation with its playerId and closes on a scored result', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       const onResolveDisambiguation = vi.fn().mockResolvedValue(undefined);
       const onClose = vi.fn();
       render(
@@ -379,7 +396,7 @@ describe('GuessInput', () => {
     it('REQ209_confirmDisabledUntilACandidateIsChosen: the Confirm button starts disabled and is only enabled once a candidate is picked', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       render(
         <GuessInput
           cell={makeCell()}
@@ -403,7 +420,7 @@ describe('GuessInput', () => {
     it('REQ209_resolveFailureShowsErrorAndStaysOpen: a rejected resubmission shows the error inline and does not close the picker', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       const onResolveDisambiguation = vi.fn().mockRejectedValue(new Error('Something went wrong. Try again.'));
       const onClose = vi.fn();
       render(
@@ -433,7 +450,7 @@ describe('GuessInput', () => {
     it('REQ209_keyboardNavigation: arrow keys move the selection between candidates and Confirm submits the highlighted one', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       const onResolveDisambiguation = vi.fn().mockResolvedValue(undefined);
       render(
         <GuessInput
@@ -465,7 +482,7 @@ describe('GuessInput', () => {
     it('REQ209_cancelAbandonsPromptWithoutSubmitting: closing via Cancel while the picker is open never resolves a guess', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();
-      const onSubmit = vi.fn().mockResolvedValue(candidates);
+      const onSubmit = vi.fn().mockResolvedValue(disambiguationOutcome(candidates));
       const onResolveDisambiguation = vi.fn();
       const onClose = vi.fn();
       render(
