@@ -1557,6 +1557,28 @@ public class GridGameModuleTests
             string secondAttributeType, string secondAttributeValue,
             int matchCount, CancellationToken cancellationToken = default) =>
             inner.RecordConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, matchCount, cancellationToken);
+
+        // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+        // extension, ADR-0052): same "xG Grid's correctness path never
+        // calls these, only PlayerCacheWarmingService does" reasoning as
+        // IsConfirmedLowAsync/RecordConfirmedLowAsync above.
+        public Task<bool> IsPersistentTechnicalFailureAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            int threshold, CancellationToken cancellationToken = default) =>
+            inner.IsPersistentTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, threshold, cancellationToken);
+
+        public Task RecordTechnicalFailureAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.RecordTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        public Task ClearTechnicalFailureAsync(
+            string firstAttributeType, string firstAttributeValue,
+            string secondAttributeType, string secondAttributeValue,
+            CancellationToken cancellationToken = default) =>
+            inner.ClearTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]

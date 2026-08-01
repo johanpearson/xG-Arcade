@@ -413,7 +413,7 @@ is written as something you can actually observe, not a vague feeling:
   REQ-717/ADR-0037 is therefore complete end-to-end pending the manual
   Cloudflare/Supabase dashboard setup `SETUP.md` step 6 describes.
 - **Player-submitted answer suggestions + admin Wikidata search/commit**
-  (REQ-215/509/510, ADR-0052) — trigger: none fired; **pulled forward by
+  (REQ-215/509/510, ADR-0053) — trigger: none fired; **pulled forward by
   deliberate product decision, 2026-08-01**, same pattern as
   REQ-108/REQ-214/REQ-402-403/REQ-717's own precedent (no observed
   request from real play — the product owner asked for it directly, by
@@ -424,7 +424,7 @@ is written as something you can actually observe, not a vague feeling:
   and adds a player manually with no suggestion involved (REQ-509/510),
   through the same `PlayerAttribute`/`PlayerOverride` write path REQ-501
   already uses, never `PlayerNameIndex` (ADR-0007's boundary,
-  reconfirmed by ADR-0052). No retroactive rescoring of the guess that
+  reconfirmed by ADR-0053). No retroactive rescoring of the guess that
   prompted a suggestion — decided 2026-08-01, see REQ-215's own
   acceptance criteria. **REQ-215's submission half built, 2026-08-01,
   `docs/backlog.md` S-089:** `PlayerSuggestion`/`PlayerSuggestionClub`

@@ -80,6 +80,20 @@ public static class StaleClubAttributeCleaner
             .ToListAsync(cancellationToken);
         dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow);
 
+        // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+        // extension, ADR-0052): same stale-marker reasoning as
+        // ConfirmedLowMatchPair immediately above — a pair marked as a
+        // persistent technical failure under the OLD (wrong-QID or
+        // blown-up-query-shape) state must not silently keep
+        // PlayerCacheWarmingService skipping it after the correction, or
+        // the fix would never actually get exercised for that pair.
+        var staleLookupFailures = await dbContext.PairLookupFailures
+            .Where(f =>
+                (f.FirstAttributeType == ClubAttributeType && clubNames.Contains(f.FirstAttributeValue)) ||
+                (f.SecondAttributeType == ClubAttributeType && clubNames.Contains(f.SecondAttributeValue)))
+            .ToListAsync(cancellationToken);
+        dbContext.PairLookupFailures.RemoveRange(staleLookupFailures);
+
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return (staleAttributes.Count, stalePlayerData.Count);

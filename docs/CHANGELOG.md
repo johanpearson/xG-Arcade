@@ -48,7 +48,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   implemented," S-090). `architecture-document.md` gained: a COMP-05/
   COMP-11 status note for the new `GetCellCategoryTypesAsync` method, a
   `PlayerSuggestion`/`PlayerSuggestionClub` note on COMP-06's row
-  (ADR-0052's "COMP-06-adjacent" placement), and a new §6.2c data-flow
+  (ADR-0053's "COMP-06-adjacent" placement), and a new §6.2c data-flow
   diagram — closing the gap that no architecture-doc pass happened when
   the feature was first built. Backend claims in this entry (and in
   REQ-215's own status note) were **hand-traced against existing patterns,
@@ -65,7 +65,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `docs/design-document.md` (SCREEN-02b already correctly added by the
   frontend implementer) or to REQ-509/REQ-510/S-090, which remain
   correctly not-yet-implemented. REQ/ADR refs: REQ-215, REQ-509, ADR-0003,
-  ADR-0052.
+  ADR-0053.
 - 2026-08-01 — `docs/requirements-document.md` (v1.27 → v1.28),
   `docs/decisions/0052-player-suggestions-separate-admin-view.md` (new),
   `docs/backlog.md` — Finalized the two product decisions the product
@@ -78,7 +78,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   keep their original scored outcome unchanged. §7's matching entry is now
   marked resolved 2026-08-01. (2) **Separate admin view, not merged into
   REQ-503's queue**: REQ-509's status note now records this as decided,
-  referencing new ADR-0052, which also explicitly reconfirms ADR-0007's
+  referencing new ADR-0053, which also explicitly reconfirms ADR-0007's
   autocomplete/correctness boundary applies to REQ-509/510's commit paths
   (`PlayerAttribute`/`PlayerOverride` only, never `PlayerNameIndex`) —
   ADR-0007 predates this pipeline and didn't name it explicitly before now.
@@ -86,9 +86,9 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   (REQ-215 backend `PlayerSuggestion` entity/submission endpoint + frontend
   entry point/form, not yet started) and **S-090** (REQ-509/510 admin
   review/commit/manual-search backend + the new separate Suggestions admin
-  screen, not yet started, depends on S-089 and ADR-0052). No code was
+  screen, not yet started, depends on S-089 and ADR-0053). No code was
   written this session — documentation only. REQ/ADR refs: REQ-215,
-  REQ-509, REQ-510, REQ-501, REQ-502, REQ-503, ADR-0007, ADR-0052.
+  REQ-509, REQ-510, REQ-501, REQ-502, REQ-503, ADR-0007, ADR-0053.
 - 2026-08-01 — `docs/requirements-document.md` (v1.26 → v1.27) — Flipped
   REQ-718's "UI: logout confirmation and guest-expiry copy" addendum
   (rules 4/5) from "Not yet implemented — drafted only" to "Implemented,
@@ -127,6 +127,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   mechanism. §7 gained one new open question (retroactive rescoring on an
   approved suggestion — REQ-215 defaults to "no," unconfirmed by the
   product owner).
+- 2026-08-01 — `docs/requirements-document.md` (1.25 → 1.26),
+  `docs/architecture-document.md` (0.69 → 0.70),
+  `docs/implementation-document.md` (0.81 → 0.82),
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (new), `NOTES.md` — REQ-110 extended (ADR-0052): `warm-player-cache.yml`
+  was reliably getting cancelled at its 90-minute CI ceiling since the
+  2026-07-28 same-run-retry extension shipped, and its logs had become
+  unreadable. Root cause: the same-run retry doubled every technical
+  failure's cost, and nothing persisted a failure across runs, so the same
+  structurally-doomed pairs (traced to
+  `WikidataClient.BuildClubClubIntersectionQuery`'s plain join producing a
+  real 250,000+ row WDQS response for two clubs with a large, overlapping
+  squad) got retried at that doubled cost on every run forever. Fixed by
+  three changes: removed the same-run retry
+  (`PlayerCacheWarmingService.LookupWithSameRunRetryAsync`/
+  `MaxAttemptsPerPair` deleted); added a new `PairLookupFailure` table
+  (`XGArcade.Data`, migration `AddPairLookupFailure`) reachable only via
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync`/
+  `RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`, so a pair
+  failing on 2 consecutive runs is skipped without a live query on the
+  third (`CacheWarmingResult.PairsSkippedPersistentFailure`), same
+  invalidation surface as `ConfirmedLowMatchPair` (`StaleClubAttributeCleaner`,
+  `purge-player-pool`); and `BuildClubClubIntersectionQuery` now wraps each
+  club's P54 match in its own `FILTER EXISTS { }` block instead of a plain
+  join, eliminating the statement-count cross product at the source.
+  Separately, `WikidataClient.RunIntersectionQueryAsync`'s two per-pair
+  failure logs moved from `Warning` to `Debug` (filtered out by the
+  project's default `Information` log level) since they were the dominant
+  contributor to the unreadable logs. See ADR-0052 for the full incident
+  and reasoning, and NOTES.md's 2026-08-01 entry for the diagnosis
+  narrative.
 - 2026-07-28 — `docs/decisions/0051-per-gamekey-round-scheduling.md`
   renumbered from `0050-per-gamekey-round-scheduling.md` while rebasing onto
   `main`, which had independently assigned ADR-0050 to

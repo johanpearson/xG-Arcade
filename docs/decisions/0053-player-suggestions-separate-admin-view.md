@@ -1,4 +1,4 @@
-# ADR-0052: Player suggestions (REQ-215) get their own admin view, separate from REQ-503's unverified-data queue
+# ADR-0053: Player suggestions (REQ-215) get their own admin view, separate from REQ-503's unverified-data queue
 
 - **Status:** Accepted
 - **Date:** 2026-08-01

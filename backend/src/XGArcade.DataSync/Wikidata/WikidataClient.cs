@@ -253,16 +253,26 @@ public class WikidataClient(
             // warm-player-cache's own aggregate summary ("N queried live")
             // couldn't distinguish "queried live and found nothing" from
             // "queried live and silently timed out," making its per-pair
-            // outcome undiagnosable from the log alone. Same level/shape as
-            // the HTTP-error branch's warning, just without an exception to
-            // attach (a timeout is expected/swallowed here, not exceptional).
-            // Logs effectiveTimeout (2026-07-28 fix), not the old hardcoded
-            // _queryTimeout — since timeoutTier can now select a different
-            // budget (WikidataQueryTimeoutTier.CacheWarming), the old
-            // constant would have logged a misleading "timed out after 15s"
-            // for a query that actually ran the full 45s cache-warming
-            // budget before giving up.
-            _logger.LogWarning(
+            // outcome undiagnosable from the log alone. Logs effectiveTimeout
+            // (2026-07-28 fix), not the old hardcoded _queryTimeout — since
+            // timeoutTier can now select a different budget
+            // (WikidataQueryTimeoutTier.CacheWarming), the old constant would
+            // have logged a misleading "timed out after 15s" for a query
+            // that actually ran the full 45s cache-warming budget before
+            // giving up.
+            //
+            // Log level fix (2026-08-01, ADR-0052): Debug, not Warning — a
+            // cache-warming run against a few hundred pairs can log this
+            // once per failing pair, and at Warning that reliably drowned
+            // the one line that actually matters (WarmAsync's own
+            // Information-level run summary, which already reports the
+            // technical-failure count and names every failing pair) under
+            // thousands of lines of per-pair noise. Debug is filtered out
+            // by this project's default "Information" log level
+            // (appsettings.json), so a normal run's console output stays
+            // readable; set Logging:LogLevel:Default to Debug to see these
+            // again when actually troubleshooting a specific pair.
+            _logger.LogDebug(
                 "Wikidata {QueryKind} SPARQL query timed out after {TimeoutSeconds:0}s for {QidA}/{QidB}; treating as no match.",
                 queryKind, effectiveTimeout.TotalSeconds, qidA, qidB);
 
@@ -281,7 +291,15 @@ public class WikidataClient(
             // to be a bad SPARQL query (a real bug) as a transient WDQS
             // outage — log so that distinction is visible during development
             // instead of silently looking identical to a genuine no-match.
-            _logger.LogWarning(ex,
+            //
+            // Log level fix (2026-08-01, ADR-0052): Debug, not Warning — see
+            // the timeout branch's own comment above for the full
+            // "why this drowned out the run summary" reasoning. This
+            // branch's exception (a JSON parse failure in particular can be
+            // a 15-20 line stack trace) was the single biggest contributor
+            // to unreadable cache-warming logs; still attached to the Debug
+            // call so it's there when Debug is turned on to investigate.
+            _logger.LogDebug(ex,
                 "Wikidata {QueryKind} SPARQL query failed for {QidA}/{QidB}; treating as no match.",
                 queryKind, qidA, qidB);
 
@@ -415,14 +433,44 @@ public class WikidataClient(
     // wdt:P54 is wrong here). Two distinct statement variables, one per
     // club — a single shared variable could never bind (one statement
     // can't point at two clubs).
+    //
+    // 2026-08-01 fix (ADR-0052): each club's match is wrapped in its own
+    // FILTER EXISTS block instead of a plain join. A plain join binds
+    // ?clubAStatement/?clubBStatement in the outer pattern, so a player
+    // with multiple non-deprecated P54 statements at club A (loan spells, a
+    // return transfer) times multiple at club B produces one result ROW PER
+    // (clubAStatement, clubBStatement) COMBINATION per player — on top of
+    // the per-alias multiplication BuildIntersectionQuery's OPTIONAL
+    // alt-label fetch already applies. For two clubs with a large,
+    // well-documented, historically-overlapping squad this combination
+    // produced a real 250,000+ row WDQS response that neither WDQS nor this
+    // client's JSON parser could finish inside any reasonable timeout, and
+    // the same doomed pair got re-attempted on every future
+    // warm-player-cache run since nothing persisted its failure (see
+    // PairLookupFailure, ADR-0052, for that half of the fix). FILTER EXISTS
+    // checks "does at least one qualifying statement exist" without binding
+    // ?clubAStatement/?clubBStatement in the outer pattern, so neither
+    // club's statement count can multiply rows — the result is exactly one
+    // row per matching player before the still-intentional per-alias
+    // multiplication. This is safe specifically because club-club never
+    // reads the shared footer's per-statement qualifiers (?clubStatement,
+    // singular — a different variable, never bound by this builder either
+    // way, see BuildIntersectionQuery's own qualifier comment); a builder
+    // that DOES need those qualifiers (country-club, national-team-club,
+    // trophy-club) cannot use this same trick without losing them. Never
+    // simplify this back to a plain join.
     private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) =>
         BuildIntersectionQuery($$"""
-              ?player p:P54 ?clubAStatement.
-              ?clubAStatement ps:P54 wd:{{clubAQid}}.
-              MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
-              ?player p:P54 ?clubBStatement.
-              ?clubBStatement ps:P54 wd:{{clubBQid}}.
-              MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
+              FILTER EXISTS {
+                ?player p:P54 ?clubAStatement.
+                ?clubAStatement ps:P54 wd:{{clubAQid}}.
+                MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
+              }
+              FILTER EXISTS {
+                ?player p:P54 ?clubBStatement.
+                ?clubBStatement ps:P54 wd:{{clubBQid}}.
+                MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
+              }
             """);
 
     // S-031/REQ-108: P166 ("award received") — deliberately uses the truthy

@@ -282,4 +282,79 @@ public class StaleClubAttributeCleanerTests
         Assert.That(await _dbContext.ConfirmedLowMatchPairs.CountAsync(), Is.EqualTo(0),
             "the --all-clubs mode's 'purge and re-warm must force a real re-check' invariant applies to ConfirmedLowMatchPair the same as PlayerAttribute/PlayerData");
     }
+
+    // ---- REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052): CleanAsync/CleanAllSeededClubsAsync must also
+    // clear any PairLookupFailure row touching a cleaned club, on EITHER
+    // side of the composite key — same invalidation-surface reasoning as
+    // ConfirmedLowMatchPair immediately above, and the same risk if a
+    // future change to either cleaner forgets it: PlayerCacheWarmingService
+    // would keep skipping a pair using a persistent-failure marker left
+    // over from before the correction, instead of giving the fix a real
+    // chance to prove itself.
+
+    private async Task SeedPairLookupFailureAsync(
+        string firstAttributeType, string firstAttributeValue, string secondAttributeType, string secondAttributeValue, int consecutiveFailureCount = 2)
+    {
+        _dbContext.PairLookupFailures.Add(new PairLookupFailure
+        {
+            FirstAttributeType = firstAttributeType,
+            FirstAttributeValue = firstAttributeValue,
+            SecondAttributeType = secondAttributeType,
+            SecondAttributeValue = secondAttributeValue,
+            ConsecutiveFailureCount = consecutiveFailureCount,
+            LastFailedAt = DateTime.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_RemovesPairLookupFailure_OnACountryClubPairsClubSide()
+    {
+        await SeedPairLookupFailureAsync("nationality", "France", "club", "Napoli");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.PairLookupFailures.CountAsync(), Is.EqualTo(0),
+            "a stale persistent-failure marker for a corrected club must not survive its own cleanup — a later warm-player-cache run would otherwise wrongly keep skipping it");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_RemovesPairLookupFailure_OnEitherSideOfAClubClubPair()
+    {
+        await SeedPairLookupFailureAsync("club", "Napoli", "club", "Arsenal");
+        await SeedPairLookupFailureAsync("club", "Arsenal", "club", "Napoli");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.PairLookupFailures.CountAsync(), Is.EqualTo(0),
+            "a stale Club x Club persistent-failure marker must be cleared regardless of which side (first or second) the corrected club appears on");
+    }
+
+    [Test]
+    public async Task REQ110_CleanAsync_LeavesPairLookupFailuresForOtherClubsUntouched()
+    {
+        await SeedPairLookupFailureAsync("nationality", "France", "club", "Napoli");
+        await SeedPairLookupFailureAsync("nationality", "Spain", "club", "Arsenal");
+
+        await StaleClubAttributeCleaner.CleanAsync(_dbContext, ["Napoli"]);
+
+        Assert.That(await _dbContext.PairLookupFailures.CountAsync(), Is.EqualTo(1),
+            "cleaning one club's stale persistent-failure markers must never touch another club's real ones");
+        Assert.That((await _dbContext.PairLookupFailures.SingleAsync()).SecondAttributeValue, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ110_CleanAllSeededClubsAsync_RemovesPairLookupFailuresForEverySeededClub()
+    {
+        await SeedClubDefinitionAsync("Napoli");
+        await SeedClubDefinitionAsync("AC Milan");
+        await SeedPairLookupFailureAsync("nationality", "France", "club", "Napoli");
+        await SeedPairLookupFailureAsync("club", "AC Milan", "club", "Arsenal");
+
+        await StaleClubAttributeCleaner.CleanAllSeededClubsAsync(_dbContext);
+
+        Assert.That(await _dbContext.PairLookupFailures.CountAsync(), Is.EqualTo(0),
+            "the --all-clubs mode's 'purge and re-warm must force a real re-check' invariant applies to PairLookupFailure the same as ConfirmedLowMatchPair/PlayerAttribute/PlayerData");
+    }
 }
