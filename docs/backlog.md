@@ -1533,7 +1533,42 @@ part (1); the new `ConfirmedLowMatchPair` table
 (`IPlayerStoreRepository.IsConfirmedLowAsync`/`RecordConfirmedLowAsync`),
 invalidated by `StaleClubAttributeCleaner` and `purge-player-pool`, for
 part (2). The flagged ADR is
-`docs/decisions/0049-confirmed-low-match-pair-persistence.md`.
+`docs/decisions/0050-confirmed-low-match-pair-persistence.md` (corrected
+2026-08-01: this note previously said `0049`, stale from before that ADR
+was renumbered — see this file's own 2026-07-28 renumbering entry in
+`docs/CHANGELOG.md`; no content change, only the reference).
+
+**Further follow-up (2026-08-01, REQ-110) — the same-run retry from part
+(1) above was itself a regression.** `warm-player-cache.yml` run #15 was
+manually re-dispatched three times (2026-07-28 through 2026-08-01) and
+every attempt got cancelled at the workflow's 90-minute CI ceiling,
+never completing — on top of CI logs that had become unreadable
+(thousands of per-pair `Warning`-level lines, some 15-20 line stack
+traces). Root cause: the same-run retry doubled every technical failure's
+cost (up to 2 × the 45s cache-warming timeout), and nothing persisted a
+failure across runs, so the same pairs got retried at that doubled cost
+on every future run forever. A specific, confirmed structural cause was
+also found: `WikidataClient.BuildClubClubIntersectionQuery`'s plain join
+on two independent P54 statement-path patterns could multiply result rows
+by (statements at club A) × (statements at club B) per player — one real
+case returned 250,000+ WDQS binding rows for two clubs with a large,
+overlapping squad. See NOTES.md's 2026-08-01 entry for the full diagnosis
+narrative. Flagged for a new ADR (removing an existing retry mechanism and
+adding new persisted cross-run state are both "could have gone another
+way" choices) — not decided here.
+
+**Resolved same day.** Implemented as described: `LookupWithSameRunRetryAsync`/
+`MaxAttemptsPerPair` removed from `PlayerCacheWarmingService` — each pair
+attempted exactly once per run; new `PairLookupFailure` table
+(`IPlayerStoreRepository.IsPersistentTechnicalFailureAsync`/
+`RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`), same
+invalidation surface as `ConfirmedLowMatchPair`, so a pair failing 2
+consecutive runs is skipped (no live query) on the third
+(`CacheWarmingResult.PairsSkippedPersistentFailure`); `BuildClubClubIntersectionQuery`
+now wraps each club's P54 match in its own `FILTER EXISTS { }` block
+instead of a plain join; `WikidataClient`'s two per-pair failure logs
+moved from `Warning` to `Debug`. The flagged ADR is
+`docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`.
 
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked

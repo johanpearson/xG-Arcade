@@ -301,6 +301,44 @@ public interface IPlayerStoreRepository
         string firstAttributeType, string firstAttributeValue,
         string secondAttributeType, string secondAttributeValue,
         int matchCount, CancellationToken cancellationToken = default);
+
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension): PlayerCacheWarmingService.WarmAsync's second skip check,
+    // alongside IsConfirmedLowAsync — true once a pair's
+    // PairLookupFailure.ConsecutiveFailureCount has reached the caller's
+    // threshold. See PairLookupFailure's own doc comment for the full "why
+    // a separate table from ConfirmedLowMatchPair" reasoning. threshold is
+    // caller-supplied (not a repository-level constant) so this stays a
+    // plain read, same as IsConfirmedLowAsync — PlayerCacheWarmingService
+    // owns the policy decision of how many consecutive run-failures before
+    // skipping.
+    Task<bool> IsPersistentTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        int threshold, CancellationToken cancellationToken = default);
+
+    // Upserts: increments ConsecutiveFailureCount on an existing row (and
+    // refreshes LastFailedAt), inserts a new row at count 1 otherwise.
+    // Called once per pair per run that ends in a technical failure — never
+    // after a genuine (possibly zero-match) answer, which goes through
+    // ClearTechnicalFailureAsync below instead. The caller is responsible
+    // for that distinction (same split of responsibility as
+    // RecordConfirmedLowAsync's own doc comment describes for its
+    // technical-failure/genuine-answer split).
+    Task RecordTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
+
+    // Deletes the pair's PairLookupFailure row, if any — called once a pair
+    // gets a real answer (a match, or a genuine confirmed-low), so a pair
+    // that recovers after a transient outage doesn't stay silently skipped
+    // once Wikidata/WDQS is healthy again. A no-op, not an error, when no
+    // row exists (the common case — most pairs never fail at all).
+    Task ClearTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to

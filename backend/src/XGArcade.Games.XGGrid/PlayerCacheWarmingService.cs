@@ -56,25 +56,33 @@ namespace XGArcade.Games.XGGrid;
 // that this class supplies per pair, purely to build PairsWithTechnicalFailure/
 // FailingPairs below.
 //
-// REQ-110 (2026-07-28 extension) — cache-warming-specific timeout + same-run
-// retry: a real portion of those 133 technical failures were WDQS queries
-// timing out at round-generation's 15s budget even though nobody is waiting
-// synchronously on a cache-warming run — see WikidataQueryTimeoutTier and
-// WikidataClient's _cacheWarmingQueryTimeout for the third, longer,
-// cache-warming-only budget this class now requests
-// (WikidataQueryTimeoutTier.CacheWarming, passed on every live lookup
-// below). Same-run retry (LookupWithSameRunRetryAsync below) lives HERE,
-// not inside WikidataClient/WikidataLookupService: those two stay
-// single-attempt and stateless per call (WikidataClient in particular has
-// no concept of "a run" at all — it's origin-agnostic beyond
-// throwOnTimeout/timeoutTier), while this class already owns the "one
-// WarmAsync call = one run" concept and its own per-pair summary
-// bookkeeping. Retrying inside WikidataClient would mean it secretly knows
-// about cache-warming's retry policy; retrying here keeps that policy
-// colocated with the only caller that needs it, and mirrors
+// REQ-110 (2026-07-28 extension) — cache-warming-specific timeout: a real
+// portion of those 133 technical failures were WDQS queries timing out at
+// round-generation's 15s budget even though nobody is waiting synchronously
+// on a cache-warming run — see WikidataQueryTimeoutTier and WikidataClient's
+// _cacheWarmingQueryTimeout for the third, longer, cache-warming-only
+// budget this class now requests (WikidataQueryTimeoutTier.CacheWarming,
+// passed on every live lookup below).
+//
+// REQ-110 (2026-08-01 "persistent technical-failure tracking" extension,
+// ADR-0052) — REMOVES the same-run retry this class previously had here:
+// a same-run retry only helps a TRANSIENT failure (a one-off 502, a
+// momentary timeout); it does nothing for a STRUCTURAL one (a query shape
+// that always blows up for a specific pair, see
+// WikidataClient.BuildClubClubIntersectionQuery's own incident comment),
+// and in fact makes a structural failure's cost WORSE — every failing pair
+// paid the full cache-warming timeout TWICE instead of once. That
+// regression is exactly what turned a ~1-hour job into one that reliably
+// blew through its 90-minute CI budget starting 2026-07-28 (see NOTES.md's
+// 2026-08-01 entry). The right lever for "this pair keeps failing" is
+// cross-run persistence (PairLookupFailure, IsPersistentTechnicalFailureAsync/
+// RecordTechnicalFailureAsync/ClearTechnicalFailureAsync below), not a
+// same-run retry that can only ever pay the timeout cost again on the exact
+// same process, moments later, against the exact same doomed query.
 // warm-player-cache.yml's own external, orchestration-level retry (a
-// process-crash-survival retry around the whole job — a different,
-// complementary layer from this single-pair, same-process retry).
+// process-crash-survival retry around the whole job) is unaffected — a
+// different, complementary layer from this now-removed single-pair,
+// same-process retry.
 public class PlayerCacheWarmingService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
@@ -90,18 +98,19 @@ public class PlayerCacheWarmingService(
     // time (both the CLI console and a GitHub Actions log stream live).
     private const int ProgressLogInterval = 25;
 
-    // REQ-110 (2026-07-28): "retried at least once within the same run"
-    // (docs/requirements-document.md) — 2 total attempts (1 initial + 1
-    // retry) per pair. Not configurable/higher: a genuinely down WDQS
-    // (rather than a transient blip) would otherwise multiply this run's
-    // total wall-clock cost by however many attempts are configured, across
-    // every one of the few hundred still-failing pairs — 2 is enough to
-    // recover the transient case (a momentary 502, a one-off slow query)
-    // this extension's own evidence describes ("a transient WDQS 502 or a
-    // momentary timeout may well succeed on a same-run retry a few seconds
-    // later") without turning a real outage into a run that takes several
-    // times longer than necessary before reporting it.
-    private const int MaxAttemptsPerPair = 2;
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052): a pair is skipped, without any live query, once
+    // its PairLookupFailure.ConsecutiveFailureCount reaches this — 2
+    // consecutive RUN-level failures (not attempts; see this class's own
+    // "removes the same-run retry" comment above), so a single transient
+    // blip on one run never permanently starves a pair that resolves fine
+    // on the very next run, while a pair that's still failing after a
+    // second independent run (a real, separate chance against whatever
+    // WDQS load/network conditions that later run happens to see) is
+    // treated as structural and stops being retried until an operator
+    // investigates or a query-shape fix clears it (StaleClubAttributeCleaner/
+    // purge-player-pool, same invalidation surface as ConfirmedLowMatchPair).
+    private const int PersistentFailureThreshold = 2;
 
     public async Task<CacheWarmingResult> WarmAsync(CancellationToken cancellationToken = default)
     {
@@ -120,6 +129,7 @@ public class PlayerCacheWarmingService(
         var pairsQueriedLive = 0;
         var pairsAlreadyValid = 0;
         var pairsSkippedConfirmedLow = 0;
+        var pairsSkippedPersistentFailure = 0;
         var pairsProcessed = 0;
         var pairsWithTechnicalFailure = 0;
         var failingPairs = new List<string>();
@@ -151,28 +161,46 @@ public class PlayerCacheWarmingService(
                     logger.LogDebug("{Country} x {Club}: skipped — previously confirmed below MinValidAnswers.",
                         country.Name, club.Name);
                 }
+                // REQ-110 (2026-08-01 "persistent technical-failure
+                // tracking" extension): checked only once the pair is
+                // neither already-valid nor confirmed-low — see
+                // PairLookupFailure's own doc comment and
+                // PersistentFailureThreshold's own comment for the full
+                // "why 2 consecutive runs, not 1" reasoning.
+                else if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                    NationalityAttributeType, country.Name, ClubAttributeType, club.Name, PersistentFailureThreshold, cancellationToken))
+                {
+                    pairsSkippedPersistentFailure++;
+                    logger.LogDebug("{Country} x {Club}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
+                        country.Name, club.Name, PersistentFailureThreshold);
+                }
                 else
                 {
-                    var (matches, hadTechnicalFailure) = await LookupWithSameRunRetryAsync(
-                        onFail => wikidataLookupService.LookupAndPersistAsync(
-                            country, club, WikidataLookupOrigin.Sync, cancellationToken,
-                            onTechnicalFailure: onFail, timeoutTier: WikidataQueryTimeoutTier.CacheWarming),
-                        cancellationToken);
+                    var hadTechnicalFailure = false;
+                    var matches = await wikidataLookupService.LookupAndPersistAsync(
+                        country, club, WikidataLookupOrigin.Sync, cancellationToken,
+                        onTechnicalFailure: () => hadTechnicalFailure = true, timeoutTier: WikidataQueryTimeoutTier.CacheWarming);
                     pairsQueriedLive++;
                     if (hadTechnicalFailure)
                     {
                         pairsWithTechnicalFailure++;
                         failingPairs.Add($"{country.Name} x {club.Name}");
+                        await playerStoreRepository.RecordTechnicalFailureAsync(
+                            NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
                     }
                     else
                     {
                         // REQ-110: a real (possibly zero-match) answer — not
-                        // a swallowed technical failure — so if it's still
-                        // below threshold, persist the confirmed-low marker
-                        // for next run. matches.Count is the query's
-                        // complete, un-LIMITed result set (implementation-
-                        // document.md §6a), so it's the true current match
-                        // count, not just "however many were new."
+                        // a swallowed technical failure — so clear any prior
+                        // run's failure marker (a no-op if this pair never
+                        // failed before) and, if it's still below threshold,
+                        // persist the confirmed-low marker for next run.
+                        // matches.Count is the query's complete, un-LIMITed
+                        // result set (implementation-document.md §6a), so
+                        // it's the true current match count, not just
+                        // "however many were new."
+                        await playerStoreRepository.ClearTechnicalFailureAsync(
+                            NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
                         if (matches.Count < options.MinValidAnswers)
                         {
                             await playerStoreRepository.RecordConfirmedLowAsync(
@@ -183,7 +211,7 @@ public class PlayerCacheWarmingService(
                         country.Name, club.Name, matches.Count, cachedCount);
                 }
 
-                LogProgressCheckpoint(pairsProcessed, totalPairs);
+                LogProgressCheckpoint(pairsProcessed, totalPairs, pairsWithTechnicalFailure);
             }
         }
 
@@ -209,23 +237,38 @@ public class PlayerCacheWarmingService(
                     logger.LogDebug("{ClubA} x {ClubB}: skipped — previously confirmed below MinValidAnswers.",
                         clubs[i].Name, clubs[j].Name);
                 }
+                // REQ-110 (2026-08-01): see the Country x Club loop's own
+                // comment above — same reasoning here. This is the loop
+                // that actually needed this extension in practice — see
+                // WikidataClient.BuildClubClubIntersectionQuery's own
+                // comment for the specific club-club query-shape incident.
+                else if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                    ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, PersistentFailureThreshold, cancellationToken))
+                {
+                    pairsSkippedPersistentFailure++;
+                    logger.LogDebug("{ClubA} x {ClubB}: skipped — {Threshold}+ consecutive run failures, treated as a structural query failure.",
+                        clubs[i].Name, clubs[j].Name, PersistentFailureThreshold);
+                }
                 else
                 {
-                    var (matches, hadTechnicalFailure) = await LookupWithSameRunRetryAsync(
-                        onFail => wikidataLookupService.LookupAndPersistClubClubAsync(
-                            clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken,
-                            onTechnicalFailure: onFail, timeoutTier: WikidataQueryTimeoutTier.CacheWarming),
-                        cancellationToken);
+                    var hadTechnicalFailure = false;
+                    var matches = await wikidataLookupService.LookupAndPersistClubClubAsync(
+                        clubs[i], clubs[j], WikidataLookupOrigin.Sync, cancellationToken,
+                        onTechnicalFailure: () => hadTechnicalFailure = true, timeoutTier: WikidataQueryTimeoutTier.CacheWarming);
                     pairsQueriedLive++;
                     if (hadTechnicalFailure)
                     {
                         pairsWithTechnicalFailure++;
                         failingPairs.Add($"{clubs[i].Name} x {clubs[j].Name}");
+                        await playerStoreRepository.RecordTechnicalFailureAsync(
+                            ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
                     }
                     else
                     {
                         // REQ-110: see the Country x Club loop's own comment
                         // above — same reasoning here.
+                        await playerStoreRepository.ClearTechnicalFailureAsync(
+                            ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
                         if (matches.Count < options.MinValidAnswers)
                         {
                             await playerStoreRepository.RecordConfirmedLowAsync(
@@ -236,63 +279,44 @@ public class PlayerCacheWarmingService(
                         clubs[i].Name, clubs[j].Name, matches.Count, cachedCount);
                 }
 
-                LogProgressCheckpoint(pairsProcessed, totalPairs);
+                LogProgressCheckpoint(pairsProcessed, totalPairs, pairsWithTechnicalFailure);
             }
         }
 
         var result = new CacheWarmingResult(
-            totalPairs, pairsQueriedLive, pairsAlreadyValid, pairsWithTechnicalFailure, failingPairs, pairsSkippedConfirmedLow);
+            totalPairs, pairsQueriedLive, pairsAlreadyValid, pairsWithTechnicalFailure, failingPairs,
+            pairsSkippedConfirmedLow, pairsSkippedPersistentFailure);
 
         // REQ-110: the failing-pairs list is logged in full here, at
         // Information level, exactly once per run — not per-pair (each
-        // pair's own failure was already logged as a Warning inside
-        // WikidataClient when it happened; see RunIntersectionQueryAsync).
-        // A comma-joined string rather than one log call per pair, matching
-        // this method's existing "coarse summary, not a per-pair stream"
-        // logging shape (see ProgressLogInterval's own comment).
+        // pair's own failure was already logged inside WikidataClient when
+        // it happened, at Debug level as of 2026-08-01 — see
+        // RunIntersectionQueryAsync's own comment on why). A comma-joined
+        // string rather than one log call per pair, matching this method's
+        // existing "coarse summary, not a per-pair stream" logging shape
+        // (see ProgressLogInterval's own comment).
         logger.LogInformation(
             "Player cache warming complete: {TotalPairs} pairs checked, {PairsQueriedLive} queried live, {PairsAlreadyValid} already valid, " +
-            "{PairsSkippedConfirmedLow} skipped as previously confirmed low, " +
-            "{PairsWithTechnicalFailure} of the queried-live pairs hit a technical failure (timeout/HTTP/parse error, after a same-run retry) rather than a clean answer.{FailingPairsSuffix}",
-            result.TotalPairs, result.PairsQueriedLive, result.PairsAlreadyValid, result.PairsSkippedConfirmedLow, result.PairsWithTechnicalFailure,
+            "{PairsSkippedConfirmedLow} skipped as previously confirmed low, {PairsSkippedPersistentFailure} skipped as a persistent (2+ run) " +
+            "technical failure, {PairsWithTechnicalFailure} of the queried-live pairs hit a technical failure (timeout/HTTP/parse error) " +
+            "rather than a clean answer.{FailingPairsSuffix}",
+            result.TotalPairs, result.PairsQueriedLive, result.PairsAlreadyValid, result.PairsSkippedConfirmedLow,
+            result.PairsSkippedPersistentFailure, result.PairsWithTechnicalFailure,
             result.FailingPairs.Count > 0 ? $" Failing pairs: {string.Join(", ", result.FailingPairs)}." : string.Empty);
 
         return result;
     }
 
-    // REQ-110 (2026-07-28 "cache-warming-specific timeout + same-run retry"
-    // extension): shared by both loops above — `attempt` closes over
-    // whichever Lookup*Async call the caller needs (Country x Club vs.
-    // Club x Club), receiving this method's own per-attempt onTechnicalFailure
-    // callback so each attempt's outcome is observed independently (a
-    // failure on attempt 1 must not leak into attempt 2's result). Returns
-    // the LAST attempt's matches/failure state — if the retry succeeds, that
-    // becomes the final (non-failure) result; if it doesn't, the pair is
-    // reported as a technical failure exactly once, not twice.
-    private static async Task<(IReadOnlyList<Player> Matches, bool HadTechnicalFailure)> LookupWithSameRunRetryAsync(
-        Func<Action, Task<IReadOnlyList<Player>>> attempt, CancellationToken cancellationToken)
-    {
-        IReadOnlyList<Player> matches = [];
-        var hadTechnicalFailure = false;
-
-        for (var attemptNumber = 1; attemptNumber <= MaxAttemptsPerPair; attemptNumber++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var thisAttemptFailed = false;
-            matches = await attempt(() => thisAttemptFailed = true);
-            hadTechnicalFailure = thisAttemptFailed;
-
-            if (!hadTechnicalFailure)
-                break;
-        }
-
-        return (matches, hadTechnicalFailure);
-    }
-
-    private void LogProgressCheckpoint(int pairsProcessed, int totalPairs)
+    // REQ-110 (2026-08-01): includes the running technical-failure count so
+    // a run that gets cancelled mid-way (this job's own 90-minute CI
+    // timeout, or a manual cancellation) still leaves a useful trail in the
+    // log — WarmAsync's own Information-level summary line never gets to
+    // run if the process is killed first, so this periodic checkpoint is
+    // the only signal an operator gets from an incomplete run.
+    private void LogProgressCheckpoint(int pairsProcessed, int totalPairs, int pairsWithTechnicalFailure)
     {
         if (pairsProcessed % ProgressLogInterval == 0 || pairsProcessed == totalPairs)
-            logger.LogInformation("Progress: {PairsProcessed}/{TotalPairs} pairs checked.", pairsProcessed, totalPairs);
+            logger.LogInformation("Progress: {PairsProcessed}/{TotalPairs} pairs checked ({PairsWithTechnicalFailure} technical failures so far).",
+                pairsProcessed, totalPairs, pairsWithTechnicalFailure);
     }
 }

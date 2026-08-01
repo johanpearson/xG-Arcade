@@ -17,13 +17,13 @@ public interface IPlayerCacheWarmingService
 // PairsWithTechnicalFailure is a subset of it, not a replacement metric.
 // FailingPairs names each one ("{A} x {B}", matching this codebase's
 // existing per-pair log convention) so an operator reading the run summary
-// can tell which pairs are worth re-running versus which are confirmed
-// low. See docs/requirements-document.md's REQ-110 "Extended (2026-07-28)"
-// entry for the full incident this responds to. A pair counted here has
-// already been retried once within the same run (PlayerCacheWarmingService's
-// own same-run retry) and STILL failed — a pair that failed once but
-// succeeded on retry is not counted here at all, and is otherwise
-// indistinguishable from a pair that succeeded on the first attempt.
+// can tell which pairs are worth investigating. See docs/requirements-document.md's
+// REQ-110 "Extended (2026-07-28)" entry for the full incident this
+// responds to. As of the 2026-08-01 extension there is no same-run retry —
+// a pair counted here failed on its one attempt this run (see
+// PlayerCacheWarmingService's own comment on why the same-run retry was
+// removed); repeated failures across separate runs are what
+// PairsSkippedPersistentFailure below tracks instead.
 //
 // PairsSkippedConfirmedLow (REQ-110, 2026-07-28 "persisted confirmed-low
 // signal" extension): pairs skipped without any live query because a prior
@@ -31,8 +31,22 @@ public interface IPlayerCacheWarmingService
 // ConfirmedLowMatchPair's own doc comment). A separate counter from
 // PairsAlreadyValid — that one means "already has enough real matches
 // cached to answer a grid," this one means "cached-but-confirmed-low, not
-// worth re-checking yet." TotalPairs still equals
-// PairsQueriedLive + PairsAlreadyValid + PairsSkippedConfirmedLow, same
+// worth re-checking yet."
+//
+// PairsSkippedPersistentFailure (REQ-110, 2026-08-01 "persistent
+// technical-failure tracking" extension, ADR-0052): pairs skipped without
+// any live query because at least PersistentFailureThreshold consecutive
+// runs already ended in a technical failure for this pair (see
+// PairLookupFailure's own doc comment). A separate counter from both
+// PairsSkippedConfirmedLow (that one means "Wikidata answered, genuinely
+// below threshold"; this one means "the query itself keeps failing,
+// treated as structural, needs an operator or a query-shape fix") and from
+// PairsWithTechnicalFailure (that one is a live query THIS run that failed;
+// this one is a pair skipped WITHOUT a live query this run, because past
+// runs already failed enough times).
+//
+// TotalPairs still equals PairsQueriedLive + PairsAlreadyValid +
+// PairsSkippedConfirmedLow + PairsSkippedPersistentFailure, same
 // exhaustive-partition shape the result already had before this field
 // existed.
 public record CacheWarmingResult(
@@ -41,4 +55,5 @@ public record CacheWarmingResult(
     int PairsAlreadyValid,
     int PairsWithTechnicalFailure,
     IReadOnlyList<string> FailingPairs,
-    int PairsSkippedConfirmedLow = 0);
+    int PairsSkippedConfirmedLow = 0,
+    int PairsSkippedPersistentFailure = 0);

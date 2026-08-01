@@ -175,8 +175,9 @@ public class PlayerCacheWarmingServiceTests
         SeedCountry("France");
         SeedCountry("Spain");
         SeedClub("Arsenal");
-        // France x Arsenal: every attempt within the run hits a technical
-        // failure (MaxAttemptsPerPair = 2, both attempts fail).
+        // France x Arsenal: the run's one attempt hits a technical failure
+        // (no same-run retry as of the 2026-08-01 extension — see
+        // REQ110_WarmAsync_TechnicalFailure_MakesExactlyOneLiveCall_NoSameRunRetry).
         _wikidataLookupService.FailWithTechnicalFailure("France", "Arsenal");
         // Spain x Arsenal: no failure configured, no matches configured —
         // a genuine "queried successfully, found nothing" response.
@@ -191,36 +192,13 @@ public class PlayerCacheWarmingServiceTests
             "a genuine zero-match success must never be listed as a failing pair");
     }
 
-    // REQ-110 (2026-07-28 "cache-warming-specific timeout + same-run retry"
-    // extension): a pair whose FIRST attempt hits a technical failure but
-    // succeeds on the same-run retry must not be counted as a technical
-    // failure at all, and the retry's real (successful) result is what gets
-    // used/persisted.
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052): the same-run retry this class previously had is
+    // now GONE — a pair queried exactly once per run, whether it succeeds or
+    // fails. This test pins that down directly: a failing pair makes exactly
+    // one live call per WarmAsync invocation, not two.
     [Test]
-    public async Task REQ110_WarmAsync_FirstAttemptTechnicalFailureSecondAttemptSucceeds_NotCountedAsTechnicalFailure()
-    {
-        SeedCountry("France");
-        SeedClub("Arsenal");
-        _wikidataLookupService.FailWithTechnicalFailureForAttempts("France", "Arsenal", attempts: 1);
-        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakePlayers("France", "Arsenal", count: 7));
-        var service = BuildService(minValidAnswers: 5);
-
-        var result = await service.WarmAsync();
-
-        Assert.That(result.PairsWithTechnicalFailure, Is.EqualTo(0));
-        Assert.That(result.FailingPairs, Is.Empty);
-        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(2),
-            "the pair must actually have been retried once within the same run");
-        // The retry's real (7-match, above threshold) result is what's used —
-        // not treated as a below-threshold pair needing a confirmed-low marker.
-        Assert.That(await _playerStoreRepository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"), Is.False);
-    }
-
-    // REQ-110 (2026-07-28): a pair that fails on BOTH attempts within a run
-    // (MaxAttemptsPerPair = 2) must be counted as a technical failure exactly
-    // once — not once per attempt.
-    [Test]
-    public async Task REQ110_WarmAsync_BothAttemptsFailWithinARun_CountedAsTechnicalFailureExactlyOnce()
+    public async Task REQ110_WarmAsync_TechnicalFailure_MakesExactlyOneLiveCall_NoSameRunRetry()
     {
         SeedCountry("France");
         SeedClub("Arsenal");
@@ -231,8 +209,111 @@ public class PlayerCacheWarmingServiceTests
 
         Assert.That(result.PairsWithTechnicalFailure, Is.EqualTo(1));
         Assert.That(result.FailingPairs, Has.Count.EqualTo(1));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(1),
+            "the same-run retry was removed 2026-08-01 (ADR-0052) — a failing pair costs exactly one live call, not two");
+    }
+
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052): a single run-level failure is recorded but must
+    // NOT yet trigger the skip — PersistentFailureThreshold is 2, so a
+    // one-off transient blip must still get a real, live chance on the very
+    // next run.
+    [Test]
+    public async Task REQ110_WarmAsync_SinglePriorRunFailure_StillQueriedLiveNotYetSkipped()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        // First run: fails once. Second run: no failure configured, and a
+        // real match set — proves the pair is still queried live, not
+        // skipped, after only one prior failure.
+        _wikidataLookupService.FailWithTechnicalFailureForAttempts("France", "Arsenal", attempts: 1);
+        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakePlayers("France", "Arsenal", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var firstRun = await service.WarmAsync();
+        var secondRun = await service.WarmAsync();
+
+        Assert.That(firstRun.PairsWithTechnicalFailure, Is.EqualTo(1));
+        Assert.That(secondRun.PairsSkippedPersistentFailure, Is.EqualTo(0),
+            "one prior run's failure must not be enough to skip — PersistentFailureThreshold is 2 consecutive runs");
+        Assert.That(secondRun.PairsQueriedLive, Is.EqualTo(1));
         Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(2),
-            "both attempts must actually be made (the same-run retry), even though both fail");
+            "both runs' single attempts must actually have been made");
+    }
+
+    // REQ-110 (2026-08-01): the core fix — a pair that fails on 2
+    // CONSECUTIVE runs is skipped on the third, without any live query at
+    // all. This is what stops a structurally-doomed pair (e.g. the
+    // club-club combinatorial-blowup incident this extension responds to)
+    // from being re-attempted, at full cost, on every future run forever.
+    [Test]
+    public async Task REQ110_WarmAsync_PairFailsTwoConsecutiveRuns_SkippedWithoutLiveQueryOnThirdRun()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        _wikidataLookupService.FailWithTechnicalFailureForAttempts("France", "Arsenal", attempts: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        var firstRun = await service.WarmAsync();
+        var secondRun = await service.WarmAsync();
+        var thirdRun = await service.WarmAsync();
+
+        Assert.That(firstRun.PairsWithTechnicalFailure, Is.EqualTo(1));
+        Assert.That(secondRun.PairsWithTechnicalFailure, Is.EqualTo(1));
+        Assert.That(thirdRun.PairsSkippedPersistentFailure, Is.EqualTo(1));
+        Assert.That(thirdRun.PairsQueriedLive, Is.EqualTo(0));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(2),
+            "the third run must not issue a live call at all once the pair is skipped as a persistent failure");
+    }
+
+    // REQ-110 (2026-08-01): the Club x Club loop's own persistent-failure
+    // skip path — a separate code path from the Country x Club loop above,
+    // needing its own coverage rather than assuming symmetry (same
+    // precedent as this file's existing confirmed-low Club x Club test).
+    [Test]
+    public async Task REQ110_WarmAsync_ClubClubPairFailsTwoConsecutiveRuns_SkippedWithoutLiveQueryOnThirdRun()
+    {
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        _wikidataLookupService.FailClubClubWithTechnicalFailureForAttempts("Arsenal", "Barcelona", attempts: 2);
+        _wikidataLookupService.FailClubClubWithTechnicalFailureForAttempts("Barcelona", "Arsenal", attempts: 2);
+        var service = BuildService(minValidAnswers: 5);
+
+        await service.WarmAsync();
+        await service.WarmAsync();
+        var thirdRun = await service.WarmAsync();
+
+        Assert.That(thirdRun.PairsSkippedPersistentFailure, Is.EqualTo(1));
+        Assert.That(thirdRun.PairsQueriedLive, Is.EqualTo(0));
+    }
+
+    // REQ-110 (2026-08-01): a pair that fails once, then gets a real answer,
+    // must have its failure marker cleared — a later, unrelated failure must
+    // start counting from zero again, not silently inherit the earlier
+    // failure's count and skip prematurely.
+    [Test]
+    public async Task REQ110_WarmAsync_PairRecoversAfterFailure_LaterUnrelatedFailureDoesNotInheritOldCount()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        // Run 1: fails once. Run 2: succeeds (clears the marker). Run 3:
+        // fails once more — if the counter weren't cleared on the run-2
+        // recovery, this would be failure #2 against the ORIGINAL count and
+        // would wrongly trigger the skip on a hypothetical run 4.
+        _wikidataLookupService.FailWithTechnicalFailureForAttempts("France", "Arsenal", attempts: 1);
+        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakePlayers("France", "Arsenal", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+        await service.WarmAsync();
+        await service.WarmAsync();
+
+        _wikidataLookupService.FailWithTechnicalFailure("France", "Arsenal");
+        var thirdRun = await service.WarmAsync();
+        var fourthRun = await service.WarmAsync();
+
+        Assert.That(thirdRun.PairsWithTechnicalFailure, Is.EqualTo(1));
+        Assert.That(fourthRun.PairsSkippedPersistentFailure, Is.EqualTo(0),
+            "the recovery on run 2 must have cleared the marker, so run 3's failure is the FIRST of a new streak, not the second overall");
+        Assert.That(fourthRun.PairsQueriedLive, Is.EqualTo(1));
     }
 
     // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension): a
@@ -471,6 +552,38 @@ public class PlayerCacheWarmingServiceTests
         Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
             "purge-player-pool's unscoped ConfirmedLowMatchPair delete must make WarmAsync re-query this pair live, not trust a marker left over from before the purge");
         Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0));
+        Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
+    }
+
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052): the same purge-player-pool regression as
+    // REQ110_PurgePlayerPoolConfirmedLowMatchPairsDelete_ThenWarmAsync_
+    // ReQueriesPreviouslyConfirmedLowPairLive above, for PairLookupFailure —
+    // purge-player-pool's unscoped delete (Program.cs:
+    // `await purgeDbContext.PairLookupFailures.ExecuteDeleteAsync();`) must
+    // also stop WarmAsync from trusting a persistent-failure marker left
+    // over from before the purge. Same InMemory-provider RemoveRange proxy
+    // for ExecuteDeleteAsync as the test above.
+    [Test]
+    public async Task REQ110_PurgePlayerPoolPairLookupFailuresDelete_ThenWarmAsync_ReQueriesPreviouslyFailingPairLive()
+    {
+        SeedCountry("France");
+        SeedClub("Napoli");
+        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
+        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
+
+        var staleLookupFailures = await _dbContext.PairLookupFailures.ToListAsync();
+        _dbContext.PairLookupFailures.RemoveRange(staleLookupFailures);
+        await _dbContext.SaveChangesAsync();
+
+        _wikidataLookupService.SetMatches("France", "Napoli", BuildFakePlayers("France", "Napoli", count: 7));
+        var service = BuildService(minValidAnswers: 5);
+
+        var result = await service.WarmAsync();
+
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Napoli"), Is.EqualTo(1),
+            "purge-player-pool's unscoped PairLookupFailure delete must make WarmAsync re-query this pair live, not trust a marker left over from before the purge");
+        Assert.That(result.PairsSkippedPersistentFailure, Is.EqualTo(0));
         Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
     }
 }

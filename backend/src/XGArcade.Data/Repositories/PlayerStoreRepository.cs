@@ -571,4 +571,66 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         // translate either.
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<bool> IsPersistentTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        int threshold, CancellationToken cancellationToken = default) =>
+        await dbContext.PairLookupFailures
+            .AsNoTracking()
+            .AnyAsync(f =>
+                f.FirstAttributeType == firstAttributeType && f.FirstAttributeValue == firstAttributeValue &&
+                f.SecondAttributeType == secondAttributeType && f.SecondAttributeValue == secondAttributeValue &&
+                f.ConsecutiveFailureCount >= threshold,
+                cancellationToken);
+
+    public async Task RecordTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await dbContext.PairLookupFailures.FirstOrDefaultAsync(f =>
+            f.FirstAttributeType == firstAttributeType && f.FirstAttributeValue == firstAttributeValue &&
+            f.SecondAttributeType == secondAttributeType && f.SecondAttributeValue == secondAttributeValue,
+            cancellationToken);
+
+        var failedAt = DateTime.UtcNow;
+
+        if (existing is not null)
+        {
+            existing.ConsecutiveFailureCount++;
+            existing.LastFailedAt = failedAt;
+        }
+        else
+        {
+            dbContext.PairLookupFailures.Add(new PairLookupFailure
+            {
+                FirstAttributeType = firstAttributeType,
+                FirstAttributeValue = firstAttributeValue,
+                SecondAttributeType = secondAttributeType,
+                SecondAttributeValue = secondAttributeValue,
+                ConsecutiveFailureCount = 1,
+                LastFailedAt = failedAt,
+            });
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task ClearTechnicalFailureAsync(
+        string firstAttributeType, string firstAttributeValue,
+        string secondAttributeType, string secondAttributeValue,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await dbContext.PairLookupFailures.FirstOrDefaultAsync(f =>
+            f.FirstAttributeType == firstAttributeType && f.FirstAttributeValue == firstAttributeValue &&
+            f.SecondAttributeType == secondAttributeType && f.SecondAttributeValue == secondAttributeValue,
+            cancellationToken);
+
+        if (existing is null)
+            return;
+
+        dbContext.PairLookupFailures.Remove(existing);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -364,6 +364,12 @@ if (args is ["clean-stale-club-attributes", ..])
 // confirmed-low pair often has no Player rows to reference at all), so
 // deleting Players above doesn't cascade into it; it needs its own explicit
 // delete.
+//
+// REQ-110 (2026-08-01 "persistent technical-failure tracking" extension,
+// ADR-0052): same reasoning again for PairLookupFailure — a "purge and
+// re-warm" cycle must force a real, full re-check, never a warm run
+// trusting a stale skip marker (confirmed-low OR persistent-failure) left
+// over from before the purge.
 if (args is ["purge-player-pool", ..])
 {
     const string requiredConfirmationPhrase = "delete all player data";
@@ -391,9 +397,10 @@ if (args is ["purge-player-pool", ..])
     // InMemory-provider unit tests that load-then-SaveChangesAsync exists to
     // protect.
     var purgedConfirmedLowCount = await purgeDbContext.ConfirmedLowMatchPairs.ExecuteDeleteAsync();
+    var purgedLookupFailureCount = await purgeDbContext.PairLookupFailures.ExecuteDeleteAsync();
 
     Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows), " +
-        $"and {purgedConfirmedLowCount} ConfirmedLowMatchPair row(s).");
+        $"{purgedConfirmedLowCount} ConfirmedLowMatchPair row(s), and {purgedLookupFailureCount} PairLookupFailure row(s).");
     return;
 }
 
