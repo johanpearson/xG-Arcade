@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md` (v1.26 → v1.27) — Flipped
+  REQ-718's "UI: logout confirmation and guest-expiry copy" addendum
+  (rules 4/5) from "Not yet implemented — drafted only" to "Implemented,
+  2026-08-01": `GuestLogoutConfirm.tsx`/`.css`
+  (`frontend/src/nav/`) gates a guest's "Log out" click behind a
+  confirmation dialog before the existing, unmodified `handleLogout` fires
+  (rule 4); `guestExpiryCopy.ts` (`frontend/src/lib/`) is the single
+  source of the 7-day/30-day expiry copy shown in the guest banner and
+  `SettingsScreen.tsx`'s guest claim section (rule 5). Added and wired in
+  `68e09ed`; covered by 8 new tests (`App.test.tsx` x6,
+  `SettingsScreen.test.tsx` x2) in `2e36be4` — full suite green at
+  367/367 Vitest tests, clean `tsc -b`, clean `oxlint`. No change to
+  `docs/architecture-document.md` (client-side-only gate in front of the
+  already-documented REQ-718/ADR-0038 deletion flow — no new boundary or
+  data flow) or to REQ-215/509/510, which remain correctly drafted-only
+  with no code. REQ/ADR refs: REQ-718, ADR-0038.
 - 2026-08-01 — `docs/requirements-document.md` (v1.26) — Drafted three new
   requirements for a not-yet-built feature (REQ-215: logged-in,
   non-guest players may submit an answer suggestion — asserted club(s) +

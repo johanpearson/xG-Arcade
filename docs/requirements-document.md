@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.26"
+version: "1.27"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -5165,7 +5165,7 @@ purges any account satisfying either one.
   against REQ-718's own acceptance criteria instead; confirm in CI.
 
 **UI: logout confirmation and guest-expiry copy (2026-07-28 addition —
-Status: Not yet implemented, drafted only.)** Two small, additive UI-only
+Status: Implemented, 2026-08-01.)** Two small, additive UI-only
 changes to the guest experience. Neither changes the deletion mechanism
 above (rules 1–3) or its backend implementation in any way — nothing here
 alters when or how an account is actually deleted, only what a guest sees
@@ -5214,6 +5214,34 @@ touching `handleLogout`'s existing best-effort, non-blocking `POST
   scoped identically to the existing guest-only banner/claim section
   REQ-717 already describes ("visible only while the account is a guest")
 
+- **Status: Implemented, 2026-08-01.** Rule 4: a new
+  `GuestLogoutConfirm.tsx`/`.css` (`frontend/src/nav/`) renders a
+  `role="dialog"`/`aria-modal` confirmation, reusing `ScoringExplainer`'s
+  modal shell/a11y pattern (backdrop-click, Escape, focus-in/focus-return)
+  and `DeleteAccountScreen`'s two-button confirm styling — no new
+  design-document.md tokens or SCREEN entry, since both patterns were
+  already documented. `App.tsx`'s existing "Log out" click handler
+  (`handleLogoutClick`) opens this dialog only when `isGuest === true`;
+  cancelling calls only `onCancel` (dialog closes, nothing else happens,
+  no backend call); confirming calls `onConfirm`, wired straight through
+  to the existing, completely unmodified `handleLogout` — same
+  best-effort, never-awaited `POST /auth/logout`, same immediate local
+  clear-and-reset. A non-guest account's "Log out" click still calls
+  `handleLogout` directly, with no dialog in between, exactly as REQ-715
+  already specifies. Rule 5: a single new `guestExpiryCopy.ts`
+  (`frontend/src/lib/`) exports `GUEST_EXPIRY_COPY`, the one string
+  stating the actual 7-day/30-day thresholds, imported by both `App.tsx`'s
+  guest banner and `SettingsScreen.tsx`'s guest claim section — no
+  independently-hardcoded copy of either number in either place. Test
+  coverage: 8 new tests across `App.test.tsx` (6, covering the dialog
+  appearing for a guest, cancel leaving session/tokens/screen untouched
+  with no backend call, confirm running the unmodified `handleLogout`, a
+  non-guest getting no dialog at all, and the expiry copy rendering for a
+  guest / being absent for a non-guest in the banner) and
+  `SettingsScreen.test.tsx` (2, the same expiry-copy present/absent check
+  for the Settings guest section) — full suite green at 367/367 Vitest
+  tests, clean `tsc -b`, clean `oxlint`.
+
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other
 request; the 30-day-unclaimed and 7-day-inactive queries each select
@@ -5231,7 +5259,8 @@ backend call; confirming triggers the existing best-effort `POST
 /auth/logout` unchanged; a non-guest's logout shows no prompt at all; the
 guest banner and Settings guest section render copy containing the actual
 7-day and 30-day thresholds; neither renders that copy for a non-guest
-account — added 2026-07-28)
+account — added 2026-07-28, implemented and covered by Vitest as of
+2026-08-01)
 
 **REQ-719 – Unauthenticated splash/landing screen before login/signup**
 > As a first-time or logged-out visitor, I want to see an introductory
