@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md` (v1.26) — Drafted three new
+  requirements for a not-yet-built feature (REQ-215: logged-in,
+  non-guest players may submit an answer suggestion — asserted club(s) +
+  nationality — after a guess is scored incorrect or a REQ-211 live lookup
+  times out, visibly advertised-but-disabled for guests with a
+  registration prompt; REQ-509: admin review of pending suggestions with
+  an admin-triggered live Wikidata lookup and a commit path that writes
+  only through the existing `PlayerAttribute`/`PlayerOverride` mechanism,
+  never `PlayerNameIndex`, per ADR-0007's boundary; REQ-510: the same
+  admin fetch/review/commit flow usable standalone, with no suggestion
+  required). All three are explicitly flagged Tier 1/2-sized new
+  pipeline work relative to `MVP-SCOPE.md` — not pulled forward by this
+  change — and REQ-509 flags an open question (recorded in §7) on whether
+  a new ADR should govern how these suggestions relate to REQ-503's
+  existing unverified-data queue. Also added a small additive UI-only
+  addendum to REQ-718 (guest account lifecycle): a confirmation prompt
+  before a guest's logout-triggered account deletion, and guest-facing
+  copy stating the actual 7-day/30-day expiry thresholds — both drafted
+  only, no code yet, and no change to REQ-718's existing deletion
+  mechanism. §7 gained one new open question (retroactive rescoring on an
+  approved suggestion — REQ-215 defaults to "no," unconfirmed by the
+  product owner).
 - 2026-07-28 — `docs/decisions/0051-per-gamekey-round-scheduling.md`
   renumbered from `0050-per-gamekey-round-scheduling.md` while rebasing onto
   `main`, which had independently assigned ADR-0050 to
