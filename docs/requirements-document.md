@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.25"
+version: "1.26"
 status: draft
-last_updated: 2026-07-28
+last_updated: 2026-08-01
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -454,6 +454,45 @@ without erroring), API
   persistence mechanism (new table, new column, reuse of an existing
   one) is an implementation detail for `backend-implementer`, not
   specified here — but this invariant is not.
+- **Extended (2026-08-01) — same-run retry removed; persistent
+  cross-run technical-failure tracking added (ADR-0052).** Diagnosed from
+  CI logs (`warm-player-cache` run #15, 2026-07-28 through 08-01): every
+  attempt to run the job after the 2026-07-28 same-run-retry extension
+  above got cancelled at the workflow's 90-minute ceiling, never once
+  completing. Root cause was two-fold: (1) the same-run retry itself made
+  every technical failure cost up to 2x the cache-warming timeout instead
+  of 1x, and (2) a technical failure was never persisted anywhere, so the
+  exact same pairs got retried, at that now-doubled cost, from scratch, on
+  every single run. A specific, confirmed cause of many of those failures
+  was also found and fixed alongside this: `WikidataClient.BuildClubClubIntersectionQuery`'s
+  plain join on two independent P54 statement-path patterns could produce a
+  combinatorial row explosion (one real case returned 250,000+ WDQS
+  binding rows) for two clubs with a large, historically-overlapping
+  squad — no timeout, however long, reliably finishes that query, so
+  retrying it (same-run or cross-run) was pure waste. This criterion
+  **supersedes the "same-run retry" half** of the 2026-07-28
+  "cache-warming-specific timeout and same-run retry" criterion above
+  (marked superseded there, not deleted; the cache-warming-specific
+  timeout ITSELF is unaffected and stays). Given a pair's live lookup ends
+  in a technical failure (timeout, HTTP error, or parse error), when that
+  happens, then it is attempted exactly once this run (no same-run retry)
+  and the system persists that this run failed for this pair. Given a pair
+  has technical failures persisted for at least 2 consecutive runs, when a
+  later cache-warming run reaches that pair, then it is skipped without
+  issuing any live query, and counted separately in the run summary from
+  both `PairsQueriedLive`'s technical-failure subset and
+  `PairsSkippedConfirmedLow`. Given a pair with a persisted failure record
+  gets a real (possibly zero-match) answer on some later run, when that
+  happens, then the persisted failure record is cleared, so a pair that
+  recovers (a query-shape fix, a resolved WDQS outage) is not permanently
+  starved. This must preserve REQ-110's own "persisted confirmed-low
+  signal" invariant above: the same purge/clean tools (REQ-111's
+  `clean-stale-club-attributes`, REQ-112/S-038's `purge-player-pool`) that
+  already clear a stale confirmed-low marker must also clear a stale
+  persistent-failure marker, for the same "purge and re-warm forces a
+  real, full re-check" reason. The exact threshold (how many consecutive
+  run failures before skipping) is an implementation detail for
+  `backend-implementer` to pick and justify, not specified here.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
@@ -464,17 +503,20 @@ successful zero-match response and the failing pair is listed in the run
 result, while REQ-103/REQ-211's own callers are unaffected by the change;
 the cache-warming query timeout is distinct from and longer than
 round-generation's own 15s budget, verified by a test that would fail if
-the two timeouts were collapsed back into one; a pair whose first attempt
-in a run hits a simulated technical failure succeeds on a same-run retry
-and is not counted as a technical failure in the summary; a pair
+the two timeouts were collapsed back into one; a failing pair makes
+exactly one live call per run, never two (2026-08-01: proves the same-run
+retry is actually gone); a pair is not skipped after a single prior run's
+failure but is skipped without a live query after 2 consecutive prior
+runs' failures, and a pair that recovers after a failure clears its marker
+so a later, unrelated failure doesn't inherit the old count; a pair
 previously persisted as confirmed-low is skipped on a subsequent run
 without issuing a live query, verified by asserting the mocked
 `IWikidataLookupService`/`IWikidataClient` receives zero calls for that
 pair). Also: a regression test proving that running REQ-111's stale-QID
 cleanup (named or `--all-clubs`) or REQ-112/S-038's `purge-player-pool`
-against a pair previously marked confirmed-low, followed by a
-cache-warming run, re-queries that pair live rather than trusting the
-stale confirmed-low marker.
+against a pair previously marked confirmed-low OR a persistent technical
+failure, followed by a cache-warming run, re-queries that pair live rather
+than trusting the stale marker.
 
 **REQ-111 – Recovery from a corrected reference-data QID**
 > As the system, I want to purge PlayerAttribute/PlayerData rows fetched

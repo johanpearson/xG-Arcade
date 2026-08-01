@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.81"
+version: "0.82"
 status: draft
-last_updated: 2026-07-28
+last_updated: 2026-08-01
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -555,6 +555,48 @@ public class ConfirmedLowMatchPair
     public DateTime ConfirmedAt { get; set; }
 }
 
+// Added 2026-08-01 (REQ-110's "persistent technical-failure tracking"
+// extension, ADR-0052), COMP-06 — Migration AddPairLookupFailure. Mirrors
+// ConfirmedLowMatchPair's shape exactly (same composite PK, no FK into
+// Player, same invalidation surface) but records a DIFFERENT kind of fact:
+// not "Wikidata confirmed this pair is genuinely below MinValidAnswers"
+// but "this codebase's own query for this pair has technically failed on
+// ConsecutiveFailureCount separate cache-warming runs." The distinction
+// matters because a technical failure might resolve on its own (a WDQS
+// outage recovering, a query-shape fix) in a way a genuine confirmed-low
+// answer never will — see ADR-0052's incident: a same-run retry plus
+// "nothing persists a technical failure" combination meant
+// warm-player-cache.yml re-fought the same structurally-doomed club-club
+// pairs, at doubled cost, on every single run, and never completed.
+//
+// Read/written only through IPlayerStoreRepository.IsPersistentTechnicalFailureAsync
+// (read, threshold-parameterized) / RecordTechnicalFailureAsync (write,
+// upsert-increment) / ClearTechnicalFailureAsync (write, delete-if-exists)
+// — never a direct DbContext query from Games.XGGrid. RecordTechnicalFailureAsync
+// is called once per pair per run that ends in a technical failure;
+// ClearTechnicalFailureAsync is called once a pair gets a real answer
+// (match, or genuine confirmed-low), so a recovered pair isn't
+// permanently starved. PlayerCacheWarmingService skips a pair once
+// ConsecutiveFailureCount reaches its own PersistentFailureThreshold (2) —
+// two consecutive RUNS, not attempts, since the same-run retry that used
+// to exist here was removed in the same extension (see
+// PlayerCacheWarmingService's own comment).
+//
+// Not self-expiring: cleared by StaleClubAttributeCleaner (REQ-111) and
+// purge-player-pool (REQ-112/S-038) alongside ConfirmedLowMatchPair, same
+// "purge and re-warm forces a real re-check" invariant. Not eligible for
+// infra/scripts/lib/game-data-tables.sh's prod/dev sync allowlist
+// (ADR-0009) — see ADR-0052 for why.
+public class PairLookupFailure
+{
+    public required string FirstAttributeType { get; set; }
+    public required string FirstAttributeValue { get; set; }
+    public required string SecondAttributeType { get; set; }
+    public required string SecondAttributeValue { get; set; }
+    public int ConsecutiveFailureCount { get; set; }
+    public DateTime LastFailedAt { get; set; }
+}
+
 // v1 category types are Country, Club, Trophy (REQ-108). Trophy is
 // reference data, not hardcoded — adding a new recognized trophy is a row
 // insert, not a code change.
@@ -1101,6 +1143,24 @@ confirmed genuinely below `MinValidAnswers`, per the new
 `ConfirmedLowMatchPair` table, §5). See §6a's 2026-07-28 addition for the
 `WikidataQueryTimeoutTier`/`onTechnicalFailure` mechanics this relies on.
 
+**2026-08-01 extension (REQ-110, ADR-0052) — supersedes the same-run retry
+mentioned above:** the same-run retry is removed (`LookupWithSameRunRetryAsync`
+deleted) — it only ever helps a transient failure, and doubled the cost of
+a structural one, which is what pushed `warm-player-cache.yml` past its
+90-minute CI budget on every run once a structural query-shape issue
+started dominating the failure count (NOTES.md, 2026-08-01). Each pair is
+now attempted exactly once per run. `CacheWarmingResult` gains
+`PairsSkippedPersistentFailure`: a pair skipped without any live query
+because `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` reports
+`ConsecutiveFailureCount` (per the new `PairLookupFailure` table, §5) has
+reached `PlayerCacheWarmingService.PersistentFailureThreshold` (2
+consecutive runs). `RecordTechnicalFailureAsync` is called on every
+technical failure; `ClearTechnicalFailureAsync` is called on every real
+answer (match or confirmed-low), so a recovered pair isn't permanently
+skipped. See §6a's 2026-08-01 addition for the `BuildClubClubIntersectionQuery`
+query-shape fix this pairs with, and this same section's `WikidataClient`
+log-level note (per-pair failure logs moved from `Warning` to `Debug`).
+
 **REQ-109 correction/recovery path (S-037):** `ReferenceDataSeeder.SeedAsync`
 (`XGArcade.Data.Seeding`) is no longer purely additive — a `Countries`/
 `Clubs` entry whose `Name` already exists in the database but whose
@@ -1134,7 +1194,11 @@ caller reaching around COMP-06's interface. **2026-07-28 addition
 naming one of the given clubs on either side — the same hard invariant
 this table's own doc comment calls out: a "purge and re-warm" cycle must
 force a real, full re-check, never a warm run trusting a confirmed-low
-marker left over from before the correction. Unlike `migrate-and-seed`'s
+marker left over from before the correction. **2026-08-01 addition
+(REQ-110, ADR-0052):** same reasoning again for `PairLookupFailure` — a
+stale persistent-failure marker for a corrected club must not silently
+keep `PlayerCacheWarmingService` skipping that pair after the fix.
+Unlike `migrate-and-seed`'s
 other backfillers (`PlayerNormalizedFullNameBackfiller`,
 `UserDisplayNameBackfiller`, `LeagueMembershipBackfiller`), this is
 deliberately **not** wired into `migrate-and-seed`'s automatic,
@@ -1196,7 +1260,9 @@ unscoped `ConfirmedLowMatchPairs.ExecuteDeleteAsync()` — `Player`'s
 cascade delete doesn't reach this table (it has no FK into `Player`, see
 its own doc comment in §5), so it needs its own explicit clear, for the
 same "a purge-and-rewarm cycle must be a real full re-check" reason
-`clean-stale-club-attributes` above now clears it too.
+`clean-stale-club-attributes` above now clears it too. **2026-08-01
+addition (REQ-110, ADR-0052):** same reasoning again — the verb also runs
+an unscoped `PairLookupFailures.ExecuteDeleteAsync()`.
 
 **REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
 moment a `Player` row is first created (`IPlayerStoreRepository
@@ -1745,6 +1811,38 @@ deliberate and load-bearing:
   `IPlayerStoreRepository.IsConfirmedLowAsync` reports it was already
   confirmed genuinely below `MinValidAnswers` on a prior run (new
   `ConfirmedLowMatchPair` table, §5, ADR-0050).
+- **2026-08-01 addition (REQ-110, ADR-0052) — supersedes the same-run
+  retry mentioned above:** `LookupWithSameRunRetryAsync`/`MaxAttemptsPerPair`
+  are removed from `PlayerCacheWarmingService`. Diagnosed cause: the retry
+  doubled every technical failure's cost, and nothing persisted a failure
+  across runs, so the same doomed pairs got retried, at that doubled cost,
+  on every run forever — `warm-player-cache.yml` stopped completing within
+  its 90-minute CI budget (NOTES.md, 2026-08-01). A real, confirmed
+  contributor: `BuildClubClubIntersectionQuery`'s plain join on two
+  independent P54 statement-path patterns could produce a combinatorial
+  row explosion (one measured case: 250,000+ WDQS binding rows) for two
+  clubs with a large, overlapping squad — fixed by wrapping each club's
+  match in its own `FILTER EXISTS { }` block, which checks existence
+  without binding the statement variable in the outer pattern, so neither
+  club's statement count can multiply result rows. Scoped to this one
+  builder only — `BuildCountryClubIntersectionQuery`/
+  `BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+  still need their club statement variable bound for the shared query
+  footer's `pq:P580`/`pq:P582`/`pq:P1350` career-stint qualifier fetch
+  (ADR-0042/S-079) and cannot use the same trick. `PlayerCacheWarmingService`
+  now also skips a pair — no live query — once `IPlayerStoreRepository
+  .IsPersistentTechnicalFailureAsync` reports `ConsecutiveFailureCount`
+  (new `PairLookupFailure` table, §5, ADR-0052) has reached 2 consecutive
+  RUN-level failures (`PersistentFailureThreshold`), and clears that
+  pair's marker (`ClearTechnicalFailureAsync`) the moment it gets a real
+  answer. Also: `RunIntersectionQueryAsync`'s two per-pair failure logs
+  (the timeout branch, and the `HttpRequestException`/`JsonException`
+  branch) moved from `LogWarning` to `LogDebug` — at `Warning`, a run with
+  a few hundred failures produced thousands of lines (some 15-20 line
+  stack traces for a JSON parse error) that buried the one
+  `Information`-level summary line that actually matters; `Debug` is
+  filtered out by this project's default `Information` log level
+  (`appsettings.json`), so a normal run's console stays readable.
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice

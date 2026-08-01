@@ -19,6 +19,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     // never a direct DbContext query. See ConfirmedLowMatchPair's own doc
     // comment for the full "why a new table" reasoning.
     public DbSet<ConfirmedLowMatchPair> ConfirmedLowMatchPairs => Set<ConfirmedLowMatchPair>();
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052) — COMP-06, same boundary as ConfirmedLowMatchPair
+    // above: only reachable from Games.XGGrid via IPlayerStoreRepository.
+    // See PairLookupFailure's own doc comment for the full "why a separate
+    // table from ConfirmedLowMatchPair" reasoning.
+    public DbSet<PairLookupFailure> PairLookupFailures => Set<PairLookupFailure>();
     // ADR-0042/S-079 (COMP-06): xG Path's ordered, dated career-stint log —
     // see PlayerCareerStint's own doc comment. Never read by
     // IPlayerStoreRepository's correctness-checking methods (xG Grid).
@@ -97,6 +103,17 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // avoid a full scan.
         modelBuilder.Entity<ConfirmedLowMatchPair>()
             .HasIndex(c => new { c.SecondAttributeType, c.SecondAttributeValue });
+
+        // REQ-110 (2026-08-01, ADR-0052): same composite-key/index shape as
+        // ConfirmedLowMatchPair above, for the same reasons — see
+        // PairLookupFailure's own doc comment. No FK to Player for the same
+        // reason as ConfirmedLowMatchPair: a pair that only ever technically
+        // failed has no Player rows to reference.
+        modelBuilder.Entity<PairLookupFailure>()
+            .HasKey(f => new { f.FirstAttributeType, f.FirstAttributeValue, f.SecondAttributeType, f.SecondAttributeValue });
+
+        modelBuilder.Entity<PairLookupFailure>()
+            .HasIndex(f => new { f.SecondAttributeType, f.SecondAttributeValue });
 
         // PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias all live
         // inside COMP-06 alongside Player, so (unlike ADR-0003's deliberate

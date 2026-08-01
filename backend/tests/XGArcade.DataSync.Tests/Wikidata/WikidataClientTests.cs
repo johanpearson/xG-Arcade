@@ -102,10 +102,18 @@ public class WikidataClientTests
     // WikidataClient — this made warm-player-cache's own aggregate summary
     // ("N queried live") unable to distinguish "queried live and found
     // nothing" from "queried live and silently timed out." This test proves
-    // the warning is now actually emitted, not just that the timeout is
-    // swallowed (already covered by the test above).
+    // the log line is still emitted, not just that the timeout is swallowed
+    // (already covered by the test above).
+    //
+    // Level fix (2026-08-01, ADR-0052): downgraded from Warning to Debug —
+    // this same per-pair line, once per failing pair across a few hundred
+    // pairs, was the dominant contributor to cache-warming's unreadable
+    // logs. Debug is filtered out by this project's default "Information"
+    // log level, so a normal run's console stays quiet; this test now pins
+    // the level down explicitly so a future change can't silently promote
+    // it back to Warning and reintroduce the noise.
     [Test]
-    public async Task QueryCountryClubIntersectionAsync_Timeout_LogsWarning()
+    public async Task QueryCountryClubIntersectionAsync_Timeout_LogsAtDebugLevel()
     {
         var logger = new CapturingLogger<WikidataClient>();
         var client = new WikidataClient(
@@ -115,24 +123,31 @@ public class WikidataClientTests
 
         await client.QueryCountryClubIntersectionAsync(CountryQid, ClubQid);
 
-        Assert.That(logger.Messages, Has.Exactly(1).Matches<string>(
-            m => m.Contains("country-club") && m.Contains(CountryQid) && m.Contains(ClubQid) && m.Contains("timed out")));
+        Assert.That(logger.Entries, Has.Exactly(1).Matches<(LogLevel Level, string Message)>(
+            e => e.Level == LogLevel.Debug && e.Message.Contains("country-club") && e.Message.Contains(CountryQid)
+                && e.Message.Contains(ClubQid) && e.Message.Contains("timed out")));
     }
 
     // Hand-rolled fake, not a mocking-framework double (docs/coding-guidelines.md
-    // "don't over-mock") — captures only the formatted message text of each
-    // Log call, which is all this file's tests need to assert against.
+    // "don't over-mock") — captures the formatted message text (and, since
+    // 2026-08-01, the LogLevel) of each Log call, which is all this file's
+    // tests need to assert against.
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = [];
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(
-            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-            Messages.Add(formatter(state, exception));
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            Messages.Add(message);
+            Entries.Add((logLevel, message));
+        }
     }
 
     // REQ-211 (2026-07-27 fix): throwOnTimeout defaults to false, so every
@@ -673,6 +688,28 @@ public class WikidataClientTests
         Assert.That(result[0].CareerStints, Has.Count.EqualTo(2));
         Assert.That(result[0].CareerStints, Has.Some.Matches<CareerStintQualifiers>(s => s.StartYear == 1999 && s.EndYear == 2007 && s.AppearanceCount == 254));
         Assert.That(result[0].CareerStints, Has.Some.Matches<CareerStintQualifiers>(s => s.StartYear == 2012 && s.EndYear == 2013 && s.AppearanceCount == null));
+    }
+
+    // 2026-08-01 fix (ADR-0052): see BuildClubClubIntersectionQuery's own
+    // comment for the full incident — a plain join on two independent P54
+    // statement-path patterns multiplied rows by (statements at club A) x
+    // (statements at club B) x aliases PER PLAYER, producing a real
+    // 250,000+ row WDQS response for two clubs with a large,
+    // historically-overlapping squad (NOTES.md's 2026-08-01 entry). FILTER
+    // EXISTS turns each club's match into an existence check instead of a
+    // join, so ?clubAStatement/?clubBStatement never bind in the outer
+    // pattern and neither club's statement count can multiply rows.
+    [Test]
+    public async Task REQ110_QueryClubClubIntersectionAsync_SentQuery_WrapsEachClubMatchInFilterExistsToAvoidStatementCrossProduct()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryClubClubIntersectionAsync(ClubAQid, ClubBQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(Regex.Matches(sentQuery, Regex.Escape("FILTER EXISTS {")).Count, Is.EqualTo(2),
+            "each club's P54 statement-path match must be wrapped in its own FILTER EXISTS block, not a plain join");
     }
 
     [Test]

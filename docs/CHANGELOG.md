@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md` (1.25 → 1.26),
+  `docs/architecture-document.md` (0.69 → 0.70),
+  `docs/implementation-document.md` (0.81 → 0.82),
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (new), `NOTES.md` — REQ-110 extended (ADR-0052): `warm-player-cache.yml`
+  was reliably getting cancelled at its 90-minute CI ceiling since the
+  2026-07-28 same-run-retry extension shipped, and its logs had become
+  unreadable. Root cause: the same-run retry doubled every technical
+  failure's cost, and nothing persisted a failure across runs, so the same
+  structurally-doomed pairs (traced to
+  `WikidataClient.BuildClubClubIntersectionQuery`'s plain join producing a
+  real 250,000+ row WDQS response for two clubs with a large, overlapping
+  squad) got retried at that doubled cost on every run forever. Fixed by
+  three changes: removed the same-run retry
+  (`PlayerCacheWarmingService.LookupWithSameRunRetryAsync`/
+  `MaxAttemptsPerPair` deleted); added a new `PairLookupFailure` table
+  (`XGArcade.Data`, migration `AddPairLookupFailure`) reachable only via
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync`/
+  `RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`, so a pair
+  failing on 2 consecutive runs is skipped without a live query on the
+  third (`CacheWarmingResult.PairsSkippedPersistentFailure`), same
+  invalidation surface as `ConfirmedLowMatchPair` (`StaleClubAttributeCleaner`,
+  `purge-player-pool`); and `BuildClubClubIntersectionQuery` now wraps each
+  club's P54 match in its own `FILTER EXISTS { }` block instead of a plain
+  join, eliminating the statement-count cross product at the source.
+  Separately, `WikidataClient.RunIntersectionQueryAsync`'s two per-pair
+  failure logs moved from `Warning` to `Debug` (filtered out by the
+  project's default `Information` log level) since they were the dominant
+  contributor to the unreadable logs. See ADR-0052 for the full incident
+  and reasoning, and NOTES.md's 2026-08-01 entry for the diagnosis
+  narrative.
 - 2026-07-28 — `docs/decisions/0051-per-gamekey-round-scheduling.md`
   renumbered from `0050-per-gamekey-round-scheduling.md` while rebasing onto
   `main`, which had independently assigned ADR-0050 to

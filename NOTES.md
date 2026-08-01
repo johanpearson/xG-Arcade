@@ -1069,3 +1069,61 @@ entries (no network access in that sandbox) — now confirmed live and
 wrong. Fix needs Turnstile wired into Login and Signup too (not just
 Guest), or the captcha toggle turned back off until that's done — tracked
 as a separate session, not fixed in this note-taking pass.
+
+### 2026-08-01 — `warm-player-cache.yml` stopped completing entirely; the 2026-07-28 same-run-retry fix was itself the regression (REQ-110, ADR-0052)
+
+Reported: run #15 was manually re-dispatched three times (2026-07-28
+through 2026-08-01) and every attempt got cancelled at the workflow's
+90-minute ceiling without ever finishing, on top of CI logs that had
+become unreadable — thousands of per-pair `Warning`-level lines, some
+carrying 15-20 line stack traces.
+
+Root cause traced to the 2026-07-28 "cache-warming-specific timeout and
+same-run retry" extension itself: the same-run retry doubled every
+technical failure's cost (up to 2 x the 45s cache-warming timeout instead
+of 1x), and nothing persisted a technical failure across runs, so the same
+doomed pairs got retried, at that now-doubled cost, on literally every
+future run forever. Reading run #15's tail log showed a long contiguous
+stretch where *every* club-club pair involving a handful of specific clubs
+failed — not intermittently, every single time, regardless of partner
+club. One failure named the actual mechanism: a JSON parse error at
+binding row 250,204.
+`WikidataClient.BuildClubClubIntersectionQuery`'s plain join on two
+independent P54 statement-path patterns binds both statement variables in
+the outer pattern — a player with multiple non-deprecated P54 statements
+at club A (loan spells, a return transfer) times multiple at club B
+produces one result row per *combination*, on top of the query's existing
+per-alias multiplication. For two clubs with a large, well-documented,
+historically-overlapping squad this produced a real 250,000+ row WDQS
+response. No timeout, however long, reliably finishes that — it needed a
+smaller query, not a bigger budget or more retries.
+
+Fixed by ADR-0052, three changes together: (1) removed the same-run retry
+— it only ever helps a transient failure, and made a structural one's cost
+worse; (2) added `PairLookupFailure` (mirrors `ConfirmedLowMatchPair`'s
+shape, ADR-0050) so a pair failing on 2 *consecutive runs* is skipped
+without a live query on the third, converging instead of re-fighting the
+same doomed pairs forever — a single run's failure alone is NOT enough to
+skip, so a one-off transient blip still gets a real second chance; (3)
+wrapped each club's P54 match in `BuildClubClubIntersectionQuery` in its
+own `FILTER EXISTS { }` block instead of a plain join, eliminating the
+statement-count cross product at the source. Also downgraded the two
+per-pair failure logs in `WikidataClient` from `Warning` to `Debug` (the
+project's default log level is `Information`, so these are now silent by
+default) — the run's own `Information`-level summary already reports the
+technical-failure count and names every failing pair, so the per-pair
+noise added nothing an operator needed by default.
+
+**Same "don't repeat this reasoning" lesson as the 2026-07-13 wrong-QID
+entry above, different shape**: a fix aimed at one real problem
+(swallowed-failure visibility) quietly made a different cost worse
+(doubled the price of every failure) in a way that only showed up once the
+*rate* of failures crossed some threshold — three quiet, successful runs
+(2026-07-26/27, pre-extension) gave no signal that the extension itself
+would tip the job over its CI budget the moment failures got common
+enough. **If cache-warming ever stops completing again**: check the run's
+tail log for a long *contiguous* stretch of failures against the *same*
+handful of QIDs on one side — that pattern means structural (a query-shape
+problem), not transient (WDQS load) or a straightforward "budget's too
+small" — a bigger timeout or more retries will not fix a structural
+failure, only a query-shape change or `PairLookupFailure`'s skip will.
