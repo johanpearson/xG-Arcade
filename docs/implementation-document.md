@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.82"
+version: "0.83"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -282,9 +282,10 @@ misconfigured per-endpoint. See ADR-0006.
                                      S-039)
     /games                        -> GameSelectScreen (REQ-303's S-021 UX
                                      addition: post-login/post-signup landing
-                                     screen, one static tile for xG Grid —
-                                     no backend "list games" endpoint;
-                                     Tier 0 only ever has one game)
+                                     screen; SCREEN-09, S-085 — two static
+                                     tiles, xG Grid then xG Path, still no
+                                     backend "list games" endpoint since both
+                                     game keys remain client-side constants)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
                                      GuessInput, CategoryLabel,
                                      ScoringExplainer (SCREEN-01/01a/02/06,
