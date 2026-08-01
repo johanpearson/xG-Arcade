@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.27"
+version: "1.28"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -2092,7 +2092,8 @@ unverified sync/lookup data (`PlayerData`/`PlayerOverride`,
 `AdminScreen.tsx`) — it introduces a new kind of input (a human assertion
 about a specific player, not a Wikidata fetch result) rather than
 extending that queue. See REQ-509's own status note for how the two
-relate, including a flagged ADR question neither REQ resolves itself.
+relate, including the decided-and-recorded ADR-0052 that keeps them as
+separate admin views.
 
 **Trigger conditions:**
 - Given a submitted guess for a cell is scored incorrect (REQ-203)
@@ -2136,8 +2137,8 @@ relate, including a flagged ADR question neither REQ resolves itself.
   automatically written to `PlayerAttribute`, `PlayerOverride`, or
   `PlayerNameIndex` as a result of submission alone
 
-**No retroactive rescoring (see section 7 for the one open question this
-raises):**
+**No retroactive rescoring (decided 2026-08-01 — see section 7 for the
+resolved entry):**
 - Given a suggestion is submitted following a guess already scored
   incorrect
 - Then that guess's own recorded outcome - correctness, REQ-210's attempt
@@ -2145,11 +2146,15 @@ raises):**
   the act of submitting a suggestion; submitting one is a data-correction
   proposal only, never a mechanism for re-scoring the guess that prompted
   it
-- **Open question (flagged to section 7, not resolved here):** whether a
-  later admin-approved suggestion (REQ-509) should retroactively correct
-  that specific guess's own outcome - or any other player's identical
-  guess against the same cell during the same round - is a genuine
-  product decision this requirement does not make.
+- **Decided (2026-08-01):** no retroactive rescoring - confirmed by the
+  product owner. A later admin-approved suggestion (REQ-509) fixes the
+  underlying data for all future guesses only; the guess that prompted it,
+  and any identical guess from another player against the same cell during
+  the same round, keep their original scored outcome unchanged. This was
+  already this requirement's own default (the only option that didn't
+  require inventing a new scoring-adjustment mechanism found nowhere else
+  in this document) - this decision confirms that default is correct and
+  final, not still open.
 
 **Test level:** Unit (trigger scoping - entry point offered only on
 incorrect/timeout outcomes, never otherwise; submission validation
@@ -3670,30 +3675,27 @@ part of this requirement.
 **Tier framing:** see REQ-215's own Tier framing note — this REQ is part
 of the same new pipeline, not scoped or tiered independently of it.
 
-**Relationship to REQ-501–503 and ADR-0029/ADR-0032 (status note flagging
-an open architecture question, not resolved here):** ADR-0029's original
-follow-up note anticipated that "when a real user-suggestion channel
-exists, it should feed the same `Confidence = "unverified"` review queue"
-REQ-503 already exposes (`GET /admin/player-data/unverified`) — at the
-time, ADR-0029 still kept the guess-time-fallback path unverified.
-ADR-0032 later reversed that (every Wikidata-sourced write, including the
-guess-time fallback, now persists `verified` immediately), so today
-REQ-503's queue is empty by construction, with no code path writing
-`unverified` at all (see REQ-503's own 2026-07-20 status note). This REQ's
-suggestions are a genuinely different kind of input from what that queue
-was built around — a human assertion (club(s), nationality, submitter),
-not a Wikidata sync/lookup result — that doesn't map cleanly onto a
-`PlayerData` row's existing shape. **Whether this REQ's pending
-suggestions should be surfaced as a new row type in REQ-503's existing
-queue (fulfilling ADR-0029's original anticipation) or as a wholly
-separate admin view/table is left open here as an implementation/
-architecture choice, not decided by this requirement.**
-**Recommendation (not authored here):** a new ADR should resolve that
-question and explicitly reconfirm that ADR-0007's autocomplete/
-correctness-boundary rule applies to this REQ's commit action — i.e. that
-committing a suggestion may only ever write `PlayerAttribute`/
-`PlayerOverride`, never `PlayerNameIndex` — since this is a new pipeline
-ADR-0007 predates and doesn't explicitly mention.
+**Relationship to REQ-501–503 and ADR-0029/ADR-0032 (status note recording
+a resolved architecture question — decided 2026-08-01, ADR-0052):**
+ADR-0029's original follow-up note anticipated that "when a real
+user-suggestion channel exists, it should feed the same
+`Confidence = "unverified"` review queue" REQ-503 already exposes (`GET
+/admin/player-data/unverified`) — at the time, ADR-0029 still kept the
+guess-time-fallback path unverified. ADR-0032 later reversed that (every
+Wikidata-sourced write, including the guess-time fallback, now persists
+`verified` immediately), so today REQ-503's queue is empty by construction,
+with no code path writing `unverified` at all (see REQ-503's own
+2026-07-20 status note). This REQ's suggestions are a genuinely different
+kind of input from what that queue was built around — a human assertion
+(club(s), nationality, submitter), not a Wikidata sync/lookup result — that
+doesn't map cleanly onto a `PlayerData` row's existing shape. **Decided
+(2026-08-01, ADR-0052):** this REQ's pending suggestions get their own,
+separate admin view — never surfaced as a new row type in REQ-503's
+existing queue and never a shared row shape or merged UI. ADR-0052 also
+explicitly reconfirms that ADR-0007's autocomplete/correctness-boundary
+rule applies without exception to this REQ's commit action — committing a
+suggestion may only ever write `PlayerAttribute`/`PlayerOverride`, never
+`PlayerNameIndex`.
 
 **Listing pending suggestions:**
 - Given one or more pending suggestions (REQ-215) exist
@@ -6114,22 +6116,28 @@ resolved 2026-07-06:
   later. See `docs/legal/terms-of-service-draft.md`.
 
 REQ-215/509/510's 2026-07-28 draft (player-submitted answer suggestions +
-admin Wikidata search/commit) raises one genuine open product question,
-not resolved here: whether an admin-approved suggestion (REQ-509) should
+admin Wikidata search/commit) raised one genuine open product question,
+resolved 2026-08-01: whether an admin-approved suggestion (REQ-509) should
 retroactively correct the specific guess(es) it was submitted against —
 the original submitter's own now-confirmed-correct guess, and/or any other
 player's identical guess against the same cell during the same round — or
 whether the suggestion exists purely to fix the underlying data for future
 guesses, leaving every already-scored guess (correct or not) untouched.
-REQ-215's own acceptance criteria default to the latter (no retroactive
-rescoring) as the only default that doesn't require inventing a
-scoring-adjustment mechanism found nowhere else in this document, but the
-product owner should confirm that's actually intended rather than an
-unexamined default. Two related items are flagged inline in REQ-215/509
-rather than here, since they're build-order/architecture questions, not
-product decisions: (1) whether this Tier 1/2-sized new pipeline should be
-pulled forward ahead of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier
-framing" note), and (2) whether REQ-509's admin-reviewable suggestions
-should surface through REQ-503's existing (currently empty) review queue
-or a new, separate view, and whether a new ADR should record that choice
-(REQ-509's own status note).
+**Decided (2026-08-01):** no retroactive rescoring, confirmed by the
+product owner. REQ-215's own default (the only option that didn't require
+inventing a scoring-adjustment mechanism found nowhere else in this
+document) is confirmed correct and final. See REQ-215's own "No
+retroactive rescoring" acceptance criteria.
+
+Two related items were flagged inline in REQ-215/509 rather than here,
+since they're build-order/architecture questions, not product decisions:
+(1) whether this Tier 1/2-sized new pipeline should be pulled forward ahead
+of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier framing" note) — still
+open, not resolved by this entry; and (2) whether REQ-509's
+admin-reviewable suggestions should surface through REQ-503's existing
+(currently empty) review queue or a new, separate view, and whether a new
+ADR should record that choice (REQ-509's own status note) — **resolved
+2026-08-01:** a new, separate admin view, not merged into REQ-503's queue,
+recorded in ADR-0052 (`docs/decisions/0052-player-suggestions-separate-admin-view.md`),
+which also reconfirms ADR-0007's autocomplete/correctness boundary applies
+to the new commit path.

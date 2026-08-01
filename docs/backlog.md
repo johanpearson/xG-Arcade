@@ -4223,3 +4223,51 @@ game-scoped leaderboard (S-087) and not blended with xG Grid's.
 guess → round close → leaderboard, run against the same local-stack E2E
 setup `ci.yml` already uses for xG Grid. *Deps:* S-076 through S-087 (the
 complete feature).
+
+**S-089 · REQ-215: player-submitted answer suggestion**
+Backend: new `PlayerSuggestion` entity/migration (player name, asserted
+club(s), asserted nationality, submitting user id, originating
+cell/category types, timestamp, pending/resolved state) and a submission
+endpoint that enforces non-guest server-side (rejecting a guest's request
+regardless of what the client UI shows) and never writes to
+`PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex` on submission — a
+suggestion is stored pending only. Frontend: a suggestion entry point
+appears after a guess is scored incorrect or a REQ-211 live lookup times
+out (and only then — never on a correct guess or a resolved live lookup);
+a guest sees it present-but-disabled with a registration prompt (REQ-717's
+claim path); a non-guest gets the working form (requires at least one
+club and a nationality, rejected with a validation error otherwise).
+*Accept:* REQ215-adjacent tests at Unit (trigger scoping; submission
+validation), API (guest rejected server-side even with a crafted direct
+request; persisted suggestion has no `PlayerAttribute`/`PlayerOverride`/
+`PlayerNameIndex` side effect; the originating guess's own stored outcome
+is unchanged after submission, confirming the finalized no-retroactive-
+rescoring decision), UI (guest present-but-disabled with copy; non-guest
+enabled and can complete the form) levels, matching REQ-215's own Test
+level line. *Deps:* REQ-211 (existing), REQ-717 (existing, for guest
+detection).
+
+**S-090 · REQ-509/510: admin suggestion review + Wikidata commit + manual search-and-add**
+*(Not yet started — queued for a later session; S-089 is this session's
+only build.)* Backend: admin endpoints to list pending suggestions
+(REQ-509), trigger a live Wikidata lookup by the suggestion's player name
+(same intersection-query shape as REQ-103/REQ-211, timeout reported as
+"lookup unavailable" rather than silently treated as no-match, per
+ADR-0046), commit a reviewed suggestion through the existing
+`PlayerOverride`/`PlayerAttribute` write path (never `PlayerNameIndex`,
+per ADR-0007/ADR-0052), and reject; plus REQ-510's standalone manual
+search-and-add variant of the identical fetch/commit flow, usable with no
+suggestion record involved. Frontend: a new, dedicated admin Suggestions
+screen/section — deliberately separate from REQ-503's existing
+`AdminScreen.tsx` unverified-data queue, per ADR-0052's decision, not a
+shared row shape or merged UI. *Accept:* REQ509/REQ510-adjacent tests at
+Unit (fetched data presented for admin judgment, never auto-approved),
+API (commit writes only through the override/attribute mechanism, never
+`PlayerNameIndex`; reject writes nothing; both actions are
+Admin-policy-gated and logged with `admin_id`/timestamp; REQ-510's path
+requires no suggestion record before, during, or after), Integration
+(Wikidata query mocked; a timeout is distinguished from a genuine
+no-match), UI (admin) levels, matching REQ-509/REQ-510's own Test level
+lines. *Deps:* S-089 (suggestions must exist to review, though REQ-510's
+manual-add half has no dependency on S-089 itself), ADR-0052 (the new
+separate-admin-view decision this story implements).

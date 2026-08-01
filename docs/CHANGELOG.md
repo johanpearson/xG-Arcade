@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md` (v1.27 → v1.28),
+  `docs/decisions/0052-player-suggestions-separate-admin-view.md` (new),
+  `docs/backlog.md` — Finalized the two product decisions the product
+  owner made for the REQ-215/509/510 player-suggestion feature drafted
+  2026-07-28. (1) **No retroactive rescoring, confirmed final**: REQ-215's
+  "No retroactive rescoring" clause is no longer flagged as an open
+  question — an admin-approved suggestion (REQ-509) fixes the underlying
+  data for future guesses only; the guess that prompted it, and any
+  identical guess from another player against the same cell that round,
+  keep their original scored outcome unchanged. §7's matching entry is now
+  marked resolved 2026-08-01. (2) **Separate admin view, not merged into
+  REQ-503's queue**: REQ-509's status note now records this as decided,
+  referencing new ADR-0052, which also explicitly reconfirms ADR-0007's
+  autocomplete/correctness boundary applies to REQ-509/510's commit paths
+  (`PlayerAttribute`/`PlayerOverride` only, never `PlayerNameIndex`) —
+  ADR-0007 predates this pipeline and didn't name it explicitly before now.
+  Also added two backlog stories implementing this feature: **S-089**
+  (REQ-215 backend `PlayerSuggestion` entity/submission endpoint + frontend
+  entry point/form, not yet started) and **S-090** (REQ-509/510 admin
+  review/commit/manual-search backend + the new separate Suggestions admin
+  screen, not yet started, depends on S-089 and ADR-0052). No code was
+  written this session — documentation only. REQ/ADR refs: REQ-215,
+  REQ-509, REQ-510, REQ-501, REQ-502, REQ-503, ADR-0007, ADR-0052.
 - 2026-08-01 — `docs/requirements-document.md` (v1.26 → v1.27) — Flipped
   REQ-718's "UI: logout confirmation and guest-expiry copy" addendum
   (rules 4/5) from "Not yet implemented — drafted only" to "Implemented,
