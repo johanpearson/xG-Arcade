@@ -4281,7 +4281,7 @@ convention); `frontend/tests/e2e/header-nav.spec.ts` has a stale comment
 by quality-architect and left untouched by this story — a cheap follow-up
 if anyone is in that file next.
 
-**S-086 · Frontend: SCREEN-10 xG Path puzzle screen (growing timeline)**
+**S-086 · Frontend: SCREEN-10 xG Path puzzle screen (growing timeline) — done, 2026-08-01**
 The validated clue-reveal UI: vertical timeline of clue nodes (settle-in
 motion reusing the badge dock's character, `prefers-reduced-motion`
 fallback per that same precedent), guess input pinned below, "Clue N of
@@ -4296,6 +4296,46 @@ reveals; the clue counter reflects that puzzle's own cap, not a fixed
 number; reduced-motion preference disables the slide/fade entirely (no
 partial-motion state). *Deps:* S-082 (backend clue reveal/guess
 endpoints), S-085 (entry point reaching this screen).
+**Built as:** matches the plan overall, with two judgment calls flagged
+rather than silently resolved. New `frontend/src/path/` module
+(`PathScreen.tsx`, `PathTimeline.tsx`, `PathGuessInput.tsx` + CSS/tests)
+mirroring `frontend/src/grid/`'s structure; `lib/types.ts`/`api.ts` gained
+`CurrentPathResponse`/`fetchCurrentPath` mirroring the existing
+`CurrentRoundResponse`/`fetchCurrentRound` pattern; `lib/pathRules.ts`
+holds `MAX_CLUES_PER_PUZZLE` (7), kept separate from xG Grid's
+`MAX_ATTEMPTS_PER_CELL`; `App.tsx` now renders the real `PathScreen`
+where S-085 left a "coming soon" placeholder. Two deviations from the
+story's literal text, both already documented where the code lives: (1)
+the design doc's "falling back to the initials-avatar treatment already
+established" language doesn't match what REQ-214 has ever actually done —
+its no-photo case has always been plain text (name) plus a checkmark, no
+avatar of any kind — so this reuses that actual plain-text-only fallback
+instead of reintroducing a component this story was never asked to design
+(see `docs/design-document.md`'s new SCREEN-10 status note for the
+accurate description); (2) "Next puzzle" is shown once a puzzle is locked
+at all
+(solved *or* attempt-cap-exhausted), not only when solved, so a player
+can't get stranded after using all 7 attempts unsuccessfully — the design
+doc only described the solved case explicitly, also covered by that same
+status note. Two commits: `18b1cc2` (implementation + tests), `928bd85`
+(quality-gate fixes: `CategoryLabel`/`CategoryGlyph` relocated from
+`frontend/src/grid/` to a new shared `frontend/src/components/` —
+`architecture-reviewer` flagged `PathTimeline.tsx` reaching into a peer
+game module's directory to import it, a deliberate scope addition beyond
+the story's three literally-named files, same "keep the module boundary
+honest" spirit as S-085's `HeaderNav.tsx` addition; plus a guess-submit
+re-fetch-failure fix, an image-load-failure fallback for the solved-state
+photo, dropping a redundant JS reduced-motion hook in favor of the
+existing CSS-only pattern, a missing "locked-unsolved" test, and a
+duplicate-React-key fix — see that commit's own message and
+`docs/design-document.md`'s SCREEN-10 quality-gate-follow-up status note
+for the re-fetch-failure edge case specifically). 408/408 Vitest passing,
+clean `tsc -b`/`oxlint`. No backend changes (S-082 already merged it
+separately); `architecture-reviewer` confirmed no ADR is needed — a
+straightforward extension of the established `frontend/src/grid/`-as-
+per-game-screen-module pattern, plus the `CategoryLabel` relocation
+already covered above. E2E not run in-sandbox (needs a local stack,
+CI-only per convention), consistent with S-085's own precedent.
 
 **S-087 · Frontend: leaderboard game switcher (SCREEN-03, ADR-0043/REQ-410)**
 `LeaderboardScreen.tsx` gains the game-switcher tab row per SCREEN-03's

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.59"
+version: "0.60"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -1951,11 +1951,14 @@ matched exactly by the shipped code — no deviations:
 └───────────────────────────────┘
 ```
 
-**Design only — no code yet** (`requirements-document.md` REQ-1201-1206,
-`docs/decisions/0040-0042`). Direction validated against two working
-prototypes (a growing-timeline concept and a spotlight-stepper concept);
-the growing timeline was chosen. Built entirely from the existing token
-system — no new color, typeface, or animation family introduced:
+**Built as specified, 2026-08-01 (S-086, `18b1cc2`/`928bd85`)** — one
+deviation from the literal spec text, called out in its own status note
+below (the photo-fallback treatment). Originally written design-only
+against `requirements-document.md` REQ-1201-1206 and
+`docs/decisions/0040-0042`; direction was validated against two working
+prototypes (a growing-timeline concept and a spotlight-stepper concept)
+before the growing timeline was chosen. Built entirely from the existing
+token system — no new color, typeface, or animation family introduced:
 
 - **Layout:** clues stack as nodes on a vertical connecting line — the
   literal career path being drawn as it's revealed, one node per clue,
@@ -2007,14 +2010,39 @@ system — no new color, typeface, or animation family introduced:
   photo (REQ-214's existing infrastructure, reused as-is — not a new
   photo feature for this game) — falling back to the same initials-avatar
   treatment REQ-214 already established for a player with no photo on
-  file, never a broken-image icon. Once solved, the guess input and
-  "Guess" button disable; a "Next puzzle" action appears to advance
-  through the round's remaining puzzles (REQ-1202) — advancing is always
-  an explicit action, never automatic, consistent with how a correct
-  grid cell also waits for the player to tap before revealing anything
-  further.
+  file (**stale — see S-086 status note below**), never a broken-image
+  icon. Once solved, the guess input and "Guess" button disable; a "Next
+  puzzle" action appears to advance through the round's remaining puzzles
+  (REQ-1202) — advancing is always an explicit action, never automatic,
+  consistent with how a correct grid cell also waits for the player to tap
+  before revealing anything further. **Also as built (S-086):** "Next
+  puzzle" appears once a puzzle is *locked* at all — solved, or locked
+  unsolved after its 7-attempt cap (REQ-1205) is exhausted — not only in
+  the solved case this bullet describes; without it, a player who used all
+  7 attempts without guessing correctly would have no way to advance to
+  the round's next puzzle. This is a deliberate scope addition beyond this
+  bullet's literal text, not an oversight.
 - **Puzzle position:** "Puzzle N of M" (plain text, `text-muted`) in the
   header, mirroring SCREEN-01's round-timer header row placement.
+
+**S-086 status note (2026-08-01): the "initials-avatar" fallback text
+above is stale, not something the shipped code actually does, and never
+matched REQ-214's own history.** SCREEN-01a's own no-photo mocks (earlier
+in this document) show that REQ-214's no-photo case has, at every point in
+its history, rendered a plain checkmark/points value at rest and the
+player's name (plain text) plus checkmark once revealed — never an avatar
+of any kind, initials-based or otherwise. There is nothing in REQ-214's
+actual implementation, past or present, for this bullet's "initials-avatar
+treatment" to be reusing. `PathTimeline.tsx`'s `SolvedNode` (S-086)
+instead renders the player's name as plain text with no avatar element at
+all (and no separate checkmark — this screen's gold node styling already
+carries the "solved" signal SCREEN-01a's checkmark exists to give) — the
+closest honest match to what REQ-214 has actually ever done, rather than
+inventing a new avatar component this story was never asked to design.
+The bullet above is left as originally written (not rewritten) so the
+now-corrected assumption stays visible rather than silently smoothed over;
+treat this status note, not the bullet's "initials-avatar" clause, as the
+accurate description of what SCREEN-10 actually does.
 
 **S-086 quality-gate follow-up status note (judgment call, flagged rather
 than silently resolved):** `PathScreen.tsx`'s guess flow makes two network

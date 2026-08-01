@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.83"
+version: "0.84"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -287,9 +287,26 @@ misconfigured per-endpoint. See ADR-0006.
                                      backend "list games" endpoint since both
                                      game keys remain client-side constants)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
-                                     GuessInput, CategoryLabel,
-                                     ScoringExplainer (SCREEN-01/01a/02/06,
-                                     S-041)
+                                     GuessInput, ScoringExplainer
+                                     (SCREEN-01/01a/02/06, S-041).
+                                     CategoryLabel/CategoryGlyph moved out to
+                                     /components (below) by S-086's
+                                     quality-gate follow-up, since xG Path's
+                                     /path module needed the same component
+                                     and importing it from a peer game
+                                     module's own directory isn't allowed
+    /path                         -> PathScreen, PathTimeline, PathGuessInput
+                                     (SCREEN-10, S-086) — mirrors /grid's
+                                     structure for xG Path's own screen; no
+                                     disambiguation picker, autocomplete, or
+                                     suggestion entry point (all explicitly
+                                     out of scope for this story)
+    /components                   -> CategoryLabel, CategoryGlyph (S-086) —
+                                     the one shared component used by both
+                                     /grid and /path; relocated here from
+                                     /grid specifically so xG Path's own
+                                     module never imports from a peer game
+                                     module's directory
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league only)
     /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
@@ -306,7 +323,16 @@ misconfigured per-endpoint. See ADR-0006.
                                      (REQ-303's 2026-07-21 addition: pure
                                      formatter for GridScreen's round
                                      end-time indicator, computed once per
-                                     fetch, no live ticking)
+                                     fetch, no live ticking), pathRules.ts
+                                     (S-086: MAX_CLUES_PER_PUZZLE, xG Path's
+                                     own equivalent of guessRules.ts's
+                                     MAX_ATTEMPTS_PER_CELL, kept as a
+                                     separate constant/file rather than
+                                     merged). types.ts/api.ts also gained
+                                     CurrentPathResponse/fetchCurrentPath
+                                     (S-086), mirroring the existing
+                                     CurrentRoundResponse/fetchCurrentRound
+                                     pattern
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests
