@@ -288,32 +288,37 @@ public class PlayerCacheWarmingServiceTests
     }
 
     // REQ-110 (2026-08-01): a pair that fails once, then gets a real answer,
-    // must have its failure marker cleared — a later, unrelated failure must
-    // start counting from zero again, not silently inherit the earlier
-    // failure's count and skip prematurely.
+    // must have its failure marker cleared — checked directly against
+    // IsPersistentTechnicalFailureAsync rather than by forcing a further
+    // WarmAsync failure: once a pair gets ANY real answer (match or
+    // confirmed-low), WarmAsync's own cachedCount/IsConfirmedLowAsync
+    // checks mean it is never live-queried again for that exact pair, so
+    // there is no way to observe a "later, unrelated failure" through
+    // WarmAsync itself — the marker's clearing has to be verified at the
+    // repository level instead. matches below MinValidAnswers (a genuine,
+    // non-technical-failure below-threshold answer) is used for the
+    // recovery so the pair doesn't instead become "already valid" and
+    // short-circuit the very re-check this test needs to observe.
     [Test]
-    public async Task REQ110_WarmAsync_PairRecoversAfterFailure_LaterUnrelatedFailureDoesNotInheritOldCount()
+    public async Task REQ110_WarmAsync_PairRecoversAfterFailure_ClearsPersistedFailureMarker()
     {
         SeedCountry("France");
         SeedClub("Arsenal");
-        // Run 1: fails once. Run 2: succeeds (clears the marker). Run 3:
-        // fails once more — if the counter weren't cleared on the run-2
-        // recovery, this would be failure #2 against the ORIGINAL count and
-        // would wrongly trigger the skip on a hypothetical run 4.
         _wikidataLookupService.FailWithTechnicalFailureForAttempts("France", "Arsenal", attempts: 1);
-        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakePlayers("France", "Arsenal", count: 7));
+        _wikidataLookupService.SetMatches("France", "Arsenal", BuildFakePlayers("France", "Arsenal", count: 2));
         var service = BuildService(minValidAnswers: 5);
-        await service.WarmAsync();
-        await service.WarmAsync();
 
-        _wikidataLookupService.FailWithTechnicalFailure("France", "Arsenal");
-        var thirdRun = await service.WarmAsync();
-        var fourthRun = await service.WarmAsync();
+        var firstRun = await service.WarmAsync();
+        Assert.That(firstRun.PairsWithTechnicalFailure, Is.EqualTo(1));
+        Assert.That(await _playerStoreRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.True,
+            "one technical failure must already be recorded before the recovery run");
 
-        Assert.That(thirdRun.PairsWithTechnicalFailure, Is.EqualTo(1));
-        Assert.That(fourthRun.PairsSkippedPersistentFailure, Is.EqualTo(0),
-            "the recovery on run 2 must have cleared the marker, so run 3's failure is the FIRST of a new streak, not the second overall");
-        Assert.That(fourthRun.PairsQueriedLive, Is.EqualTo(1));
+        var secondRun = await service.WarmAsync();
+
+        Assert.That(secondRun.PairsQueriedLive, Is.EqualTo(1));
+        Assert.That(secondRun.PairsWithTechnicalFailure, Is.EqualTo(0));
+        Assert.That(await _playerStoreRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.False,
+            "the marker must be cleared once the pair gets a real answer, even a below-threshold one — otherwise a pair that recovers would still count toward a future skip");
     }
 
     // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension): a
