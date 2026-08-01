@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
+import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 
 // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: no live
 // Cloudflare site key exists in this sandbox — AuthScreen.tsx's "Play as
@@ -355,6 +356,186 @@ describe('App (REQ-717: guest banner)', () => {
     // also disappears once currentUser.isGuest flips to false — same
     // App-level state flowing through onAccountClaimed.
     expect(screen.queryByText('Save your progress')).not.toBeInTheDocument();
+  });
+});
+
+// REQ-718 UI addendum (rule 4/5, 2026-08-01): the guest-only logout
+// confirmation dialog gating handleLogoutClick, and the guest-expiry copy
+// rendered in the banner/Settings. This describe block covers the dialog's
+// App-level wiring (GuestLogoutConfirm.tsx has its own accessibility/focus
+// comments but no dedicated unit suite — the "when does it open, and what
+// does each button actually do to session state" behavior is App.tsx's own
+// responsibility, exercised here) and the expiry copy's presence/absence in
+// the banner. SettingsScreen.test.tsx covers the same copy's presence/
+// absence in Settings in isolation.
+describe('App (REQ-718: guest logout confirmation and guest-expiry copy)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  const guestMeResponse = {
+    id: 'guest-1',
+    email: null,
+    displayName: 'Guest8317',
+    emailConfirmed: false,
+    isAdmin: false,
+    isGuest: true,
+  };
+
+  function stubFetchForGuestLogin(extra: (url: string, init?: RequestInit) => Promise<Response> | undefined = () => undefined) {
+    return vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const extraResult = extra(url, init);
+      if (extraResult) return extraResult;
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/guest')) return jsonResponse({ accessToken: 'guest-token', refreshToken: 'guest-refresh' });
+      if (url.includes('/auth/me')) return jsonResponse(guestMeResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  async function signInAsGuest(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    await goToAuthScreen(user);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+    await screen.findByText('Playing as Guest8317.');
+  }
+
+  it('REQ-718: a guest clicking "Log out" sees the confirmation dialog instead of being logged out immediately', async () => {
+    vi.stubGlobal('fetch', stubFetchForGuestLogin());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await signInAsGuest(user);
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    const dialog = await screen.findByTestId('guest-logout-confirm');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: 'Log out and delete guest account?' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log out and delete account' })).toBeInTheDocument();
+    // Still signed in and on the same screen — nothing has happened yet.
+    expect(screen.getByText('Choose a game')).toBeInTheDocument();
+  });
+
+  it('REQ-718: cancelling the dialog closes it and leaves the session, stored tokens, and screen exactly as they were, with no POST /auth/logout call', async () => {
+    const fetchMock = stubFetchForGuestLogin();
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await signInAsGuest(user);
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+    await screen.findByTestId('guest-logout-confirm');
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByTestId('guest-logout-confirm')).not.toBeInTheDocument();
+    // Session/tokens untouched.
+    expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBe('guest-token');
+    expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBe('guest-refresh');
+    // Still on the same screen, still shown as signed in.
+    expect(screen.getByText('Playing as Guest8317.')).toBeInTheDocument();
+    expect(screen.queryByTestId('splash-screen')).not.toBeInTheDocument();
+    // No backend logout call was made at all.
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/auth/logout'))).toBe(false);
+  });
+
+  it('REQ-718: confirming the dialog closes it and runs the existing, unmodified handleLogout flow (local clear-and-reset, plus the best-effort POST /auth/logout)', async () => {
+    const fetchMock = stubFetchForGuestLogin((url, init) => {
+      if (url.includes('/auth/logout') && init?.method === 'POST') {
+        return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) } as Response);
+      }
+      return undefined;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await signInAsGuest(user);
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+    await screen.findByTestId('guest-logout-confirm');
+
+    await user.click(screen.getByRole('button', { name: 'Log out and delete account' }));
+
+    expect(screen.queryByTestId('guest-logout-confirm')).not.toBeInTheDocument();
+    // REQ-719: back to the splash screen, same as any other logout.
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)).toBeNull();
+
+    // The existing best-effort POST /auth/logout still fires, with the
+    // guest's own access token, exactly as handleLogout already did before
+    // this addition.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/logout'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer guest-token' }),
+        }),
+      ),
+    );
+  });
+
+  it('REQ-718: a non-guest account clicking "Log out" never renders any confirmation dialog, and logs out immediately as before', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    // No dialog ever mounts for a non-guest — logout proceeds straight
+    // through, same as REQ-715's own existing "logging out clears both the
+    // access token and the refresh token" test above.
+    expect(screen.queryByTestId('guest-logout-confirm')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)).toBeNull();
+  });
+
+  it('REQ-718: the guest-expiry copy renders in the guest banner for a guest account and states the actual 7-day/30-day policy', async () => {
+    vi.stubGlobal('fetch', stubFetchForGuestLogin());
+    const user = userEvent.setup();
+
+    render(<App />);
+    await signInAsGuest(user);
+
+    const expiryCopy = screen.getByTestId('guest-expiry-copy');
+    expect(expiryCopy).toBeInTheDocument();
+    expect(expiryCopy).toHaveTextContent(GUEST_EXPIRY_COPY);
+  });
+
+  it('REQ-718: the guest-expiry copy is absent from the banner (and Settings) for a non-guest account', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    expect(screen.queryByTestId('guest-expiry-copy')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    expect(screen.queryByTestId('guest-expiry-copy-settings')).not.toBeInTheDocument();
   });
 });
 

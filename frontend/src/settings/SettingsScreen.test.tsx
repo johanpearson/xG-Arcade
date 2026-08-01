@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsScreen } from './SettingsScreen';
+import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
 
 // REQ-713: isolated coverage of SettingsScreen's own admin-link gating,
 // mounted directly (no App/routing involved). App.test.tsx already covers
@@ -465,6 +466,28 @@ describe('SettingsScreen', () => {
 
       await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
       expect(onAccountClaimed).not.toHaveBeenCalled();
+    });
+  });
+
+  // REQ-718 UI addendum (rule 5, 2026-08-01): the guest-expiry copy
+  // (GUEST_EXPIRY_COPY) rendered alongside the claim section — same isGuest
+  // gate as the "Save your progress" section itself (REQ-717's own test
+  // above already covers the section as a whole appearing/disappearing;
+  // these two are scoped specifically to the expiry-policy sentence).
+  describe('guest-expiry copy (REQ-718 rule 5)', () => {
+    it('REQ-718: isGuest=true renders the guest-expiry copy stating the actual 7-day/30-day policy', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      const expiryCopy = screen.getByTestId('guest-expiry-copy-settings');
+      expect(expiryCopy).toBeInTheDocument();
+      expect(expiryCopy).toHaveTextContent(GUEST_EXPIRY_COPY);
+    });
+
+    it('REQ-718: isGuest=false renders no guest-expiry copy at all', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      expect(screen.queryByTestId('guest-expiry-copy-settings')).not.toBeInTheDocument();
+      expect(screen.queryByText(GUEST_EXPIRY_COPY)).not.toBeInTheDocument();
     });
   });
 });
