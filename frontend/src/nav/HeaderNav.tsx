@@ -6,15 +6,24 @@ export interface HeaderNavProps {
   isLeaguesCurrent: boolean;
   isSettingsCurrent: boolean;
   // REQ-720: whether xG Grid's own screen is currently showing — Tier 0's
-  // only game, so this is the only per-game aria-current flag today; a
-  // second game would add its own alongside it, not replace this one.
+  // only game, so this was the only per-game aria-current flag at first;
+  // S-085 adds isPathCurrent alongside it, not in place of it, once xG Path
+  // exists as a second game.
   isGridCurrent: boolean;
+  // S-085/SCREEN-09: mirrors isGridCurrent above for xG Path — whether xG
+  // Path's own screen is currently showing.
+  isPathCurrent: boolean;
   onSelectLeaderboard: () => void;
   onSelectLeagues: () => void;
   onSelectSettings: () => void;
   // REQ-720: selecting "xG Grid" from the "Games" list — same destination
   // GameSelectScreen's own "xG Grid" tile already triggers.
   onSelectGrid: () => void;
+  // S-085/SCREEN-09: mirrors onSelectGrid above for xG Path — same
+  // destination GameSelectScreen's own "xG Path" tile already triggers.
+  // Keeps this list and GameSelectScreen's tile order in agreement (xG Grid
+  // first, xG Path second).
+  onSelectPath: () => void;
   onLogout: () => void;
 }
 
@@ -36,10 +45,12 @@ export function HeaderNav({
   isLeaguesCurrent,
   isSettingsCurrent,
   isGridCurrent,
+  isPathCurrent,
   onSelectLeaderboard,
   onSelectLeagues,
   onSelectSettings,
   onSelectGrid,
+  onSelectPath,
   onLogout,
 }: HeaderNavProps) {
   const [open, setOpen] = useState(false);
@@ -116,10 +127,10 @@ export function HeaderNav({
             id="header-nav-games-list"
             className={`header-nav__games-list${gamesOpen ? ' header-nav__games-list--open' : ''}`}
           >
-            {/* Tier 0 has exactly one game — see requirements-document.md
-                REQ-720's own "exactly one game exists" acceptance
-                criterion; a second game module adds a second entry here,
-                not a restructuring of this list. */}
+            {/* REQ-720/S-085: one entry per game xG Arcade currently
+                hosts, xG Grid first (the original game) — see
+                requirements-document.md REQ-720's "one entry per game"
+                acceptance criterion. */}
             <button
               type="button"
               className="header-nav__link header-nav__games-item"
@@ -127,6 +138,17 @@ export function HeaderNav({
               onClick={() => selectAndClose(onSelectGrid)}
             >
               xG Grid
+            </button>
+            {/* S-085/SCREEN-09: mirrors the xG Grid entry above, positioned
+                second — keeps this list and GameSelectScreen's tile order
+                in agreement (never alphabetical/recency). */}
+            <button
+              type="button"
+              className="header-nav__link header-nav__games-item"
+              aria-current={isPathCurrent ? 'page' : undefined}
+              onClick={() => selectAndClose(onSelectPath)}
+            >
+              xG Path
             </button>
           </div>
         </div>

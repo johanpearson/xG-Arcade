@@ -2474,6 +2474,14 @@ copy; a non-guest sees it enabled and can complete the form)
   routing to this game-selection landing screen — is unchanged and still
   accurate; REQ-720 adds a second, different affordance alongside it rather
   than replacing it.
+- **Status note (2026-08-01, S-085):** the S-021 bullet above still holds
+  exactly as written — no "list games" endpoint exists or is needed, since
+  a second game's key (`GameKey="xg-path"`) is, like the first, a
+  client-side constant, not fetched data (`GameSelectScreen.tsx`'s own
+  `XG_PATH_GAME_KEY`). Only its "while Tier 0 has exactly one game"
+  framing is now a point-in-time description rather than the current
+  state — `GameSelectScreen` renders two tiles as of S-085 (SCREEN-09);
+  this endpoint's own contract is unchanged either way.
 - **(2026-07-21 addition — acceptance criteria only, not yet built.)**
   `docs/design-document.md`'s SCREEN-01 mock has always shown a round
   end-time indicator in the header (`Round #14 ⏱ 1d 4h`, next to the `(ⓘ)`
@@ -5502,7 +5510,8 @@ in remains reachable — never a dead end)
 - Given the "Games" entry, when a player activates it (click/tap, or
   Enter/Space while it has focus)
 - Then it toggles open/closed a list containing one entry per game xG
-  Arcade currently hosts (Tier 0: exactly one, "xG Grid") — the same
+  Arcade currently hosts (originally Tier 0's exactly one, "xG Grid"; as of
+  S-085, two — "xG Grid" and "xG Path" — see status note below) — the same
   accessible-disclosure pattern REQ-712's own toggle already establishes (a
   real, focusable, keyboard-operable control exposing `aria-expanded`
   reflecting its open/closed state)
@@ -5539,12 +5548,21 @@ in remains reachable — never a dead end)
   "Games" is expanded as part of the flat row
 - Then the row itself still does not wrap or overflow — the same guarantee
   REQ-712 already requires, now also holding for this expandable entry
-- Given exactly one game exists (Tier 0's actual state), when "Games" is
-  expanded
-- Then it lists exactly that one entry — this requirement ships now, ahead
-  of a second game actually existing, since anticipating growth is the
-  entire point of the product owner's request; it is not deferred until a
-  second game is added
+- Given exactly one game exists (Tier 0's original state, at the time this
+  requirement was written), when "Games" is expanded
+- Then it lists exactly that one entry — this requirement shipped ahead of
+  a second game actually existing, since anticipating growth was the
+  entire point of the product owner's request; it was not deferred until a
+  second game was added
+
+- **Status note (2026-08-01, S-085):** xG Path is now a real, merged
+  second game (S-082 onward). `GameSelectScreen.tsx`'s tile row and this
+  requirement's "Games" nav list both gained a second entry ("xG Path"),
+  in the same order, closing the "exactly one game" gap the two bullets
+  above describe as this requirement's original, point-in-time state — no
+  behavior change to the criteria themselves, since both were always
+  written generically ("one entry per game xG Arcade currently hosts"),
+  only their illustrative Tier-0 asides were time-bound.
 
 **Test level:** UI (component: "Games" toggles independently of REQ-712's
 outer toggle and never itself triggers navigation; `aria-expanded`/

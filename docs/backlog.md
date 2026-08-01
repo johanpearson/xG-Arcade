@@ -4234,7 +4234,7 @@ omitted-`gameKey` regression, and unrecognized-`gameKey` 400), not by
 inspection alone. *Deps:* S-081 (instance generation to actually
 schedule).
 
-**S-085 · Frontend: SCREEN-09 multi-tile game select**
+**S-085 · Frontend: SCREEN-09 multi-tile game select (REQ-303/720) — done, 2026-08-01**
 `GameSelectScreen.tsx` gains a second tile (xG Path), per SCREEN-09's
 spec — same tile pattern, no imagery, tokens only. `App.tsx` routing
 extended for a second game destination.
@@ -4243,6 +4243,43 @@ order as `HeaderNav`'s "Games" list; selecting the xG Path tile navigates
 to its own screen (S-086); the existing xG Grid tile/navigation is
 unchanged. *Deps:* S-082 (a real xG Path experience must exist before
 exposing an entry point to it in production).
+**Built as:** matches the plan, plus two deliberate scope additions and
+one honest placeholder. `GameSelectScreen.tsx` gained a second tile
+(`XG_PATH_GAME_KEY = 'xg-path' as const`) — name + one-line description
+("Guess the player from a revealed career"), tokens only, row wraps to
+stacked at 480px, xG Grid first/xG Path second per SCREEN-09. Each tile's
+`aria-label` pins the accessible name to just the game name, with
+`aria-describedby` exposing the description as an accessible description
+(quality-gate follow-up, `3829e0d`). `onSelectGame` is now typed as the
+exact two-member literal union rather than bare `string`, and `App.tsx`
+dispatches on it via a `switch` with a `never`-typed exhaustiveness check
+(also a quality-gate follow-up) — a third game key added without a
+matching case is now a compile error, not a silent no-op. Two additions
+beyond the story's literal two-named-files: (1) `frontend/src/nav/
+HeaderNav.tsx` gained a second "xG Path" entry (`isPathCurrent`/
+`onSelectPath`, mirroring the existing `isGridCurrent`/`onSelectGrid`
+pattern exactly) — not named in this story's text, but added deliberately
+so this list and `GameSelectScreen`'s tile order stay in agreement, per
+REQ-720's own "one entry per game xG Arcade currently hosts" acceptance
+criterion (xG Path is a real, merged game as of S-082, so REQ-720's
+"Tier 0: exactly one game" language was already stale). (2) `App.tsx`'s
+new `'path'` screen (`#/path`) renders a minimal, honestly-labeled
+placeholder (`.app__coming-soon`: "xG Path" / "Coming soon — this game
+isn't playable yet.") rather than any real gameplay UI — SCREEN-10's
+clue-reveal UI is S-086's separate, not-yet-built work, and this story's
+own scope is only the entry point reaching it, same "advertised, not
+half-built" honesty precedent as other placeholder screens in this
+backlog. Two commits: `58a3ca2` (implementation + tests), `3829e0d`
+(quality-gate fixes above). 7 new tests (`GameSelectScreen.test.tsx`,
+`App.test.tsx`, `HeaderNav.test.tsx`), 389/389 Vitest passing, clean
+`tsc -b`/`oxlint`. No backend changes; `architecture-reviewer` found no
+boundary drift (follows the existing `grid`/`isGridCurrent`/`onSelectGrid`
+pattern exactly, extended to a second game) and confirmed no ADR is
+needed. E2E not run in-sandbox (needs a local stack, CI-only per
+convention); `frontend/tests/e2e/header-nav.spec.ts` has a stale comment
+("a disclosure listing xG Grid (Tier 0's only game)") flagged low-severity
+by quality-architect and left untouched by this story — a cheap follow-up
+if anyone is in that file next.
 
 **S-086 · Frontend: SCREEN-10 xG Path puzzle screen (growing timeline)**
 The validated clue-reveal UI: vertical timeline of clue nodes (settle-in
