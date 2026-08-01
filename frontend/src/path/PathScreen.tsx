@@ -31,6 +31,14 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
   // puzzle in the round at once (no per-puzzle fetch), so this is just an
   // index into that same array, never re-derived from the server.
   const [puzzleIndex, setPuzzleIndex] = useState(0);
+  // Quality-gate fix (S-086 follow-up): distinct from PathGuessInput's own
+  // `error` state. That one means "the guess submission itself failed" (the
+  // POST never landed) and is shown *instead of* a scored outcome. This one
+  // means the opposite: the guess WAS recorded server-side (the POST
+  // succeeded, result.isCorrect is real) but the follow-up GET /path/current
+  // that picks up the newly revealed clue failed — so the player must never
+  // be told their guess failed here, only that the screen couldn't refresh.
+  const [refetchWarning, setRefetchWarning] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,11 +79,35 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
       const puzzle = state.round.puzzles[puzzleIndex];
       if (!puzzle) return false;
 
+      // Left to throw/propagate to PathGuessInput's own catch block — a
+      // genuine submission failure (the POST never landed, no attempt was
+      // consumed) is exactly what that error path is for.
       const result = await submitGuess(accessToken, state.round.roundId, puzzle.puzzleId, submittedName);
 
-      const fresh = await fetchCurrentPath(accessToken);
+      // Quality-gate fix (S-086 follow-up): the guess above already
+      // succeeded — REQ-1205's attempt cap was already consumed server-side
+      // — so a failure in this follow-up GET must never surface as if the
+      // whole submission failed (that would make a player retry and burn a
+      // second attempt against the fixed 7-attempt cap without realizing one
+      // was already spent). Handled separately from the submitGuess call
+      // above, with its own try/catch, rather than letting it throw into the
+      // same catch block PathGuessInput uses for a real submission failure.
+      setRefetchWarning(null);
+      let fresh: CurrentPathResponse | null;
+      try {
+        fresh = await fetchCurrentPath(accessToken);
+      } catch {
+        setRefetchWarning("Guess submitted, but couldn't refresh — try reloading this screen.");
+        return result.isCorrect;
+      }
+
       if (fresh) {
         setState({ phase: 'ready', round: fresh });
+      } else {
+        // The round closed between the submit and this re-fetch — treat it
+        // the same as any other "no active round" case rather than leaving
+        // the stale pre-guess puzzle on screen indefinitely.
+        setState({ phase: 'empty' });
       }
 
       return result.isCorrect;
@@ -131,12 +163,16 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
         </p>
       </div>
 
-      {/* key={puzzle.puzzleId}: forces a clean remount on every puzzle
-          switch — both components carry their own local state (typed-in
-          guess text, the shake token, which nodes have already animated
-          in) that must never leak from one puzzle into the next. */}
+      {/* key={`${puzzle.puzzleId}-...`}: forces a clean remount on every
+          puzzle switch — both components carry their own local state
+          (typed-in guess text, the shake token, which nodes have already
+          animated in) that must never leak from one puzzle into the next.
+          Suffixed per component (quality-gate fix, S-086 follow-up) so the
+          two sibling keys are never identical — an identical key on two
+          sibling elements is a real React warning ("Encountered two
+          children with the same key"), not just a cosmetic duplicate. */}
       <PathTimeline
-        key={puzzle.puzzleId}
+        key={`${puzzle.puzzleId}-timeline`}
         clues={puzzle.clues}
         solved={solved}
         resolvedPlayerName={puzzle.guess?.resolvedPlayerName}
@@ -144,11 +180,16 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
       />
 
       <PathGuessInput
-        key={puzzle.puzzleId}
+        key={`${puzzle.puzzleId}-guess`}
         clueCount={puzzle.clues.length}
         guess={puzzle.guess}
         onSubmit={handleSubmitGuess}
       />
+
+      {/* Quality-gate fix (S-086 follow-up): a successful guess whose
+          follow-up re-fetch failed — the guess itself is not in question, so
+          this is worded as a refresh problem, never as if the guess failed. */}
+      {refetchWarning && <p className="path-screen__refetch-warning">{refetchWarning}</p>}
 
       {locked &&
         (isLastPuzzle ? (
@@ -157,7 +198,10 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
           <button
             type="button"
             className="path-screen__next-button"
-            onClick={() => setPuzzleIndex((current) => Math.min(current + 1, puzzles.length - 1))}
+            onClick={() => {
+              setRefetchWarning(null);
+              setPuzzleIndex((current) => Math.min(current + 1, puzzles.length - 1));
+            }}
           >
             Next puzzle
           </button>

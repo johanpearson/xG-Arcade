@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/design-document.md` (v0.58 → v0.59) — S-086
+  (SCREEN-10 xG Path puzzle) quality-gate follow-up fixes: moved
+  `CategoryLabel`/`CategoryGlyph` from `frontend/src/grid/` to the shared
+  `frontend/src/components/` location (was a cross-game-module import from
+  `frontend/src/path/PathTimeline.tsx`), fixed a comment/type mismatch on
+  `PathClueKind` in `frontend/src/lib/types.ts`, fixed `PathScreen.tsx`'s
+  guess-submit handler to distinguish a genuine submission failure from a
+  failed/null post-submit re-fetch (documented as a new SCREEN-10 status
+  note, since neither case was previously specified), added a same-session
+  image-load-failure fallback to `PathTimeline.tsx`'s solved-state photo
+  (matching `CellState.tsx`'s existing pattern), dropped the redundant JS
+  `usePrefersReducedMotion` hook (`frontend/src/lib/motion.ts`, removed) in
+  favor of the CSS-only `@media (prefers-reduced-motion: reduce)` override
+  `PathTimeline.css` already had, and fixed a duplicate React key on
+  `PathScreen.tsx`'s sibling `PathTimeline`/`PathGuessInput` elements. No
+  REQ/ADR changes — implementation-level fixes plus one new design-doc
+  status note.
 - 2026-08-01 — `docs/requirements-document.md` (v1.29 → v1.30),
   `docs/architecture-document.md` (v0.70 → v0.71), `docs/backlog.md`,
   `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`

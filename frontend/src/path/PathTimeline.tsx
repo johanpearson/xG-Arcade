@@ -1,5 +1,5 @@
-import { CategoryGlyph } from '../grid/CategoryLabel';
-import { usePrefersReducedMotion } from '../lib/motion';
+import { useState } from 'react';
+import { CategoryGlyph } from '../components/CategoryLabel';
 import type { PathClueTurn } from '../lib/types';
 import './PathTimeline.css';
 
@@ -30,7 +30,6 @@ const TEXT_CLUE_LABELS: Record<'Position' | 'Nationality' | 'Age', string> = {
 // replay token because that element toggles visible/hidden repeatedly, not
 // append-only).
 export function PathTimeline({ clues, solved, resolvedPlayerName, resolvedPlayerPhotoUrl }: PathTimelineProps) {
-  const reducedMotion = usePrefersReducedMotion();
   const lastIndex = clues.length - 1;
 
   // REQ-1203: the bundled year-range turn's own payload is just a list of
@@ -51,9 +50,15 @@ export function PathTimeline({ clues, solved, resolvedPlayerName, resolvedPlayer
         return (
           <li
             key={turn.turnNumber}
-            className={`path-timeline__node ${isFinal ? 'path-timeline__node--solved' : ''} ${
-              !reducedMotion ? 'path-timeline__node--animate-in' : ''
-            }`}
+            // Quality-gate fix (S-086 follow-up): the settle-in animation
+            // class is now applied unconditionally — `prefers-reduced-motion`
+            // is handled entirely by PathTimeline.css's own `@media` override
+            // (which sets `animation: none`, fully cancelling the animation,
+            // same end result as never applying the class), matching
+            // CellState.css's own CSS-only reduced-motion pattern rather than
+            // duplicating that logic in JS. See PathTimeline.css's comment on
+            // this rule for the full reasoning.
+            className={`path-timeline__node ${isFinal ? 'path-timeline__node--solved' : ''} path-timeline__node--animate-in`}
           >
             <span className="path-timeline__dot" aria-hidden="true" />
             <div className="path-timeline__content">
@@ -136,12 +141,27 @@ function renderClueContent(turn: PathClueTurn, revealedClubNames: string[]) {
 // design — flagged back to design-document.md's SCREEN-10 section as a
 // stale reference, not silently resolved.
 function SolvedNode({ name, photoUrl }: { name?: string | null; photoUrl?: string | null }) {
+  // Quality-gate fix (S-086 follow-up): same same-session image-load-failure
+  // fallback as CellState.tsx's `CellPhoto`/`photoFailed` — a photo URL that
+  // 404s or otherwise fails to load falls back to the text-only treatment
+  // (no image at all) rather than the browser's own broken-image icon.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const hasPhoto = Boolean(photoUrl) && !photoFailed;
+
   return (
     <div className="path-timeline__solved">
       <p className="path-timeline__solved-label">
         <span aria-hidden="true">✓</span> Solved
       </p>
-      {photoUrl && <img className="path-timeline__solved-photo" src={photoUrl} alt="" aria-hidden="true" />}
+      {hasPhoto && (
+        <img
+          className="path-timeline__solved-photo"
+          src={photoUrl as string}
+          alt=""
+          aria-hidden="true"
+          onError={() => setPhotoFailed(true)}
+        />
+      )}
       <p className="path-timeline__solved-name">{name ?? 'Puzzle solved'}</p>
     </div>
   );

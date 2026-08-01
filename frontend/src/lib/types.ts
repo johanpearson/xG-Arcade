@@ -359,10 +359,17 @@ export interface PathClubClue {
 // REQ-1203 (S-086): one turn of the fixed 7-turn clue-reveal sequence —
 // mirrors `PathClueTurnResponse` exactly. `kind` is the backend's
 // `PathClueKind` enum serialized as its name ("ClubReveal" | "YearRange" |
-// "Position" | "Nationality" | "Age") — kept as a plain string here, not a
-// literal union, so an unrecognized future value degrades to "render
-// nothing for this turn" rather than a type error, matching this repo's
-// existing `CategoryType` convention (types.ts's own top-of-file note).
+// "Position" | "Nationality" | "Age") — declared here as a literal union,
+// not a plain string. Unlike `CategoryType` (types.ts's own top-of-file
+// note), which is a plain string because *which* axis is country vs. club
+// is derived dynamically and isn't a fixed set, `PathClueKind` is a closed,
+// backend-fixed set of five turn kinds — a literal union is more type-safe
+// here and nothing in this codebase depends on forward-compat string
+// behavior for an unrecognized value. (`PathTimeline`'s render switch still
+// falls back to a generic text-clue rendering for any value that isn't
+// `ClubReveal`/`YearRange`, so an unrecognized kind wouldn't crash even if
+// the backend ever sent one outside this union — but that's a defensive
+// runtime fallback, not something this type intentionally allows.)
 // Exactly one of clubs/yearRanges/textValue is non-null per turn, selected
 // by kind — see PathClueTurn's own backend doc comment for which.
 export type PathClueKind = 'ClubReveal' | 'YearRange' | 'Position' | 'Nationality' | 'Age';

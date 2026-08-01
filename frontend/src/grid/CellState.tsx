@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
-import { CategoryGlyph } from './CategoryLabel';
+import { CategoryGlyph } from '../components/CategoryLabel';
 import './CellState.css';
 
 export type RoundStatus = 'active' | 'closed';

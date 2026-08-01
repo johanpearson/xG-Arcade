@@ -152,6 +152,137 @@ describe('PathScreen', () => {
     expect(screen.getByText("You’ve completed every puzzle in this round.")).toBeInTheDocument();
   });
 
+  it('quality-gate fix (S-086 follow-up): a re-fetch failure after a successful submit shows a distinct "couldn\'t refresh" message, never as if the guess itself failed, and still reports the guess outcome', async () => {
+    const user = userEvent.setup();
+    let pathFetchCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/path/current')) {
+        pathFetchCount += 1;
+        if (pathFetchCount === 1) {
+          return jsonResponse(roundResponse());
+        }
+        // The follow-up re-fetch after the guess fails outright (network
+        // blip / transient 5xx) — the guess itself already succeeded above.
+        return Promise.reject(new Error('Network error'));
+      }
+      if (String(url).includes('/guesses') && init?.method === 'POST') {
+        return jsonResponse({
+          isCorrect: false,
+          attemptCount: 1,
+          locked: false,
+          resolvedPlayerName: null,
+          resolvedPlayerPhotoUrl: null,
+          candidates: null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await user.type(await screen.findByLabelText('Player name'), 'Wrong Guess');
+    await user.click(screen.getByRole('button', { name: 'Guess' }));
+
+    // The honest, distinct message — not PathGuessInput's own submission-
+    // failure error text, and no claim that the guess itself failed.
+    expect(
+      await screen.findByText("Guess submitted, but couldn't refresh — try reloading this screen."),
+    ).toBeInTheDocument();
+    // The guess's own outcome (incorrect) was still reported back to
+    // PathGuessInput, not lost just because the re-fetch failed — observable
+    // as PathGuessInput's own post-rejection behavior (it only runs this on
+    // a *resolved* falsy value, never when onSubmit throws): the typed name
+    // is cleared and the input isn't left showing a submission-failure
+    // error of its own.
+    expect(screen.getByLabelText('Player name')).toHaveValue('');
+    expect(screen.queryByText(/type a player name/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Something went wrong. Check your connection and try again.')).not.toBeInTheDocument();
+  });
+
+  it('quality-gate fix (S-086 follow-up): a re-fetch that resolves null (round closed) after a successful submit transitions to the empty state rather than leaving stale puzzle state on screen', async () => {
+    const user = userEvent.setup();
+    let pathFetchCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/path/current')) {
+        pathFetchCount += 1;
+        if (pathFetchCount === 1) {
+          return jsonResponse(roundResponse());
+        }
+        // Round closed between the submit and the re-fetch.
+        return jsonResponse({ title: 'No active round' }, 404);
+      }
+      if (String(url).includes('/guesses') && init?.method === 'POST') {
+        return jsonResponse({
+          isCorrect: true,
+          attemptCount: 1,
+          locked: true,
+          resolvedPlayerName: 'Zlatan Ibrahimović',
+          resolvedPlayerPhotoUrl: null,
+          candidates: null,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await user.type(await screen.findByLabelText('Player name'), 'Zlatan Ibrahimović');
+    await user.click(screen.getByRole('button', { name: 'Guess' }));
+
+    expect(await screen.findByText('No puzzle to play right now')).toBeInTheDocument();
+  });
+
+  it('REQ-1205 judgment call: "Next puzzle" also appears once a puzzle locks unsolved (attempt cap exhausted without a correct guess), not only once solved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/path/current')) {
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: false,
+                  attemptCount: 7,
+                  locked: true,
+                  submittedName: 'Wrong Guess',
+                  resolvedPlayerName: null,
+                  resolvedPlayerPhotoUrl: null,
+                },
+              },
+              {
+                puzzleId: 'puzzle-2',
+                clues: [
+                  {
+                    turnNumber: 1,
+                    kind: 'ClubReveal',
+                    clubs: [{ clubName: 'Barcelona', appearanceCount: 200 }],
+                    yearRanges: null,
+                    textValue: null,
+                  },
+                ],
+                guess: null,
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await screen.findByText('Puzzle 1 of 2');
+    // Not solved — no "Solved" node text, and the input reflects "locked,
+    // not correct" per PathGuessInput's own copy — but "Next puzzle" must
+    // still be reachable, since REQ-1205's cap-exhausted case leaves the
+    // player with no other way to move on.
+    expect(screen.queryByText('Solved')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next puzzle' })).toBeInTheDocument();
+  });
+
   it('"Next puzzle" is an explicit action, never automatic, and advances to the next puzzle in the round', async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation((url: string) => {

@@ -149,14 +149,20 @@
   }
 }
 
-/* prefers-reduced-motion is handled in JS (PathTimeline.tsx only applies
-   this class when usePrefersReducedMotion() is false) — SCREEN-10's own
-   "no partial-motion state, nodes just appear" requirement is stricter than
-   the badge dock's own fallback (which still plays a brief color flash), so
-   there is deliberately no reduced-motion keyframe here to fall back to.
-   This rule is kept anyway as a belt-and-suspenders CSS-level backstop for
-   any environment where the JS gate above didn't run (e.g. a client with
-   JS disabled still gets the CSS media query respected). */
+/* Quality-gate fix (S-086 follow-up): prefers-reduced-motion is handled
+   entirely here, in CSS — `.path-timeline__node--animate-in` is now applied
+   unconditionally by PathTimeline.tsx, and this override is what actually
+   cancels the animation for a player with the OS preference set. This
+   matches CellState.css's own reduced-motion pattern (no JS
+   matchMedia hook there either) rather than duplicating the same gate in
+   both JS and CSS — a prior version of this file also gated the class in JS
+   (`usePrefersReducedMotion`, lib/motion.ts, since removed), reasoned as
+   needed because SCREEN-10's "no partial-motion state, nodes just appear"
+   requirement is stricter than the badge dock's own fallback (which plays a
+   brief color flash instead of nothing). In practice `animation: none` here
+   produces the exact same end state as never applying the class at all — a
+   static, already-settled node — so the JS layer was pure duplication, not
+   a materially different fallback; removed for that reason. */
 @media (prefers-reduced-motion: reduce) {
   .path-timeline__node--animate-in {
     animation: none;

@@ -49,6 +49,13 @@
   color: var(--color-text-muted);
 }
 
+.path-screen__refetch-warning {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+  font-family: var(--font-body);
+}
+
 .path-screen__complete {
   margin: 0;
   color: var(--color-text-muted);

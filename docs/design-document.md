@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.58"
+version: "0.59"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -2015,6 +2015,33 @@ system — no new color, typeface, or animation family introduced:
   further.
 - **Puzzle position:** "Puzzle N of M" (plain text, `text-muted`) in the
   header, mirroring SCREEN-01's round-timer header row placement.
+
+**S-086 quality-gate follow-up status note (judgment call, flagged rather
+than silently resolved):** `PathScreen.tsx`'s guess flow makes two network
+calls per submission — `POST .../guesses`, then a follow-up `GET
+/path/current` to pick up the newly revealed clue (see that component's own
+doc comment for why a re-fetch, not a local patch, is the mechanism xG Path
+uses). Neither this section nor REQ-1203/1204/1205 originally specified what
+happens if the *second* call fails after the first one already succeeded.
+Resolved as follows, not sketched anywhere before this note:
+- **Re-fetch throws (network blip, transient 5xx, mid-session 401):** the
+  player is never told the guess itself failed (it didn't — REQ-1205's
+  attempt was already consumed server-side, and telling them otherwise would
+  invite a retry that burns a second attempt for nothing). Instead a
+  distinct, honest inline message renders below the guess input: "Guess
+  submitted, but couldn't refresh — try reloading this screen." Plain text,
+  `accent-red`, no icon — same "text-paired, never color-only" rule §6
+  already applies everywhere else on this screen (the locked/solved copy
+  above it).
+- **Re-fetch resolves `null` (the round closed in the gap between the two
+  calls):** treated identically to any other "no active round" case —
+  transitions to this screen's existing empty state (`No puzzle to play
+  right now`), rather than leaving the stale, pre-guess puzzle on screen
+  indefinitely with no explanation.
+Both are edge-case network/timing failures, not new deliberate product
+states — no new token, color, or motion was introduced for either; the
+warning message reuses `accent-red` exactly as `path-screen__status--error`
+already does elsewhere on this same screen.
 
 ## 4. Responsive strategy
 

@@ -1,4 +1,4 @@
-import { CategoryLabel } from './CategoryLabel';
+import { CategoryLabel } from '../components/CategoryLabel';
 import { GridCell } from './GridCell';
 import type { RoundStatus } from './CellState';
 import type { CurrentRoundCell } from '../lib/types';
