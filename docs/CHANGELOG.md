@@ -13,6 +13,39 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/backlog.md`, `docs/requirements-document.md` (v1.30 →
+  v1.31), `docs/architecture-document.md` (v0.71 → v0.72),
+  `docs/implementation-document.md` (v0.84 → v0.85) — Doc-sync for S-091
+  (xG Path guess autocomplete, extending REQ-207 to a second consumer),
+  covering both commits (`27ed880` the backlog entry, `3dd0027`
+  implementation + tests). `docs/backlog.md`'s S-091 entry marked "— done,
+  2026-08-01" with a "Built as:" paragraph (matching S-085/S-086's
+  convention) confirming the shipped code matched the story's own stated
+  scope with no deviations: same debounce/limit constants and
+  keyboard-nav/ARIA pattern as `GuessInput.tsx` (xG Grid), no backend
+  change, no REQ-209 disambiguation picker. `docs/requirements-document.md`
+  gained a small REQ-207 status note (2026-08-01, S-091) noting the second
+  UI consumer for discoverability — smaller than the REQ-303/REQ-720
+  precedent, since REQ-207's Given/When/Then was never game-scoped to
+  begin with, so there was no stale "exactly one game" language to correct;
+  the note also glosses REQ-207's one xG-Grid-flavored phrase ("current
+  cell") for a game with no cell/category axis. `docs/architecture-
+  document.md`'s §6.2b (xG Path clue reveal/guess flow) diagram gained the
+  same autocomplete-suggestions step §6.2's xG Grid diagram already
+  documents, plus a REQ-207 reference in the section heading — a real,
+  if small, data-flow addition (this interaction didn't happen for xG Path
+  before S-091); boundary rule 5's autocomplete/correctness separation text
+  was already fully game-agnostic and needed no change.
+  `docs/implementation-document.md`'s frontend project-structure `/path`
+  entry corrected: it previously stated (accurately as of S-086, now
+  stale) that xG Path had no autocomplete at all — updated to describe
+  S-091's addition while confirming the disambiguation picker (REQ-209)
+  and REQ-215 suggestion entry point remain out of scope. No new ADR:
+  both `architecture-reviewer` and `quality-architect` confirmed during
+  S-091's own quality gate this is pure reuse of an already-generic,
+  already-documented capability (`GET /players/autocomplete`,
+  ADR-0007) by a second consumer, not a new structural decision, and this
+  doc-sync pass found nothing to contradict that.
 - 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.59 →
   v0.60), `docs/implementation-document.md` (v0.83 → v0.84) — Doc-sync for
   S-086 (SCREEN-10 xG Path puzzle screen, growing timeline), covering both

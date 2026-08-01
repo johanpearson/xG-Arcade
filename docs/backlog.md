@@ -4407,7 +4407,7 @@ lines. *Deps:* S-089 (suggestions must exist to review, though REQ-510's
 manual-add half has no dependency on S-089 itself), ADR-0053 (the new
 separate-admin-view decision this story implements).
 
-**S-091 · Frontend: xG Path guess autocomplete (REQ-207 extension)**
+**S-091 · Frontend: xG Path guess autocomplete (REQ-207 extension) — done, 2026-08-01**
 Pulled forward by deliberate product decision, 2026-08-01, immediately
 after S-086 shipped without it (SCREEN-10's own spec named no autocomplete
 requirement, so S-086 correctly left it out — this is new scope, not a
@@ -4435,3 +4435,24 @@ has no category to leak in the first place, but the suggestion list itself
 must still be the shared, non-scored `PlayerNameIndex` source, never a
 narrower path-specific list). *Deps:* S-086 (the guess input this wires
 into must already exist).
+**Built as:** matches the plan exactly, no deviations. `PathGuessInput.tsx`
+now calls `fetchPlayerAutocomplete` (`lib/api.ts`, unchanged — already
+game-agnostic) with the same constants `GuessInput.tsx` (xG Grid) uses:
+2-character minimum, 275ms debounce, 8-suggestion limit, identical
+keyboard-nav (arrow keys move the highlight, Enter selects the highlighted
+suggestion, Escape dismisses without touching the typed text) and
+combobox/listbox ARIA wiring, and the same graceful-failure behavior (a
+rejected/failed fetch shows no suggestions and never blocks or errors the
+guess form). New `accessToken` prop plumbed through from `PathScreen.tsx`
+(the caller already held it for every other authenticated call). No
+disambiguation picker (REQ-209) was added, confirming the story's own
+scope call. No backend changes — `GET /players/autocomplete` was already
+game-agnostic, querying `PlayerNameIndex` with no `gameKey`/category
+scoping to extend. Two commits: `27ed880` (this backlog entry), `3dd0027`
+(implementation + tests). 5 new REQ207-prefixed test cases plus the 6
+pre-existing `PathGuessInput.test.tsx` tests updated to stub `fetch` and
+pass `accessToken`, 416/416 Vitest passing, clean `tsc -b`/`oxlint`. Both
+`architecture-reviewer` and `quality-architect` passed clean during the
+quality gate — no boundary drift (pure reuse of an already-generic,
+already-documented capability by a second consumer) and no fixes needed;
+no new ADR.

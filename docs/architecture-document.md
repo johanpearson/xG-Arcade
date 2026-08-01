@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.71"
+version: "0.72"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -1157,9 +1157,15 @@ decision); custom leagues (REQ-402/403) have their own separate
 `LeaguesScreen.tsx` (create/join/list), not a SCREEN-03 tab.
 
 **6.2b xG Path clue reveal and guess submission flow** (realizes REQ-1203,
-REQ-1204, REQ-1205, REQ-1207 — added S-082, 2026-07-27)
+REQ-1204, REQ-1205, REQ-1207 — added S-082, 2026-07-27; REQ-207 — added
+S-091, 2026-08-01)
 
 ```
+Player → Web Frontend: types a guess
+  → Data.PlayerNameIndex (COMP-10): autocomplete suggestions — the SAME
+    generic, game-agnostic query §6.2's diagram documents for xG Grid
+    (REQ-207); no second autocomplete endpoint or read path exists for
+    xG Path (S-091)
 Player → Web Frontend → Backend API: GET /path/current
   (XGArcade.Api.Path.PathEndpoints) → Core.Rounds (IRoundRepository):
   resolve the active "xg-path" round, 404 if none

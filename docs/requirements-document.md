@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.30"
+version: "1.31"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -1321,6 +1321,27 @@ a photo shows neither at rest as of S-048, see that status note)
   and this correction does not change that stays true. See
   `docs/design-document.md` SCREEN-02's matching note for the UI-side
   detail.
+- **Status note (2026-08-01, S-091) — second consumer, no requirement
+  change:** `PathGuessInput.tsx` (xG Path's guess field, SCREEN-10) now
+  also calls `GET /players/autocomplete`, the same way `GuessInput.tsx`
+  (xG Grid) has since S-032 — same debounce/limit constants, same
+  keyboard-nav and combobox/listbox ARIA pattern, same graceful-failure
+  behavior. No endpoint or backend change: `PlayerNameIndex` was already
+  queried globally with no `gameKey`/category scoping to extend. This
+  requirement's own text was never game-scoped to begin with (its
+  Given/When/Then speaks generically of "a player... typing a guess," not
+  a specific game's cell), so unlike REQ-303/REQ-720's status notes this
+  is not a correction of stale "exactly one game" language — it is only
+  noted here for discoverability. The one piece of REQ-207's prose that
+  *is* xG-Grid-flavored — "correct for the current cell" in the acceptance
+  criteria above — should be read as "the guess currently being made";
+  xG Path has no cell/category axis at all (REQ-1204), so that criterion
+  applies to it trivially (there is nothing category-shaped to leak in the
+  first place). REQ-209's disambiguation UI remains deferred generally, and
+  was separately reviewed and rejected for xG Path specifically
+  (`docs/backlog.md` S-091: `XGPathGameModule.ScoreSubmissionAsync`
+  resolves correctness independent of which same-named candidate a picker
+  would let the player choose).
 
 **Test level:** Unit (verify the autocomplete data source is distinct from
 the correctness-check data source; verify `PlayerAutocompleteSuggestion`

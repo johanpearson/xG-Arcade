@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.84"
+version: "0.85"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -297,10 +297,18 @@ misconfigured per-endpoint. See ADR-0006.
                                      module's own directory isn't allowed
     /path                         -> PathScreen, PathTimeline, PathGuessInput
                                      (SCREEN-10, S-086) — mirrors /grid's
-                                     structure for xG Path's own screen; no
-                                     disambiguation picker, autocomplete, or
-                                     suggestion entry point (all explicitly
-                                     out of scope for this story)
+                                     structure for xG Path's own screen.
+                                     S-086 shipped with no disambiguation
+                                     picker, autocomplete, or suggestion
+                                     entry point (all explicitly out of
+                                     scope for that story). S-091
+                                     (2026-08-01) wired PathGuessInput.tsx
+                                     into the same GET /players/autocomplete
+                                     endpoint GuessInput.tsx already used
+                                     (REQ-207) — no new file, no backend
+                                     change. Disambiguation picker (REQ-209)
+                                     and REQ-215's suggestion entry point
+                                     remain out of scope
     /components                   -> CategoryLabel, CategoryGlyph (S-086) —
                                      the one shared component used by both
                                      /grid and /path; relocated here from
