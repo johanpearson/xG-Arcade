@@ -1585,8 +1585,13 @@ clear 125 broken failure markers. *Resolved same session:* added
 `.github/workflows/clear-pair-lookup-failures.yml`) — reads
 `PairLookupFailure` directly for every row at/above
 `PersistentFailureThreshold` and removes only those rows, touching no
-other table. Mechanical extension of ADR-0052's already-documented
-invalidation surface (same entity, narrower scope) — no new ADR.
+other table. Same entity, narrower scope than ADR-0052's existing
+invalidation surface — but ADR-0052 itself explicitly names
+`StaleClubAttributeCleaner`/`purge-player-pool` as the *only* two paths and
+says not to add a third without updating it, so this required amending
+ADR-0052 in place (a dated status note), not a new ADR number.
+`architecture-reviewer` caught the doc claiming otherwise before this was
+considered done.
 
 **S-037 · Fix wrong club QIDs from S-036; wider club pool; stale-cache recovery tool (REQ-109)**
 Direct follow-up requested after S-036 shipped: the user manually checked

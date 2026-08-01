@@ -169,6 +169,41 @@ first).
   with real evidence for the specific builder involved — don't
   preemptively widen this fix's scope without a confirmed case.
 
+## Status note (2026-08-01, follow-up)
+
+The very first `warm-player-cache` run after this ADR's `FILTER EXISTS` fix
+(commit `b92d044`, itself `run_attempt: 2` — its own attempt 1 had already
+failed/been retried) left 125 Club×Club pairs at
+`ConsecutiveFailureCount >= PersistentFailureThreshold`, permanently skipped
+per this ADR's own §Decision/2 design. Those 125 pairs collectively touch
+all 32 seeded clubs — the entire pool — so `StaleClubAttributeCleaner`
+(club-name-scoped, per this ADR's Decision/2 and Consequences sections) was
+the wrong tool to clear them: passing all 32 names would delete
+`PlayerAttribute`/`PlayerData` for the ~850 other pairs that are already
+correctly cached, not just the 125 broken ones, purely because they share a
+club with something broken.
+
+Added a third invalidation path, `PairLookupFailureCleaner`
+(`XGArcade.Data.Seeding`) / the `clear-pair-lookup-failures` CLI verb, which
+reads `PairLookupFailures` directly for rows at/above the threshold and
+deletes only those rows — no `PlayerAttribute`/`PlayerData`/
+`ConfirmedLowMatchPair` touched, so it can't have the same collateral-purge
+problem `StaleClubAttributeCleaner` has here by construction (it was never
+club-scoped in the first place). `PersistentFailureThreshold` is duplicated
+as a private literal in `PairLookupFailureCleaner` rather than shared,
+commented with a cross-reference back to `PlayerCacheWarmingService`'s copy
+— `XGArcade.Data` sits below `XGArcade.Games.XGGrid` in the project-reference
+graph (boundary rule 1), so a real shared reference would invert that
+direction. This is a currently-accepted, comment-guarded drift risk, not a
+resolved one: no automated check pins the two constants together yet.
+
+This does not reverse this ADR's own "same invalidation surface as
+`ConfirmedLowMatchPair`" reasoning (Decision/2, Consequences) — `clear-pair-lookup-failures`
+still only clears the failure *marker*, on the same "pair might resolve on
+its own, needs a forced re-check" logic as the other two tools; it's a
+narrower-grained way to trigger that re-check, not a different kind of
+invalidation.
+
 ## For AI agents
 
 Do not reintroduce a same-run retry in `PlayerCacheWarmingService` without
@@ -181,11 +216,17 @@ not apply the same `FILTER EXISTS` restructuring to
 `BuildTrophyClubIntersectionQuery` without first solving how their
 qualifier fetch (`?clubStatement`'s `pq:P580`/`pq:P582`/`pq:P1350` OPTIONAL
 block) would still bind — those three genuinely need it (ADR-0042/S-079),
-club-club does not. Do not add a third way to invalidate
-`PairLookupFailure` outside `StaleClubAttributeCleaner`/`purge-player-pool`
-without also updating this ADR, same "exactly one place each correction
-path's force-a-re-check logic lives" reasoning ADR-0050 established for
+club-club does not. The invalidation surface for `PairLookupFailure` is now
+`StaleClubAttributeCleaner`/`purge-player-pool`/`clear-pair-lookup-failures`
+(see the 2026-08-01 status note above) — do not add a fourth without also
+updating this ADR, same "exactly one place each correction path's
+force-a-re-check logic lives" reasoning ADR-0050 established for
 `ConfirmedLowMatchPair`. Do not read or write `PairLookupFailure` through
-anything other than `IPlayerStoreRepository`'s three dedicated methods — a
-direct `DbContext` query from `Games.XGGrid` would violate boundary rule 1
-the same way it would for `PlayerAttribute`/`ConfirmedLowMatchPair`.
+anything other than `IPlayerStoreRepository`'s three dedicated methods from
+`Games.XGGrid` — a direct `DbContext` query from `Games.XGGrid` would
+violate boundary rule 1 the same way it would for
+`PlayerAttribute`/`ConfirmedLowMatchPair`. `XGArcade.Data.Seeding`'s own
+maintenance tools (`StaleClubAttributeCleaner`, `PairLookupFailureCleaner`)
+are the established exception to that same rule, per ADR-0052/ADR-0050
+precedent — they live in the same project as the entity and read/write the
+`DbContext` directly.
