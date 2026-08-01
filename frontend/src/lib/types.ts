@@ -346,6 +346,69 @@ export interface SubmitSuggestionResponse {
   createdAt: string;
 }
 
+// REQ-1203 (S-086): one club revealed within a ClubReveal turn — mirrors
+// `PathClubClueResponse` (backend/src/XGArcade.Api/Path/PathEndpoints.cs)
+// exactly. appearanceCount is null exactly when Wikidata's appearance-count
+// qualifier wasn't recorded for that stint — the club is still shown,
+// without a count, never delayed/omitted and never a fabricated "0 apps".
+export interface PathClubClue {
+  clubName: string;
+  appearanceCount: number | null;
+}
+
+// REQ-1203 (S-086): one turn of the fixed 7-turn clue-reveal sequence —
+// mirrors `PathClueTurnResponse` exactly. `kind` is the backend's
+// `PathClueKind` enum serialized as its name ("ClubReveal" | "YearRange" |
+// "Position" | "Nationality" | "Age") — kept as a plain string here, not a
+// literal union, so an unrecognized future value degrades to "render
+// nothing for this turn" rather than a type error, matching this repo's
+// existing `CategoryType` convention (types.ts's own top-of-file note).
+// Exactly one of clubs/yearRanges/textValue is non-null per turn, selected
+// by kind — see PathClueTurn's own backend doc comment for which.
+export type PathClueKind = 'ClubReveal' | 'YearRange' | 'Position' | 'Nationality' | 'Age';
+
+export interface PathClueTurn {
+  turnNumber: number;
+  kind: PathClueKind;
+  clubs: PathClubClue[] | null;
+  yearRanges: string[] | null;
+  textValue: string | null;
+}
+
+// REQ-1204 (S-086): mirrors `CurrentPathGuessResponse` exactly — same
+// only-when-isCorrect rule for resolvedPlayerName/resolvedPlayerPhotoUrl as
+// CurrentRoundGuess above (an incorrect or in-progress guess never reveals
+// the target player's identity).
+export interface CurrentPathGuess {
+  isCorrect: boolean;
+  attemptCount: number;
+  locked: boolean;
+  submittedName: string;
+  resolvedPlayerName: string | null;
+  resolvedPlayerPhotoUrl: string | null;
+}
+
+// REQ-1203 (S-086): mirrors `CurrentPathPuzzleResponse` exactly. `clues` is
+// only ever the turns unlocked so far for the requesting player — this array
+// growing (via a re-fetch of GET /path/current after each guess) IS the
+// "revealed so far" state; there is no separate reveal endpoint.
+export interface CurrentPathPuzzle {
+  puzzleId: string;
+  clues: PathClueTurn[];
+  guess: CurrentPathGuess | null;
+}
+
+// REQ-1201/1202 (S-086): mirrors `CurrentPathResponse` exactly — the active
+// xg-path round's whole puzzle list at once, same shape/auth/404-as-empty
+// idiom as CurrentRoundResponse above.
+export interface CurrentPathResponse {
+  roundId: string;
+  startTime: string;
+  endTime: string;
+  allowGuessChange: boolean;
+  puzzles: CurrentPathPuzzle[];
+}
+
 // REQ-402/403: a custom league, as returned by POST /leagues,
 // POST /leagues/join, and GET /leagues/mine (XGArcade.Api.Leagues.LeagueResponse)
 // — this story's minimal "create/join/list my leagues" scope only, no
