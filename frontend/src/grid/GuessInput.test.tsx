@@ -2,7 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuessInput } from './GuessInput';
-import type { CurrentRoundCell, DisambiguationCandidate } from '../lib/types';
+import { ApiError } from '../lib/api';
+import type { CurrentRoundCell, DisambiguationCandidate, SubmitGuessResponse } from '../lib/types';
 
 function makeCell(overrides: Partial<CurrentRoundCell> = {}): CurrentRoundCell {
   return {
@@ -503,6 +504,180 @@ describe('GuessInput', () => {
 
       expect(onClose).toHaveBeenCalled();
       expect(onResolveDisambiguation).not.toHaveBeenCalled();
+    });
+  });
+
+  // REQ-215 (S-089): the suggestion entry point's two trigger conditions —
+  // a scored-incorrect guess, and a REQ-211 live-lookup timeout — plus the
+  // explicit regression guard that a correct result still closes
+  // immediately, since this story is what first made "stay open" possible
+  // at all for an incorrect result.
+  describe('REQ-215 suggestion entry point', () => {
+    function scoredOutcome(overrides: Partial<SubmitGuessResponse> = {}): SubmitGuessResponse {
+      return {
+        isCorrect: false,
+        attemptCount: 1,
+        locked: false,
+        resolvedPlayerName: null,
+        candidates: null,
+        ...overrides,
+      };
+    }
+
+    it('REQ215_correctResult_stillClosesImmediately_regressionGuard: a correct scored result closes the sheet exactly as before this story', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(scoredOutcome({ isCorrect: true, resolvedPlayerName: 'Thierry Henry' }));
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Thierry Henry');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+      expect(screen.queryByText('Not a match.')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('suggestion-entry-point')).not.toBeInTheDocument();
+    });
+
+    it('REQ215_incorrectResult_keepsSheetOpen_andRendersOutcomeViewWithEntryPoint', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(scoredOutcome());
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          isGuest={false}
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Someone Wrong');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByText('Not a match.')).toBeInTheDocument());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument();
+      expect(screen.getByTestId('suggestion-entry-point')).toBeEnabled();
+    });
+
+    it('REQ215_incorrectResult_lockedCell_showsNoAttemptsRemainHint_andStillOffersTheEntryPoint', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(scoredOutcome({ attemptCount: 2, locked: true }));
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Someone Wrong');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByText('No attempts remain for this cell.')).toBeInTheDocument());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument();
+      // Locked means no "Try another guess" — only Close remains alongside
+      // the entry point.
+      expect(screen.queryByRole('button', { name: 'Try another guess' })).not.toBeInTheDocument();
+    });
+
+    it('REQ215_liveLookupUnavailable503_keepsSheetOpenWithInlineError_andRendersEntryPointAlongsideIt', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockRejectedValue(
+        new ApiError('Live verification unavailable', 'Try again shortly.', 503),
+      );
+      const onClose = vi.fn();
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={onClose}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Clarence Seedorf');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByText('Try again shortly.')).toBeInTheDocument());
+      expect(onClose).not.toHaveBeenCalled();
+      // Still the plain form (not the outcome view) — REQ-215's second
+      // trigger never scores anything, so the sheet stays exactly as it was
+      // before this story except for the added entry point.
+      expect(screen.getByLabelText('Player name')).toBeInTheDocument();
+      expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument();
+    });
+
+    it('REQ215_nonLiveLookupFailure_doesNotRenderTheEntryPoint: an ordinary rejection (not a 503) shows the error but offers no suggestion entry point', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockRejectedValue(new Error('No attempts remaining'));
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Someone Wrong');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByText('No attempts remaining')).toBeInTheDocument());
+      expect(screen.queryByTestId('suggestion-entry-point')).not.toBeInTheDocument();
+    });
+
+    it('REQ215_guestUser_seesEntryPointDisabled_withRegistrationCopy', async () => {
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(scoredOutcome());
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          isGuest
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      await user.type(screen.getByLabelText('Player name'), 'Someone Wrong');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      await waitFor(() => expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument());
+      expect(screen.getByTestId('suggestion-entry-point')).toBeDisabled();
+      expect(screen.getByTestId('suggestion-guest-copy')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('suggestion-entry-point'));
+      expect(screen.queryByTestId('suggestion-clubs-input')).not.toBeInTheDocument();
     });
   });
 });
