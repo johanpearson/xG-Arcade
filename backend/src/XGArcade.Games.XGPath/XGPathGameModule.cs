@@ -158,6 +158,32 @@ public class XGPathGameModule(
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         Task.FromResult(MaxAttemptsPerPuzzle);
 
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): xG Path has no
+    // "row/col category" concept to return here at all — a PathPuzzle's
+    // correctness is a single fixed TargetPlayerId, not two independent
+    // category axes a candidate must satisfy (see ScoreSubmissionAsync's own
+    // doc comment above, and PathPuzzle's own doc comment). Nothing in this
+    // story or its frontend wires REQ-215's suggestion entry point up for xG
+    // Path — SuggestionEndpoints only ever resolves a round whose GameKey is
+    // "xg-grid" today — so there is no real caller that can reach this
+    // implementation in production. Judgment call (flagged for
+    // architecture-reviewer, mirroring ScoreSubmissionAsync's own flagged
+    // judgment call above): throws NotSupportedException rather than
+    // returning null or a fabricated pair of empty-string categories, since
+    // either of those would let a future caller silently misrepresent this
+    // puzzle's shape instead of getting a loud signal that xG Path's own
+    // suggestion flow (if ever built) needs real design work here, not a
+    // default. Deliberately NOT derived from GameEntityNotFoundException —
+    // this isn't "the id didn't resolve" (GetCellIdsAsync/
+    // ScoreSubmissionAsync's exception, which this method could equally have
+    // thrown for an unresolved puzzleId, but there is no reachable caller to
+    // exercise that distinction yet) — it's "this game has no such concept,"
+    // a different failure mode that a bare 404 would misrepresent if it were
+    // ever caught the same way.
+    public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            "xG Path puzzles have no row/col category concept — REQ-215's PlayerSuggestion flow is not supported for xg-path.");
+
     // REQ-1201: candidate eligibility. Reads only PlayerCareerStint (via
     // IPlayerStoreRepository, boundary rule 1 — Games.XGPath never touches
     // XGArcadeDbContext directly) and ClubDefinition (via

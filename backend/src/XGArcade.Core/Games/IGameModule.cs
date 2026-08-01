@@ -34,4 +34,27 @@ public interface IGameModule
     // unchanged, now reported through this method instead of the deleted
     // GuessRules.MaxAttemptsPerCell.
     Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default);
+
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): a specific cell's
+    // authoritative row/col category types — XGArcade.Api.Suggestions.
+    // SuggestionEndpoints' only path to this data, resolved through the
+    // owning module rather than a direct IGridInstanceRepository/GridCell
+    // read from the Api layer, which is what the original S-089 commit did
+    // (a boundary violation flagged by architecture-reviewer — see that
+    // review for the full "every other business-logic path resolves cell
+    // data through IGameModule" precedent this closes the gap on).
+    // Denormalized onto the persisted PlayerSuggestion row at submission
+    // time — see that entity's own doc comment.
+    //
+    // Not every game has a "row/col category" concept at all: xG Path's
+    // PathPuzzle has a single fixed TargetPlayerId, not two independent
+    // category axes (see XGPathGameModule.ScoreSubmissionAsync's own doc
+    // comment) — its implementation of this method throws
+    // NotSupportedException rather than fabricating a value, the same
+    // "flag it, don't silently guess" discipline this interface's other
+    // per-game judgment calls already follow. Throws a
+    // GameEntityNotFoundException-derived exception (matching
+    // ScoreSubmissionAsync/GetCellIdsAsync's existing convention) when
+    // instanceId/cellId don't resolve to a real cell.
+    Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default);
 }

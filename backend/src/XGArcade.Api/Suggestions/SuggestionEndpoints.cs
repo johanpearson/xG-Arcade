@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
+using XGArcade.Core.Games;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 
@@ -12,6 +13,17 @@ namespace XGArcade.Api.Suggestions;
 // API conventions (ClaimsPrincipal + IUserRepository.
 // GetByAuthProviderUserIdAsync to resolve the caller, Results.Problem for
 // every rejection).
+//
+// Architecture-review fix (post-S-089): the original commit resolved a
+// cell's row/col category types via a direct IGridInstanceRepository/
+// GridCell read from this Api-layer file — a boundary violation, since
+// every other business-logic path that needs cell data
+// (GridGameModule.ScoreSubmissionAsync, ScoreLockingService.
+// MaterializeUnansweredCellsAsync, GetMaxAttemptsForCellAsync) goes through
+// IGameModule, resolved by Round.GameKey via IGameModuleResolver (ADR-0003).
+// This file now follows that same resolution path — see GuessSubmissionService
+// (XGArcade.Core.Scoring) for the identical roundId -> Round ->
+// gameModuleResolver.Resolve(round.GameKey) shape this mirrors.
 public static class SuggestionEndpoints
 {
     public static void MapSuggestionEndpoints(this WebApplication app)
@@ -22,8 +34,10 @@ public static class SuggestionEndpoints
             SubmitSuggestionRequest request,
             ClaimsPrincipal principal,
             IUserRepository userRepository,
-            IGridInstanceRepository gridInstanceRepository,
+            IRoundRepository roundRepository,
+            IGameModuleResolver gameModuleResolver,
             IPlayerSuggestionRepository playerSuggestionRepository,
+            ILogger<SuggestionEndpointsLogCategory> logger,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -86,18 +100,46 @@ public static class SuggestionEndpoints
             // GuessEndpoints' ChosenPlayerId re-verification already
             // follows, applied here to context fields instead of a
             // correctness check.
-            var cell = await gridInstanceRepository.GetCellByIdAsync(cellId, cancellationToken);
-            if (cell is null)
+            //
+            // Resolved through IGameModule (ADR-0003), exactly the roundId ->
+            // Round -> IGameModuleResolver.Resolve(round.GameKey) shape
+            // GuessSubmissionService already uses — never a direct
+            // IGridInstanceRepository/GridCell read from this Api-layer file
+            // (see this class's own doc comment for why that was a boundary
+            // violation in the original S-089 commit).
+            var round = await roundRepository.GetByIdAsync(roundId, cancellationToken);
+            if (round is null)
                 return Results.NotFound();
 
+            var gameModule = gameModuleResolver.Resolve(round.GameKey);
+
+            CellCategoryTypes categoryTypes;
+            try
+            {
+                categoryTypes = await gameModule.GetCellCategoryTypesAsync(round.GameInstanceId, cellId, cancellationToken);
+            }
+            catch (GameEntityNotFoundException ex)
+            {
+                // The cellId didn't resolve to a real cell within this
+                // round's game instance — a malformed/stale request, not an
+                // ordinary rejection outcome. Logged server-side (coding-
+                // guidelines.md), same GameEntityNotFoundException catch
+                // shape GuessEndpoints already uses for the identical
+                // failure mode — see that file's own comment for why the
+                // shared base type means no per-game `using` is needed here.
+                logger.LogError(ex, "Suggestion submission failed: cell not found.");
+                return Results.NotFound();
+            }
+
             // No further validation of roundId/cellId's relationship to
-            // each other, and no check that a guess on this cell was
-            // actually incorrect or timed out — REQ-215's trigger-condition
-            // gating is a frontend concern (S-089's frontend half); this
-            // endpoint's job is exactly: authenticated, non-guest, valid
-            // payload, persist pending. No retroactive rescoring either
-            // (REQ-215's 2026-08-01 decision) — this write never touches
-            // the Guess table at all.
+            // each other beyond GetCellCategoryTypesAsync's own resolution,
+            // and no check that a guess on this cell was actually incorrect
+            // or timed out — REQ-215's trigger-condition gating is a
+            // frontend concern (S-089's frontend half); this endpoint's job
+            // is exactly: authenticated, non-guest, valid payload, persist
+            // pending. No retroactive rescoring either (REQ-215's
+            // 2026-08-01 decision) — this write never touches the Guess
+            // table at all.
             var suggestionId = Guid.NewGuid();
             var suggestion = new PlayerSuggestion
             {
@@ -107,8 +149,8 @@ public static class SuggestionEndpoints
                 SubmittingUserId = user.Id,
                 CellId = cellId,
                 RoundId = roundId,
-                RowCategoryType = cell.RowCategoryType,
-                ColCategoryType = cell.ColCategoryType,
+                RowCategoryType = categoryTypes.RowCategoryType,
+                ColCategoryType = categoryTypes.ColCategoryType,
                 Status = PlayerSuggestionStatus.Pending,
                 CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
                 AssertedClubs = clubs
@@ -151,3 +193,7 @@ public record SubmitSuggestionResponse(
     string AssertedNationality,
     string Status,
     DateTime CreatedAt);
+
+// Pure log-category marker for ILogger<T> — same pattern as
+// GuessEndpoints.cs's GuessEndpointsLogCategory.
+internal sealed class SuggestionEndpointsLogCategory;

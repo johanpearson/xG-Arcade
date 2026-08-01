@@ -10,6 +10,7 @@ using XGArcade.Api.Suggestions;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Tests;
 
@@ -122,6 +123,46 @@ public class SuggestionEndpointTests
 
         await dbContext.SaveChangesAsync();
         return (round.Id, cellId);
+    }
+
+    // Seeds a Round backed by a single-puzzle PathInstance — proves
+    // SuggestionEndpoints' cell-category-type resolution genuinely
+    // dispatches by Round.GameKey through IGameModuleResolver (architecture-
+    // review fix, post-S-089) rather than a hardcoded Grid-only
+    // IGridInstanceRepository/GridCell read, which could never even resolve
+    // a PathPuzzle id in the first place. Same PathInstance/PathPuzzle shape
+    // as PathEndpointTests.SeedPathRoundAsync, trimmed to what this file's
+    // one polymorphic-dispatch test needs (no clue/career-stint data).
+    private async Task<(Guid RoundId, Guid PuzzleId)> SeedXGPathRoundWithPuzzleAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+
+        var targetPlayer = new Player { Id = Guid.NewGuid(), FullName = "Kylian Mbappe", WikidataQid = $"Qplayer-{Guid.NewGuid()}" };
+        dbContext.Players.Add(targetPlayer);
+
+        var instanceId = Guid.NewGuid();
+        var puzzleId = Guid.NewGuid();
+        dbContext.PathInstances.Add(new PathInstance
+        {
+            Id = instanceId,
+            TemplateId = Guid.NewGuid(),
+            Puzzles = [new PathPuzzle { Id = puzzleId, PathInstanceId = instanceId, TargetPlayerId = targetPlayer.Id }],
+        });
+
+        var round = new Round
+        {
+            Id = Guid.NewGuid(),
+            GameKey = XGPathGameModule.XGPathGameKey,
+            GameInstanceId = instanceId,
+            StartTime = DateTime.UtcNow.AddDays(-1),
+            EndTime = DateTime.UtcNow.AddDays(1),
+            AllowGuessChange = true,
+        };
+        dbContext.Rounds.Add(round);
+
+        await dbContext.SaveChangesAsync();
+        return (round.Id, puzzleId);
     }
 
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
@@ -377,5 +418,43 @@ public class SuggestionEndpointTests
             "must match the seeded cell's real RowCategoryType, not anything the client sent — SubmitSuggestionRequest has no such field");
         Assert.That(stored.ColCategoryType, Is.EqualTo(CategoryPairingRules.Club),
             "must match the seeded cell's real ColCategoryType, not anything the client sent — SubmitSuggestionRequest has no such field");
+    }
+
+    // ---- REQ-215/ADR-0052 (S-089, architecture-review fix): category-type
+    // resolution genuinely dispatches through Round.GameKey/IGameModule,
+    // never a hardcoded Grid-only lookup ------------------------------------
+
+    [Test]
+    public async Task REQ215_Suggestion_Post_ForAnXGPathKeyedRound_ResolvesThroughGameModuleResolver_NotAHardcodedGridOnlyLookup()
+    {
+        // Before this fix, this endpoint queried IGridInstanceRepository.
+        // GetCellByIdAsync directly, which only ever reads GridCells and so
+        // could never resolve a real PathPuzzle id — every xg-path round
+        // would unconditionally 404 here regardless of whether puzzleId was
+        // genuinely valid. After the fix, a real xg-path round's puzzleId
+        // instead reaches XGPathGameModule.GetCellCategoryTypesAsync, which
+        // deliberately throws NotSupportedException (see that method's own
+        // doc comment) — a different, distinguishable outcome that can only
+        // happen if resolution genuinely went through Round.GameKey ->
+        // IGameModuleResolver.Resolve rather than a hardcoded Grid-only
+        // path. Same "endpoint's own try/catch doesn't handle this exception
+        // type, so it falls through to ASP.NET's default 500" shape
+        // RoundEndpointTests.GenerateRound_Post_ReturnsProblemDetails_
+        // WhenAnUnexpectedExceptionOccurs already establishes for this test
+        // host.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId) = await SeedXGPathRoundWithPuzzleAsync();
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{puzzleId}/suggestions", ValidRequest());
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await assertDbContext.PlayerSuggestions.CountAsync(), Is.EqualTo(0),
+            "a rejected/failed resolution must never persist a suggestion row");
     }
 }

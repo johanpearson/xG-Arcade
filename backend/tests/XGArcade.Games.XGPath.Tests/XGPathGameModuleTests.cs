@@ -596,4 +596,22 @@ public class XGPathGameModuleTests
         Assert.That(longCareerMaxAttempts, Is.EqualTo(7));
         Assert.That(shortCareerMaxAttempts, Is.Not.EqualTo(2), "must never be xG Grid's fixed cap of 2");
     }
+
+    // ---- REQ-215/ADR-0052 (S-089, architecture-review fix): xG Path has no
+    // row/col category concept -------------------------------------------
+
+    [Test]
+    public async Task REQ215_GetCellCategoryTypesAsync_ThrowsNotSupportedException_XGPathHasNoCategoryConcept()
+    {
+        var target = SeedPlayer("Kylian Mbappe");
+        var (instanceId, puzzleId, _) = await SeedPathInstanceAsync(target.Id);
+
+        // A puzzle's correctness is a single fixed TargetPlayerId, not two
+        // independent category axes — this game genuinely has nothing
+        // meaningful to return, even for a puzzleId that does resolve to a
+        // real PathPuzzle within the given instance (see this method's own
+        // doc comment on XGPathGameModule for the full reasoning).
+        Assert.ThrowsAsync<NotSupportedException>(
+            async () => await _module.GetCellCategoryTypesAsync(instanceId, puzzleId));
+    }
 }

@@ -277,6 +277,26 @@ public class GridGameModule(
     public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         Task.FromResult(MaxAttemptsPerCell);
 
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): SuggestionEndpoints'
+    // only path to a cell's row/col category types — the exact
+    // IGridInstanceRepository.GetCellByIdAsync call that endpoint used to
+    // make directly, now behind the IGameModule boundary (ADR-0003).
+    // instanceId is accepted (matching every other IGameModule method's
+    // shape) but unused, same as GetMaxAttemptsForCellAsync above —
+    // GridCell.Id is already globally unique (GetCellByIdAsync's own doc
+    // comment), so no instance-scoping lookup is needed to resolve it.
+    // Deliberately no check that cellId belongs to instanceId either —
+    // preserves the original endpoint's documented "no further validation
+    // of roundId/cellId's relationship" behavior unchanged; only the
+    // *caller* of this data moved, not what it validates.
+    public async Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default)
+    {
+        var cell = await gridInstanceRepository.GetCellByIdAsync(cellId, cancellationToken)
+            ?? throw new GuessScoringException($"Cell '{cellId}' not found.");
+
+        return new CellCategoryTypes(cell.RowCategoryType, cell.ColCategoryType);
+    }
+
     // REQ-208's three-stage matching order — exact primary name, then
     // alias, then bounded fuzzy — each stage only runs if the previous one
     // resolved to zero candidates satisfying both of the cell's categories.

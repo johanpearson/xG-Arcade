@@ -2002,4 +2002,34 @@ public class GridGameModuleTests
 
         Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
     }
+
+    // ---- REQ-215/ADR-0052 (S-089, architecture-review fix):
+    // GetCellCategoryTypesAsync ---------------------------------------------
+    // SuggestionEndpoints' only path to a cell's row/col category types now
+    // goes through IGameModule rather than a direct IGridInstanceRepository
+    // read from the Api layer — these pin down GridGameModule's own
+    // implementation of that new interface method.
+
+    [Test]
+    public async Task REQ215_GetCellCategoryTypesAsync_ReturnsTheSeededCellsRowAndColCategoryTypes()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var categoryTypes = await module.GetCellCategoryTypesAsync(instanceId, cellId);
+
+        Assert.That(categoryTypes.RowCategoryType, Is.EqualTo(CategoryPairingRules.Country));
+        Assert.That(categoryTypes.ColCategoryType, Is.EqualTo(CategoryPairingRules.Club));
+    }
+
+    [Test]
+    public void REQ215_GetCellCategoryTypesAsync_UnknownCellId_ThrowsGuessScoringException()
+    {
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        Assert.ThrowsAsync<GuessScoringException>(
+            async () => await module.GetCellCategoryTypesAsync(Guid.NewGuid(), Guid.NewGuid()));
+    }
 }

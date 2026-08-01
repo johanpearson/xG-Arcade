@@ -33,7 +33,10 @@ public class GridInstanceRepository(XGArcadeDbContext dbContext) : IGridInstance
 
     // REQ-215 (S-089): a direct GridCells lookup by id — cheaper than
     // GetInstanceByIdAsync's whole-instance-plus-Cells fetch when the caller
-    // (SuggestionEndpoints) only needs this one cell's own category types.
+    // (GridGameModule.GetCellCategoryTypesAsync, called from
+    // XGArcade.Api.Suggestions.SuggestionEndpoints via the IGameModule
+    // boundary — see IGridInstanceRepository's own doc comment) only needs
+    // this one cell's own category types.
     public async Task<GridCell?> GetCellByIdAsync(Guid cellId, CancellationToken cancellationToken = default) =>
         await dbContext.GridCells.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cellId, cancellationToken);
 }
