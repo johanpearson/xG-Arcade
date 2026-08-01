@@ -96,6 +96,28 @@
   flex-direction: column;
 }
 
+/* S-085: 'path' screen's placeholder — xG Path's real gameplay UI
+   (SCREEN-10) is S-086's separate, not-yet-built work; this is only the
+   entry point landing somewhere honest in the meantime. Tokens only, no
+   new values — same heading/body pattern used elsewhere in this file. */
+.app__coming-soon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.app__coming-soon h2 {
+  font-family: var(--font-display);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.app__coming-soon p {
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
 /* S-002's health check, kept small/unobtrusive per S-010's instructions —
    frontend/tests/e2e/app-loads.spec.ts still asserts on this element. */
 .app__footer {

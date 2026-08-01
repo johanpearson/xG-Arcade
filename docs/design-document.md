@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.57"
+version: "0.58"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -1893,13 +1893,14 @@ treatment as this document's other unreviewed-screen gaps (see §7).
 └───────────────────────────────┘
 ```
 
-**Resolves the open question flagged in §7 (design only, no code yet —
-tracks `docs/decisions/0040-0043` and `requirements-document.md`
-REQ-1201-1206).** `GameSelectScreen.tsx` (REQ-303, S-021) shipped as a
-single hardcoded tile deliberately kept unspecified here, since Tier 0
-only ever had one game to choose from — that reasoning stops applying the
-moment a second game exists. This entry is the real spec for the
-multi-tile version:
+**Built as specified (S-085, 2026-08-01, `58a3ca2`/`3829e0d`) — resolves
+the open question flagged in §7 (tracks `docs/decisions/0040-0043` and
+`requirements-document.md` REQ-1201-1206).** `GameSelectScreen.tsx`
+(REQ-303, S-021) shipped as a single hardcoded tile deliberately kept
+unspecified here, since Tier 0 only ever had one game to choose from —
+that reasoning stopped applying the moment a second game (xG Path)
+actually existed. This entry is the spec for the multi-tile version,
+matched exactly by the shipped code — no deviations:
 
 - Tiles are laid out in a row that wraps to stacked on narrow viewports
   (same breakpoint SCREEN-07's header-nav toggle already uses,
@@ -2412,11 +2413,10 @@ Unchanged from v0.1:
   lives.
 - ~~No SCREEN-xx spec exists for the post-login game-selection landing
   screen either~~ — **resolved 2026-07-26, see SCREEN-09.** Written ahead
-  of the second game (xG Path) actually existing in code — this is a
-  design-only spec (`requirements-document.md` REQ-1201-1206), not a
-  claim that the multi-tile version is built yet; `GameSelectScreen.tsx`
-  still renders only the single xG Grid tile until xG Path's own frontend
-  work happens.
+  of the second game (xG Path) actually existing in code as a design-only
+  spec (`requirements-document.md` REQ-1201-1206); **built as specified,
+  2026-08-01 (S-085, `58a3ca2`/`3829e0d`)** — `GameSelectScreen.tsx` now
+  renders both tiles (xG Grid, xG Path), matching this section exactly.
 - **No SCREEN-xx spec exists for the unauthenticated splash/landing screen
   either** (`frontend/src/splash/SplashScreen.tsx`, added for REQ-719).
   Same gap and same reasoning as SCREEN-00/the game-selection screen above:

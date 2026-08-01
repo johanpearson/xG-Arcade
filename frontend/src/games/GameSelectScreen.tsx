@@ -1,29 +1,71 @@
 import './GameSelectScreen.css';
 
-// Tier 0 has exactly one game, so this key is a client-side constant, not
-// data from an endpoint — see docs/backlog.md S-021: a "list games" API
-// would be building a catalog for a catalog of one.
-export const XG_GRID_GAME_KEY = 'xg-grid';
+// Tier 0 launched with exactly one game, so this key started as a
+// client-side constant, not data from an endpoint — see docs/backlog.md
+// S-021: a "list games" API would be building a catalog for a catalog of
+// one. Still true for a catalog of two (S-085/SCREEN-09) — both keys below
+// remain plain constants, matching the backend GameKey strings used
+// throughout (e.g. RoundSchedulingOptionsResolver, PathGameModule).
+// `as const` (quality-gate follow-up, S-085) keeps these as literal types
+// rather than widening to `string`, so onSelectGame's parameter type below
+// can be the exact two-member union — a third, unhandled key becomes a
+// compile error at any switch/if-chain over it, not a silent runtime no-op.
+export const XG_GRID_GAME_KEY = 'xg-grid' as const;
+export const XG_PATH_GAME_KEY = 'xg-path' as const;
 
 export interface GameSelectScreenProps {
-  onSelectGame: (gameKey: string) => void;
+  onSelectGame: (gameKey: typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY) => void;
 }
 
-// REQ-303 (S-021): shown immediately after login/signup, before the grid.
-// No SCREEN-xx spec exists for this in design-document.md yet — same gap
-// AuthScreen.tsx flagged for the login screen; built with only the existing
-// §2 token system, no new ad-hoc values.
+// REQ-303 (S-021), extended by S-085/SCREEN-09 for a second game: shown
+// immediately after login/signup, before either game's own screen.
+// design-document.md's SCREEN-09 is the spec for the multi-tile layout
+// below — tiles laid out in a row that wraps to stacked below 480px (same
+// breakpoint HeaderNav.css's mobile toggle uses), tokens only
+// (surface-card/border-hairline, no per-game accent color), order matching
+// HeaderNav's "Games" list (xG Grid first, xG Path second — never
+// alphabetical/recency), no loading state since both keys are client-side
+// constants.
 export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
   return (
     <div className="game-select-screen">
       <h2>Choose a game</h2>
-      <button
-        type="button"
-        className="game-select-screen__tile"
-        onClick={() => onSelectGame(XG_GRID_GAME_KEY)}
-      >
-        xG Grid
-      </button>
+      <div className="game-select-screen__tiles">
+        {/* aria-label pins the accessible name to just the game name,
+            unaffected by the visible description span alongside it —
+            existing `getByRole('button', { name: 'xG Grid' })` queries
+            (App.test.tsx, GameSelectScreen.test.tsx) rely on that exact
+            name, and S-085's own accept criterion requires the existing
+            tile/navigation to stay unchanged. aria-describedby (quality-gate
+            follow-up, S-085) then exposes the description span as the
+            button's accessible *description* rather than dropping it
+            entirely — SCREEN-09 treats that line as real content, not
+            decoration, so assistive tech still needs to reach it. */}
+        <button
+          type="button"
+          className="game-select-screen__tile"
+          aria-label="xG Grid"
+          aria-describedby="game-tile-grid-desc"
+          onClick={() => onSelectGame(XG_GRID_GAME_KEY)}
+        >
+          <span className="game-select-screen__tile-name">xG Grid</span>
+          <span id="game-tile-grid-desc" className="game-select-screen__tile-description">
+            Guess the player from two clues
+          </span>
+        </button>
+        <button
+          type="button"
+          className="game-select-screen__tile"
+          aria-label="xG Path"
+          aria-describedby="game-tile-path-desc"
+          onClick={() => onSelectGame(XG_PATH_GAME_KEY)}
+        >
+          <span className="game-select-screen__tile-name">xG Path</span>
+          <span id="game-tile-path-desc" className="game-select-screen__tile-description">
+            Guess the player from a revealed career
+          </span>
+        </button>
+      </div>
     </div>
   );
 }

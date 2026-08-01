@@ -5,7 +5,7 @@ import { ApiError, fetchMe, logout, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
 import { Logo } from './components/Logo';
-import { GameSelectScreen } from './games/GameSelectScreen';
+import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
@@ -29,17 +29,21 @@ const ACCESS_TOKEN_STORAGE_KEY = 'xg-arcade-access-token';
 const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 
 // REQ-303 (S-021): 'game-select' is the landing screen shown after login,
-// before any game's grid — see docs/backlog.md S-021. 'settings' (REQ-713,
-// superseding S-039's standalone 'delete-account' screen) is reachable only
-// from the header's "Settings" nav entry, never a destination anything else
-// navigates to — it hosts the unchanged delete-account flow plus, for
-// admins only, a link onward to 'admin'. 'admin' (REQ-504, S-026) is in
-// turn reachable only from that Settings-screen link, never a default
-// destination. 'leagues' (REQ-402/403) is reachable from the header's
-// "Leagues" nav entry — create/join a custom league and see which ones the
-// player belongs to; no per-league leaderboard yet (REQ-404's separate,
-// tracked follow-up work).
-type Screen = 'game-select' | 'grid' | 'leaderboard' | 'leagues' | 'settings' | 'admin';
+// before any game's own screen — see docs/backlog.md S-021. 'settings'
+// (REQ-713, superseding S-039's standalone 'delete-account' screen) is
+// reachable only from the header's "Settings" nav entry, never a
+// destination anything else navigates to — it hosts the unchanged
+// delete-account flow plus, for admins only, a link onward to 'admin'.
+// 'admin' (REQ-504, S-026) is in turn reachable only from that
+// Settings-screen link, never a default destination. 'leagues'
+// (REQ-402/403) is reachable from the header's "Leagues" nav entry —
+// create/join a custom league and see which ones the player belongs to; no
+// per-league leaderboard yet (REQ-404's separate, tracked follow-up work).
+// 'path' (S-085/SCREEN-09) is xG Path's own destination, reached the same
+// way 'grid' is — GameSelectScreen's second tile or HeaderNav's "Games" →
+// "xG Path" entry. It renders only a placeholder today: the real
+// clue-reveal UI (SCREEN-10) is S-086's separate, not-yet-built work.
+type Screen = 'game-select' | 'grid' | 'path' | 'leaderboard' | 'leagues' | 'settings' | 'admin';
 
 // REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
 // that ADR for why (hash not path, no router library, no popstate/
@@ -49,6 +53,7 @@ type Screen = 'game-select' | 'grid' | 'leaderboard' | 'leagues' | 'settings' | 
 const SCREEN_HASHES: Record<Screen, string> = {
   'game-select': '#/game-select',
   grid: '#/grid',
+  path: '#/path',
   leaderboard: '#/leaderboard',
   leagues: '#/leagues',
   settings: '#/settings',
@@ -358,20 +363,23 @@ function App() {
             separate "Delete account" and admin-only "Admin" top-level
             links; the admin gate itself now lives in SettingsScreen, not
             here — currentUser?.isAdmin is passed straight through, same
-            source of truth REQ-504 already used. "Games" (REQ-720) is a
-            non-navigating disclosure listing xG Grid (Tier 0's only game);
-            isGridCurrent drives its own entry's aria-current the same way
-            the other three flags already do. */}
+            source of truth REQ-504 already used. "Games" (REQ-720,
+            extended by S-085) is a non-navigating disclosure listing one
+            entry per game xG Arcade currently hosts; isGridCurrent/
+            isPathCurrent drive each entry's own aria-current the same way
+            the other flags already do. */}
         {accessToken && (
           <HeaderNav
             isLeaderboardCurrent={screen === 'leaderboard'}
             isLeaguesCurrent={screen === 'leagues'}
             isSettingsCurrent={screen === 'settings'}
             isGridCurrent={screen === 'grid'}
+            isPathCurrent={screen === 'path'}
             onSelectLeaderboard={() => navigateTo('leaderboard')}
             onSelectLeagues={() => navigateTo('leagues')}
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
+            onSelectPath={() => navigateTo('path')}
             onLogout={handleLogoutClick}
           />
         )}
@@ -425,12 +433,40 @@ function App() {
       <main className="app__main">
         {accessToken ? (
           screen === 'game-select' ? (
-            // Tier 0 has exactly one game, so any selection routes to
-            // 'grid' — the gameKey argument goes unused until a second
-            // game module exists to switch on it.
-            <GameSelectScreen onSelectGame={() => navigateTo('grid')} />
+            // S-085/SCREEN-09: now dispatches on the passed gameKey — xG
+            // Grid's tile/nav-entry still routes to 'grid' exactly as
+            // before; xG Path's new tile/nav-entry routes to 'path'. A
+            // switch over the two-member literal union (quality-gate
+            // follow-up, S-085) rather than an if/else-if chain — a third
+            // game key added to that union without a matching case here is
+            // now a compile error (the `never` assignment below), not a
+            // silent no-op.
+            <GameSelectScreen
+              onSelectGame={(gameKey) => {
+                switch (gameKey) {
+                  case XG_GRID_GAME_KEY:
+                    navigateTo('grid');
+                    break;
+                  case XG_PATH_GAME_KEY:
+                    navigateTo('path');
+                    break;
+                  default: {
+                    const _exhaustive: never = gameKey;
+                    return _exhaustive;
+                  }
+                }
+              }}
+            />
           ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} isGuest={isGuest} />
+          ) : screen === 'path' ? (
+            // S-085: entry point only — the real clue-reveal UI (SCREEN-10)
+            // is S-086's separate, not-yet-built work. This placeholder is
+            // deliberately honest about not being the finished game.
+            <div className="app__coming-soon">
+              <h2>xG Path</h2>
+              <p>Coming soon — this game isn&rsquo;t playable yet.</p>
+            </div>
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (

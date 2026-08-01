@@ -194,6 +194,25 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
+  // REQ-303/S-085 (SCREEN-09): xG Path's tile routes to its own screen,
+  // which today renders only the honest not-yet-playable placeholder
+  // (SCREEN-10/S-086 is the separate, not-yet-built real gameplay UI).
+  it('REQ-303: selecting xG Path from the game-selection screen navigates to the xG Path placeholder screen', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    await user.click(screen.getByRole('button', { name: 'xG Path' }))
+
+    expect(await screen.findByText('Coming soon — this game isn’t playable yet.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'xG Path' })).toBeInTheDocument()
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
+    expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
+  })
+
   it('REQ-303/REQ-712/REQ-713/REQ-720: the nav offers Games, Leaderboard, Settings, and Log out once authenticated', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()

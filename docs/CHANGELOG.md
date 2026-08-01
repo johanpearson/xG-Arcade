@@ -13,6 +13,54 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.57 →
+  v0.58), `docs/requirements-document.md` (v1.29 → v1.30),
+  `docs/implementation-document.md` (v0.82 → v0.83) — Doc-sync for S-085
+  (SCREEN-09 multi-tile game select), covering both commits (`58a3ca2`
+  implementation + tests, `3829e0d` quality-gate fixes: `aria-describedby`
+  for tile descriptions, exhaustive `gameKey` switch typing).
+  `GameSelectScreen.tsx` gained a second tile (`XG_PATH_GAME_KEY`) for xG
+  Path per SCREEN-09; `App.tsx`'s `Screen` union gained `'path'`
+  (placeholder screen only — SCREEN-10's real clue-reveal UI is S-086,
+  not yet built); `onSelectGame` is now typed as the exact two-member
+  literal union with an exhaustive `switch`/`never` dispatch. A deliberate
+  scope addition beyond the story's two literally-named files:
+  `frontend/src/nav/HeaderNav.tsx` gained a mirrored "xG Path" entry
+  (`isPathCurrent`/`onSelectPath`) so its "Games" list and
+  `GameSelectScreen`'s tile order stay in agreement, per REQ-720's own
+  "one entry per game" criterion. `docs/backlog.md`'s S-085 entry marked
+  "— done, 2026-08-01" with a "Built as:" paragraph (matching S-084's
+  convention) naming both commits and the `HeaderNav.tsx`/placeholder-screen
+  deviations. `docs/design-document.md`'s SCREEN-09 section updated from
+  "design only, no code yet" to "built as specified, no deviations," and
+  its matching §7 open-question entry marked resolved-and-built (it had
+  previously only been marked spec-resolved). `docs/requirements-document.md`:
+  REQ-720's two "Tier 0: exactly one game" asides (the disclosure-list
+  criterion and its own "ships now, ahead of a second game" bullet) were
+  point-in-time descriptions, not the graded behavior itself (both
+  criteria were always written generically, "one entry per game xG Arcade
+  currently hosts") — added a status note rather than rewriting the
+  criteria, since xG Path becoming real doesn't change what REQ-720
+  requires, only which point-in-time aside is now stale; REQ-303's S-021
+  bullet got the same treatment (the "no list games endpoint" behavior is
+  still exactly true — both game keys remain client-side constants — only
+  its "while Tier 0 has exactly one game" framing needed a status note).
+  `docs/implementation-document.md`'s `/games` folder-structure entry
+  updated from "one static tile for xG Grid" to two tiles, xG Grid then xG
+  Path. `docs/architecture-document.md` checked and left unchanged — no
+  reference to `GameSelectScreen`/`HeaderNav`/frontend routing exists
+  there to go stale, and `architecture-reviewer` confirmed no boundary
+  drift during the quality gate (this follows the pre-existing
+  `grid`/`isGridCurrent`/`onSelectGrid` pattern exactly, extended to a
+  second game). No new ADR: this is UI wiring following an established
+  pattern, not a new structural decision — confirmed, not just taken on
+  faith from the quality-gate pass. Noted but not resolved (pre-existing,
+  predates S-085, out of this doc-sync's scope): REQ-720's own "Flag for
+  architecture-reviewer" note about whether the nested "Games" disclosure
+  needs an ADR/ADR-0030 amendment is still open. Also noted, not fixed:
+  `frontend/tests/e2e/header-nav.spec.ts`'s stale "xG Grid (Tier 0's only
+  game)" comment, flagged low-severity by quality-architect, untouched by
+  S-085. REQ/ADR refs: REQ-303, REQ-720, ADR-0030 (open flag, unchanged).
 - 2026-08-01 — `docs/requirements-document.md`, `MVP-SCOPE.md` — Closed a
   gap the S-089 doc-sync flagged: REQ-215's "Tier framing" note still
   read "flagged, not resolved" even though S-089 had already been built.
