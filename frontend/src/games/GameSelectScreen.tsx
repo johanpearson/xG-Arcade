@@ -6,11 +6,15 @@ import './GameSelectScreen.css';
 // one. Still true for a catalog of two (S-085/SCREEN-09) — both keys below
 // remain plain constants, matching the backend GameKey strings used
 // throughout (e.g. RoundSchedulingOptionsResolver, PathGameModule).
-export const XG_GRID_GAME_KEY = 'xg-grid';
-export const XG_PATH_GAME_KEY = 'xg-path';
+// `as const` (quality-gate follow-up, S-085) keeps these as literal types
+// rather than widening to `string`, so onSelectGame's parameter type below
+// can be the exact two-member union — a third, unhandled key becomes a
+// compile error at any switch/if-chain over it, not a silent runtime no-op.
+export const XG_GRID_GAME_KEY = 'xg-grid' as const;
+export const XG_PATH_GAME_KEY = 'xg-path' as const;
 
 export interface GameSelectScreenProps {
-  onSelectGame: (gameKey: string) => void;
+  onSelectGame: (gameKey: typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY) => void;
 }
 
 // REQ-303 (S-021), extended by S-085/SCREEN-09 for a second game: shown
@@ -32,15 +36,20 @@ export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
             existing `getByRole('button', { name: 'xG Grid' })` queries
             (App.test.tsx, GameSelectScreen.test.tsx) rely on that exact
             name, and S-085's own accept criterion requires the existing
-            tile/navigation to stay unchanged. */}
+            tile/navigation to stay unchanged. aria-describedby (quality-gate
+            follow-up, S-085) then exposes the description span as the
+            button's accessible *description* rather than dropping it
+            entirely — SCREEN-09 treats that line as real content, not
+            decoration, so assistive tech still needs to reach it. */}
         <button
           type="button"
           className="game-select-screen__tile"
           aria-label="xG Grid"
+          aria-describedby="game-tile-grid-desc"
           onClick={() => onSelectGame(XG_GRID_GAME_KEY)}
         >
           <span className="game-select-screen__tile-name">xG Grid</span>
-          <span className="game-select-screen__tile-description">
+          <span id="game-tile-grid-desc" className="game-select-screen__tile-description">
             Guess the player from two clues
           </span>
         </button>
@@ -48,10 +57,11 @@ export function GameSelectScreen({ onSelectGame }: GameSelectScreenProps) {
           type="button"
           className="game-select-screen__tile"
           aria-label="xG Path"
+          aria-describedby="game-tile-path-desc"
           onClick={() => onSelectGame(XG_PATH_GAME_KEY)}
         >
           <span className="game-select-screen__tile-name">xG Path</span>
-          <span className="game-select-screen__tile-description">
+          <span id="game-tile-path-desc" className="game-select-screen__tile-description">
             Guess the player from a revealed career
           </span>
         </button>

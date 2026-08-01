@@ -435,13 +435,25 @@ function App() {
           screen === 'game-select' ? (
             // S-085/SCREEN-09: now dispatches on the passed gameKey — xG
             // Grid's tile/nav-entry still routes to 'grid' exactly as
-            // before; xG Path's new tile/nav-entry routes to 'path'.
+            // before; xG Path's new tile/nav-entry routes to 'path'. A
+            // switch over the two-member literal union (quality-gate
+            // follow-up, S-085) rather than an if/else-if chain — a third
+            // game key added to that union without a matching case here is
+            // now a compile error (the `never` assignment below), not a
+            // silent no-op.
             <GameSelectScreen
               onSelectGame={(gameKey) => {
-                if (gameKey === XG_GRID_GAME_KEY) {
-                  navigateTo('grid');
-                } else if (gameKey === XG_PATH_GAME_KEY) {
-                  navigateTo('path');
+                switch (gameKey) {
+                  case XG_GRID_GAME_KEY:
+                    navigateTo('grid');
+                    break;
+                  case XG_PATH_GAME_KEY:
+                    navigateTo('path');
+                    break;
+                  default: {
+                    const _exhaustive: never = gameKey;
+                    return _exhaustive;
+                  }
                 }
               }}
             />
