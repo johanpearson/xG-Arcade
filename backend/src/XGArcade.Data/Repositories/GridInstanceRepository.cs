@@ -30,4 +30,10 @@ public class GridInstanceRepository(XGArcadeDbContext dbContext) : IGridInstance
             .AsNoTracking()
             .Include(gi => gi.Cells)
             .FirstOrDefaultAsync(gi => gi.Id == id, cancellationToken);
+
+    // REQ-215 (S-089): a direct GridCells lookup by id — cheaper than
+    // GetInstanceByIdAsync's whole-instance-plus-Cells fetch when the caller
+    // (SuggestionEndpoints) only needs this one cell's own category types.
+    public async Task<GridCell?> GetCellByIdAsync(Guid cellId, CancellationToken cancellationToken = default) =>
+        await dbContext.GridCells.AsNoTracking().FirstOrDefaultAsync(c => c.Id == cellId, cancellationToken);
 }

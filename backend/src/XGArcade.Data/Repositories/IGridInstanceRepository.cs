@@ -13,4 +13,11 @@ public interface IGridInstanceRepository
 
     Task<GridInstance> AddInstanceAsync(GridInstance instance, CancellationToken cancellationToken = default);
     Task<GridInstance?> GetInstanceByIdAsync(Guid id, CancellationToken cancellationToken = default);
+
+    // REQ-215 (S-089): SuggestionEndpoints' own lookup — a GridCell.Id is
+    // globally unique, so this resolves a specific cell (for its
+    // RowCategoryType/ColCategoryType, recorded on the PlayerSuggestion
+    // authoritatively rather than trusting client-supplied values) without
+    // needing to know its owning GridInstance first.
+    Task<GridCell?> GetCellByIdAsync(Guid cellId, CancellationToken cancellationToken = default);
 }

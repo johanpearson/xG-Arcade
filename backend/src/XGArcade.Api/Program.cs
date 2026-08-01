@@ -15,6 +15,7 @@ using XGArcade.Api.Leagues;
 using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
+using XGArcade.Api.Suggestions;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.Leagues;
@@ -663,6 +664,10 @@ builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 builder.Services.AddScoped<IGuessRepository, GuessRepository>();
 builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
 builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
+// REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository — see that
+// interface's own doc comment for why this is never folded into
+// IPlayerStoreRepository above.
+builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionRepository>();
 // REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
 // Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)
 // and exposes standalone (REQ-407) — recomputed on every call, never
@@ -848,6 +853,9 @@ app.MapRoundEndpoints();
 // PathEndpoints.cs's own doc comment).
 app.MapPathEndpoints();
 app.MapGuessEndpoints();
+// REQ-215 (S-089): submission-only — see SuggestionEndpoints.cs's own doc
+// comment for why REQ-509's admin endpoints aren't registered here yet.
+app.MapSuggestionEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapLeagueEndpoints();
 app.MapAdminEndpoints();
