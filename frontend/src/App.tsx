@@ -11,6 +11,7 @@ import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
+import { PathScreen } from './path/PathScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
 import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
@@ -460,13 +461,10 @@ function App() {
           ) : screen === 'grid' ? (
             <GridScreen accessToken={accessToken} onAuthError={handleLogout} isGuest={isGuest} />
           ) : screen === 'path' ? (
-            // S-085: entry point only — the real clue-reveal UI (SCREEN-10)
-            // is S-086's separate, not-yet-built work. This placeholder is
-            // deliberately honest about not being the finished game.
-            <div className="app__coming-soon">
-              <h2>xG Path</h2>
-              <p>Coming soon — this game isn&rsquo;t playable yet.</p>
-            </div>
+            // S-086: the real SCREEN-10 clue-reveal UI — replaces S-085's
+            // "coming soon" placeholder now that it's built. No isGuest prop
+            // (see PathScreenProps' own doc comment for why).
+            <PathScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (

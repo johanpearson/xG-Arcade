@@ -13,6 +13,104 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/backlog.md`, `docs/requirements-document.md` (v1.30 →
+  v1.31), `docs/architecture-document.md` (v0.71 → v0.72),
+  `docs/implementation-document.md` (v0.84 → v0.85) — Doc-sync for S-091
+  (xG Path guess autocomplete, extending REQ-207 to a second consumer),
+  covering both commits (`27ed880` the backlog entry, `3dd0027`
+  implementation + tests). `docs/backlog.md`'s S-091 entry marked "— done,
+  2026-08-01" with a "Built as:" paragraph (matching S-085/S-086's
+  convention) confirming the shipped code matched the story's own stated
+  scope with no deviations: same debounce/limit constants and
+  keyboard-nav/ARIA pattern as `GuessInput.tsx` (xG Grid), no backend
+  change, no REQ-209 disambiguation picker. `docs/requirements-document.md`
+  gained a small REQ-207 status note (2026-08-01, S-091) noting the second
+  UI consumer for discoverability — smaller than the REQ-303/REQ-720
+  precedent, since REQ-207's Given/When/Then was never game-scoped to
+  begin with, so there was no stale "exactly one game" language to correct;
+  the note also glosses REQ-207's one xG-Grid-flavored phrase ("current
+  cell") for a game with no cell/category axis. `docs/architecture-
+  document.md`'s §6.2b (xG Path clue reveal/guess flow) diagram gained the
+  same autocomplete-suggestions step §6.2's xG Grid diagram already
+  documents, plus a REQ-207 reference in the section heading — a real,
+  if small, data-flow addition (this interaction didn't happen for xG Path
+  before S-091); boundary rule 5's autocomplete/correctness separation text
+  was already fully game-agnostic and needed no change.
+  `docs/implementation-document.md`'s frontend project-structure `/path`
+  entry corrected: it previously stated (accurately as of S-086, now
+  stale) that xG Path had no autocomplete at all — updated to describe
+  S-091's addition while confirming the disambiguation picker (REQ-209)
+  and REQ-215 suggestion entry point remain out of scope. No new ADR:
+  both `architecture-reviewer` and `quality-architect` confirmed during
+  S-091's own quality gate this is pure reuse of an already-generic,
+  already-documented capability (`GET /players/autocomplete`,
+  ADR-0007) by a second consumer, not a new structural decision, and this
+  doc-sync pass found nothing to contradict that.
+- 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.59 →
+  v0.60), `docs/implementation-document.md` (v0.83 → v0.84) — Doc-sync for
+  S-086 (SCREEN-10 xG Path puzzle screen, growing timeline), covering both
+  commits (`18b1cc2` implementation + tests, `928bd85` quality-gate
+  fixes — the narrower doc updates that commit already made, covered by
+  its own CHANGELOG entry immediately below, are not duplicated here).
+  `docs/backlog.md`'s S-086 entry marked "— done, 2026-08-01" with a
+  "Built as:" paragraph (matching S-085/S-084's convention) naming both
+  commits, the `CategoryLabel`/`CategoryGlyph` relocation to
+  `frontend/src/components/` as a deliberate scope addition (same spirit
+  as S-085's own `HeaderNav.tsx` addition), and cross-referencing
+  `docs/design-document.md`'s status notes for the two deviations from the
+  story's literal text (the photo-fallback wording, and "Next puzzle"
+  appearing on locked-but-unsolved as well as solved).
+  `docs/design-document.md`'s SCREEN-10 section header updated from
+  "Design only — no code yet" to "Built as specified" (with the one real
+  deviation flagged, not silently claimed as zero-deviation like
+  SCREEN-09's own update was). Added a new inline status note below the
+  solved-state bullet: the spec's "falling back to the same initials-avatar
+  treatment REQ-214 already established" doesn't match anything REQ-214
+  has ever actually done — REQ-214/SCREEN-01a's no-photo case has, at
+  every point in its history, rendered plain text (name) plus a checkmark,
+  never an avatar of any kind — `PathTimeline.tsx`'s `SolvedNode` renders
+  today's real text-only fallback rather than a nonexistent avatar
+  component; this note was not covered by the quality-gate-fix commit's
+  own narrower re-fetch-failure status note. Also documented the "Next
+  puzzle on locked-unsolved, not only solved" deviation inline on the same
+  bullet.
+  `docs/implementation-document.md`'s frontend project-structure section
+  updated: added a `/path` entry (mirroring `/grid`'s), a new
+  `/components` entry for the relocated `CategoryLabel`/`CategoryGlyph`,
+  removed `CategoryLabel` from `/grid`'s own listing, and added
+  `pathRules.ts`/`CurrentPathResponse`/`fetchCurrentPath` to the `/lib`
+  entry. `docs/requirements-document.md` checked and left unchanged:
+  REQ-1203/1204/1205's acceptance criteria are backend-scoped (clue
+  sequencing, guess resolution, attempt-cap logic served by `GET
+  /path/current`), with no "so I can see/open the app" framing the way
+  REQ-303 has — matching the precedent set when REQ-201/202/210 (xG Grid's
+  equivalent backend rules) never gained a frontend-build status note when
+  their own UI (SCREEN-01/02) shipped; SCREEN-10 is design-doc-owned
+  territory, covered above instead. `docs/architecture-document.md`
+  checked and left unchanged: no COMP boundary, responsibility, or data
+  flow changed (frontend-only diff; `architecture-reviewer` already
+  confirmed no boundary drift during the quality gate, and the doc has no
+  reference to any of the touched frontend paths to go stale). No new ADR:
+  the `CategoryLabel` relocation is a straightforward extension of the
+  established per-game-screen-module pattern, not a new structural
+  decision, per `architecture-reviewer`'s own quality-gate finding.
+- 2026-08-01 — `docs/design-document.md` (v0.58 → v0.59) — S-086
+  (SCREEN-10 xG Path puzzle) quality-gate follow-up fixes: moved
+  `CategoryLabel`/`CategoryGlyph` from `frontend/src/grid/` to the shared
+  `frontend/src/components/` location (was a cross-game-module import from
+  `frontend/src/path/PathTimeline.tsx`), fixed a comment/type mismatch on
+  `PathClueKind` in `frontend/src/lib/types.ts`, fixed `PathScreen.tsx`'s
+  guess-submit handler to distinguish a genuine submission failure from a
+  failed/null post-submit re-fetch (documented as a new SCREEN-10 status
+  note, since neither case was previously specified), added a same-session
+  image-load-failure fallback to `PathTimeline.tsx`'s solved-state photo
+  (matching `CellState.tsx`'s existing pattern), dropped the redundant JS
+  `usePrefersReducedMotion` hook (`frontend/src/lib/motion.ts`, removed) in
+  favor of the CSS-only `@media (prefers-reduced-motion: reduce)` override
+  `PathTimeline.css` already had, and fixed a duplicate React key on
+  `PathScreen.tsx`'s sibling `PathTimeline`/`PathGuessInput` elements. No
+  REQ/ADR changes — implementation-level fixes plus one new design-doc
+  status note.
 - 2026-08-01 — `docs/requirements-document.md` (v1.29 → v1.30),
   `docs/architecture-document.md` (v0.70 → v0.71), `docs/backlog.md`,
   `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`

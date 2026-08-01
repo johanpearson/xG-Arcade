@@ -1,6 +1,17 @@
 import { clubInitials, flagEmojiFor } from '../lib/categoryDisplay';
 import './CategoryLabel.css';
 
+// Quality-gate fix (S-086 follow-up): moved here from frontend/src/grid/
+// (xG Grid's own module directory) — PathTimeline.tsx (frontend/src/path/,
+// xG Path's module directory) needed CategoryGlyph too (REQ-1203's club
+// clues), and reaching into a peer game module's own directory for it was a
+// cross-game-module import this repo's own module layout doesn't allow.
+// frontend/src/components/ is this codebase's existing shared-component
+// location (see Logo.tsx here already) — this is a genuinely
+// cross-cutting, game-agnostic flag/badge renderer (REQ-107's country/club
+// pairing isn't specific to either game), not something owned by xG Grid
+// that xG Path happens to borrow.
+
 export interface CategoryLabelProps {
   categoryType: string;
   value: string;

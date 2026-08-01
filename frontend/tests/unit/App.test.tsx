@@ -64,6 +64,9 @@ function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Respon
       if (path.endsWith('/rounds/current')) {
         return jsonResponse({ title: 'No active round' }, 404)
       }
+      if (path.endsWith('/path/current')) {
+        return jsonResponse({ title: 'No active round' }, 404)
+      }
       throw new Error(`Unexpected fetch: ${path}`)
     }),
   )
@@ -194,10 +197,12 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  // REQ-303/S-085 (SCREEN-09): xG Path's tile routes to its own screen,
-  // which today renders only the honest not-yet-playable placeholder
-  // (SCREEN-10/S-086 is the separate, not-yet-built real gameplay UI).
-  it('REQ-303: selecting xG Path from the game-selection screen navigates to the xG Path placeholder screen', async () => {
+  // REQ-303/S-086 (SCREEN-10): xG Path's tile now routes to the real
+  // clue-reveal screen (PathScreen) — S-085's "coming soon" placeholder is
+  // gone, superseded by this story. stubAuthenticatedFetch's default
+  // /path/current route (404) exercises PathScreen's own calm empty state,
+  // the same "no active round" idiom GridScreen already has.
+  it('REQ-303: selecting xG Path from the game-selection screen navigates to the real xG Path screen', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -207,8 +212,7 @@ describe('App game-selection routing', () => {
 
     await user.click(screen.getByRole('button', { name: 'xG Path' }))
 
-    expect(await screen.findByText('Coming soon — this game isn’t playable yet.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'xG Path' })).toBeInTheDocument()
+    expect(await screen.findByText('No puzzle to play right now')).toBeInTheDocument()
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
