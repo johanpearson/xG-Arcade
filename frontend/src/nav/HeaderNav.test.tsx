@@ -15,6 +15,7 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
   const onSelectLeagues = vi.fn();
   const onSelectSettings = vi.fn();
   const onSelectGrid = vi.fn();
+  const onSelectPath = vi.fn();
   const onLogout = vi.fn();
 
   render(
@@ -23,16 +24,18 @@ function renderHeaderNav(overrides: Partial<Parameters<typeof HeaderNav>[0]> = {
       isLeaguesCurrent={false}
       isSettingsCurrent={false}
       isGridCurrent={false}
+      isPathCurrent={false}
       onSelectLeaderboard={onSelectLeaderboard}
       onSelectLeagues={onSelectLeagues}
       onSelectSettings={onSelectSettings}
       onSelectGrid={onSelectGrid}
+      onSelectPath={onSelectPath}
       onLogout={onLogout}
       {...overrides}
     />,
   );
 
-  return { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onSelectGrid, onLogout };
+  return { onSelectLeaderboard, onSelectLeagues, onSelectSettings, onSelectGrid, onSelectPath, onLogout };
 }
 
 describe('HeaderNav', () => {
@@ -219,6 +222,21 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     expect(onLogout).not.toHaveBeenCalled();
   });
 
+  // S-085/SCREEN-09: the "Games" list's second entry, added alongside xG
+  // Grid's existing one — same order GameSelectScreen's tiles use (xG Grid
+  // first, xG Path second, never alphabetical/recency).
+  it('REQ-720/S-085: the "Games" list contains "xG Grid" then "xG Path", in that order', async () => {
+    renderHeaderNav();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+
+    const gamesList = screen.getByTestId('header-nav-games-toggle').nextElementSibling as HTMLElement;
+    const entryNames = Array.from(gamesList.querySelectorAll('button')).map((button) => button.textContent);
+
+    expect(entryNames).toEqual(['xG Grid', 'xG Path']);
+  });
+
   it('REQ-720: selecting "xG Grid" calls onSelectGrid and closes both the Games list and the outer menu', async () => {
     const { onSelectGrid, onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } = renderHeaderNav();
     const user = userEvent.setup();
@@ -232,6 +250,31 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
     await user.click(screen.getByRole('button', { name: 'xG Grid' }));
 
     expect(onSelectGrid).toHaveBeenCalledTimes(1);
+    expect(onSelectLeaderboard).not.toHaveBeenCalled();
+    expect(onSelectLeagues).not.toHaveBeenCalled();
+    expect(onSelectSettings).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+    expect(outerToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // S-085/SCREEN-09: mirrors the "xG Grid" selection test above for the new
+  // "xG Path" entry.
+  it('REQ-720/S-085: selecting "xG Path" calls onSelectPath and closes both the Games list and the outer menu', async () => {
+    const { onSelectPath, onSelectGrid, onSelectLeaderboard, onSelectLeagues, onSelectSettings, onLogout } =
+      renderHeaderNav();
+    const user = userEvent.setup();
+    const outerToggle = screen.getByTestId('header-nav-toggle');
+    const gamesToggle = screen.getByTestId('header-nav-games-toggle');
+
+    await user.click(outerToggle);
+    await user.click(gamesToggle);
+    expect(gamesToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'xG Path' }));
+
+    expect(onSelectPath).toHaveBeenCalledTimes(1);
+    expect(onSelectGrid).not.toHaveBeenCalled();
     expect(onSelectLeaderboard).not.toHaveBeenCalled();
     expect(onSelectLeagues).not.toHaveBeenCalled();
     expect(onSelectSettings).not.toHaveBeenCalled();
@@ -264,10 +307,12 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isLeaguesCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent={false}
+        isPathCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
+        onSelectPath={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
@@ -281,14 +326,59 @@ describe('HeaderNav (REQ-720: "Games" nav entry)', () => {
         isLeaguesCurrent={false}
         isSettingsCurrent={false}
         isGridCurrent
+        isPathCurrent={false}
         onSelectLeaderboard={vi.fn()}
         onSelectLeagues={vi.fn()}
         onSelectSettings={vi.fn()}
         onSelectGrid={vi.fn()}
+        onSelectPath={vi.fn()}
         onLogout={vi.fn()}
       />,
     );
     await user.click(screen.getByTestId('header-nav-games-toggle'));
     expect(screen.getByRole('button', { name: 'xG Grid' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  // S-085/SCREEN-09: mirrors the "xG Grid" aria-current test above for the
+  // new isPathCurrent prop.
+  it('REQ-720/S-085: aria-current="page" is not set on "xG Path" by default, and is set when isPathCurrent is true', async () => {
+    const user = userEvent.setup();
+
+    const { unmount } = render(
+      <HeaderNav
+        isLeaderboardCurrent={false}
+        isLeaguesCurrent={false}
+        isSettingsCurrent={false}
+        isGridCurrent={false}
+        isPathCurrent={false}
+        onSelectLeaderboard={vi.fn()}
+        onSelectLeagues={vi.fn()}
+        onSelectSettings={vi.fn()}
+        onSelectGrid={vi.fn()}
+        onSelectPath={vi.fn()}
+        onLogout={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Path' })).not.toHaveAttribute('aria-current');
+    unmount();
+
+    render(
+      <HeaderNav
+        isLeaderboardCurrent={false}
+        isLeaguesCurrent={false}
+        isSettingsCurrent={false}
+        isGridCurrent={false}
+        isPathCurrent
+        onSelectLeaderboard={vi.fn()}
+        onSelectLeagues={vi.fn()}
+        onSelectSettings={vi.fn()}
+        onSelectGrid={vi.fn()}
+        onSelectPath={vi.fn()}
+        onLogout={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByTestId('header-nav-games-toggle'));
+    expect(screen.getByRole('button', { name: 'xG Path' })).toHaveAttribute('aria-current', 'page');
   });
 });
