@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.56"
+version: "0.57"
 status: draft
-last_updated: 2026-07-27
+last_updated: 2026-08-01
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1023,6 +1023,101 @@ be handled cleanly rather than silently guessing on the player's behalf.
   rejecting a genuinely correct answer) is worse in both directions.
 - If the player abandons this prompt without choosing, the guess is not
   submitted — it does not default to either candidate.
+
+### SCREEN-02b: Suggestion entry point (REQ-215, S-089)
+
+New for S-089 — no prior SCREEN entry covered this, and REQ-215's own
+"guest vs. non-guest visibility"/"no retroactive rescoring" criteria left
+the actual UI placement to `ui-implementer`'s judgment. Documented here
+after the fact per this doc's own discipline for undocumented gaps found
+mid-build.
+
+**Placement decision.** Two trigger conditions exist (REQ-215): a submitted
+guess scored incorrect, or a REQ-211 live lookup for that guess timing out.
+Both are handled the same way, inside `GuessInput` (SCREEN-02) itself,
+rather than adding anything to the grid cell (`CellState`, SCREEN-01a):
+
+- The grid cell has a deliberately fixed, small footprint (REQ-214's
+  "fixed-cell-footprint guarantee") that was never designed with room for
+  an extra interactive element, and the incorrect states (SCREEN-01a states
+  2/3) already show no interactive controls at all — adding one there would
+  be a second, uncoordinated change to a constraint this document treats as
+  load-bearing.
+- The live-lookup-timeout trigger already has a natural home: `GuessInput`
+  already stays open and shows the timeout's error inline on that path
+  (unchanged by this story) — the sheet, not the cell, is already where
+  this player is looking at the moment either trigger fires.
+- Consequently, `GuessInput`'s prior "closes immediately on any scored
+  result, correct or incorrect" behavior changes: a **correct** result
+  still closes the sheet immediately, exactly as before. An **incorrect**
+  result now keeps the sheet open and replaces the plain form with a brief
+  outcome view, the same "replaces the form, header/Cancel stay put" shape
+  SCREEN-02a's disambiguation prompt already established.
+
+```
+Incorrect result (direct submission or a disambiguation resubmission):
+┌─────────────────────────────┐
+│ 🇫🇷 France × [AFC] Arsenal   │
+│                               │
+│ ✕ Not a match.                │
+│ You can try again, or         │
+│ suggest a correction below.   │
+│                               │
+│ [ Suggest a correction ]      │  ← collapsed entry point (see below)
+│                               │
+│    [ Try another guess ]      │
+│              [ Close ]        │
+└─────────────────────────────┘
+
+Live-lookup timeout (REQ-211) — the existing inline error, now with the
+entry point added alongside it; the form itself is untouched/resubmittable,
+exactly as before this story:
+┌─────────────────────────────┐
+│ 🇫🇷 France × [AFC] Arsenal   │
+│ ┌───────────────────────────┐│
+│ │ ronaldinho                ││
+│ └───────────────────────────┘│
+│ We couldn't verify this       │
+│ guess against our live data   │
+│ source in time. Please try    │
+│ again.                        │
+│                               │
+│ [ Suggest a correction ]      │
+│                               │
+│         [ Submit guess ]     │
+└─────────────────────────────┘
+```
+
+- **Entry point states**, all via one `SuggestionEntry` component mounted
+  at either trigger site above:
+  - **Non-guest, collapsed:** a single `surface-sunken` button, "Suggest a
+    correction" — clicking it expands an inline form (player name
+    read-only/pre-filled from the triggering guess, a club(s) field, a
+    nationality field, Cancel/Submit).
+  - **Guest:** the same button, rendered `disabled`, paired with text
+    copy ("Register for a full account (Settings → Save your progress) to
+    suggest a correction here.") — **present but inert, never hidden**
+    (REQ-215's "advertised, not hidden" rule), same "disabled control +
+    explanatory text" pattern REQ-717 already uses elsewhere for a guest.
+    The guest restriction is enforced server-side regardless of what this
+    button shows (REQ-215) — this is advertising, not the actual gate.
+  - **Submitted:** the form is replaced by a short confirmation line
+    ("Thanks — an admin will review this. It won't change this guess's own
+    score.") — the explicit "won't change this guess's own score" clause is
+    deliberate, not incidental copy: REQ-215's 2026-08-01 "no retroactive
+    rescoring" decision means nothing on this screen may imply otherwise.
+- **Tokens only**, no new ones: `surface-sunken`/`surface-card` for the
+  collapsed button/expanded form (mirrors `GuessInput`'s own suggestions
+  list treatment), `accent-red` for the ✕ icon (text/icon use, already
+  measured to pass contrast as-is per §2), `text-muted` for hint/guest/
+  confirmation copy, `accent-green-text` for the Submit button — same
+  palette `GuessInput.css` already uses throughout.
+- **Never color-only**: "Not a match." is real text next to the ✕ icon
+  (§6), same as every other correct/incorrect signal in this document.
+- **"Try another guess"** returns to the plain form for a genuine second
+  attempt without closing/reopening the sheet — only offered when the cell
+  isn't locked yet; once both attempts are used, only "Close" remains and
+  the hint text says the cell is locked instead.
 
 ### SCREEN-03: Leaderboard
 

@@ -64,4 +64,16 @@ internal class FakeGameModule(string gameKey) : IGameModule
         MaxAttemptsForCellCallCount++;
         return Task.FromResult(MaxAttemptsForCellResult(instanceId, cellId));
     }
+
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): not exercised by
+    // this fake's existing callers (RoundGenerationService/RoundCloseService
+    // tests, which never resolve suggestion category types) — throws by
+    // default, same "not exercised by round-generation/close tests" pattern
+    // ScoreSubmissionResult's default already uses above, rather than
+    // silently returning a fabricated pair of category strings.
+    public Func<Guid, Guid, CellCategoryTypes> CellCategoryTypesResult { get; set; } =
+        (_, _) => throw new NotImplementedException("Not exercised by round-generation/close tests.");
+
+    public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(CellCategoryTypesResult(instanceId, cellId));
 }

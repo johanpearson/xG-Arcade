@@ -67,6 +67,16 @@
   text-align: center;
 }
 
+/* REQ-718 UI addendum (rule 5, 2026-08-01): the 7-day/30-day expiry
+   sentence — forced onto its own line within the banner's wrapping flex
+   row (basis: 100%) so it reads as a distinct statement rather than
+   running on from "Playing as {name}." on the same line. Same font-size/
+   color as the rest of the banner (inherited from .app__guest-banner) —
+   no new tokens. */
+.app__guest-banner-expiry {
+  flex-basis: 100%;
+}
+
 .app__guest-banner-action {
   min-height: var(--touch-target-min);
   padding: 0 var(--space-2);

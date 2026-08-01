@@ -57,6 +57,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<League> Leagues => Set<League>();
     public DbSet<LeagueMembership> LeagueMemberships => Set<LeagueMembership>();
 
+    // REQ-215/ADR-0052 (S-089): its own table, deliberately never joined
+    // into or read alongside PlayerData/PlayerOverride/PlayerAttribute/
+    // PlayerNameIndex above — see PlayerSuggestion's own doc comment.
+    public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
+    public DbSet<PlayerSuggestionClub> PlayerSuggestionClubs => Set<PlayerSuggestionClub>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Dedup identity for players fetched across multiple intersection
@@ -330,6 +336,34 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasOne<User>()
             .WithMany()
             .HasForeignKey(m => m.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-215/ADR-0052 (S-089): PlayerSuggestion.RoundId is a Core-owned
+        // table in the same schema (ADR-0014) — same "no boundary reason to
+        // leave this unconstrained" precedent as Guess.RoundId above. Unlike
+        // Guess's own CellId/UserId (both deliberately unconstrained — see
+        // PlayerSuggestion's own doc comment for why this table matches
+        // that), Round itself is never a game-specific table, so a
+        // PlayerSuggestion pointing at a nonexistent Round is just bad data.
+        modelBuilder.Entity<PlayerSuggestion>()
+            .HasOne<Round>()
+            .WithMany()
+            .HasForeignKey(ps => ps.RoundId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-509/S-090's future admin queue lists pending suggestions —
+        // same "status filter is the hot read path" precedent as PlayerData.
+        // Confidence's implicit unverified-queue filter.
+        modelBuilder.Entity<PlayerSuggestion>()
+            .HasIndex(ps => ps.Status);
+
+        // Owned-collection FK, same shape as GridCell/GridInstance and
+        // PathPuzzle/PathInstance above — one PlayerSuggestion's asserted
+        // clubs are deleted alongside it.
+        modelBuilder.Entity<PlayerSuggestionClub>()
+            .HasOne<PlayerSuggestion>()
+            .WithMany(ps => ps.AssertedClubs)
+            .HasForeignKey(psc => psc.PlayerSuggestionId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

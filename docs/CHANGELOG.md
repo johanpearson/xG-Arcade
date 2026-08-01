@@ -13,6 +13,120 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-01 — `docs/requirements-document.md`, `MVP-SCOPE.md` — Closed a
+  gap the S-089 doc-sync flagged: REQ-215's "Tier framing" note still
+  read "flagged, not resolved" even though S-089 had already been built.
+  Resolved it explicitly — the player-suggestion pipeline (REQ-215/509/510)
+  was pulled forward by deliberate product decision (requested directly,
+  by name, same basis as REQ-108/REQ-214/REQ-402-403/REQ-717's own
+  precedent), recorded as a new `MVP-SCOPE.md` Tier 1 entry rather than
+  left as an unresolved §7 open question.
+- 2026-08-01 — `docs/requirements-document.md` (v1.28 → v1.29),
+  `docs/architecture-document.md` (v0.69 → v0.70), `docs/backlog.md` —
+  Doc-sync for S-089 (REQ-215: player-submitted answer suggestion),
+  covering the full session arc: backend (`52f213b`, `POST
+  /rounds/{roundId}/cells/{cellId}/suggestions` — guest rejected 403
+  server-side, validates playerName/clubs/nationality, persists a
+  `PlayerSuggestion`/`PlayerSuggestionClub` row as `Pending`, never writes
+  `PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex`/`Guess`), frontend
+  (`22608b2`, `SuggestionEntry.tsx` mounted by `GuessInput.tsx` at the two
+  REQ-215 trigger points — an incorrect scored guess now shows an outcome
+  view instead of closing immediately, and a `LiveLookupUnavailable`
+  timeout), test coverage (`ab93894`, `SuggestionEndpointTests.cs` — 11
+  NUnit tests — plus `SuggestionEntry.test.tsx`/updated `GuessInput.test.tsx`
+  — 382/382 Vitest passing, clean `tsc -b`, clean `oxlint`, all directly
+  run), and a same-session architecture fix (`e81189c`): the original
+  commit resolved a cell's row/col category types via a direct
+  `IGridInstanceRepository`/`GridCell` read from the Api layer, a boundary
+  rule 2 violation (ADR-0003) caught by `architecture-reviewer` before
+  merge; fixed by adding `IGameModule.GetCellCategoryTypesAsync`
+  (implemented by `GridGameModule` and, throwing `NotSupportedException`,
+  by `XGPathGameModule`), resolved via the standard `Round.GameKey →
+  IGameModuleResolver` path — re-verified as resolved. REQ-215's status
+  note now reads "Implemented (submission half only)"; REQ-509's status
+  note was checked and needs no change (still correctly "not yet
+  implemented," S-090). `architecture-document.md` gained: a COMP-05/
+  COMP-11 status note for the new `GetCellCategoryTypesAsync` method, a
+  `PlayerSuggestion`/`PlayerSuggestionClub` note on COMP-06's row
+  (ADR-0053's "COMP-06-adjacent" placement), and a new §6.2c data-flow
+  diagram — closing the gap that no architecture-doc pass happened when
+  the feature was first built. Backend claims in this entry (and in
+  REQ-215's own status note) were **hand-traced against existing patterns,
+  not built or run against a live `dotnet` SDK** — unavailable in this
+  sandbox throughout; confirm in CI. One minor, non-blocking gap recorded
+  as known-and-accepted, not fixed: `XGPathGameModule
+  .GetCellCategoryTypesAsync`'s `NotSupportedException` currently falls
+  through to ASP.NET's bare default `500` rather than an explicit
+  `ProblemDetails` response — unreachable today since nothing wires
+  REQ-215's frontend up for `GameKey = "xg-path"`, worth a deliberate
+  `501`/`409` response if that ever changes. `docs/backlog.md`'s S-089
+  entry marked "— done, 2026-08-01," matching the convention other
+  completed stories (e.g. S-084) already use. No change to
+  `docs/design-document.md` (SCREEN-02b already correctly added by the
+  frontend implementer) or to REQ-509/REQ-510/S-090, which remain
+  correctly not-yet-implemented. REQ/ADR refs: REQ-215, REQ-509, ADR-0003,
+  ADR-0053.
+- 2026-08-01 — `docs/requirements-document.md` (v1.27 → v1.28),
+  `docs/decisions/0052-player-suggestions-separate-admin-view.md` (new),
+  `docs/backlog.md` — Finalized the two product decisions the product
+  owner made for the REQ-215/509/510 player-suggestion feature drafted
+  2026-07-28. (1) **No retroactive rescoring, confirmed final**: REQ-215's
+  "No retroactive rescoring" clause is no longer flagged as an open
+  question — an admin-approved suggestion (REQ-509) fixes the underlying
+  data for future guesses only; the guess that prompted it, and any
+  identical guess from another player against the same cell that round,
+  keep their original scored outcome unchanged. §7's matching entry is now
+  marked resolved 2026-08-01. (2) **Separate admin view, not merged into
+  REQ-503's queue**: REQ-509's status note now records this as decided,
+  referencing new ADR-0053, which also explicitly reconfirms ADR-0007's
+  autocomplete/correctness boundary applies to REQ-509/510's commit paths
+  (`PlayerAttribute`/`PlayerOverride` only, never `PlayerNameIndex`) —
+  ADR-0007 predates this pipeline and didn't name it explicitly before now.
+  Also added two backlog stories implementing this feature: **S-089**
+  (REQ-215 backend `PlayerSuggestion` entity/submission endpoint + frontend
+  entry point/form, not yet started) and **S-090** (REQ-509/510 admin
+  review/commit/manual-search backend + the new separate Suggestions admin
+  screen, not yet started, depends on S-089 and ADR-0053). No code was
+  written this session — documentation only. REQ/ADR refs: REQ-215,
+  REQ-509, REQ-510, REQ-501, REQ-502, REQ-503, ADR-0007, ADR-0053.
+- 2026-08-01 — `docs/requirements-document.md` (v1.26 → v1.27) — Flipped
+  REQ-718's "UI: logout confirmation and guest-expiry copy" addendum
+  (rules 4/5) from "Not yet implemented — drafted only" to "Implemented,
+  2026-08-01": `GuestLogoutConfirm.tsx`/`.css`
+  (`frontend/src/nav/`) gates a guest's "Log out" click behind a
+  confirmation dialog before the existing, unmodified `handleLogout` fires
+  (rule 4); `guestExpiryCopy.ts` (`frontend/src/lib/`) is the single
+  source of the 7-day/30-day expiry copy shown in the guest banner and
+  `SettingsScreen.tsx`'s guest claim section (rule 5). Added and wired in
+  `68e09ed`; covered by 8 new tests (`App.test.tsx` x6,
+  `SettingsScreen.test.tsx` x2) in `2e36be4` — full suite green at
+  367/367 Vitest tests, clean `tsc -b`, clean `oxlint`. No change to
+  `docs/architecture-document.md` (client-side-only gate in front of the
+  already-documented REQ-718/ADR-0038 deletion flow — no new boundary or
+  data flow) or to REQ-215/509/510, which remain correctly drafted-only
+  with no code. REQ/ADR refs: REQ-718, ADR-0038.
+- 2026-08-01 — `docs/requirements-document.md` (v1.26) — Drafted three new
+  requirements for a not-yet-built feature (REQ-215: logged-in,
+  non-guest players may submit an answer suggestion — asserted club(s) +
+  nationality — after a guess is scored incorrect or a REQ-211 live lookup
+  times out, visibly advertised-but-disabled for guests with a
+  registration prompt; REQ-509: admin review of pending suggestions with
+  an admin-triggered live Wikidata lookup and a commit path that writes
+  only through the existing `PlayerAttribute`/`PlayerOverride` mechanism,
+  never `PlayerNameIndex`, per ADR-0007's boundary; REQ-510: the same
+  admin fetch/review/commit flow usable standalone, with no suggestion
+  required). All three are explicitly flagged Tier 1/2-sized new
+  pipeline work relative to `MVP-SCOPE.md` — not pulled forward by this
+  change — and REQ-509 flags an open question (recorded in §7) on whether
+  a new ADR should govern how these suggestions relate to REQ-503's
+  existing unverified-data queue. Also added a small additive UI-only
+  addendum to REQ-718 (guest account lifecycle): a confirmation prompt
+  before a guest's logout-triggered account deletion, and guest-facing
+  copy stating the actual 7-day/30-day expiry thresholds — both drafted
+  only, no code yet, and no change to REQ-718's existing deletion
+  mechanism. §7 gained one new open question (retroactive rescoring on an
+  approved suggestion — REQ-215 defaults to "no," unconfirmed by the
+  product owner).
 - 2026-08-01 — `docs/requirements-document.md` (1.25 → 1.26),
   `docs/architecture-document.md` (0.69 → 0.70),
   `docs/implementation-document.md` (0.81 → 0.82),

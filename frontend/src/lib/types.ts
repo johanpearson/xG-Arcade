@@ -330,6 +330,22 @@ export interface ClearGuestAccountsResponse {
   results: ClearGuestAccountResult[];
 }
 
+// REQ-215 (S-089): the persisted PlayerSuggestion row returned by
+// POST /rounds/{roundId}/cells/{cellId}/suggestions
+// (SuggestionEndpoints.SubmitSuggestionResponse). Always "Pending" at
+// creation — this endpoint never auto-commits to PlayerAttribute/
+// PlayerOverride/PlayerNameIndex (REQ-215's own explicit rule); a later
+// "Approved"/"Rejected" value only ever comes from REQ-509/S-090's separate
+// admin review surface, not from this response.
+export interface SubmitSuggestionResponse {
+  id: string;
+  playerName: string;
+  assertedClubs: string[];
+  assertedNationality: string;
+  status: string;
+  createdAt: string;
+}
+
 // REQ-402/403: a custom league, as returned by POST /leagues,
 // POST /leagues/join, and GET /leagues/mine (XGArcade.Api.Leagues.LeagueResponse)
 // — this story's minimal "create/join/list my leagues" scope only, no

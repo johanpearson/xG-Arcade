@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.26"
+version: "1.29"
 status: draft
 last_updated: 2026-08-01
 owner: Johan
@@ -2110,6 +2110,168 @@ declared `object-fit` value is the extent of what's unit-testable, and the
 "whole photo visible, no cropping" outcome itself can only be confirmed by
 real-browser rendering)
 
+**REQ-215 – Player-submitted answer suggestion for an incorrect or
+unresolved guess**
+> As a registered (non-guest) player, I want to suggest a player I believe
+> genuinely satisfies a cell after my own guess for it was scored
+> incorrect or couldn't be verified in time, so a real gap in the data has
+> a chance to be fixed for everyone — not just re-scored for me.
+
+**Status: Implemented (submission half only; REQ-509/510's admin review/
+commit half is S-090, still not built — 2026-08-01, S-089).** Backend:
+`POST /rounds/{roundId}/cells/{cellId}/suggestions`
+(`XGArcade.Api.Suggestions.SuggestionEndpoints`, `[RequireAuthorization]`)
+resolves the caller via `ClaimsPrincipal`/`IUserRepository
+.GetByAuthProviderUserIdAsync`, returns `401` for no/unmatched token,
+`400` if `playerName` is blank, `400` if `clubs` has no non-blank entry
+(blank strings trimmed and filtered, not counted), `400` if `nationality`
+is blank, and `403` if the resolved user's `IsGuest` is `true` — enforced
+server-side regardless of what the client sends, per this REQ's own
+"Guest vs. non-guest visibility" clause. On success it persists a new
+`PlayerSuggestion` row (`PlayerName`, `AssertedNationality`,
+`SubmittingUserId`, `CellId`, `RoundId`, `RowCategoryType`/
+`ColCategoryType`, `Status = Pending`, `CreatedAt`) plus one
+`PlayerSuggestionClub` child row per asserted club (`XGArcade.Data.Entities`,
+migration `20260801120000_AddPlayerSuggestion`), returning `201` with the
+created suggestion. Deliberately writes nothing to `PlayerAttribute`,
+`PlayerOverride`, or `PlayerNameIndex`, and never touches the triggering
+`Guess` row — both this REQ's "queued/pending state only" and "no
+retroactive rescoring" clauses. The row/col category types are resolved
+authoritatively server-side (never trusted from the request) via a new
+`IGameModule.GetCellCategoryTypesAsync(instanceId, cellId)` method,
+reached the standard `Round.GameKey → IGameModuleResolver` way
+(ADR-0003) — see `architecture-document.md`'s COMP-05/COMP-11 status
+note for this new cross-game-module contract method, added specifically
+for this endpoint after an architecture-review fix (the original commit
+read `GridCell` directly via `IGridInstanceRepository` from this Api-layer
+file, a boundary violation caught same-session and corrected before
+merge). Frontend: `SuggestionEntry.tsx` (`frontend/src/grid/`) renders the
+entry point/form and is mounted by `GuessInput.tsx` at exactly the two
+trigger points below — a guest sees it present-but-disabled with
+registration copy (`SUGGESTION_GUEST_LOCKED_COPY`), a non-guest sees it
+enabled, with client-side validation (empty clubs/nationality) before the
+API call. Test coverage: backend `SuggestionEndpointTests.cs` (11 NUnit
+tests, `REQ215_...` naming — unauthorized/guest-403/not-found/validation/
+persisted-pending-with-no-side-effect/category-types-from-the-seeded-cell/
+xG-Path-keyed-round-resolves-via-module-resolver) plus
+`GridGameModuleTests.cs`/`XGPathGameModuleTests.cs` additions pinning
+`GetCellCategoryTypesAsync`'s own behavior (returns the seeded cell's row/
+col types; throws `GuessScoringException`
+for an unknown cell; xG Path's implementation throws `NotSupportedException`
+unconditionally, matching this REQ's frontend never being wired up for
+`GameKey = "xg-path"`). Frontend: `SuggestionEntry.test.tsx` (9 tests) plus
+`GuessInput.test.tsx` additions (6 `REQ215_...` tests covering the new
+outcome-view-instead-of-immediate-close behavior on an incorrect guess,
+the `LiveLookupUnavailable` trigger, the guest-disabled entry point, and a
+regression guard that a correct result still closes immediately as
+before) — 382/382 Vitest tests passing, clean `tsc -b`, clean `oxlint`
+(all directly run, not just claimed). **Backend caveat: the `dotnet` SDK
+was unavailable in this build environment throughout** — the backend
+implementation and its tests were hand-traced against
+`GuessEndpoints`/`GuessSubmissionService`/`GridGameModule`/
+`XGPathGameModule`'s existing, already-verified patterns rather than
+actually built or run; confirm in CI before treating the backend half as
+independently verified. **Known, accepted, non-blocking gap:**
+`XGPathGameModule.GetCellCategoryTypesAsync`'s `NotSupportedException`
+currently falls through to ASP.NET's bare default `500` rather than an
+explicit `ProblemDetails` response — unreachable today since nothing
+wires this feature up for `GameKey = "xg-path"`, flagged by
+architecture-reviewer as worth a deliberate `501`/`409` response if/when
+xG Path ever does grow a suggestion entry point, not fixed now.
+
+**Tier framing — resolved 2026-08-01, pulled forward by deliberate product
+decision:** this is a new submission/review/commit pipeline end to end —
+not a small extension of an already-tiered item the way, say, REQ-211's
+timeout handling extended an existing live lookup. Per `MVP-SCOPE.md`'s
+own classification criteria this reads as Tier 1/2-sized new work. The
+product owner requested this feature directly, by name (not a trigger
+firing during normal play), the same basis REQ-108/REQ-214/REQ-402-403/
+REQ-717 were each pulled forward on before their own triggers fired — see
+`MVP-SCOPE.md`'s Tier 1 section for the matching entry recording this
+pull-forward. REQ-215's submission half (S-089) was built the same
+session; REQ-509/REQ-510's admin review/commit half remains queued as
+S-090, not yet pulled into an active session.
+
+**Scope note:** this is a genuinely new, player-initiated pipeline,
+distinct from REQ-501-503's existing admin review of auto-fetched,
+unverified sync/lookup data (`PlayerData`/`PlayerOverride`,
+`AdminScreen.tsx`) — it introduces a new kind of input (a human assertion
+about a specific player, not a Wikidata fetch result) rather than
+extending that queue. See REQ-509's own status note for how the two
+relate, including the decided-and-recorded ADR-0053 that keeps them as
+separate admin views.
+
+**Trigger conditions:**
+- Given a submitted guess for a cell is scored incorrect (REQ-203)
+- Or given a REQ-211 live lookup for that same guess times out
+  (`GuessSubmissionOutcome.LiveLookupUnavailable`)
+- Then a suggestion entry point becomes available for that specific
+  player name/cell/category-types combination
+- And for any other outcome - a correct guess, or a REQ-211 live lookup
+  that completes and resolves the guess either way - no suggestion entry
+  point is offered; this requirement is scoped to exactly the two
+  triggers above, not "any incorrect-feeling result"
+
+**Guest vs. non-guest visibility (advertised, not hidden):**
+- Given a logged-in guest account (`IsGuest = true`, REQ-717)
+- When one of the trigger conditions above occurs
+- Then the suggestion entry point is visibly present but disabled/inert,
+  showing copy that explains registering (REQ-717's claim path) is
+  required to unlock it - never fully hidden or absent for a guest; the
+  point is to advertise the incentive to register, not merely to withhold
+  the feature silently
+- Given a request to submit a suggestion is made by a guest account,
+  regardless of what the client-side UI shows
+- Then the backend rejects it - the guest restriction is enforced
+  server-side, not only by disabling the entry point in the UI
+- Given a logged-in non-guest account
+- When one of the trigger conditions above occurs
+- Then the suggestion entry point is enabled and opens the suggestion
+  form when activated
+
+**Suggestion content and submission:**
+- Given the suggestion form for a specific triggering guess (the player
+  name is already known from that guess) is open, for a non-guest user
+- When the user submits it
+- Then submission requires at least one club they assert the player is
+  eligible for, and the nationality they assert for the player, and is
+  rejected with a clear validation error if either is missing
+- And the stored suggestion records the player name, the asserted club(s)
+  and nationality, the submitting user's id, the originating cell/
+  category types, and a timestamp
+- And the suggestion is placed in a queued/pending state - it is never
+  automatically written to `PlayerAttribute`, `PlayerOverride`, or
+  `PlayerNameIndex` as a result of submission alone
+
+**No retroactive rescoring (decided 2026-08-01 — see section 7 for the
+resolved entry):**
+- Given a suggestion is submitted following a guess already scored
+  incorrect
+- Then that guess's own recorded outcome - correctness, REQ-210's attempt
+  count, and any points already calculated - is completely unaffected by
+  the act of submitting a suggestion; submitting one is a data-correction
+  proposal only, never a mechanism for re-scoring the guess that prompted
+  it
+- **Decided (2026-08-01):** no retroactive rescoring - confirmed by the
+  product owner. A later admin-approved suggestion (REQ-509) fixes the
+  underlying data for all future guesses only; the guess that prompted it,
+  and any identical guess from another player against the same cell during
+  the same round, keep their original scored outcome unchanged. This was
+  already this requirement's own default (the only option that didn't
+  require inventing a new scoring-adjustment mechanism found nowhere else
+  in this document) - this decision confirms that default is correct and
+  final, not still open.
+
+**Test level:** Unit (trigger scoping - entry point offered only on
+incorrect/timeout outcomes, never otherwise; submission validation
+requires both fields), API (a guest cannot submit even if the request is
+crafted directly - server-side enforcement, not only a disabled UI
+control; a submitted suggestion is persisted in a pending state with no
+write to `PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex`; the
+originating guess's own stored outcome is unchanged after submission),
+UI (a guest sees the entry point present-but-disabled with registration
+copy; a non-guest sees it enabled and can complete the form)
+
 ---
 
 ### 4.3 Rounds
@@ -3606,6 +3768,123 @@ outcome reporting), Integration (seeded unclaimed/claimed/mixed guest
 rows — confirms only `IsGuest = true` accounts are deleted and claimed
 accounts are untouched)
 
+**REQ-509 – Admin review of player-submitted suggestions, with live
+Wikidata commit**
+> As an admin, I want to check a player-submitted suggestion (REQ-215)
+> against a fresh Wikidata lookup and, if it holds up, commit the
+> corrected data myself, so a genuinely correct suggestion actually fixes
+> the game's data instead of just sitting unreviewed.
+
+**Status: Not yet implemented — drafted only.** No code exists for any
+part of this requirement.
+
+**Tier framing:** see REQ-215's own Tier framing note — this REQ is part
+of the same new pipeline, not scoped or tiered independently of it.
+
+**Relationship to REQ-501–503 and ADR-0029/ADR-0032 (status note recording
+a resolved architecture question — decided 2026-08-01, ADR-0053):**
+ADR-0029's original follow-up note anticipated that "when a real
+user-suggestion channel exists, it should feed the same
+`Confidence = "unverified"` review queue" REQ-503 already exposes (`GET
+/admin/player-data/unverified`) — at the time, ADR-0029 still kept the
+guess-time-fallback path unverified. ADR-0032 later reversed that (every
+Wikidata-sourced write, including the guess-time fallback, now persists
+`verified` immediately), so today REQ-503's queue is empty by construction,
+with no code path writing `unverified` at all (see REQ-503's own
+2026-07-20 status note). This REQ's suggestions are a genuinely different
+kind of input from what that queue was built around — a human assertion
+(club(s), nationality, submitter), not a Wikidata sync/lookup result — that
+doesn't map cleanly onto a `PlayerData` row's existing shape. **Decided
+(2026-08-01, ADR-0053):** this REQ's pending suggestions get their own,
+separate admin view — never surfaced as a new row type in REQ-503's
+existing queue and never a shared row shape or merged UI. ADR-0053 also
+explicitly reconfirms that ADR-0007's autocomplete/correctness-boundary
+rule applies without exception to this REQ's commit action — committing a
+suggestion may only ever write `PlayerAttribute`/`PlayerOverride`, never
+`PlayerNameIndex`.
+
+**Listing pending suggestions:**
+- Given one or more pending suggestions (REQ-215) exist
+- When an admin opens the suggestion review view
+- Then every pending suggestion is listed with the player name, the
+  asserted club(s), the asserted nationality, the submitting user, and the
+  submission timestamp
+
+**Live Wikidata query:**
+- Given a specific pending suggestion
+- When an admin triggers a live lookup for that suggestion's player name
+- Then the system runs the same Wikidata SPARQL query shape already used
+  for player-attribute resolution (occupation `P106`, citizenship `P27`,
+  club membership `P54` — REQ-103/REQ-211's existing intersection-query
+  pattern, ADR-0011) to fetch every club the player has ever been
+  recorded as a member of (REQ-113's "ever played for, at any career
+  point" definition) and the player's nationality
+- And a query that fails to complete is reported to the admin as "lookup
+  unavailable, try again" — it is never silently treated as "no data
+  found," the same timeout-vs-no-match distinction ADR-0046 already
+  established for REQ-211's guess-time path
+
+**Review and commit:**
+- Given the fetched Wikidata data for a pending suggestion
+- When an admin reviews it against the suggestion's asserted claim and
+  marks it correct
+- Then the corresponding `PlayerAttribute`/`PlayerOverride` data is
+  written the same way REQ-501's manual-override path writes it today
+  (admin-authenticated, a reason recorded, audit fields set) — never
+  through `PlayerNameIndex` (ADR-0007's autocomplete/correctness boundary
+  applies here without exception: committing a suggestion changes
+  correctness-checking data only, and must never be implemented as a
+  write to the name index)
+- And the action is logged with `admin_id` and a timestamp, the same
+  discipline REQ-503's existing approve/correct/remove actions already
+  establish
+- And the suggestion's own stored state moves to a resolved/committed
+  state — it is never left pending after a commit
+- Given the fetched Wikidata data does not confirm the suggestion's claim
+- When an admin marks the suggestion rejected
+- Then no `PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex` write
+  occurs, the suggestion's state moves to rejected, and the rejection is
+  logged with `admin_id` and a timestamp exactly as a commit is
+
+**Test level:** Unit (fetched data vs. the suggestion's claim is presented
+for admin judgment, never auto-approved), API (the commit path writes only
+through the override/attribute mechanism, never `PlayerNameIndex`; the
+reject path writes nothing; both actions are Admin-policy-gated and
+logged), Integration (Wikidata query mocked, matching the existing pattern
+in `WikidataClientTests.cs`; a query timeout is distinguished from a
+genuine no-match, not conflated), UI (admin)
+
+**REQ-510 – Admin manual Wikidata search-and-add (independent of a
+suggestion)**
+> As an admin, I want to search Wikidata directly by player name and add
+> the result to the database, without needing a player-submitted
+> suggestion to exist first, so I can proactively fix or extend the data.
+
+**Status: Not yet implemented — drafted only.** No code exists for any
+part of this requirement.
+
+**Tier framing:** see REQ-215's own Tier framing note — same new pipeline.
+
+- Given an admin is in the admin data-review area
+- When the admin searches by player name directly, with no pending
+  suggestion (REQ-215) involved
+- Then the system runs the identical live Wikidata fetch REQ-509 uses
+  (occupation `P106`, citizenship `P27`, club membership `P54`) for that
+  name
+- Given the fetched result
+- When the admin reviews it and commits
+- Then it is written through the identical commit path as REQ-509's —
+  `PlayerAttribute`/`PlayerOverride`, never `PlayerNameIndex`,
+  admin-authenticated, reason recorded, `admin_id`/timestamp logged
+- And this action requires no suggestion record to exist before, during,
+  or after it — using this path leaves REQ-215/REQ-509's suggestion
+  pipeline completely unaffected, and no suggestion row is created as a
+  side effect of this action
+
+**Test level:** API (search triggers the same live-lookup mechanism as
+REQ-509; commit uses the identical write path; no suggestion record
+required or created), UI (admin)
+
 ---
 
 ### 4.7 Account creation and email confirmation
@@ -4993,6 +5272,84 @@ purges any account satisfying either one.
   available) — both the implementation and the tests were hand-traced
   against REQ-718's own acceptance criteria instead; confirm in CI.
 
+**UI: logout confirmation and guest-expiry copy (2026-07-28 addition —
+Status: Implemented, 2026-08-01.)** Two small, additive UI-only
+changes to the guest experience. Neither changes the deletion mechanism
+above (rules 1–3) or its backend implementation in any way — nothing here
+alters when or how an account is actually deleted, only what a guest sees
+immediately before, or is told about, that deletion. Today, `App.tsx`'s
+`handleLogout` deletes an unclaimed guest's account silently and
+unconditionally on logout (rule 1 above) with no confirmation step and no
+UI copy explaining guest expiry at all — this addition adds both, without
+touching `handleLogout`'s existing best-effort, non-blocking `POST
+/auth/logout` call or REQ-715's logout behavior for a non-guest account.
+
+**4. Confirmation before logout-triggered deletion:**
+- Given a logged-in guest account (`IsGuest = true`)
+- When that guest clicks "Log out"
+- Then a confirmation prompt appears first, stating plainly that logging
+  out will delete this guest account and its progress (rule 1 above) —
+  the existing `handleLogout` flow (local token/state clear, plus the
+  existing best-effort, non-blocking `POST /auth/logout`) does not fire
+  until this prompt is confirmed
+- Given the guest cancels that prompt
+- Then nothing happens: the session, stored tokens, and current screen are
+  left exactly as they were, and no `POST /auth/logout` call is made
+- Given the guest confirms the prompt
+- Then the existing `handleLogout` flow fires exactly as it does today,
+  completely unmodified by this addition — same best-effort, never-awaited
+  `POST /auth/logout`, same immediate local clear-and-reset
+- Given a logged-in non-guest account (`IsGuest = false`)
+- When that user clicks "Log out"
+- Then no confirmation prompt appears at all — logout proceeds exactly as
+  REQ-715 already specifies, byte-for-byte unchanged from today's behavior
+
+**5. Guest-expiry copy:**
+- Given a logged-in guest account
+- When that guest views the existing guest banner (`App.tsx`) and/or the
+  guest-facing section of `SettingsScreen.tsx`
+- Then visible copy states that guest accounts are temporary and names the
+  actual policy this REQ's rules 2 and 3 already define — removed
+  automatically after 7 days of inactivity, or after 30 days if never
+  claimed, whichever comes first — not a vague "temporary account"
+  statement with no numbers
+- And if rule 2's or rule 3's threshold value ever changes, this copy must
+  be updated in the same change — it is a live restatement of this REQ's
+  own numbers, not an independently-maintained, hardcoded approximation of
+  them
+- Given a logged-in non-guest account
+- Then neither the banner nor the Settings screen shows this copy —
+  scoped identically to the existing guest-only banner/claim section
+  REQ-717 already describes ("visible only while the account is a guest")
+
+- **Status: Implemented, 2026-08-01.** Rule 4: a new
+  `GuestLogoutConfirm.tsx`/`.css` (`frontend/src/nav/`) renders a
+  `role="dialog"`/`aria-modal` confirmation, reusing `ScoringExplainer`'s
+  modal shell/a11y pattern (backdrop-click, Escape, focus-in/focus-return)
+  and `DeleteAccountScreen`'s two-button confirm styling — no new
+  design-document.md tokens or SCREEN entry, since both patterns were
+  already documented. `App.tsx`'s existing "Log out" click handler
+  (`handleLogoutClick`) opens this dialog only when `isGuest === true`;
+  cancelling calls only `onCancel` (dialog closes, nothing else happens,
+  no backend call); confirming calls `onConfirm`, wired straight through
+  to the existing, completely unmodified `handleLogout` — same
+  best-effort, never-awaited `POST /auth/logout`, same immediate local
+  clear-and-reset. A non-guest account's "Log out" click still calls
+  `handleLogout` directly, with no dialog in between, exactly as REQ-715
+  already specifies. Rule 5: a single new `guestExpiryCopy.ts`
+  (`frontend/src/lib/`) exports `GUEST_EXPIRY_COPY`, the one string
+  stating the actual 7-day/30-day thresholds, imported by both `App.tsx`'s
+  guest banner and `SettingsScreen.tsx`'s guest claim section — no
+  independently-hardcoded copy of either number in either place. Test
+  coverage: 8 new tests across `App.test.tsx` (6, covering the dialog
+  appearing for a guest, cancel leaving session/tokens/screen untouched
+  with no backend call, confirm running the unmodified `handleLogout`, a
+  non-guest getting no dialog at all, and the expiry copy rendering for a
+  guest / being absent for a non-guest in the banner) and
+  `SettingsScreen.test.tsx` (2, the same expiry-copy present/absent check
+  for the Settings guest section) — full suite green at 367/367 Vitest
+  tests, clean `tsc -b`, clean `oxlint`.
+
 **Test level:** Unit (`LastActiveAt` is set on account creation and
 updated on login/guest-creation/claim/guess-submission and on no other
 request; the 30-day-unclaimed and 7-day-inactive queries each select
@@ -5003,7 +5360,15 @@ with that account's token is rejected; logging out a claimed account
 deletes nothing), Integration (the scheduled cleanup job run end to end
 against seeded unclaimed/inactive/claimed/active guest rows purges only
 the accounts the rules above require, reusing `IAccountDeletionService` —
-no second deletion code path)
+no second deletion code path), UI/E2E (a guest's "Log out" click shows a
+confirmation prompt before anything else happens; cancelling leaves
+session, local storage, and the current screen untouched and makes no
+backend call; confirming triggers the existing best-effort `POST
+/auth/logout` unchanged; a non-guest's logout shows no prompt at all; the
+guest banner and Settings guest section render copy containing the actual
+7-day and 30-day thresholds; neither renders that copy for a non-guest
+account — added 2026-07-28, implemented and covered by Vitest as of
+2026-08-01)
 
 **REQ-719 – Unauthenticated splash/landing screen before login/signup**
 > As a first-time or logged-out visitor, I want to see an introductory
@@ -5855,3 +6220,35 @@ resolved 2026-07-06:
 - **Governing law / entity:** Swedish law; operated as a personal project
   (not under SyVe or a separate registered entity) unless that changes
   later. See `docs/legal/terms-of-service-draft.md`.
+
+REQ-215/509/510's 2026-07-28 draft (player-submitted answer suggestions +
+admin Wikidata search/commit) raised one genuine open product question,
+resolved 2026-08-01: whether an admin-approved suggestion (REQ-509) should
+retroactively correct the specific guess(es) it was submitted against —
+the original submitter's own now-confirmed-correct guess, and/or any other
+player's identical guess against the same cell during the same round — or
+whether the suggestion exists purely to fix the underlying data for future
+guesses, leaving every already-scored guess (correct or not) untouched.
+**Decided (2026-08-01):** no retroactive rescoring, confirmed by the
+product owner. REQ-215's own default (the only option that didn't require
+inventing a scoring-adjustment mechanism found nowhere else in this
+document) is confirmed correct and final. See REQ-215's own "No
+retroactive rescoring" acceptance criteria.
+
+Two related items were flagged inline in REQ-215/509 rather than here,
+since they're build-order/architecture questions, not product decisions:
+(1) whether this Tier 1/2-sized new pipeline should be pulled forward ahead
+of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier framing" note) —
+**resolved 2026-08-01:** pulled forward by deliberate product decision
+(the feature was requested directly, by name, the same basis
+REQ-108/REQ-214/REQ-402-403/REQ-717 were each pulled forward on), recorded
+in `MVP-SCOPE.md`'s Tier 1 section; REQ-215's submission half was built
+the same session (S-089), REQ-509/REQ-510's admin half remains queued
+(S-090); and (2) whether REQ-509's
+admin-reviewable suggestions should surface through REQ-503's existing
+(currently empty) review queue or a new, separate view, and whether a new
+ADR should record that choice (REQ-509's own status note) — **resolved
+2026-08-01:** a new, separate admin view, not merged into REQ-503's queue,
+recorded in ADR-0053 (`docs/decisions/0053-player-suggestions-separate-admin-view.md`),
+which also reconfirms ADR-0007's autocomplete/correctness boundary applies
+to the new commit path.
