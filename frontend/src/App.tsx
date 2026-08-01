@@ -7,11 +7,13 @@ import { AuthScreen } from './auth/AuthScreen';
 import { Logo } from './components/Logo';
 import { GameSelectScreen } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
+import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
 import { LeaguesScreen } from './leagues/LeaguesScreen';
 import { SettingsScreen } from './settings/SettingsScreen';
 import { SplashScreen } from './splash/SplashScreen';
+import { GUEST_EXPIRY_COPY } from './lib/guestExpiryCopy';
 import { useThemePreference } from './lib/theme';
 
 type HealthState =
@@ -98,6 +100,11 @@ function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   // REQ-717/ADR-0036: mirrors User.IsGuest via MeResponse's isGuest field.
   const isGuest = currentUser?.isGuest ?? false;
+  // REQ-718 UI addendum (rule 4, 2026-08-01): true only while the
+  // confirmation prompt gating a guest's "Log out" click is open — see
+  // handleLogoutClick below. Never true for a non-guest account, since
+  // that branch calls handleLogout directly and never sets this.
+  const [guestLogoutConfirmOpen, setGuestLogoutConfirmOpen] = useState(false);
   // REQ-716/ADR-0034: mounted here (not inside SettingsScreen) so the
   // "system" preference's reactive prefers-color-scheme listener stays
   // active regardless of which screen is showing, not only while Settings
@@ -218,6 +225,21 @@ function App() {
       });
     }
   }, [accessToken]);
+
+  // REQ-718 UI addendum (rule 4, 2026-08-01): the actual onClick handler
+  // wired to HeaderNav's "Log out" button — gates *when* handleLogout above
+  // fires, without changing anything about handleLogout itself. A guest
+  // account (isGuest) only opens the confirmation prompt here; the prompt's
+  // own onConfirm (below, in the render) is what actually calls
+  // handleLogout. A non-guest account calls handleLogout directly, exactly
+  // as before this addition — same call, same timing, no prompt.
+  function handleLogoutClick() {
+    if (isGuest) {
+      setGuestLogoutConfirmOpen(true);
+      return;
+    }
+    handleLogout();
+  }
 
   // REQ-715/ADR-0033: the one place a stored refresh token is exchanged for
   // a new access token — mediated through POST /auth/refresh exactly like
@@ -350,10 +372,27 @@ function App() {
             onSelectLeagues={() => navigateTo('leagues')}
             onSelectSettings={() => navigateTo('settings')}
             onSelectGrid={() => navigateTo('grid')}
-            onLogout={handleLogout}
+            onLogout={handleLogoutClick}
           />
         )}
       </header>
+
+      {/* REQ-718 UI addendum (rule 4, 2026-08-01): only ever open via
+          handleLogoutClick's isGuest branch above, so a non-guest account
+          never mounts this at all — logout for that account still calls
+          handleLogout directly, with no prompt in between. Cancelling
+          closes this and does nothing else; confirming closes this and
+          calls the same handleLogout a non-guest's logout already uses,
+          unmodified. */}
+      {guestLogoutConfirmOpen && (
+        <GuestLogoutConfirm
+          onCancel={() => setGuestLogoutConfirmOpen(false)}
+          onConfirm={() => {
+            setGuestLogoutConfirmOpen(false);
+            handleLogout();
+          }}
+        />
+      )}
 
       {/* REQ-717/ADR-0036: a low-effort nudge, not a redesign — no SCREEN-xx
           entry mandates this, but a guest playing without realizing their
@@ -364,6 +403,15 @@ function App() {
       {accessToken && isGuest && (
         <div className="app__guest-banner">
           <span>Playing as {currentUser?.displayName ?? 'Guest'}.</span>
+          {/* REQ-718 UI addendum (rule 5, 2026-08-01): the actual 7-day/
+              30-day policy, not a vague "temporary account" statement —
+              GUEST_EXPIRY_COPY is the single source of this sentence so it
+              can never drift out of sync with rules 2/3's own numbers (see
+              that constant's own comment). Never rendered for a non-guest
+              account, same isGuest gate as the rest of this banner. */}
+          <span className="app__guest-banner-expiry" data-testid="guest-expiry-copy">
+            {GUEST_EXPIRY_COPY}
+          </span>
           <button
             type="button"
             className="app__guest-banner-action"
