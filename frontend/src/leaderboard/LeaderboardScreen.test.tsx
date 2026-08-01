@@ -1411,4 +1411,88 @@ describe('LeaderboardScreen', () => {
       expect(rows[1]).toHaveTextContent('Blair');
     });
   });
+
+  // REQ-410/ADR-0043 (S-087): the game switcher tab row above the scope
+  // tabs — selecting a game re-fetches whichever scope is currently active
+  // with the new `gameKey`, and never resets the selected scope tab.
+  describe('game switcher', () => {
+    it('REQ410: selecting "xG Path" while on the default All-time scope re-fetches the all-time endpoint with gameKey=xg-path', async () => {
+      const fetchMock = routedFetch([
+        [
+          /gameKey=xg-path/,
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-2', 'Blair', 20)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        [/gameKey=xg-grid/, () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false })],
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+      const xgPathCalls = fetchMock.mock.calls.filter((call) => String(call[0]).includes('gameKey=xg-path'));
+      expect(xgPathCalls.length).toBeGreaterThan(0);
+      expect(String(xgPathCalls[0][0])).toContain('/leagues/global/leaderboard');
+    });
+
+    it('REQ410: switching games while on "Current Round" scope re-fetches the active-round endpoint with the new gameKey, keeping the scope tab selected', async () => {
+      const fetchMock = routedFetch([
+        [
+          /active-round\?gameKey=xg-path/,
+          () =>
+            jsonResponse({
+              rows: [row(1, 'user-2', 'Blair', 5)],
+              requestingUserRow: null,
+              nextCursor: null,
+              hasMore: false,
+            }),
+        ],
+        [
+          '/leagues/global/leaderboard/active-round',
+          () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ],
+        defaultAllTimeRoute,
+      ]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Current Round' }));
+      await waitFor(() => expect(screen.getByText('No one has played this round yet — be the first.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      await waitFor(() => expect(screen.getByText('Blair')).toBeInTheDocument());
+
+      // Scope preserved across the game switch — still "Current Round",
+      // never silently reset to "All-time".
+      expect(screen.getByRole('tab', { name: 'Current Round' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'All-time' })).toHaveAttribute('aria-selected', 'false');
+    });
+
+    it('REQ410: the game tab row marks the selected game, defaulting to "xG Grid"', async () => {
+      const fetchMock = routedFetch([defaultAllTimeRoute]);
+      vi.stubGlobal('fetch', fetchMock);
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'false');
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'false');
+    });
+  });
 });
