@@ -220,4 +220,39 @@ public interface IWikidataClient
     Task<IReadOnlyDictionary<string, string>> QueryPlayerPhotosByQidsAsync(
         IReadOnlyList<string> wikidataQids,
         CancellationToken cancellationToken = default);
+
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): PlayerPositionBirthYearBackfillService's
+    // batched, direct-by-QID lookup — the exact mirror of
+    // QueryPlayerPhotosByQidsAsync above, just for P413 ("position played on
+    // team / speciality")/P569 ("date of birth") instead of P18. Same reason
+    // this exists at all: PlayerStoreRepository
+    // .GetOrCreatePlayersByWikidataQidAsync only ever sets Position/BirthYear
+    // at row-creation time (REQ-1207's own "set once, never overwritten"
+    // contract, Player.cs's own comment), so every Player row created before
+    // the P413/P569 bindings were added to the intersection queries
+    // (migration 20260727140000_AddPlayerPositionAndBirthYear) has both
+    // permanently null with no other code path that will ever revisit them.
+    // Same VALUES-clause-over-a-bounded-QID-batch shape as
+    // QueryPlayerPhotosByQidsAsync (`SELECT ?player ?position ?dateOfBirth
+    // WHERE { VALUES ?player { wd:Q1 wd:Q2 ... }
+    // OPTIONAL { ?player wdt:P413 ?position. }
+    // OPTIONAL { ?player wdt:P569 ?dateOfBirth. } }`), not a candidate-
+    // matching intersection — callers are expected to keep each batch within
+    // the same "few-thousand-row, no ORDER BY/LIMIT/OFFSET" bounded-query
+    // class as every other query in this interface
+    // (PlayerPositionBirthYearBackfillService.BatchSize, mirroring
+    // PlayerPhotoBackfillService.BatchSize = 200). Returns a dictionary
+    // keyed by QID, present only for QIDs where at least one of
+    // Position/BirthYear resolved — a QID with neither is simply absent from
+    // the result, same "absent, never an error" contract as
+    // QueryPlayerPhotosByQidsAsync.
+    //
+    // Error contract — same as QueryPlayerPhotosByQidsAsync above (throw
+    // WikidataQueryException on timeout/HTTP/parse failure, not the
+    // intersection queries' swallow-to-[] contract): this is a batch job
+    // whose success metric is a backfilled-row count, so a swallowed failure
+    // would be indistinguishable from "none of these QIDs have this data."
+    Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
+        IReadOnlyList<string> wikidataQids,
+        CancellationToken cancellationToken = default);
 }

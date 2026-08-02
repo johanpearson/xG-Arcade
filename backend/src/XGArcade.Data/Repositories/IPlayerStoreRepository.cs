@@ -217,6 +217,46 @@ public interface IPlayerStoreRepository
     Task UpdatePlayerPhotosAsync(
         IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default);
 
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): PlayerPositionBirthYearBackfillService's
+    // read cursor — the exact mirror of GetPlayersMissingPhotoAsync above,
+    // just for Position/BirthYear instead of PhotoUrl. Every `Player` row
+    // created before migration 20260727140000_AddPlayerPositionAndBirthYear
+    // shipped has both permanently NULL —
+    // GetOrCreatePlayersByWikidataQidAsync only ever sets them at
+    // row-creation time, never on a later lookup (REQ-1207's own "set once"
+    // contract) — so this is the query that finds the backlog.
+    //
+    // WHERE clause is "either is null," not "both": a Player row could in
+    // principle already have one of the two fields set (e.g. a future
+    // partial correction) with the other still missing, and re-querying
+    // costs nothing extra since this is one combined SPARQL call either way
+    // — same reasoning GetPlayersMissingPhotoAsync's own single-field OR
+    // would have used if PhotoUrl had a sibling field to combine with.
+    //
+    // excludingPlayerIds/batchSize: same "guaranteed run-termination via a
+    // this-run-attempted set, no Skip/Take" reasoning as
+    // GetPlayersMissingPhotoAsync's own doc comment — see that method's
+    // comment for the full "why not Skip/Take" explanation, which applies
+    // identically here.
+    Task<IReadOnlyList<Player>> GetPlayersMissingPositionOrBirthYearAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default);
+
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): batch write, one
+    // SaveChangesAsync call for the whole dictionary — mirrors
+    // UpdatePlayerPhotosAsync above exactly, including its "a playerId with
+    // no matching row is silently skipped rather than throwing" contract
+    // (best-effort backfill of already-cached data, not a correctness-
+    // critical write). Each entry only overwrites the field(s) the caller
+    // actually resolved a value for — a player whose batch response only
+    // had a Position (no BirthYear, or vice versa) must not have its
+    // already-null-and-still-unresolved other field clobbered with a value
+    // that was never looked up this call, and must never overwrite a field
+    // that was already set (REQ-1207's "set once" contract extends to this
+    // backfill too, not just row-creation) with an OLDER value from a
+    // stale/duplicate entry in the same batch.
+    Task UpdatePlayerPositionsAndBirthYearsAsync(
+        IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default);
+
     // ADR-0042/S-079: xG Path's (COMP-11) read of a player's full,
     // chronologically-ordered career-stint log — never called from any
     // correctness-checking path (xG Grid continues to read only
@@ -353,6 +393,15 @@ public interface IPlayerStoreRepository
 // never writes these on a Player row that already exists).
 public record PlayerCreationRequest(
     string WikidataQid, string FullName, string? PhotoUrl, string? Position = null, int? BirthYear = null);
+
+// REQ-1207 backfill (bug-bundle fix, 2026-08-02): one player's worth of what
+// PlayerPositionBirthYearBackfillService resolved from a
+// QueryPlayerPositionsAndBirthYearsByQidsAsync batch. Both nullable, and both
+// interpreted by UpdatePlayerPositionsAndBirthYearsAsync as "no update for
+// this field" when null — NOT "clear this field to null." A caller that
+// resolved only a Position for a given player passes BirthYear: null here to
+// mean "leave BirthYear exactly as it already is," never to blank it out.
+public record PlayerPositionBirthYearUpdate(string? Position, int? BirthYear);
 
 // REQ-503 (2026-07-20 extension): per-row outcome of
 // IPlayerStoreRepository.ApprovePlayerDataAsync — the shape that lets a

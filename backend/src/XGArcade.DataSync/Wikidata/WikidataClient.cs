@@ -733,6 +733,118 @@ public class WikidataClient(
         return photoUrlsByQid;
     }
 
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): batched, direct-by-QID
+    // position/birth-year lookup — see IWikidataClient's own doc comment for
+    // why this is a different query shape from the intersection queries
+    // above and why its error contract (throw, not swallow-to-empty) matches
+    // QueryPlayerPhotosByQidsAsync rather than them.
+    public async Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (wikidataQids.Count == 0)
+            return new Dictionary<string, PlayerPositionBirthYearEntry>();
+
+        foreach (var qid in wikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
+        }
+
+        var query = BuildPlayerPositionsAndBirthYearsByQidsQuery(wikidataQids);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync
+        // (see that method's own comment) — a swallowed failure here would
+        // be indistinguishable from "none of these QIDs have this data."
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParsePositionBirthYearBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
+        }
+    }
+
+    // Same "VALUES clause over the batch, no candidate-matching filter" shape
+    // as BuildPlayerPhotosByQidsQuery — every QID in the batch is already a
+    // real Player row this codebase itself created via the intersection
+    // queries (which DID apply the male/date-of-birth/occupation filters at
+    // the time), so re-filtering here would only risk a false negative if
+    // Wikidata's own data changed since. No LIMIT/ORDER BY/OFFSET, same
+    // bounded-query discipline as every other query here — the caller
+    // (PlayerPositionBirthYearBackfillService) is responsible for keeping
+    // each batch small, not this method.
+    private static string BuildPlayerPositionsAndBirthYearsByQidsQuery(IReadOnlyList<string> qids)
+    {
+        var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?position ?dateOfBirth WHERE {
+              VALUES ?player { {{valuesClause}} }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?player wdt:P569 ?dateOfBirth. }
+            }
+            """;
+    }
+
+    // Grouped by QID (unlike ParsePhotoBindings' plain "one row per QID"
+    // shape) because a player with more than one P413 statement, or more
+    // than one P569 statement, can legitimately produce more than one
+    // binding row per QID — same "keep the first non-null value seen per
+    // field" defensive shape ParseBindings already uses for
+    // WikidataPlayerMatch.Position/BirthYear. Only entries where at least
+    // one of Position/BirthYear actually resolved are included in the
+    // result — a QID with neither is simply absent, never an error, same
+    // contract as ParsePhotoBindings.
+    private static IReadOnlyDictionary<string, PlayerPositionBirthYearEntry> ParsePositionBirthYearBindings(SparqlResponse? response)
+    {
+        var entriesByQid = new Dictionary<string, (string? Position, int? BirthYear)>();
+        if (response?.Results?.Bindings is null)
+            return new Dictionary<string, PlayerPositionBirthYearEntry>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+
+            var qid = playerValue.Value.Split('/').Last();
+            (string? Position, int? BirthYear) entry = entriesByQid.TryGetValue(qid, out var existing) ? existing : default;
+
+            if (entry.Position is null && binding.TryGetValue("position", out var positionValue)
+                && !string.IsNullOrWhiteSpace(positionValue.Value))
+                entry.Position = positionValue.Value;
+
+            if (entry.BirthYear is null && binding.TryGetValue("dateOfBirth", out var dateOfBirthValue)
+                && !string.IsNullOrWhiteSpace(dateOfBirthValue.Value)
+                && TryParseXsdDateTimeYear(dateOfBirthValue.Value, out var birthYear))
+                entry.BirthYear = birthYear;
+
+            entriesByQid[qid] = entry;
+        }
+
+        return entriesByQid
+            .Where(kv => kv.Value.Position is not null || kv.Value.BirthYear is not null)
+            .ToDictionary(kv => kv.Key, kv => new PlayerPositionBirthYearEntry(kv.Value.Position, kv.Value.BirthYear));
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

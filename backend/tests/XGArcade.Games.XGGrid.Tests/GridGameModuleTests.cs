@@ -1513,6 +1513,20 @@ public class GridGameModuleTests
             IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default) =>
             inner.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
 
+        // REQ-1207 backfill (bug-bundle fix, 2026-08-02): xG Grid's
+        // correctness path never calls either of these (only
+        // PlayerPositionBirthYearBackfillService does) — same "delegated
+        // here only so this thin wrapper keeps compiling against the
+        // interface" reasoning as GetPlayersMissingPhotoAsync/
+        // UpdatePlayerPhotosAsync above.
+        public Task<IReadOnlyList<Player>> GetPlayersMissingPositionOrBirthYearAsync(
+            IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default) =>
+            inner.GetPlayersMissingPositionOrBirthYearAsync(excludingPlayerIds, batchSize, cancellationToken);
+
+        public Task UpdatePlayerPositionsAndBirthYearsAsync(
+            IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default) =>
+            inner.UpdatePlayerPositionsAndBirthYearsAsync(updatesByPlayerId, cancellationToken);
+
         // ADR-0042/S-079: xG Grid's correctness path never calls either of
         // these (see PlayerCareerStint's own doc comment) — delegated here
         // only so this thin wrapper keeps compiling against the interface.

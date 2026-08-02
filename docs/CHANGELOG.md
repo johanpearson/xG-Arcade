@@ -13,6 +13,73 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/requirements-document.md` (v1.31 → v1.32),
+  `docs/implementation-document.md` (v0.85 → v0.86) — Backend
+  half of the xG Path live user-testing feedback batch, three fixes:
+  (1) `PlayerNameNormalizer.Normalize` now transliterates non-decomposable
+  Latin letters (Ø/Æ/Œ/Đ/Ł/ß/Þ) that NFKD normalization silently left
+  untouched — "Ødegaard" now normalizes the same as "Odegaard," fixing both
+  autocomplete and guess correctness for any player whose name contains one
+  of these letters; new `PlayerAliasNormalizedAliasBackfiller`
+  (`XGArcade.Data.Seeding`, wired into `migrate-and-seed`, mirroring
+  `PlayerNameIndexWordBackfiller`'s wiring) re-derives already-stored
+  `PlayerAlias.NormalizedAlias` values under the fixed normalizer —
+  `Player.NormalizedFullName` needed no equivalent new wiring since the
+  pre-existing `PlayerNormalizedFullNameBackfiller` already re-derives it on
+  every `migrate-and-seed` run; `PlayerNameIndex.NormalizedName`
+  (autocomplete-only, COMP-10) needs a manual one-time
+  `import-player-name-index` workflow re-run post-deploy, not a new
+  backfiller, since that importer already fully re-derives it on every run.
+  (2) `Player.Position`/`Player.BirthYear` (REQ-1207) were only ever set at
+  `Player` row creation time, so every row created before migration
+  `20260727140000_AddPlayerPositionAndBirthYear` shipped has both
+  permanently null — new `PlayerPositionBirthYearBackfillService`
+  (`XGArcade.DataSync.Wikidata`), a near-exact mirror of
+  `PlayerPhotoBackfillService` (REQ-214), backfills them via a new
+  `IWikidataClient.QueryPlayerPositionsAndBirthYearsByQidsAsync`
+  (P413/P569-by-QID batch query) and new `IPlayerStoreRepository`
+  read/write pair (`GetPlayersMissingPositionOrBirthYearAsync`/
+  `UpdatePlayerPositionsAndBirthYearsAsync`), wired to a new
+  `dotnet run -- backfill-player-position-birthyear` CLI verb and
+  `.github/workflows/backfill-player-position-birthyear.yml`
+  (`workflow_dispatch`-only, mirroring `backfill-player-photos.yml`).
+  (3) `PathEndpoints.cs`'s `GET /path/current` now reveals the target
+  player's name/photo whenever a puzzle is `Locked` (solved OR REQ-1205's
+  7-attempt cap exhausted), not only when the guess `IsCorrect` — a puzzle
+  that locked via exhausted attempts previously never told the player who
+  the answer was. New REQ-1203 status note records the boundary correction
+  ("never leak the answer for a puzzle the player can still guess on,"
+  replacing the old "unsolved puzzle" phrasing that conflated "unsolved"
+  with "still live"). Frontend half of fix 3 already shipped separately
+  (see the 2026-08-02 `docs/design-document.md` entry below) and was
+  waiting on this backend change. No architecture/ADR change for any of the
+  three — all within existing component boundaries (ADR-0007's
+  autocomplete/correctness separation confirmed intact: only one shared
+  `PlayerNameNormalizer.Normalize` function, never a shared query path;
+  REQ-1207's "set once at creation" contract preserved going forward, this
+  is purely a backfill of pre-existing rows, same precedent as REQ-214's
+  photo backfill).
+
+- 2026-08-02 — `docs/design-document.md` (v0.60 → v0.61) — Live user-testing
+  feedback batch on the xG Path puzzle screen (`frontend/src/path/`), three
+  fixes, all tokens-only: (1) an empty guess submission is now an
+  intentional skip to the next clue instead of a client-side error, with
+  the submit button relabeling "Next clue"/"Guess" to match; (2) the
+  career-stint year-range clue now renders one club/year-range pair per
+  line instead of one dense inline-joined paragraph; (3) `PathTimeline` now
+  accepts a `locked` prop (alongside `solved`) and renders a distinct,
+  non-gold "✕ Out of attempts" reveal node when a puzzle locks without ever
+  being solved (REQ-1205's attempt cap exhausted) — previously this case
+  showed no reveal at all. Fix 3 depends on a parallel, separately-scoped
+  backend change (`PathEndpoints.cs`) populating `resolvedPlayerName`/
+  `resolvedPlayerPhotoUrl` whenever `locked` is true, not only when
+  `isCorrect`; the frontend degrades gracefully (label only, no broken
+  name/photo line) until that ships. New SCREEN-10 status note added
+  documenting all three, including the shake-on-skip and skip-placeholder
+  (`"(skipped)"`) judgment calls. No REQ/ADR change — these are
+  implementation-level UX fixes within SCREEN-10's existing spec, not new
+  requirements.
+
 - 2026-08-02 — `docs/backlog.md`, `docs/requirements-document.md` (v1.31 →
   v1.32), `docs/architecture-document.md` (v0.72 → v0.73),
   `docs/implementation-document.md` (v0.85 → v0.86), `docs/design-

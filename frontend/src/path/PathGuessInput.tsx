@@ -28,6 +28,31 @@ const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 275;
 const SUGGESTION_LIMIT = 8;
 
+// User-testing fix (2026-08-02): submitting with an empty field used to be
+// blocked client-side ("Type a player name to submit a guess."), with no
+// other way to move on to the next clue without typing something. Since
+// every guess submission — right or wrong — already advances the reveal by
+// consuming one attempt (PathClueSequenceBuilder.GetRevealedTurnCount ties
+// revealed-turn-count directly to attemptCount), a "skip" is mechanically
+// just a guess that's guaranteed not to match anything, so it reuses the
+// exact same onSubmit path rather than inventing a second flow. Judgment
+// call: `POST /rounds/{roundId}/cells/{cellId}/guesses` (GuessEndpoints.cs)
+// 400s on an empty/whitespace SubmittedName
+// (`string.IsNullOrWhiteSpace(request.SubmittedName)`), so an empty string
+// can't be sent as-is without a backend change. Rather than touching that
+// endpoint (out of this change's lane — a separate backend-implementer
+// agent owns backend files on this branch), this sends a fixed, obviously-
+// not-a-real-name placeholder instead. "(skipped)" was chosen over
+// something opaque like a UUID specifically so a human ever looking at raw
+// Guess rows (support, admin tooling, logs) can tell at a glance what
+// happened, rather than seeing a random string that looks like a data bug.
+// It can never collide with a real player name (parentheses, a dictionary
+// word, no player is named "skipped") and is never shown to the player
+// either way — an incorrect guess never displays SubmittedName (S-029,
+// design-document.md SCREEN-01a), and a skip is always scored incorrect by
+// construction.
+const SKIP_SUBMITTED_NAME = '(skipped)';
+
 // SCREEN-10 (S-086, autocomplete added S-091): no disambiguation picker
 // (REQ-209 — deliberately reviewed and rejected for xG Path, see S-091's
 // backlog entry: XGPathGameModule.ScoreSubmissionAsync/REQ-1204 already
@@ -138,19 +163,29 @@ export function PathGuessInput({ clueCount, guess, accessToken, onSubmit }: Path
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) {
-      setError('Type a player name to submit a guess.');
-      return;
-    }
+    // User-testing fix (2026-08-02): an empty field is no longer blocked —
+    // it's an intentional skip to the next clue (see SKIP_SUBMITTED_NAME's
+    // own comment above for why this reuses the normal guess path rather
+    // than a separate endpoint/flow).
+    const isSkip = trimmed.length === 0;
 
     setShowSuggestions(false);
     setSubmitting(true);
     setError(null);
     try {
-      const correct = await onSubmit(trimmed);
+      const correct = await onSubmit(isSkip ? SKIP_SUBMITTED_NAME : trimmed);
       if (!correct) {
-        setShakeToken((current) => current + 1);
-        setName('');
+        // Judgment call: the shake-on-rejection cue (design-document.md
+        // SCREEN-10 "Rejected guess") stays scoped to an actual wrong
+        // guess. A skip is never "rejected" in the player's own mental
+        // model — they didn't guess and get it wrong, they deliberately
+        // chose not to guess — so shaking the input here would read as
+        // scolding someone for a choice they made on purpose. The field is
+        // already empty for a skip, so there's nothing to clear either.
+        if (!isSkip) {
+          setShakeToken((current) => current + 1);
+          setName('');
+        }
       }
     } catch (err) {
       setError(describeError(err));
@@ -158,6 +193,15 @@ export function PathGuessInput({ clueCount, guess, accessToken, onSubmit }: Path
       setSubmitting(false);
     }
   }
+
+  // Tester's own suggested wording: "the button could say next clue if
+  // there is no input." Reflects only the field's current content, not the
+  // disabled/locked state — a disabled button while locked/solved still
+  // shows whichever label matches its (inert) contents, same as any other
+  // disabled control retaining its normal label rather than a special
+  // "disabled" one.
+  const hasInput = name.trim().length > 0;
+  const submitLabel = submitting ? 'Submitting…' : hasInput ? 'Guess' : 'Next clue';
 
   return (
     <div key={shakeToken} className={`path-guess-input ${shakeToken > 0 && !isCorrect ? 'path-guess-input--shake' : ''}`}>
@@ -216,7 +260,7 @@ export function PathGuessInput({ clueCount, guess, accessToken, onSubmit }: Path
           )}
         </div>
         <button type="submit" className="path-guess-input__submit" disabled={disabled}>
-          {submitting ? 'Submitting…' : 'Guess'}
+          {submitLabel}
         </button>
       </form>
       {error && <p className="path-guess-input__error">{error}</p>}

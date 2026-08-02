@@ -27,6 +27,36 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-02 — two `workflow_dispatch` jobs need a manual run after the diacritic-normalization/position-birthyear bug-bundle fix ships
+
+Deploying the `PlayerNameNormalizer`/`Player.Position`/`Player.BirthYear` fixes
+(non-decomposable-letter transliteration + the new
+`backfill-player-position-birthyear` verb) fixes the *code*, but two pools of
+already-persisted data need an operator to actually trigger a re-run before
+players see the effect — neither happens automatically on deploy:
+
+- **`import-player-name-index`** (`.github/workflows/import-player-name-index.yml`)
+  — `PlayerNameIndex.NormalizedName` (autocomplete/COMP-10) is fully re-derived
+  from source on every run of this importer, so a manual trigger after this
+  fix deploys is sufficient to fix autocomplete suggestions for names
+  containing Ø/Æ/Œ/Đ/Ł/ß/Þ (e.g. "Ødegaard") — no new backfiller was written
+  for this table, deliberately, since the existing importer already does the
+  job. `Player.NormalizedFullName`/`PlayerAlias.NormalizedAlias` (the
+  correctness-side tables) DID get new/extended automatic backfillers wired
+  into `migrate-and-seed`, so those fix themselves on the next push to main —
+  only the autocomplete side needs this manual step.
+- **`backfill-player-position-birthyear`** (new workflow, this same fix) —
+  needs at least one manual run to clear the existing backlog (most `Player`
+  rows predate the `Position`/`BirthYear` migration); `migrate-and-seed`
+  deliberately does NOT call this automatically, same reasoning as
+  `backfill-player-photos` never being wired into `migrate-and-seed` either
+  (a live-Wikidata-call-per-batch job doesn't belong on every push-to-main
+  deploy's critical path).
+
+Worth remembering next time a bug report says "still broken after deploy" for
+either of these — the deploy alone isn't enough, someone has to actually click
+"Run workflow" once.
+
 ### 2026-07-27 — `backend/Dockerfile` needs a `COPY` line per project, and it's easy to forget
 
 Two consecutive deploys (`deploy` runs #117, #118) failed at `dotnet publish`

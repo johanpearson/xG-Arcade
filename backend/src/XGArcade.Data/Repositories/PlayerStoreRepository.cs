@@ -420,6 +420,55 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Player>> GetPlayersMissingPositionOrBirthYearAsync(
+        IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
+    {
+        var query = dbContext.Players
+            .AsNoTracking()
+            .Where(p => p.WikidataQid != null && (p.Position == null || p.BirthYear == null));
+
+        if (excludingPlayerIds.Count > 0)
+            query = query.Where(p => !excludingPlayerIds.Contains(p.Id));
+
+        return await query
+            .OrderBy(p => p.Id)
+            .Take(batchSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task UpdatePlayerPositionsAndBirthYearsAsync(
+        IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default)
+    {
+        if (updatesByPlayerId.Count == 0)
+            return;
+
+        var playerIds = updatesByPlayerId.Keys.ToList();
+        var players = await dbContext.Players
+            .Where(p => playerIds.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+
+        foreach (var player in players)
+        {
+            var update = updatesByPlayerId[player.Id];
+
+            // REQ-1207's "set once" contract, extended to this backfill: a
+            // null on the update means "this run found nothing new for this
+            // field," never "clear the existing value," and an already-set
+            // field is never overwritten even if the update did resolve a
+            // (necessarily identical, since Wikidata's data doesn't change
+            // underneath us mid-run) value for it — same defensive posture
+            // as PlayerCreationRequest's own "set only at creation, never
+            // revisited" rule.
+            if (update.Position is not null && player.Position is null)
+                player.Position = update.Position;
+
+            if (update.BirthYear is not null && player.BirthYear is null)
+                player.BirthYear = update.BirthYear;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<PlayerCareerStint>> GetCareerStintsAsync(
         Guid playerId, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerCareerStints

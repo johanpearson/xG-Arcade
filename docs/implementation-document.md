@@ -1378,6 +1378,40 @@ Two deliberate, documented judgment calls (both in
   checked." Accepted because this job is meant to run occasionally, not on
   a tight recurring schedule.
 
+**REQ-1207 backfill (bug-bundle fix, 2026-08-02):** `Player.Position`/
+`Player.BirthYear` have the exact same "set only at row creation, never
+backfilled" gap `PhotoUrl` had before REQ-214's backfill above — real xG
+Path user testing surfaced it as "Position: not available"/"Age: not
+available" on essentially every puzzle, since most `Player` rows predate
+migration `20260727140000_AddPlayerPositionAndBirthYear`.
+`PlayerPositionBirthYearBackfillService` (`XGArcade.DataSync.Wikidata`) is
+a near-exact mirror of `PlayerPhotoBackfillService` immediately above —
+same `BatchSize` (200), same log-and-continue-per-batch/malformed-QID-
+skip/idempotent-re-run judgment calls, same `excludingPlayerIds`
+run-termination mechanism — not repeated here to avoid the two
+descriptions silently drifting apart. Two differences from the photo
+backfill worth calling out: (1) the read side,
+`IPlayerStoreRepository.GetPlayersMissingPositionOrBirthYearAsync`, matches
+on `Position IS NULL OR BirthYear IS NULL` (either field missing), not a
+single-field check; (2) the write side,
+`UpdatePlayerPositionsAndBirthYearsAsync`, takes a
+`PlayerPositionBirthYearUpdate(Position, BirthYear)` per player rather than
+a single scalar, and only writes a field when the update supplies a
+non-null value AND the existing column is still null — a batch response
+that resolved only one of the two fields must never clobber the other
+field's already-correct state (whether that's an existing value or a
+still-unresolved null waiting for a future run). New `IWikidataClient
+.QueryPlayerPositionsAndBirthYearsByQidsAsync` mirrors
+`QueryPlayerPhotosByQidsAsync`'s VALUES-clause-by-QID shape
+(`SELECT ?player ?position ?dateOfBirth WHERE { VALUES ?player { wd:Q1
+wd:Q2 ... } OPTIONAL { ?player wdt:P413 ?position. } OPTIONAL { ?player
+wdt:P569 ?dateOfBirth. } }`), same throw-on-failure error contract, grouped
+by QID with "first non-null value seen per field" dedup (a player can have
+more than one P413/P569 binding row). Seventh `dotnet run --` CLI verb,
+`backfill-player-position-birthyear`, same shape as every verb above, run
+manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
+only).
+
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
 missing combination typically means fetching a club's squad history (a

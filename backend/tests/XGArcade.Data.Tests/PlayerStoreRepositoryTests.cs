@@ -539,6 +539,145 @@ public class PlayerStoreRepositoryTests
         }));
     }
 
+    // ---- GetPlayersMissingPositionOrBirthYearAsync / UpdatePlayerPositionsAndBirthYearsAsync ----
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): PlayerPositionBirthYearBackfillService's
+    // read/write pair — mirrors GetPlayersMissingPhotoAsync/UpdatePlayerPhotosAsync's
+    // own coverage above, adapted for the two-field "either is missing" shape.
+
+    [Test]
+    public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_ReturnsPlayersMissingEitherField()
+    {
+        var missingBoth = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var missingPositionOnly = new Player { Id = Guid.NewGuid(), FullName = "Didier Drogba", WikidataQid = "Q42233", BirthYear = 1978 };
+        var missingBirthYearOnly = new Player { Id = Guid.NewGuid(), FullName = "Kaká", WikidataQid = "Q11571", Position = "midfielder" };
+        var hasBoth = new Player { Id = Guid.NewGuid(), FullName = "Pelé", WikidataQid = "Q80956", Position = "forward", BirthYear = 1940 };
+        var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
+        await _repository.AddPlayerAsync(missingBoth);
+        await _repository.AddPlayerAsync(missingPositionOnly);
+        await _repository.AddPlayerAsync(missingBirthYearOnly);
+        await _repository.AddPlayerAsync(hasBoth);
+        await _repository.AddPlayerAsync(noQid);
+
+        var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { missingBoth.Id, missingPositionOnly.Id, missingBirthYearOnly.Id }));
+    }
+
+    [Test]
+    public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_RespectsBatchSize()
+    {
+        for (var i = 0; i < 5; i++)
+            await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+
+        var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 3);
+
+        Assert.That(result, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_ExcludesGivenPlayerIds()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _repository.AddPlayerAsync(first);
+        await _repository.AddPlayerAsync(second);
+
+        var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([first.Id], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { second.Id }));
+    }
+
+    [Test]
+    public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_NoMissingFieldPlayers_ReturnsEmpty()
+    {
+        var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 200);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_SetsBothFields_ForEveryGivenPlayer()
+    {
+        var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
+        var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
+        await _repository.AddPlayerAsync(first);
+        await _repository.AddPlayerAsync(second);
+
+        await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
+        {
+            [first.Id] = new PlayerPositionBirthYearUpdate("forward", 1990),
+            [second.Id] = new PlayerPositionBirthYearUpdate("goalkeeper", 1985),
+        });
+
+        var reloadedFirst = await _repository.GetPlayerByIdAsync(first.Id);
+        Assert.That(reloadedFirst!.Position, Is.EqualTo("forward"));
+        Assert.That(reloadedFirst.BirthYear, Is.EqualTo(1990));
+        var reloadedSecond = await _repository.GetPlayerByIdAsync(second.Id);
+        Assert.That(reloadedSecond!.Position, Is.EqualTo("goalkeeper"));
+        Assert.That(reloadedSecond.BirthYear, Is.EqualTo(1985));
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_NullFieldOnUpdate_LeavesThatFieldUntouched()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA", BirthYear = 1990 };
+        await _repository.AddPlayerAsync(player);
+
+        // Position resolved this run, BirthYear didn't (null means "no
+        // update," never "clear the existing value") — the already-set
+        // BirthYear must survive unchanged.
+        await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
+        {
+            [player.Id] = new PlayerPositionBirthYearUpdate("forward", null),
+        });
+
+        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        Assert.That(reloaded!.Position, Is.EqualTo("forward"));
+        Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_AlreadySetField_IsNeverOverwritten()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA", Position = "defender" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
+        {
+            [player.Id] = new PlayerPositionBirthYearUpdate("forward", 1990),
+        });
+
+        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        Assert.That(reloaded!.Position, Is.EqualTo("defender"), "REQ-1207's set-once contract must hold for this backfill too");
+        Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_EmptyDictionary_DoesNothing()
+    {
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>());
+
+        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        Assert.That(reloaded!.Position, Is.Null);
+        Assert.That(reloaded.BirthYear, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_UnknownPlayerId_IsSilentlySkipped()
+    {
+        // Best-effort backfill of already-cached data, not a
+        // correctness-critical write — a player deleted between the read
+        // and this write (e.g. by purge-player-pool) must not fail the
+        // whole batch.
+        Assert.DoesNotThrowAsync(() => _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
+        {
+            [Guid.NewGuid()] = new PlayerPositionBirthYearUpdate("forward", 1990),
+        }));
+    }
+
     // ---- REQ-503 (2026-07-20 extension): ApprovePlayerDataAsync -----------
 
     private async Task<Guid> SeedUnverifiedPlayerDataAsync(Guid playerId, string field = "club", string value = "Arsenal")

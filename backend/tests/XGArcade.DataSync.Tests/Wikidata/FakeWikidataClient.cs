@@ -59,6 +59,37 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): QueryPlayerPositionsAndBirthYearsByQidsAsync
+    // support — same "configured per-QID, plus one shared fail-next-N-calls
+    // counter" shape as the photo-batch support above.
+    private readonly Dictionary<string, PlayerPositionBirthYearEntry> _positionBirthYearByQid = new();
+    private int _remainingPositionBirthYearBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedPositionBirthYearBatches { get; } = [];
+
+    public void SetPositionBirthYear(string wikidataQid, string? position, int? birthYear) =>
+        _positionBirthYearByQid[wikidataQid] = new PlayerPositionBirthYearEntry(position, birthYear);
+
+    public void FailNextPositionBirthYearBatches(int batches) => _remainingPositionBirthYearBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedPositionBirthYearBatches.Add(wikidataQids);
+
+        if (_remainingPositionBirthYearBatchFailures > 0)
+        {
+            _remainingPositionBirthYearBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a player-position/birth-year batch");
+        }
+
+        IReadOnlyDictionary<string, PlayerPositionBirthYearEntry> result = wikidataQids
+            .Where(qid => _positionBirthYearByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _positionBirthYearByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
 

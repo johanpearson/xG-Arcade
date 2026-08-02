@@ -283,6 +283,14 @@ public class PathEndpointTests
         Assert.That(puzzle.Guess!.AttemptCount, Is.EqualTo(7));
         Assert.That(puzzle.Guess.IsCorrect, Is.False);
         Assert.That(puzzle.Guess.Locked, Is.True, "exhausting the puzzle's own 7-attempt cap locks it as unsolved");
+        // UX fix (bug-bundle fix, 2026-08-02): a puzzle locked via exhausted
+        // attempts must still reveal the target player's identity — the
+        // same as a correct guess would, since the player can no longer act
+        // on the information either way. Before this fix, ResolvedPlayerName
+        // stayed null here (gated on IsCorrect, not Locked), leaving the
+        // player with no way to ever learn the answer.
+        Assert.That(puzzle.Guess.ResolvedPlayerName, Is.EqualTo("Kylian Mbappe"),
+            "a puzzle locked via exhausted attempts (not just a correct guess) must still reveal the target's identity");
         Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "every one of the fixed 7 turns must be visible once the cap is exhausted");
         Assert.That(puzzle.Clues.Select(c => c.TurnNumber), Is.EqualTo(Enumerable.Range(1, 7)));
 

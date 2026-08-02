@@ -175,6 +175,14 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
         key={`${puzzle.puzzleId}-timeline`}
         clues={puzzle.clues}
         solved={solved}
+        // User-testing fix (2026-08-02): previously only `solved` was
+        // passed down, so a puzzle that locked unsolved (attempt cap
+        // exhausted, REQ-1205) never got any reveal at all — see
+        // PathTimeline.tsx's own comment on FailedRevealNode for the fix.
+        // `locked` is already computed above for the "Next puzzle" button's
+        // own gating; this reuses that exact same value, not a second
+        // derivation.
+        locked={locked}
         resolvedPlayerName={puzzle.guess?.resolvedPlayerName}
         resolvedPlayerPhotoUrl={puzzle.guess?.resolvedPlayerPhotoUrl}
       />
