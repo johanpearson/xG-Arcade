@@ -281,6 +281,52 @@ describe('PathScreen', () => {
     // player with no other way to move on.
     expect(screen.queryByText('Solved')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next puzzle' })).toBeInTheDocument();
+    // User-testing fix (2026-08-02): PathScreen now passes `locked` down to
+    // PathTimeline (alongside the existing `solved`), so a puzzle that's
+    // locked without ever being solved gets a distinct, non-gold reveal
+    // node instead of the prior silent "nothing beyond the last real clue."
+    // This fixture's resolvedPlayerName is null (PathTimeline's own
+    // FailedRevealNode comment explains why that's still handled correctly)
+    // so only the label renders here; the name-included case is covered
+    // below.
+    expect(screen.getByText('Out of attempts')).toBeInTheDocument();
+  });
+
+  it('User-testing fix (2026-08-02): a locked-unsolved puzzle whose resolvedPlayerName IS available shows the answer in the failed-reveal node', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/path/current')) {
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: false,
+                  attemptCount: 7,
+                  locked: true,
+                  submittedName: 'Wrong Guess',
+                  // Anticipates the parallel backend fix (PathEndpoints.cs)
+                  // that populates this field whenever `locked` is true, not
+                  // only when `isCorrect` — see this screen's own comment on
+                  // `locked` for the sequencing note.
+                  resolvedPlayerName: 'Zlatan Ibrahimović',
+                  resolvedPlayerPhotoUrl: null,
+                },
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await screen.findByText('Puzzle 1 of 1');
+    expect(screen.getByText('Out of attempts')).toBeInTheDocument();
+    expect(screen.getByText('Zlatan Ibrahimović')).toBeInTheDocument();
+    expect(screen.queryByText('Solved')).not.toBeInTheDocument();
   });
 
   it('"Next puzzle" is an explicit action, never automatic, and advances to the next puzzle in the round', async () => {

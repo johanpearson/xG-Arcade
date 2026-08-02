@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.60"
+version: "0.61"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2070,6 +2070,66 @@ Both are edge-case network/timing failures, not new deliberate product
 states — no new token, color, or motion was introduced for either; the
 warning message reuses `accent-red` exactly as `path-screen__status--error`
 already does elsewhere on this same screen.
+
+**2026-08-02 status note — live user-testing batch, three fixes, all
+tokens-only (no new color/typeface/animation):**
+
+- **Skip-to-next-clue.** The guess input used to hard-block an empty
+  submission client-side ("Type a player name to submit a guess."), with no
+  other way to move on without typing something a tester didn't want to
+  guess yet. Since every guess submission — right or wrong — already
+  advances the reveal by consuming one attempt
+  (`PathClueSequenceBuilder.GetRevealedTurnCount` ties revealed-turn-count
+  directly to `attemptCount`), an empty submission is now let through as an
+  intentional skip rather than blocked, reusing the existing guess path
+  rather than a new endpoint/flow. The submit button's label reflects the
+  field's own content: **"Next clue"** while empty, **"Guess"** once
+  text is entered — the tester's own suggested wording. Two judgment calls,
+  recorded rather than silently decided (`PathGuessInput.tsx`):
+  - **The rejected-guess shake cue does not fire for a skip.** A skip is a
+    deliberate choice, not a wrong answer, so shaking the input would read
+    as scolding the player for something they chose to do on purpose. The
+    shake stays scoped to an actual incorrect guess.
+  - **What's actually sent as `submittedName` for a skip:**
+    `POST /rounds/{roundId}/cells/{cellId}/guesses` 400s on an empty/
+    whitespace `SubmittedName` (`GuessEndpoints.cs`), so a literal empty
+    string can't be sent without a backend change. Rather than touching
+    that endpoint, the frontend sends a fixed placeholder, `"(skipped)"` —
+    chosen (over an opaque value like a UUID) so a human ever looking at
+    raw `Guess` rows can tell at a glance what happened. It can never
+    collide with a real player name and is never shown to the player either
+    way, since an incorrect guess never displays `SubmittedName` (S-029,
+    `SCREEN-01a`).
+- **Career-stint year-range layout.** The bundled year-range turn used to
+  join every club's range into one inline paragraph with " · " separators
+  (e.g. "Paris Saint-Germain 2017-19 · Lille 2019-23 · Juventus
+  2023-present · Marseille 2025-present") — confirmed by a real screenshot
+  from testing to read as a dense, hard-to-scan block once it wrapped on
+  mobile. Each club/year-range pair now renders on its own line (a stacked
+  block, `--space-1` gap — the same spacing token already used for
+  `.path-timeline__content`'s own column, no new value) instead of being
+  joined inline. Same content and club-to-range pairing as before
+  (`revealedClubNames[index]`); only the layout changed.
+- **Reveal-on-failure.** A puzzle that locked *without* ever being solved
+  (`REQ-1205`'s fixed attempt cap exhausted) previously showed nothing
+  beyond its last real clue — no reveal of the answer at all. `PathScreen`
+  now passes its existing `locked` value (already computed for the "Next
+  puzzle" button's own gating) down to `PathTimeline` alongside `solved`.
+  When `locked && !solved` on the final node, a **distinct, non-gold**
+  reveal renders: a red (`accent-red` — §2's existing "incorrect states"
+  token, used directly for text/icon color the same way `CellState.css`'s
+  own incorrect state already does, no darkened `-text` variant needed)
+  **"✕ Out of attempts"** label, followed by the resolved player's name and
+  photo (same photo-with-fallback-on-load-error structure as the existing
+  `SolvedNode`, reused rather than duplicated). Deliberately **not** the
+  gold "✓ Solved" treatment — reusing that would misleadingly imply the
+  player got it right. This depends on a parallel backend change
+  (`PathEndpoints.cs`) populating `resolvedPlayerName`/
+  `resolvedPlayerPhotoUrl` whenever a puzzle is `locked` (solved OR
+  attempt-cap-exhausted), not only when `isCorrect` — until that ships, the
+  frontend renders the "Out of attempts" label with no name/photo line
+  (never a broken "it was null" line), and picks the name/photo up with no
+  further frontend change once the backend field is populated.
 
 ## 4. Responsive strategy
 

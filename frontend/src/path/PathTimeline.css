@@ -52,6 +52,18 @@
   background: var(--color-accent-gold);
 }
 
+/* User-testing fix (2026-08-02): the locked-but-never-solved reveal node
+   (FailedRevealNode, PathTimeline.tsx) — deliberately not gold (that's
+   reserved for an actual correct guess, §2 "gold means settled/correct").
+   Uses accent-red, the same "incorrect states" token CellState.css already
+   uses directly for text/icon color on a light surface (no darkened
+   -text variant needed for accent-red, unlike gold/green — see
+   design-document.md §2's accent-red row). */
+.path-timeline__node--failed .path-timeline__dot {
+  border-color: var(--color-accent-red);
+  background: var(--color-surface-card);
+}
+
 .path-timeline__content {
   flex: 1;
   min-width: 0;
@@ -87,7 +99,20 @@
   color: var(--color-text-muted);
 }
 
-.path-timeline__year-ranges,
+/* User-testing fix (2026-08-02): was a single inline <p> with every club's
+   year range joined by " · " — dense and hard to scan once it wrapped on
+   mobile (confirmed by a real screenshot from testing). Now a stacked block,
+   one line per club/year-range pair, mirroring .path-timeline__clubs'
+   existing "stack items within one turn" pattern directly above — same
+   --space-1 gap already used for the .path-timeline__content column these
+   turns sit in, no new spacing value. */
+.path-timeline__year-ranges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.path-timeline__year-range,
 .path-timeline__text-clue {
   margin: 0;
   color: var(--color-text-primary);
@@ -125,6 +150,37 @@
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--color-accent-gold-text);
+}
+
+/* User-testing fix (2026-08-02): FailedRevealNode's own styling — same
+   structure as .path-timeline__solved-label/-name/-photo above (deliberate
+   reuse, see PathTimeline.tsx's own comment on why), red instead of gold so
+   it's never mistaken for the correct-guess treatment. §6: red is always
+   paired with text ("Out of attempts"), never a color-only signal. */
+.path-timeline__failed-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent-red);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.path-timeline__failed-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+.path-timeline__failed-photo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent-red);
 }
 
 /* design-document.md SCREEN-10 "Motion": each new node fades and rises into

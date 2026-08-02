@@ -62,6 +62,17 @@ if (args is ["migrate-and-seed"])
     // PlayerNameIndex row imported before that table existed — see
     // PlayerNameIndexWordBackfiller's own doc comment.
     await PlayerNameIndexWordBackfiller.BackfillAsync(migrationDbContext);
+    // Bug-bundle fix (2026-08-02): backfills PlayerAlias.NormalizedAlias for
+    // any row persisted before PlayerNameNormalizer's non-decomposable-
+    // Latin-letter fix (Ø/Æ/Œ/Đ/Ł/ß/Þ) — see
+    // PlayerAliasNormalizedAliasBackfiller's own doc comment. Note:
+    // Player.NormalizedFullName needs no equivalent new wiring here —
+    // PlayerNormalizedFullNameBackfiller above already re-derives it from
+    // Player.FullName under whatever PlayerNameNormalizer.Normalize
+    // currently does, so this same fix is picked up for free on the very
+    // next migrate-and-seed run (which deploy.yml already runs on every
+    // push to main).
+    await PlayerAliasNormalizedAliasBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;
@@ -216,6 +227,51 @@ if (args is ["backfill-player-photos"])
     Console.WriteLine(
         $"backfill-player-photos: complete — {backfillResult.BatchesProcessed} batch(es) processed, " +
         $"{backfillResult.PlayersBackfilled} player(s) backfilled, {backfillResult.BatchesFailed} batch(es) failed.");
+    return;
+}
+
+// REQ-1207 backfill (bug-bundle fix, 2026-08-02): `dotnet run --
+// backfill-player-position-birthyear` — same shape as backfill-player-photos
+// above (builds its dependencies directly rather than the full DI
+// container), run manually via its own workflow
+// (backfill-player-position-birthyear.yml, workflow_dispatch only). See
+// PlayerPositionBirthYearBackfillService's own doc comment for the full "why
+// a CLI verb, not an HTTP endpoint or background task" reasoning — squarely
+// inside ADR-0024's existing decision, not a new one.
+if (args is ["backfill-player-position-birthyear"])
+{
+    var positionBirthYearBackfillConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var positionBirthYearBackfillConnectionString = positionBirthYearBackfillConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var positionBirthYearBackfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(positionBirthYearBackfillConnectionString)
+        .Options;
+
+    using var positionBirthYearBackfillLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var positionBirthYearBackfillDbContext = new XGArcadeDbContext(positionBirthYearBackfillDbContextOptions);
+    var positionBirthYearBackfillPlayerStoreRepository = new PlayerStoreRepository(positionBirthYearBackfillDbContext);
+
+    using var positionBirthYearBackfillHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(positionBirthYearBackfillHttpClient);
+    var positionBirthYearBackfillWikidataClient = new WikidataClient(
+        positionBirthYearBackfillHttpClient, logger: positionBirthYearBackfillLoggerFactory.CreateLogger<WikidataClient>());
+
+    var positionBirthYearBackfillService = new PlayerPositionBirthYearBackfillService(
+        positionBirthYearBackfillPlayerStoreRepository, positionBirthYearBackfillWikidataClient,
+        positionBirthYearBackfillLoggerFactory.CreateLogger<PlayerPositionBirthYearBackfillService>());
+
+    var positionBirthYearBackfillResult = await positionBirthYearBackfillService.BackfillAsync();
+
+    Console.WriteLine(
+        $"backfill-player-position-birthyear: complete — {positionBirthYearBackfillResult.BatchesProcessed} batch(es) processed, " +
+        $"{positionBirthYearBackfillResult.PlayersBackfilled} player(s) backfilled, {positionBirthYearBackfillResult.BatchesFailed} batch(es) failed.");
     return;
 }
 

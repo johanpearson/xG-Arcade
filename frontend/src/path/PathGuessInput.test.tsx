@@ -102,7 +102,11 @@ describe('PathGuessInput', () => {
     );
 
     expect(screen.getByLabelText('Player name')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Guess' })).toBeDisabled();
+    // The field is empty (nothing was typed in this render), so the button
+    // shows its "Next clue" label per the skip fix below — it's disabled
+    // either way, since `disabled` is driven by `isCorrect`/`locked`, not by
+    // which label happens to be showing.
+    expect(screen.getByRole('button', { name: 'Next clue' })).toBeDisabled();
   });
 
   it('REQ-1205: once the attempt cap is exhausted without a correct guess, the form is disabled and states what happened', () => {
@@ -124,8 +128,51 @@ describe('PathGuessInput', () => {
     );
 
     expect(screen.getByLabelText('Player name')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Guess' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next clue' })).toBeDisabled();
     expect(screen.getByText('No attempts remain for this puzzle.')).toBeInTheDocument();
+  });
+
+  // User-testing fix (2026-08-02): a player who doesn't want to guess yet
+  // can now advance to the next clue without typing anything.
+  it('the submit button reads "Next clue" while the field is empty and "Guess" once text is entered', async () => {
+    stubNoSuggestions();
+    const user = userEvent.setup();
+
+    render(<PathGuessInput clueCount={1} guess={null} accessToken="token" onSubmit={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Next clue' })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Player name'), 'Lionel Messi');
+    expect(screen.getByRole('button', { name: 'Guess' })).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText('Player name'));
+    expect(screen.getByRole('button', { name: 'Next clue' })).toBeInTheDocument();
+  });
+
+  it('submitting an empty field calls onSubmit with a placeholder that can never match a real player, not a validation error', async () => {
+    stubNoSuggestions();
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(false);
+
+    render(<PathGuessInput clueCount={1} guess={null} accessToken="token" onSubmit={onSubmit} />);
+
+    await user.click(screen.getByRole('button', { name: 'Next clue' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('(skipped)'));
+    expect(screen.queryByText('Type a player name to submit a guess.')).not.toBeInTheDocument();
+  });
+
+  it('a skip never fires the rejected-guess shake cue, unlike a real wrong guess', async () => {
+    stubNoSuggestions();
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(false);
+
+    render(<PathGuessInput clueCount={1} guess={null} accessToken="token" onSubmit={onSubmit} />);
+
+    await user.click(screen.getByRole('button', { name: 'Next clue' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(document.querySelector('.path-guess-input--shake')).not.toBeInTheDocument();
   });
 
   it('REQ207_showsSuggestionsAfterTwoCharacters: fetches and renders suggestions once the trimmed query reaches the 2-character minimum, and not before', async () => {

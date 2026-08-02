@@ -115,22 +115,35 @@ public static class PathEndpoints
                 var allTurns = PathClueSequenceBuilder.BuildSequence(
                     stints, targetPlayer?.Position, nationality, targetPlayer?.BirthYear);
 
-                // REQ-1204/"never leak the answer for an unsolved puzzle":
-                // only ever the clue turns themselves are sent — target
-                // player identity never appears anywhere in this response
-                // unless the requesting player's own guess actually
-                // resolved it correctly (below).
+                // REQ-1204/"never leak the answer for a puzzle the player
+                // can still guess on": only ever the clue turns themselves
+                // are sent here — target player identity never appears
+                // anywhere in this response while the puzzle is still live,
+                // only once it's `locked` (solved OR attempt cap exhausted,
+                // see the guessResponse block below).
                 var revealedTurns = allTurns.Take(revealedTurnCount).Select(ToTurnResponse).ToList();
 
                 CurrentPathGuessResponse? guessResponse = null;
                 if (guess is not null)
                 {
-                    // Same "resolved name/photo only when IsCorrect" rule
-                    // RoundEndpoints/GuessEndpoints already follow — an
-                    // incorrect or in-progress guess never reveals the
-                    // target player's identity.
-                    var resolvedName = isCorrect ? targetPlayer?.FullName : null;
-                    var resolvedPhotoUrl = isCorrect ? targetPlayer?.PhotoUrl : null;
+                    // UX fix (bug-bundle fix, 2026-08-02, reported via user
+                    // testing): gated on `locked`, not `isCorrect` — a
+                    // puzzle also locks when the attempt cap is exhausted
+                    // without a correct guess (see `locked`'s own assignment
+                    // above), and a player in that state was previously
+                    // never told who the target player actually was, with no
+                    // way to find out. The boundary that must never be
+                    // crossed is "never leak the answer for a puzzle the
+                    // player can still guess on" — once the puzzle is
+                    // locked, for EITHER reason, revealing the answer is
+                    // exactly the point, not a leak. (The old comment here
+                    // said "never leak the answer for an unsolved puzzle" —
+                    // that phrasing conflated "unsolved" with "still live,"
+                    // which stopped being the same thing the moment an
+                    // exhausted-attempts puzzle needed its answer revealed
+                    // too.)
+                    var resolvedName = locked ? targetPlayer?.FullName : null;
+                    var resolvedPhotoUrl = locked ? targetPlayer?.PhotoUrl : null;
 
                     guessResponse = new CurrentPathGuessResponse(
                         isCorrect, attemptCount, locked, guess.SubmittedName, resolvedName, resolvedPhotoUrl);

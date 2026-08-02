@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.31"
+version: "1.32"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -5873,6 +5873,22 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   no `PlayerAttribute` "nationality" row) is unchanged by S-082 — that
   clue still renders as "not available" for such a player, per the same
   contract.
+- **Status note (2026-08-02, bug-bundle fix): target-player reveal on
+  attempt-cap exhaustion.** `GET /path/current`'s per-puzzle
+  `CurrentPathGuessResponse.ResolvedPlayerName`/`ResolvedPlayerPhotoUrl`
+  were originally gated on the guess's `IsCorrect` flag alone, so a puzzle
+  that locked via REQ-1205's 7-attempt cap without ever being solved never
+  revealed who the target player was — the player had no way to find out.
+  `PathEndpoints.cs`'s own code comment described the intended boundary as
+  "never leak the answer for an unsolved puzzle," which conflated
+  "unsolved" with "still live"; those stopped being the same thing the
+  moment an exhausted-attempts puzzle needed its answer revealed too. Fixed
+  to gate on `Locked` (solved OR attempt cap exhausted) instead of
+  `IsCorrect` — the correct boundary is "never leak the answer for a
+  puzzle the player can still guess on," which `Locked` already expresses
+  exactly. No DTO shape change: `CurrentPathGuessResponse` already carried
+  both `Locked` and `IsCorrect` separately, so the frontend can still
+  distinguish "solved" from "revealed but failed" from the same response.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -6091,6 +6107,20 @@ scoring strategy)
   pre-existing gap this REQ did not create and does not fix — flagged here
   for visibility, since REQ-1203's nationality clue depends on it, but
   resolving it is out of this REQ's scope.
+- **Status note (2026-08-02, bug-bundle fix): the dedicated backfill this
+  REQ anticipated now exists.** The "unless a future dedicated backfill ...
+  is built and run" caveat below is resolved: real xG Path user testing
+  showed "Position: not available"/"Age: not available" on essentially
+  every puzzle, because the overwhelming majority of `Player` rows predate
+  this REQ's migration and this REQ's own set-once contract never
+  backfills them. `PlayerPositionBirthYearBackfillService`
+  (`XGArcade.DataSync.Wikidata`) — the exact mirror this REQ's own text
+  named in advance — backfills them via a new `dotnet run --
+  backfill-player-position-birthyear` CLI verb
+  (`.github/workflows/backfill-player-position-birthyear.yml`,
+  `workflow_dispatch`-only). This REQ's set-once-at-creation contract above
+  is unchanged going forward — the backfill only ever writes a `Player`
+  row's currently-null field(s), never overwrites an already-set value.
 - Given the existing Wikidata intersection queries that create or enrich
   `Player` rows during xG Grid/xG Path player sync (Country×Club,
   National-team×Club, Club×Club, Trophy×Country, Trophy×Club — every query

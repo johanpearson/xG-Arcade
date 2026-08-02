@@ -53,4 +53,44 @@ public class PlayerNameNormalizerTests
     {
         Assert.That(PlayerNameNormalizer.Normalize(input), Is.EqualTo(expected));
     }
+
+    // Bug fix regression (2026-08-02, reported via xG Path user testing):
+    // Ø is NOT decomposable under NFKD (unlike é/ñ/etc.), so before this fix
+    // "Ødegaard" normalized to "ødegaard" and never matched what a real
+    // player types. Martin Ødegaard is a real, currently-active player —
+    // this is the exact reported shape, not a synthetic example.
+    [Test]
+    public void Normalize_NonDecomposableLetter_MatchesPlayerTypedAsciiSpelling()
+    {
+        Assert.That(PlayerNameNormalizer.Normalize("Ødegaard"), Is.EqualTo(PlayerNameNormalizer.Normalize("Odegaard")));
+        Assert.That(PlayerNameNormalizer.Normalize("Ødegaard"), Is.EqualTo("odegaard"));
+    }
+
+    // Deliberately narrow scope check: this fix maps distinct non-decomposable
+    // LETTERS to their ASCII transliteration only — it must never grow into
+    // fuzzy/edit-distance typo tolerance (REQ-208's deliberately-deferred
+    // scope, MVP-SCOPE.md). An extra vowel is a genuine typo, not a letter
+    // substitution, and must still normalize to something different.
+    [Test]
+    public void Normalize_NonDecomposableLetter_DoesNotToleratePlainTypos()
+    {
+        Assert.That(PlayerNameNormalizer.Normalize("Ødegaard"), Is.Not.EqualTo(PlayerNameNormalizer.Normalize("Oodegaard")));
+    }
+
+    // The rest of the non-decomposable-letter list this fix covers —
+    // Æ/Œ/Đ/Ł/ß/Þ — each a distinct Unicode letter in its own right, not a
+    // base+combining-mark pair, so each needs its own explicit map entry
+    // rather than being covered "for free" by the existing NFKD/
+    // NonSpacingMark pass.
+    [TestCase("Æ", "ae")]
+    [TestCase("æ", "ae")]
+    [TestCase("Œuvre", "oeuvre")]
+    [TestCase("Đorđe", "dorde")]
+    [TestCase("Łukasz", "lukasz")]
+    [TestCase("Straße", "strasse")]
+    [TestCase("Þór", "thor")]
+    public void Normalize_OtherNonDecomposableLetters_TransliteratesToAscii(string input, string expected)
+    {
+        Assert.That(PlayerNameNormalizer.Normalize(input), Is.EqualTo(expected));
+    }
 }

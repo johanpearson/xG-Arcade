@@ -6,6 +6,18 @@ import './PathTimeline.css';
 export interface PathTimelineProps {
   clues: PathClueTurn[];
   solved: boolean;
+  // User-testing fix (2026-08-02): required (not optional/defaulted), same
+  // as `solved` above — PathScreen.tsx always has a real value for this
+  // (`puzzle.guess?.locked ?? false`), and a required prop makes every call
+  // site (including tests) state its intent explicitly rather than silently
+  // falling back to "not locked." True whenever a puzzle can no longer be
+  // guessed at all — either solved (isCorrect) or locked-unsolved (the
+  // fixed attempt cap was exhausted without a correct guess, REQ-1205). Used
+  // to distinguish "solved" (gold reveal) from "locked but never solved"
+  // (a distinct, non-gold reveal — see FailedRevealNode below) — until now
+  // this second case rendered nothing at all beyond the last real clue,
+  // which is the bug this prop exists to fix.
+  locked: boolean;
   resolvedPlayerName?: string | null;
   resolvedPlayerPhotoUrl?: string | null;
 }
@@ -29,7 +41,7 @@ const TEXT_CLUE_LABELS: Record<'Position' | 'Nationality' | 'Age', string> = {
 // re-render, unlike CellState's badge-dock reveal (which needed an explicit
 // replay token because that element toggles visible/hidden repeatedly, not
 // append-only).
-export function PathTimeline({ clues, solved, resolvedPlayerName, resolvedPlayerPhotoUrl }: PathTimelineProps) {
+export function PathTimeline({ clues, solved, locked, resolvedPlayerName, resolvedPlayerPhotoUrl }: PathTimelineProps) {
   const lastIndex = clues.length - 1;
 
   // REQ-1203: the bundled year-range turn's own payload is just a list of
@@ -46,7 +58,17 @@ export function PathTimeline({ clues, solved, resolvedPlayerName, resolvedPlayer
   return (
     <ol className="path-timeline" aria-label="Revealed clues, oldest first">
       {clues.map((turn, index) => {
-        const isFinal = solved && index === lastIndex;
+        const isLastNode = index === lastIndex;
+        const isSolvedReveal = solved && isLastNode;
+        // User-testing fix (2026-08-02): a puzzle that locked *without* ever
+        // being solved (the fixed attempt cap ran out, REQ-1205) used to
+        // show nothing beyond the last real clue — no reveal at all, leaving
+        // the player never told what the answer was. `locked` covers both
+        // "solved" and "locked-unsolved"; `isFailedReveal` is specifically
+        // the second case (locked is true, solved is false), rendered as a
+        // clearly distinct, non-gold node — see FailedRevealNode below and
+        // its own design-document.md SCREEN-10 status note.
+        const isFailedReveal = locked && !solved && isLastNode;
         return (
           <li
             key={turn.turnNumber}
@@ -58,12 +80,14 @@ export function PathTimeline({ clues, solved, resolvedPlayerName, resolvedPlayer
             // CellState.css's own CSS-only reduced-motion pattern rather than
             // duplicating that logic in JS. See PathTimeline.css's comment on
             // this rule for the full reasoning.
-            className={`path-timeline__node ${isFinal ? 'path-timeline__node--solved' : ''} path-timeline__node--animate-in`}
+            className={`path-timeline__node ${isSolvedReveal ? 'path-timeline__node--solved' : ''} ${isFailedReveal ? 'path-timeline__node--failed' : ''} path-timeline__node--animate-in`}
           >
             <span className="path-timeline__dot" aria-hidden="true" />
             <div className="path-timeline__content">
-              {isFinal ? (
+              {isSolvedReveal ? (
                 <SolvedNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
+              ) : isFailedReveal ? (
+                <FailedRevealNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
               ) : (
                 renderClueContent(turn, revealedClubNames)
               )}
@@ -99,19 +123,31 @@ function renderClueContent(turn: PathClueTurn, revealedClubNames: string[]) {
 
   if (turn.kind === 'YearRange') {
     const ranges = turn.yearRanges ?? [];
+    // User-testing fix (2026-08-02): this used to join every club's year
+    // range into one inline paragraph with " · " separators (e.g. "Paris
+    // Saint-Germain 2017-19 · Lille 2019-23 · Juventus 2023-present ·
+    // Marseille 2025-present"), which read as a dense, hard-to-scan block
+    // once it wrapped on mobile — confirmed against a real screenshot from
+    // testing. Each club/year-range pair now gets its own line instead — a
+    // plain stacked block (not a nested <ul>/<li>, for the same reason
+    // ClubReveal's own block above isn't one: this turn's content lives
+    // inside the outer <ol>/<li>'s own single listitem, and a second nested
+    // list would give every range its own misleading "listitem" role). Same
+    // club-name-paired-with-range content and revealedClubNames[index]
+    // pairing logic as before — only the layout (inline-joined → one row
+    // per club) changed.
     return (
-      <p className="path-timeline__year-ranges">
+      <div className="path-timeline__year-ranges">
         {ranges.map((range, index) => {
           const clubName = revealedClubNames[index];
           const label = clubName ? `${clubName} ${range}` : range;
           return (
-            <span key={`${clubName ?? 'range'}-${range}`} className="path-timeline__year-range">
-              {index > 0 && <span aria-hidden="true"> · </span>}
+            <p key={`${clubName ?? 'range'}-${range}`} className="path-timeline__year-range">
               {label}
-            </span>
+            </p>
           );
         })}
-      </p>
+      </div>
     );
   }
 
@@ -163,6 +199,57 @@ function SolvedNode({ name, photoUrl }: { name?: string | null; photoUrl?: strin
         />
       )}
       <p className="path-timeline__solved-name">{name ?? 'Puzzle solved'}</p>
+    </div>
+  );
+}
+
+// User-testing fix (2026-08-02, design-document.md SCREEN-10 status note
+// added the same day): a puzzle that locks unsolved (REQ-1205's fixed
+// attempt cap exhausted without a correct guess) previously showed nothing
+// beyond the last real clue — no reveal of what the answer actually was.
+// This is that reveal, deliberately NOT styled as SolvedNode's gold "✓
+// Solved" treatment (§2 "gold means settled/correct" — this player did not
+// get it right, and reusing the correct-state color here would misleadingly
+// imply they did). Reuses SolvedNode's structure (same photo-with-
+// fallback-on-load-error logic, same name line) since the *content* being
+// shown is identical — a player name and optional photo — only the
+// semantic outcome differs. Styled with `accent-red` (§2: "incorrect
+// states"), the same token CellState.css's own incorrect cell state already
+// uses directly for text/icon color (accent-red passes text contrast as-is,
+// ~4.9:1 on white — no darkened `-text` variant needed, unlike
+// accent-gold/accent-green). Copy: "Out of attempts" states plainly what
+// happened (§5: errors/end-states state what happened, no apology, no
+// hedging); the name line omits an "It was" preamble to match SolvedNode's
+// own plain-name treatment exactly, since the red "Out of attempts" label
+// immediately above it already supplies the "this is the answer, and you
+// didn't get it" framing without needing to repeat it in the name line too.
+function FailedRevealNode({ name, photoUrl }: { name?: string | null; photoUrl?: string | null }) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const hasPhoto = Boolean(photoUrl) && !photoFailed;
+
+  return (
+    <div className="path-timeline__failed">
+      <p className="path-timeline__failed-label">
+        <span aria-hidden="true">✕</span> Out of attempts
+      </p>
+      {hasPhoto && (
+        <img
+          className="path-timeline__failed-photo"
+          src={photoUrl as string}
+          alt=""
+          aria-hidden="true"
+          onError={() => setPhotoFailed(true)}
+        />
+      )}
+      {/* Defensive, not a stopgap (2026-08-02): PathEndpoints.cs populates
+          resolvedPlayerName/resolvedPlayerPhotoUrl whenever the puzzle is
+          Locked (solved or attempt-cap exhausted), not only when IsCorrect
+          — but this component still never assumes the field is present.
+          `name` can legitimately be null here (e.g. the target player's
+          FullName lookup itself came back empty), so this renders a correct
+          "Out of attempts" node with no dangling "It was null" text rather
+          than trusting the backend contract blindly. */}
+      {name && <p className="path-timeline__failed-name">{name}</p>}
     </div>
   );
 }
