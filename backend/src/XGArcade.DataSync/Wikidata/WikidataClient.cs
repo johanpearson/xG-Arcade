@@ -590,6 +590,76 @@ public class WikidataClient(
         }
         """;
 
+    // ADR-0055: PlayerCareerPrefetchService's per-country pool query — see
+    // IWikidataClient's own doc comment for why this is a nationality-scoped
+    // sibling to QueryPlayerPoolBirthYearAsync above, not a replacement.
+    public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default)
+    {
+        var query = BuildPlayerPoolByNationalityQuery(nationalityWikidataQid, useCountryForSportProperty);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        // Same throw-on-failure contract as QueryPlayerPoolBirthYearAsync —
+        // see this method's own doc comment (IWikidataClient) for why.
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParseNameIndexBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player-pool query for nationality {nationalityWikidataQid} timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player-pool query for nationality {nationalityWikidataQid} failed: {ex.Message}", ex);
+        }
+    }
+
+    // ADR-0055: the nationality-scoped sibling of BuildPlayerPoolBirthYearQuery
+    // — same bounded shape (no ORDER BY/LIMIT/OFFSET), same male/
+    // born-1939-or-later filter (ADR-0025/REQ-112, via the shared
+    // DateOfBirthCutoff constant this time, rather than a per-year window),
+    // filtered by P27 or P1532 instead of sliced by birth year.
+    // useCountryForSportProperty selects between them — same flag,
+    // same meaning as QueryNationalTeamClubIntersectionAsync/
+    // QueryCountryClubIntersectionAsync's own split (ADR-0035). Truthy
+    // (wdt:) for both P27 and P1532 — same reasoning
+    // BuildNationalTeamClubIntersectionQuery's own comment gives for why
+    // P1532 doesn't have P54's "current club" rank-hiding problem, and P27
+    // ("citizenship") has no equivalent problem either (a player either
+    // holds a citizenship or doesn't; Wikidata has no "current citizenship
+    // supersedes past ones" editorial convention the way P54's "current
+    // club" does).
+    private static string BuildPlayerPoolByNationalityQuery(string nationalityQid, bool useCountryForSportProperty)
+    {
+        var nationalityProperty = useCountryForSportProperty ? "P1532" : "P27";
+        return $$"""
+            SELECT ?player ?playerLabel ?birthYear WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P21 wd:{{MaleWikidataQid}}.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "{{DateOfBirthCutoff}}"^^xsd:dateTime)
+              BIND(YEAR(?dateOfBirth) AS ?birthYear)
+              ?player wdt:{{nationalityProperty}} wd:{{nationalityQid}}.
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+    }
+
     private static IReadOnlyList<WikidataNameIndexEntry> ParseNameIndexBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

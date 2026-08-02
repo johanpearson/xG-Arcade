@@ -1962,4 +1962,101 @@ public class WikidataClientTests
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryPlayerCareerStintsByQidsAsync(["Q1519", "Arsenal"]));
     }
+
+    // ---- QueryPlayerPoolByNationalityAsync (ADR-0055, xG Path candidate-pool
+    // widening) -------------------------------------------------------------
+    // The nationality-scoped sibling of QueryPlayerPoolBirthYearAsync — same
+    // throw-on-failure contract, same bounded-query discipline, filtered by
+    // P27/P1532 instead of sliced by birth year.
+
+    [Test]
+    public async Task ADR0055_QueryPlayerPoolByNationalityAsync_UsesP27_WhenNotCountryForSportProperty()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player wdt:P27 wd:Q142."));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P1532"));
+    }
+
+    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland use P1532
+    // ("country for sport"), not P27 — same split
+    // QueryNationalTeamClubIntersectionAsync's own test coverage pins for
+    // the intersection queries.
+    [Test]
+    public async Task ADR0055_QueryPlayerPoolByNationalityAsync_UsesP1532_WhenCountryForSportProperty()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByNationalityAsync("Q21", useCountryForSportProperty: true);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player wdt:P1532 wd:Q21."));
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P27"));
+    }
+
+    [Test]
+    public async Task ADR0055_QueryPlayerPoolByNationalityAsync_SentQuery_NeverContainsOrderByLimitOrOffset()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("ORDER BY"));
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+        Assert.That(sentQuery, Does.Not.Contain("OFFSET"));
+    }
+
+    [Test]
+    public async Task ADR0055_QueryPlayerPoolByNationalityAsync_ParsesEveryDistinctPlayer()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "birthYear": { "type": "literal", "value": "1977" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q9617" }, "playerLabel": { "type": "literal", "value": "Someone Else" }, "birthYear": { "type": "literal", "value": "1990" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result.Select(r => r.WikidataQid), Is.EquivalentTo(new[] { "Q1519", "Q9617" }));
+    }
+
+    [Test]
+    public void ADR0055_QueryPlayerPoolByNationalityAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
+    }
+
+    [Test]
+    public void ADR0055_QueryPlayerPoolByNationalityAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
+    }
+
+    [Test]
+    public void ADR0055_QueryPlayerPoolByNationalityAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
+    }
 }

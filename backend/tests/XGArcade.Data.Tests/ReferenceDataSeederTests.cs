@@ -34,12 +34,12 @@ public class ReferenceDataSeederTests
 
         // S-036 widened 20/15 to 45/21, S-037 widened clubs again to 32
         // (45/32), REQ-114/ADR-0035 (2026-07-21) added 4 home-nation rows
-        // to CountryDefinitions (49/32) — these counts intentionally stay
-        // hardcoded (not read back from ReferenceDataSeeder itself) so a
-        // future accidental change to the seed data is caught here, not
-        // silently accepted.
+        // to CountryDefinitions (49/32), ADR-0055 (2026-08-02) added Celtic
+        // (49/33) — these counts intentionally stay hardcoded (not read back
+        // from ReferenceDataSeeder itself) so a future accidental change to
+        // the seed data is caught here, not silently accepted.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     [Test]
@@ -60,7 +60,7 @@ public class ReferenceDataSeederTests
         // See REQ109_SeedAsync_PopulatesAllCountriesAndClubsFromMvpScope's
         // own comment for why these counts stay hardcoded.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     [Test]
@@ -77,7 +77,7 @@ public class ReferenceDataSeederTests
         // See REQ109_SeedAsync_PopulatesAllCountriesAndClubsFromMvpScope's
         // own comment for why these counts stay hardcoded.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     // REQ-114/ADR-0035 (2026-07-21): supersedes the old

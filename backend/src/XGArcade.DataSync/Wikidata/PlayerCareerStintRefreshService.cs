@@ -14,9 +14,9 @@ namespace XGArcade.DataSync.Wikidata;
 // cannot make a previously-ineligible player newly eligible for THIS
 // generation, since eligibility is decided before this service ever runs.
 // Widening the candidate pool itself (so players who never triggered an xG
-// Grid lookup can become targets at all) is a separate, larger decision —
-// see ADR-0054's own "Alternatives considered"/Follow-up sections, not
-// assumed or attempted here.
+// Grid lookup can become targets at all) is ADR-0055's job
+// (PlayerCareerPrefetchService, which shares this class's reconciliation
+// logic below — see BuildNewStintsByPlayerId's own doc comment).
 public class PlayerCareerStintRefreshService(
     IWikidataClient wikidataClient,
     IPlayerStoreRepository playerStore,
@@ -63,16 +63,28 @@ public class PlayerCareerStintRefreshService(
         if (stintsByQid.Count == 0)
             return;
 
-        // Same dedup-against-what's-already-stored discipline as
-        // WikidataLookupService.PersistCareerStintsAsync — this call is
-        // additive (it can only ever ADD stints Wikidata's full-career
-        // response reveals that xG Grid's narrower byproduct queries never
-        // happened to discover), never a wipe-and-replace. A previously
-        // wrong stint is not this method's concern (see ADR-0054's
-        // Consequences section).
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
+        var newStintsByPlayerId = BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId);
+
+        if (newStintsByPlayerId.Count > 0)
+            await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+    }
+
+    // ADR-0055: extracted so PlayerCareerPrefetchService's bulk job can share
+    // the exact same dedup-against-what's-already-stored logic RefreshCareerStintsAsync
+    // uses above, rather than a second, easy-to-drift-apart copy. Same
+    // "additive only, never a wipe-and-replace" discipline as
+    // WikidataLookupService.PersistCareerStintsAsync — a previously wrong
+    // stint is not this method's concern (see ADR-0054's Consequences
+    // section). Internal, not private: XGArcade.DataSync is a shared
+    // assembly between the two callers.
+    internal static Dictionary<Guid, IReadOnlyList<PlayerCareerStint>> BuildNewStintsByPlayerId(
+        IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> stintsByQid,
+        IReadOnlyDictionary<string, Guid> qidToPlayerId,
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> existingStintsByPlayerId)
+    {
         var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
         foreach (var (qid, fetchedStints) in stintsByQid)
         {
@@ -102,7 +114,6 @@ public class PlayerCareerStintRefreshService(
                 newStintsByPlayerId[playerId] = newStints;
         }
 
-        if (newStintsByPlayerId.Count > 0)
-            await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        return newStintsByPlayerId;
     }
 }

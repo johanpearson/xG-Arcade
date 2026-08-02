@@ -300,4 +300,36 @@ public interface IWikidataClient
     Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
         IReadOnlyList<string> wikidataQids,
         CancellationToken cancellationToken = default);
+
+    // ADR-0055: PlayerCareerPrefetchService's per-country pool query — the
+    // nationality-scoped counterpart of QueryPlayerPoolBirthYearAsync's
+    // birth-year-scoped one (S-032/ADR-0007). Same bounded-query shape (no
+    // ORDER BY/LIMIT/OFFSET) and same reuse of WikidataNameIndexEntry/
+    // ParseNameIndexBindings — this is still "a broad player-pool scan,"
+    // just sliced by a different, also-bounded axis. useCountryForSportProperty
+    // selects P1532 vs. P27, mirroring QueryNationalTeamClubIntersectionAsync/
+    // QueryCountryClubIntersectionAsync's own split (ADR-0035) — callers
+    // pass `CountryDefinition.UsesCountryForSportProperty`, never both for
+    // the same country.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryPlayerPoolBirthYearAsync/QueryPlayerCareerStintsByQidsAsync: this
+    // is a batch job whose success metric is a fetched-pool count, so a
+    // swallowed failure would be indistinguishable from "this country
+    // genuinely has zero eligible players" (never actually true for a
+    // seeded country, but the client has no way to know that).
+    //
+    // Unverified from this sandbox whether a single large country's
+    // unsliced pool (e.g. Brazil, England — potentially thousands of players
+    // across the full 1939-present eligible range) stays safely inside
+    // WDQS's ~60s server-side cap the way a single birth-year slice does —
+    // flagged in ADR-0055 as an open risk, not assumed safe. The caller
+    // (PlayerCareerPrefetchService) treats a single country's failure as
+    // recoverable (log, continue with the remaining countries, fail the run
+    // loudly at the end) for exactly this reason — see that class's own doc
+    // comment.
+    Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid,
+        bool useCountryForSportProperty,
+        CancellationToken cancellationToken = default);
 }

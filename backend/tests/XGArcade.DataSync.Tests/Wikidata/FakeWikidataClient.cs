@@ -121,6 +121,36 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // ADR-0055: QueryPlayerPoolByNationalityAsync support — same
+    // "configured per-QID, plus one shared fail-next-N-calls counter" shape
+    // as every other batch-style method above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataNameIndexEntry>> _poolByNationalityQid = new();
+    private int _remainingNationalityPoolFailures;
+
+    public List<string> QueriedNationalityQids { get; } = [];
+    public List<bool> QueriedUsesCountryForSportProperty { get; } = [];
+
+    public void SetPoolForNationality(string nationalityQid, IReadOnlyList<WikidataNameIndexEntry> pool) =>
+        _poolByNationalityQid[nationalityQid] = pool;
+
+    public void FailNextNationalityPoolCalls(int calls) => _remainingNationalityPoolFailures = calls;
+
+    public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default)
+    {
+        QueriedNationalityQids.Add(nationalityWikidataQid);
+        QueriedUsesCountryForSportProperty.Add(useCountryForSportProperty);
+
+        if (_remainingNationalityPoolFailures > 0)
+        {
+            _remainingNationalityPoolFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for nationality {nationalityWikidataQid}");
+        }
+
+        var pool = _poolByNationalityQid.TryGetValue(nationalityWikidataQid, out var configured) ? configured : [];
+        return Task.FromResult(pool);
+    }
+
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
 

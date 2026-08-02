@@ -14,12 +14,21 @@ name: warm-player-cache
 # unlike the deployed backend's own HTTP ingress (~240s, the exact wall
 # ADR-0023 had to work around for round generation).
 #
-# Manual trigger only, no recurring schedule — run this after any
-# reference-data change (ReferenceDataSeeder.cs), not on a fixed cadence,
-# since the reference data itself doesn't change on its own.
+# Weekly cron (ADR-0055, 2026-08-02) — supersedes the original "manual only,
+# run after any reference-data change" note: a recurring cadence is cheap
+# now that ConfirmedLowMatchPair/PairLookupFailure (ADR-0050/ADR-0052) skip
+# already-confirmed-low or persistently-failing pairs without a live query,
+# so a repeat run mostly costs time on genuinely new or previously-failed
+# pairs, not a full re-sweep. Offset 90 minutes after
+# import-player-name-index.yml's own weekly run so the two bulk jobs don't
+# compete for the same time slot (not a hard dependency between them —
+# either can run standalone). workflow_dispatch stays available for an
+# on-demand run right after a reference-data change, same as before.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "30 4 * * 0" # weekly, Sunday 04:30 UTC
 
 jobs:
   warm-player-cache:

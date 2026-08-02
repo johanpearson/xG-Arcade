@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
+  (Proposed → Accepted, same session), `docs/architecture-document.md`
+  (v0.74 → v0.75), `docs/implementation-document.md` (v0.87 → v0.88) — three
+  follow-up moves to ADR-0054's "build the player-data cache up proactively"
+  feedback, all shipped: (1) Celtic added to `ReferenceDataSeeder.Clubs`
+  (unverified QID, flagged for human verification, same as every other
+  recent addition); (2) `warm-player-cache.yml`/`import-player-name-index.yml`
+  moved from `workflow_dispatch`-only to a weekly cron, alongside their
+  existing manual trigger; (3) new `prefetch-player-careers` CLI verb/
+  workflow (`workflow_dispatch` only for now) and `PlayerCareerPrefetchService`
+  sweep every seeded `CountryDefinition`'s full player pool via a new
+  `IWikidataClient.QueryPlayerPoolByNationalityAsync`, writing careers
+  directly — this is what actually widens xG Path's target-player pool
+  beyond whatever xG Grid's own lookups happened to discover, not just
+  enriches an already-selected target (ADR-0054's own scope). Note: ADR-0055
+  originally proposed sourcing move (3) from `PlayerNameIndex`; that turned
+  out to be unworkable (`PlayerNameIndex` has no `WikidataQid` column at
+  all, ADR-0007) and was corrected to source from `CountryDefinition`
+  instead during implementation — see the ADR's own "Correction" note.
 - 2026-08-02 — `docs/decisions/0054-xg-path-direct-career-stint-fetch.md` (new),
   `docs/architecture-document.md` (v0.73 → v0.74),
   `docs/implementation-document.md` (v0.86 → v0.87) — xG Path now fetches its

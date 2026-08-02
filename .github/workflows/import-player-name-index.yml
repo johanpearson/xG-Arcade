@@ -17,12 +17,19 @@ name: import-player-name-index
 # this run goes red — a red run means "re-run the job" (it's idempotent),
 # NOT "raise a timeout"; see NOTES.md's 2026-07-17/18 entries.
 #
-# Manual trigger only, no recurring schedule — ADR-0007's own follow-up note
-# says start with a manual/periodic refresh and tighten only if names are
-# noticeably missing later.
+# Weekly cron (ADR-0055, 2026-08-02) — supersedes the original "manual only"
+# note: ADR-0007's own follow-up said start manual/periodic and tighten if
+# names are noticeably missing, and NOTES.md's 2026-08-02 entry recorded
+# exactly that gap in practice (a code fix landed, but needed a human to
+# remember to click "Run workflow" for it to actually take effect). A weekly
+# cadence keeps the autocomplete index from silently drifting stale between
+# manual runs; workflow_dispatch stays available for an on-demand refresh
+# (e.g. right after a normalizer fix, per NOTES.md's own guidance).
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 3 * * 0" # weekly, Sunday 03:00 UTC
 
 jobs:
   import-player-name-index:

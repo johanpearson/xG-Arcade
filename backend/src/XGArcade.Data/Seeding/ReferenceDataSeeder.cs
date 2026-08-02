@@ -171,6 +171,21 @@ public static class ReferenceDataSeeder
         ("Real Sociedad", "Q10315"),
         ("Newcastle United", "Q18716"),
         ("West Ham United", "Q18747"),
+        // ADR-0055 (2026-08-02): added directly in response to a live report
+        // that a Timothy Weah xG Path puzzle could never show a Celtic stint
+        // — Celtic wasn't seeded at all, so no country-club intersection
+        // query could ever discover it, regardless of cache-warming. Q19593
+        // is a training-knowledge QID, NOT verified against a live Wikidata
+        // endpoint from this sandbox (same network-policy block as every
+        // other QID in this file — see this class's own doc comment and
+        // NOTES.md's repeated wikidata.org-unreachable entries). Given
+        // S-036/S-037's own history (4 of 6 guessed club QIDs were wrong,
+        // silently resolving to a different real entity instead of erroring)
+        // a human must verify this against the live Wikidata page before
+        // relying on it in a real deployment — if wrong, correct it here the
+        // same way S-037 did; the idempotent-by-Name upsert applies the fix
+        // on the next seed run with no migration needed.
+        ("Celtic", "Q19593"),
     ];
 
     // S-031: v1 seeds exactly one trophy (individual awards only, REQ-108) —
