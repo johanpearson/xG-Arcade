@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/decisions/0054-cli-verb-logging-configuration.md`
+  (new), `docs/requirements-document.md` (v1.31 → v1.32) — Investigating
+  the ~118-125 persistently-failing Club×Club pairs
+  in `warm-player-cache` (still open — see ADR-0052's own "Follow-up" note)
+  first surfaced that the documented troubleshooting step (set
+  `Logging:LogLevel:Default`/a scoped override to `Debug`) never actually
+  worked for any CLI verb (`warm-player-cache`, `import-player-name-index`,
+  `backfill-player-photos`): each built its `ILoggerFactory` with a
+  hardcoded `SetMinimumLevel(LogLevel.Information)` that never consulted
+  `IConfiguration`'s `Logging` section at all, since none of them reach
+  `WebApplication.CreateBuilder` (which normally wires it in). Fixed with a
+  new shared, testable `CliLoggerFactory.Build(IConfiguration)`
+  (`XGArcade.Api.Cli`) — see ADR-0054 for the full reasoning and
+  alternatives considered. `CliLoggerFactoryTests.cs` added as regression
+  coverage. The Club×Club failure-cause investigation itself is still open
+  pending real per-pair `Debug`-level evidence gathered via this fix
+  through a CI run (this sandbox has no GitHub API access to trigger or
+  read one) — a follow-up ADR will document that investigation's findings
+  once available.
 - 2026-08-01 — `docs/backlog.md`, `docs/requirements-document.md` (v1.30 →
   v1.31), `docs/architecture-document.md` (v0.71 → v0.72),
   `docs/implementation-document.md` (v0.84 → v0.85) — Doc-sync for S-091

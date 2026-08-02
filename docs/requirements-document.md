@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.31"
+version: "1.32"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -514,6 +514,22 @@ without erroring), API
   re-check" invariant those two already satisfy for a QID/query-shape
   correction is unaffected; this tool instead exists for the case where
   the failure marker itself is the only thing that needs clearing.
+- **Status note (2026-08-02, ADR-0054).** A separate, still-open
+  investigation into ~118-125 Club×Club pairs that persistently fail
+  `warm-player-cache` even after ADR-0052's `FILTER EXISTS` fix and a
+  `clear-pair-lookup-failures` reset first surfaced that ADR-0052's own
+  documented troubleshooting step — set `Logging:LogLevel:Default` (or a
+  scoped category override) to `Debug` to see `WikidataClient`'s per-pair
+  timeout/HTTP/parse-error detail — never actually worked for
+  `warm-player-cache` (or `import-player-name-index`/
+  `backfill-player-photos`): each built its `ILoggerFactory` with a
+  hardcoded minimum level that never consulted `Logging:LogLevel`
+  configuration at all, since none of them run through
+  `WebApplication.CreateBuilder`. Fixed via `CliLoggerFactory.Build` — see
+  ADR-0054 for the full reasoning. This is an observability fix only, no
+  behavior change to cache warming's own pair-checking/skip/persistence
+  logic documented above. The Club×Club failure-cause investigation itself
+  remains open pending real per-pair evidence gathered using this fix.
 
 **Test level:** Unit (`PlayerCacheWarmingServiceTests.cs` — every pair
 gets checked exactly once per run; an already-valid pair is skipped; a
