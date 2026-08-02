@@ -11,6 +11,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Tests;
 
@@ -139,14 +140,21 @@ public class LeaderboardEndpointTests
     // became necessary: REQ-409's per-round query joins against Rounds and
     // requires ClosedAt != null, so a "qualifying round" needs a genuine
     // closed Round row, not just an unbacked random RoundId.
-    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints)
+    //
+    // REQ-410 (2026-07-27, backlog S-087): optional trailing gameKey
+    // parameter, defaulting to GridGameModule.XGGridGameKey so every
+    // pre-existing call site (all implicitly "xg-grid") is unchanged — same
+    // shape as LeaderboardServiceTests' own SeedLockedGuessAsync overload;
+    // only the new REQ410-named cross-game tests below pass a second,
+    // different GameKey ("xg-path") explicitly.
+    private async Task SeedLockedGuessAsync(Guid userId, int finalPoints, string? gameKey = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GridGameModule.XGGridGameKey,
+            GameKey = gameKey ?? GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
             StartTime = DateTime.UtcNow.AddDays(-2),
             EndTime = DateTime.UtcNow.AddDays(-1),
@@ -177,6 +185,18 @@ public class LeaderboardEndpointTests
     {
         foreach (var finalPoints in finalPointsPerRound)
             await SeedLockedGuessAsync(userId, finalPoints);
+    }
+
+    // REQ-410: same as SeedQualifyingRoundsAsync above, but for a
+    // caller-chosen GameKey other than the file's default — lets a
+    // cross-game API test build a player's qualifying-round history under a
+    // second game without touching the many existing single-game callers of
+    // the overload above. Mirrors LeaderboardServiceTests' own overload of
+    // the same name/shape.
+    private async Task SeedQualifyingRoundsAsync(Guid userId, string gameKey, params int[] finalPointsPerRound)
+    {
+        foreach (var finalPoints in finalPointsPerRound)
+            await SeedLockedGuessAsync(userId, finalPoints, gameKey);
     }
 
     // REQ-406/407: a real GridInstance/GridCell pair backing an active
@@ -232,14 +252,19 @@ public class LeaderboardEndpointTests
     // never touches IGameModule at all (it's locked-only, REQ-206's
     // SUM(final_points)), so a plain Round row (no backing GridInstance) is
     // enough here, unlike the active-round helper above.
-    private async Task<Guid> SeedClosedRoundAsync(DateTime closedAt)
+    //
+    // REQ-410/S-087: optional trailing gameKey parameter, defaulting to
+    // GridGameModule.XGGridGameKey so every pre-existing call site is
+    // unchanged — only the new REQ410_ClosedRoundsGet_* test below passes a
+    // second, different GameKey ("xg-path") explicitly.
+    private async Task<Guid> SeedClosedRoundAsync(DateTime closedAt, string? gameKey = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         var round = new Round
         {
             Id = Guid.NewGuid(),
-            GameKey = GridGameModule.XGGridGameKey,
+            GameKey = gameKey ?? GridGameModule.XGGridGameKey,
             GameInstanceId = Guid.NewGuid(),
             StartTime = closedAt.AddDays(-2),
             EndTime = closedAt,
@@ -506,6 +531,103 @@ public class LeaderboardEndpointTests
         var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
         Assert.That(body!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex", "You" }));
         Assert.That(body.Rows.Select(r => r.TotalPoints), Is.EqualTo(new[] { 7, 30 }));
+    }
+
+    // ---- REQ-410/S-087: gameKey query param on the all-time route -----------
+    // Core.Leagues' own median/qualifying-round-per-game filtering logic is
+    // exhaustively covered by LeaderboardServiceTests' REQ410_* cases (see
+    // this file's header comment) — these only prove what only the real HTTP
+    // pipeline can: the `gameKey` query string actually binds, defaults, and
+    // rejects unknown values, and two different games' responses over HTTP
+    // really are independent, not just at the service layer.
+
+    [Test]
+    public async Task REQ410_LeaderboardGet_TwoDifferentGameKeys_ReturnIndependentRankingsEachOnlyContainingThatGamesQualifier()
+    {
+        var requestingAuthProviderUserId = Guid.NewGuid();
+        var requestingUserId = await SeedMemberAsync(requestingAuthProviderUserId, "You");
+        var otherUserId = await SeedMemberAsync(Guid.NewGuid(), "Alex");
+        // "You" qualifies (5+ rounds) under xg-grid only; "Alex" qualifies
+        // under xg-path only — mirrors REQ-410's own acceptance example of a
+        // player who qualifies in one game but not the other.
+        await SeedQualifyingRoundsAsync(requestingUserId, 10, 20, 30, 40, 50); // xg-grid median 30.
+        await SeedQualifyingRoundsAsync(otherUserId, XGPathGameModule.XGPathGameKey, 60, 70, 80, 90, 100); // xg-path median 80.
+        var client = CreateAuthenticatedClient(requestingAuthProviderUserId);
+
+        var xgGridResponse = await client.GetAsync($"/leagues/global/leaderboard?gameKey={GridGameModule.XGGridGameKey}");
+        var xgPathResponse = await client.GetAsync($"/leagues/global/leaderboard?gameKey={XGPathGameModule.XGPathGameKey}");
+
+        Assert.That(xgGridResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(xgPathResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var xgGridBody = await xgGridResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        var xgPathBody = await xgPathResponse.Content.ReadFromJsonAsync<LeaderboardResponse>();
+
+        // xg-grid's response contains only "You" (the xg-grid qualifier),
+        // never "Alex" (who only qualifies under xg-path).
+        Assert.That(xgGridBody!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "You" }));
+        Assert.That(xgGridBody.Rows.Single().TotalPoints, Is.EqualTo(30));
+
+        // xg-path's response contains only "Alex", never "You" — the two
+        // games' rankings are independent, not blended into one response.
+        Assert.That(xgPathBody!.Rows.Select(r => r.DisplayName), Is.EqualTo(new[] { "Alex" }));
+        Assert.That(xgPathBody.Rows.Single().TotalPoints, Is.EqualTo(80));
+    }
+
+    [Test]
+    public async Task REQ410_LeaderboardGet_GameKeyOmitted_DefaultsToXGGrid()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedMemberAsync(authProviderUserId, "You");
+        await SeedQualifyingRoundsAsync(userId, 10, 20, 30, 40, 50); // xg-grid median 30.
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<LeaderboardResponse>();
+        Assert.That(body!.Rows.Single().DisplayName, Is.EqualTo("You"), "omitting gameKey must default to xg-grid, preserving pre-S-087 behavior");
+        Assert.That(body.Rows.Single().TotalPoints, Is.EqualTo(30));
+    }
+
+    [Test]
+    public async Task REQ410_LeaderboardGet_UnrecognizedGameKey_ReturnsBadRequestWithInvalidGameKeyTitle()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/leagues/global/leaderboard?gameKey=not-a-real-game");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Invalid gameKey"));
+    }
+
+    // Smoke-test coverage for one other gameKey-accepting route (closed-rounds)
+    // routing the param correctly — REQ-410's own acceptance text is
+    // specifically about the all-time route above, which is covered
+    // thoroughly; this just confirms the same query param isn't silently
+    // dropped on another route sharing ValidateGameKey.
+    [Test]
+    public async Task REQ410_ClosedRoundsGet_GameKeyFiltersToOnlyThatGamesClosedRounds()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedMemberAsync(authProviderUserId, "Alex");
+        var now = DateTime.UtcNow;
+        var xgGridRoundId = await SeedClosedRoundAsync(now.AddDays(-1));
+        var xgPathRoundId = await SeedClosedRoundAsync(now.AddDays(-2), XGPathGameModule.XGPathGameKey);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var xgGridResponse = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds?gameKey={GridGameModule.XGGridGameKey}");
+        var xgPathResponse = await client.GetAsync($"/leagues/global/leaderboard/closed-rounds?gameKey={XGPathGameModule.XGPathGameKey}");
+
+        Assert.That(xgGridResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(xgPathResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var xgGridBody = await xgGridResponse.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
+        var xgPathBody = await xgPathResponse.Content.ReadFromJsonAsync<ClosedRoundListResponse>();
+
+        Assert.That(xgGridBody!.Rounds.Select(r => r.RoundId), Is.EqualTo(new[] { xgGridRoundId }));
+        Assert.That(xgPathBody!.Rounds.Select(r => r.RoundId), Is.EqualTo(new[] { xgPathRoundId }));
     }
 
     // ---- REQ-407: standalone active-round leaderboard -----------------------

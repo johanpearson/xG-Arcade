@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.60"
+version: "0.61"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1187,9 +1187,11 @@ Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
 (`accent-green` underline on the active tab) — one visual tab pattern
 reused, not a second one invented.
 
-**Game switcher (design only, ADR-0043/`requirements-document.md` REQ-410
-— not yet built, xG Grid is still the only shipped game):** once a second
-game exists, the **All-time** scope above can no longer mean one thing —
+**Game switcher (built, ADR-0043/`requirements-document.md` REQ-410,
+`docs/backlog.md` S-087, 2026-08-02 — see that entry's "Built as" for the
+full implementation, including the backend `gameKey` query-param work it
+turned out to require):** once a second game exists, the **All-time**
+scope above can no longer mean one thing —
 `GetGlobalLeaderboardAsync` is scoped per `GameKey` (ADR-0043), so "the"
 all-time ranking becomes "xG Grid's all-time ranking" and "xG Path's
 all-time ranking," never one blended number. A game switcher — the same

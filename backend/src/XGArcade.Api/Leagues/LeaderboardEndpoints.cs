@@ -4,6 +4,7 @@ using XGArcade.Core.Leagues;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Leagues;
 
@@ -41,10 +42,18 @@ namespace XGArcade.Api.Leagues;
 // replacement, not a new endpoint. It no longer resolves "the active
 // round" before calling ILeaderboardService, unlike REQ-406/407 above.
 //
-// REQ-410 (2026-07-27, backlog S-078, ADR-0043): GetGlobalLeaderboardAsync
-// now takes a required gameKey — this route passes GridGameModule.XGGridGameKey
-// explicitly, same as REQ-406/407/408/405 above already do, rather than
-// leaving the ranking silently span every game.
+// REQ-410 (2026-07-27, backlog S-078/S-087, ADR-0043): GetGlobalLeaderboardAsync
+// now takes a required gameKey — Core.Leagues has taken this parameter since
+// S-078, but until S-087 this Api layer still hardcoded
+// GridGameModule.XGGridGameKey at every call site below, which meant no
+// caller could ever request xG Path's leaderboard. Every route below except
+// the single-round-by-id one (which resolves by roundId alone, not by game)
+// now accepts an optional `gameKey` query param: omitted defaults to
+// GridGameModule.XGGridGameKey (preserves today's behavior for any caller
+// that hasn't been updated yet, same "optional, defaulted" shape
+// cursor/pageSize already use in this file), and anything other than the two
+// known GameKeys is a 400 via the same inline validation
+// InternalRoundEndpoints.cs uses.
 public static class LeaderboardEndpoints
 {
     // implementation-document.md §6's example (`pageSize=50`) as the
@@ -62,9 +71,10 @@ public static class LeaderboardEndpoints
             ILeaderboardService leaderboardService,
             int? cursor,
             int? pageSize,
+            string? gameKey,
             CancellationToken cancellationToken) =>
         {
-            var validationError = ValidatePaging(cursor, pageSize);
+            var validationError = ValidatePaging(cursor, pageSize) ?? ValidateGameKey(gameKey);
             if (validationError is not null)
                 return validationError;
 
@@ -80,12 +90,12 @@ public static class LeaderboardEndpoints
             // old live-fold onto this same route is retired along with the
             // sum-based ranking it applied to; see ILeaderboardService's own
             // doc comment on GetGlobalLeaderboardAsync for the full reasoning).
-            // REQ-410/ADR-0043 (2026-07-27): gameKey is now required —
-            // hardcoding GridGameModule.XGGridGameKey here is fine, same
-            // Api-layer-only reasoning as every other route in this file
-            // (ADR-0003); Core.Leagues itself never references it.
+            // REQ-410/ADR-0043/S-087 (2026-07-27): gameKey is now required by
+            // Core.Leagues and caller-supplied here — defaults to
+            // GridGameModule.XGGridGameKey when the query param is omitted.
+            var resolvedGameKey = gameKey ?? GridGameModule.XGGridGameKey;
             var page = await leaderboardService.GetGlobalLeaderboardAsync(
-                requestingUser.Id, GridGameModule.XGGridGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
+                requestingUser.Id, resolvedGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             return Results.Ok(ToResponse(page));
         }).RequireAuthorization();
@@ -102,9 +112,10 @@ public static class LeaderboardEndpoints
             TimeProvider timeProvider,
             int? cursor,
             int? pageSize,
+            string? gameKey,
             CancellationToken cancellationToken) =>
         {
-            var validationError = ValidatePaging(cursor, pageSize);
+            var validationError = ValidatePaging(cursor, pageSize) ?? ValidateGameKey(gameKey);
             if (validationError is not null)
                 return validationError;
 
@@ -112,8 +123,13 @@ public static class LeaderboardEndpoints
             if (requestingUser is null)
                 return Results.Unauthorized();
 
+            // S-087/REQ-410: resolvedGameKey must flow into both the
+            // "find the active round" step and the leaderboard call below —
+            // using a stale hardcoded value in one but not the other would
+            // resolve xG Path's active round while still scoring xG Grid's.
+            var resolvedGameKey = gameKey ?? GridGameModule.XGGridGameKey;
             var now = timeProvider.GetUtcNow().UtcDateTime;
-            var activeRound = await roundRepository.GetActiveByGameKeyAsync(GridGameModule.XGGridGameKey, now, cancellationToken);
+            var activeRound = await roundRepository.GetActiveByGameKeyAsync(resolvedGameKey, now, cancellationToken);
             if (activeRound is null)
             {
                 // Mirrors RoundEndpoints' own REQ-303 "no active round"
@@ -138,9 +154,10 @@ public static class LeaderboardEndpoints
             ILeaderboardService leaderboardService,
             int? cursor,
             int? pageSize,
+            string? gameKey,
             CancellationToken cancellationToken) =>
         {
-            var validationError = ValidatePaging(cursor, pageSize);
+            var validationError = ValidatePaging(cursor, pageSize) ?? ValidateGameKey(gameKey);
             if (validationError is not null)
                 return validationError;
 
@@ -148,8 +165,9 @@ public static class LeaderboardEndpoints
             if (requestingUser is null)
                 return Results.Unauthorized();
 
+            var resolvedGameKey = gameKey ?? GridGameModule.XGGridGameKey;
             var page = await leaderboardService.GetClosedRoundsAsync(
-                GridGameModule.XGGridGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
+                resolvedGameKey, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             var rounds = page.Rounds
                 .Select(r => new ClosedRoundSummaryResponse(r.RoundId, r.StartTime, r.EndTime, r.ClosedAt))
@@ -207,6 +225,7 @@ public static class LeaderboardEndpoints
             TimeProvider timeProvider,
             int? cursor,
             int? pageSize,
+            string? gameKey,
             CancellationToken cancellationToken) =>
         {
             if (!Enum.TryParse<LeaderboardWindowResolution>(resolution, ignoreCase: true, out var parsedResolution))
@@ -217,7 +236,7 @@ public static class LeaderboardEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var validationError = ValidatePaging(cursor, pageSize);
+            var validationError = ValidatePaging(cursor, pageSize) ?? ValidateGameKey(gameKey);
             if (validationError is not null)
                 return validationError;
 
@@ -225,9 +244,10 @@ public static class LeaderboardEndpoints
             if (requestingUser is null)
                 return Results.Unauthorized();
 
+            var resolvedGameKey = gameKey ?? GridGameModule.XGGridGameKey;
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var page = await leaderboardService.GetWindowedLeaderboardAsync(
-                requestingUser.Id, GridGameModule.XGGridGameKey, parsedResolution, now, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
+                requestingUser.Id, resolvedGameKey, parsedResolution, now, cursor ?? 0, pageSize ?? DefaultPageSize, cancellationToken);
 
             return Results.Ok(ToResponse(page));
         }).RequireAuthorization();
@@ -252,6 +272,25 @@ public static class LeaderboardEndpoints
             return Results.Problem(
                 title: "Invalid pageSize",
                 detail: $"pageSize must be between 1 and {MaxPageSize}.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return null;
+    }
+
+    // S-087/REQ-410: shared by every route above except the single closed-
+    // round-by-id route (which resolves by roundId alone, never by game).
+    // Same inline validation shape InternalRoundEndpoints.cs already uses
+    // for its own gameKey query param — an unrecognized value is malformed
+    // caller input, not a leaderboard-computation failure, so it's rejected
+    // here rather than passed through to Core.Leagues.
+    private static IResult? ValidateGameKey(string? gameKey)
+    {
+        if (gameKey is not (null or GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
+        {
+            return Results.Problem(
+                title: "Invalid gameKey",
+                detail: $"Unknown gameKey '{gameKey}'.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 

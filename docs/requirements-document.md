@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.31"
+version: "1.32"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -2705,6 +2705,10 @@ undefined.
   tracked separately as S-087/SCREEN-03). This REQ's own acceptance
   criteria above are unchanged and remain accurate as a description of the
   single-game case; see REQ-410 and ADR-0043 for the per-game scope.
+  **(2026-08-02, S-087 — implemented):** the frontend game switcher above
+  now exists, and `LeaderboardEndpoints` accepts an explicit `gameKey`
+  query parameter rather than always requesting xG Grid's ranking — see
+  REQ-410's own 2026-08-02 status note.
 - Given a player is a member of at least one league
 - When the player opens a league's leaderboard
 - Then the ranking is based on the same underlying score data (no separate
@@ -3271,6 +3275,14 @@ REQ410-named tests in `LeaderboardServiceTests.cs` seed a second, real
 `"xg-path"` `GameKey` and confirm qualifying rounds/medians/the 5-round
 minimum are computed independently per game and never blended. Frontend
 game-switcher UI remains a separate follow-up, S-087/SCREEN-03.)*
+*(Status note, 2026-08-02, S-087 — implemented: `LeaderboardEndpoints`
+now accepts an optional `gameKey` query parameter on every route that
+reads a specific game's data, instead of always hardcoding
+`GridGameModule.XGGridGameKey` — omitted defaults to xg-grid (preserves
+prior behavior), an unrecognized value 400s. `LeaderboardScreen.tsx`
+gained the game-switcher tab row this REQ's original status note said was
+still missing. See `docs/backlog.md` S-087's "Built as" for the full
+implementation.)*
 > As a player on a platform with more than one game, I want the Global
 > League's all-time ranking to reflect only the game I'm currently
 > viewing, so a game with a different scoring model isn't blended into my
@@ -3286,9 +3298,13 @@ game-switcher UI remains a separate follow-up, S-087/SCREEN-03.)*
   matching `gameKey` parameter, added as a `round.GameKey == gameKey`
   filter to its existing `Guess`-`Round` join. `League` membership itself
   (REQ-401) is unchanged — there remains exactly one Global League; only
-  the ranking read from it is scoped per game. No frontend game-switcher
-  yet (tracked separately, S-087/SCREEN-03) — the route still always
-  requests xG Grid's ranking today.
+  the ranking read from it is scoped per game. **(2026-08-02, S-087):**
+  `LeaderboardEndpoints` now accepts an optional `gameKey` query parameter
+  (defaulting to xg-grid when omitted) on every route above except the
+  single-round-by-id one, so the ranking is no longer always xG Grid's —
+  see this REQ's own 2026-08-02 status note above. `LeaderboardScreen.tsx`
+  gained the frontend game-switcher tab row this bullet previously said
+  was still missing.
 - Given the platform hosts more than one game, each with its own `GameKey`
 - When a player requests the Global League's all-time ranking (REQ-409)
   for a specific game
@@ -3312,11 +3328,13 @@ one game never appear in another game's qualifying-round count or
 median) — covered, `LeaderboardServiceTests.cs`'s `REQ410_*` cases. API
 (requesting the all-time leaderboard for two different games returns two
 independent rankings, and a player who qualifies in one game but not the
-other is present in exactly one of the two responses) — not yet
-addable: `LeaderboardEndpoints`'s route takes no `gameKey` query
-parameter today (it always requests xG Grid's ranking), so there is no
-second game to request via the API until S-087's game switcher lands;
-tracked alongside that story, not a gap in S-078 itself.
+other is present in exactly one of the two responses) — covered as of
+2026-08-02 (S-087), `LeaderboardEndpointTests.cs`'s `REQ410_*` cases,
+now that `LeaderboardEndpoints`'s route accepts an explicit `gameKey`
+query parameter. UI (switching games on SCREEN-03 re-queries the active
+scope with the new `gameKey`; the selected scope tab is preserved across
+a game switch) — covered, `LeaderboardScreen.test.tsx`'s `REQ410`-named
+cases.
 
 ---
 
