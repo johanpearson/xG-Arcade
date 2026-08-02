@@ -1157,3 +1157,94 @@ handful of QIDs on one side — that pattern means structural (a query-shape
 problem), not transient (WDQS load) or a straightforward "budget's too
 small" — a bigger timeout or more retries will not fix a structural
 failure, only a query-shape change or `PairLookupFailure`'s skip will.
+
+### 2026-08-02 — `import-player-name-index` crashed on birth year 1970 with an EF identity-tracking conflict; fixed by deduping a batch by PlayerId
+
+A real manual dispatch (run #6, attempt 1) imported birth years 1939-1969
+cleanly (57,157 rows) then died with an unhandled
+`System.InvalidOperationException: The instance of entity type
+'PlayerNameIndexWord' cannot be tracked because another instance with the
+same key value for {'PlayerId', 'Word'} is already being tracked`, thrown
+from `PlayerNameIndexRepository.ReconcileWords`'s `PlayerNameIndexWords.Add(...)`
+call, at exit code 134. Confirmed via the actual GitHub Actions job log
+(job 91462586266), not guessed.
+
+Root cause: `UpsertManyAsync` assumed every `PlayerId` in the batch it's
+given is unique, and built `existingWordsByPlayer` once, up front, from the
+database. If the same `PlayerId` appears twice in one batch, the second
+occurrence's `ReconcileWords` call tries to re-`Add` `PlayerNameIndexWord`
+rows the first occurrence already staged (Added but not yet saved) for the
+same `PlayerId` — EF's change tracker rejects the second `Add` for an
+identical `{PlayerId, Word}` composite key immediately, in memory, before
+`SaveChangesAsync` ever issues a query. This is distinct from — and not
+covered by — the two cases already handled and tested: a repeated word
+*within* one name (`ToHashSet()`-deduped, `REQ208_UpsertManyAsync_NameWithRepeatedWord...`)
+and the same QID appearing in *two different* birth-year slices, i.e. two
+separate `UpsertManyAsync` calls (`ImportAsync_SameQidInTwoBirthYearSlices...`,
+which works correctly because each call re-reads current DB state fresh).
+
+**The exact Wikidata-side trigger for birth year 1970 specifically producing
+two same-QID entries within one `QueryPlayerPoolBirthYearAsync` response is
+NOT confirmed** — `ParseNameIndexBindings` already dedupes by QID string
+within one response via its `byQid` dictionary, so this would require
+either a WDQS response anomaly on that specific query or something else not
+reproducible from this sandbox (no live Wikidata access, same limitation as
+every other Wikidata data question in this file). Rather than chase that
+further, fixed defensively where it actually matters: `UpsertManyAsync` now
+collapses `entryList` by `PlayerId` (`GroupBy(...).Select(g => g.Last())`)
+before doing anything else, so a duplicate within one batch can never reach
+`ReconcileWords` at all, regardless of cause — "last entry wins," the same
+last-write-wins rule this method already applies across separate runs.
+Regression test:
+`PlayerNameIndexRepositoryTests.UpsertManyAsync_SamePlayerIdTwiceInOneBatch_DoesNotThrow_LastEntryWins`.
+**If this run was re-dispatched before this fix lands, it will fail again at
+the same point** — re-run `import-player-name-index.yml` once this fix is
+on `main`.
+
+### 2026-08-02 — xG Path's "no Celtic at all, missing Juventus/Marseille stints" report explained: `PlayerCareerStint` is a side effect of xG Grid's country×club lookups, not a full career fetch
+
+Live report: a Timothy Weah xG Path puzzle showed no Juventus or Marseille
+stints (both real, per Wikipedia) and no Celtic stint at all. Traced
+through the actual data path, not guessed:
+
+- `PlayerCareerStint` rows are populated **only** as a side effect of
+  `WikidataLookupService.LookupAndPersistAsync` — the nationality × club
+  intersection query xG Grid uses to fill a grid cell (ADR-0042/S-079's own
+  comment says this explicitly: career-stint persistence is wired up for
+  the country/nationality × club path only, deliberately not for
+  club-club/trophy-country/trophy-club). There is no "fetch this player's
+  full Wikidata career" call anywhere in this codebase — a player's
+  `PlayerCareerStint` set is whatever the accumulated history of xG Grid
+  cell lookups (live guess-time misses + `warm-player-cache` runs) has
+  happened to query so far, never a complete career.
+- A stint can only ever be recorded for a club that is in the seeded
+  `ClubDefinition` table (`ReferenceDataSeeder.Clubs`) — the intersection
+  query is always (seeded country, seeded club). **Celtic is not in that
+  list at all** (checked `ReferenceDataSeeder.cs` directly), so a Celtic
+  stint can never be persisted for any player, regardless of how much
+  cache-warming runs — this is a reference-data gap, not a bug to fix in
+  code. Juventus and Marseille, by contrast, **are** both seeded — so a
+  missing stint there means the specific (nationality, club) pair (for
+  Weah, presumably United States of America × Juventus and
+  USA × Marseille) simply hasn't been queried and cached yet, or was
+  queried and marked a confirmed-low-match/technical-failure pair
+  (ADR-0050/ADR-0052) and is now being skipped without a live re-query.
+- `PathEndpoints`'s `GET /path/current` renders every `PlayerCareerStint`
+  row on record for the target player, unfiltered by seeded-club status —
+  so this isn't a display bug hiding data that exists; the rows genuinely
+  aren't there yet.
+
+**Not a code defect** — this is `ADR-0042`'s accepted scope (career stints
+are a byproduct of xG Grid's own cell lookups, not a first-class Wikidata
+fetch) intersecting with two separate, known gaps: Celtic's absence from
+`ClubDefinition`, and `warm-player-cache` not yet having covered every
+(nationality, seeded club) pair for every xG Path target player. Two
+distinct fixes exist if this is worth acting on, not attempted here since
+neither was asked for: (1) add Celtic to `ReferenceDataSeeder.Clubs` with a
+verified QID (same S-037-style live-Wikidata verification discipline every
+other club addition here has followed — this sandbox can't verify it), and
+(2) either run `warm-player-cache.yml` again to close remaining
+(nationality, club) gaps, or give xG Path its own direct per-player
+career-stint fetch instead of depending on xG Grid's lookup history as a
+byproduct — the latter is a real scope decision (a new Wikidata query
+shape, ADR-worthy), not a one-line fix.

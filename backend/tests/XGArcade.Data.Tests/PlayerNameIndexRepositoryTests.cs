@@ -273,6 +273,43 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(results.Select(r => r.PlayerId), Does.Contain(entry.PlayerId), "the repeated word must still be usable for autocomplete matching");
     }
 
+    // 2026-08-02 fix: import-player-name-index crashed live on a real batch
+    // that contained the same PlayerId twice (see NOTES.md's 2026-08-02
+    // entry) — ReconcileWords tried to re-Add the same {PlayerId, Word} rows
+    // the first occurrence in the same unsaved batch had already staged.
+    // "Last one wins" matches UpsertManyAsync_ExistingPlayerId_UpdatesInPlace's
+    // last-write-wins rule for a repeat across separate runs, applied here
+    // within a single run's own batch instead.
+    [Test]
+    public async Task UpsertManyAsync_SamePlayerIdTwiceInOneBatch_DoesNotThrow_LastEntryWins()
+    {
+        var playerId = Guid.NewGuid();
+        var first = new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "First Variant",
+            NormalizedName = PlayerNameNormalizer.Normalize("First Variant"),
+        };
+        var second = new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Second Variant",
+            NormalizedName = PlayerNameNormalizer.Normalize("Second Variant"),
+        };
+
+        Assert.DoesNotThrowAsync(async () => await _repository.UpsertManyAsync([first, second]));
+
+        var rowCount = await _dbContext.PlayerNameIndexEntries.CountAsync(p => p.PlayerId == playerId);
+        Assert.That(rowCount, Is.EqualTo(1), "a duplicate PlayerId within one batch must never produce two rows");
+
+        var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync(p => p.PlayerId == playerId);
+        Assert.That(stored.PrimaryName, Is.EqualTo("Second Variant"), "the later entry in the same batch wins");
+
+        var wordRows = await _dbContext.PlayerNameIndexWords.Where(w => w.PlayerId == playerId).ToListAsync();
+        Assert.That(wordRows.Select(w => w.Word), Is.EquivalentTo(new[] { "second", "variant" }),
+            "the word index must reflect only the winning entry's name, not a leftover from the discarded one");
+    }
+
     [Test]
     public async Task UpsertManyAsync_NewPlayerId_Inserts()
     {
