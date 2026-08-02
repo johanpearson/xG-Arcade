@@ -171,13 +171,19 @@ test.describe('REQ-1201/1202/1203/1204/1205/1206/410/408: play a full xG Path ro
     await expect(page.getByText('Clue 1 of 7')).toBeVisible()
 
     const nameField = page.getByLabel('Player name')
-    // PathGuessInput.tsx's submit button is labeled "Guess" — deliberately
-    // different from GuessInput.tsx's (xG Grid) "Submit guess", and this
-    // screen has no modal dialog to open first (SCREEN-10 is a persistent
-    // inline form, not GuessInput's cell-click sheet) — see PathGuessInput
-    // .tsx's own top-of-file comment on why there's no REQ-209
-    // disambiguation picker or REQ-215 suggestion entry point here.
-    const guessButton = page.getByRole('button', { name: 'Guess' })
+    // Located by CSS class, not by accessible name/role — PathGuessInput.tsx
+    // (user-testing fix, 2026-08-02, PR #138) relabels this same button
+    // "Guess"/"Next clue" depending on whether the field currently has text
+    // (an empty submission is now an intentional skip to the next clue, not
+    // a client-side error), so a `getByRole('button', { name: 'Guess' })`
+    // locator created once up front would stop matching the instant the
+    // field goes back to empty (e.g. right after a rejected guess clears
+    // it, below) — this class-based locator stays valid across every label
+    // change. Screen has no modal dialog to open first (SCREEN-10 is a
+    // persistent inline form, not GuessInput's cell-click sheet) — see
+    // PathGuessInput.tsx's own top-of-file comment on why there's no
+    // REQ-209 disambiguation picker or REQ-215 suggestion entry point here.
+    const guessButton = page.locator('.path-guess-input__submit')
 
     // ---- Guess: an intentionally wrong attempt (REQ-1204/1205) --------
     await nameField.fill('Definitely Not A Real Path Player')
@@ -209,9 +215,15 @@ test.describe('REQ-1201/1202/1203/1204/1205/1206/410/408: play a full xG Path ro
     await expect(nameField).toHaveValue('')
     await expect(nameField).toBeEnabled()
     await expect(guessButton).toBeEnabled()
+    // User-testing fix (2026-08-02, PR #138): with the field empty again,
+    // the button's own label has switched to "Next clue" — a real assertion
+    // on the relabel, not just an artifact of the class-based locator above.
+    await expect(guessButton).toHaveText('Next clue')
 
     // ---- Guess: the correct player name (REQ-1204/1205) ---------------
     await nameField.fill(seed.correctPlayerName)
+    // Label switches back to "Guess" now that the field has content again.
+    await expect(guessButton).toHaveText('Guess')
     await guessButton.click()
 
     // REQ-1203's "no further clue is ever revealed once solved" / REQ-1205's
