@@ -72,11 +72,18 @@ public class XGPathGameModuleTests
     // fields above already establish for the real repositories.
     private FakePlayerCareerStintRefreshService _careerStintRefreshService = null!;
 
+    // ADR-0056: same "field, not a local" reasoning as
+    // _careerStintRefreshService above — REQ1201_GenerateInstanceAsync_
+    // CandidateFailingFamiliarityFilter_NeverSelected calls MarkUnfamiliar on
+    // it before GenerateInstanceAsync runs.
+    private FakePlayerFamiliarityService _playerFamiliarityService = null!;
+
     private XGPathGameModule BuildModule(Random? random = null)
     {
         _careerStintRefreshService = new FakePlayerCareerStintRefreshService();
+        _playerFamiliarityService = new FakePlayerFamiliarityService();
         return new(_pathInstanceRepository, _playerStoreRepository, _categoryValueRepository,
-            _careerStintRefreshService, random ?? new SequentialRandom());
+            _careerStintRefreshService, _playerFamiliarityService, random ?? new SequentialRandom());
     }
 
     private PathTemplate SeedTemplate(int puzzleCount)
@@ -338,6 +345,51 @@ public class XGPathGameModuleTests
 
         Assert.That(targets, Has.Count.EqualTo(3));
         Assert.That(targets, Does.Contain(sameClubThreeTimes.Id));
+    }
+
+    // ADR-0056: a candidate that passes every REQ-1201 structural check is
+    // still never selected if IPlayerFamiliarityService judges it
+    // unfamiliar — same rejection-test technique as the structural checks
+    // above (baseline eligible pool + one violating candidate, PuzzleCount
+    // set to exactly baseline+1 so a bug can't "get lucky" and pass by
+    // chance).
+    [Test]
+    public void ADR0056_GenerateInstanceAsync_CandidateFailingFamiliarityFilter_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var unfamiliar = SeedEligiblePlayer("Unfamiliar", "Seeded FC");
+        _playerFamiliarityService.MarkUnfamiliar(unfamiliar.Id);
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // ADR-0056: the familiarity filter must run against exactly the
+    // structurally-eligible pool (REQ-1201's checks already applied) — a
+    // candidate that fails a structural check (too few stints, here) must
+    // never even be offered to the familiarity filter, let alone counted
+    // against it.
+    [Test]
+    public async Task ADR0056_GenerateInstanceAsync_FamiliarityFilterOnlySeesStructurallyEligibleCandidates()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+        SeedEligiblePlayer("Eligible3", "Seeded FC");
+
+        var tooFewStints = SeedPlayer("TwoStints");
+        SeedStints(tooFewStints.Id, (2010, 2013, "Seeded FC"), (2013, null, "Other FC"));
+
+        var template = SeedTemplate(3);
+        await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_playerFamiliarityService.Calls, Has.Count.EqualTo(1));
+        Assert.That(_playerFamiliarityService.Calls[0], Does.Not.Contain(tooFewStints.Id));
     }
 
     [Test]

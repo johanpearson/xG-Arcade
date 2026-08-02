@@ -143,12 +143,15 @@ public class WikidataLookupServiceTests
 
     // REQ-1207/S-082: same single-match shape as SingleHenryMatchJson, plus
     // P413 (position) and a P569 (dateOfBirth) binding to derive BirthYear
-    // from.
+    // from. "positionLabel", not "position" (bug fix, 2026-08-02) — see
+    // WikidataClient.BuildIntersectionQuery's own comment for why ?position
+    // alone is a raw QID URI, never the human-readable string ParseBindings
+    // actually reads.
     private const string SingleHenryMatchWithPositionAndBirthYearJson = """
         {
           "results": {
             "bindings": [
-              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "position": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } }
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "positionLabel": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } }
             ]
           }
         }
@@ -163,7 +166,7 @@ public class WikidataLookupServiceTests
         {
           "results": {
             "bindings": [
-              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "position": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1980-01-01T00:00:00Z" } }
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "positionLabel": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1980-01-01T00:00:00Z" } }
             ]
           }
         }

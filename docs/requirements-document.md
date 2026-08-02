@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.33"
+version: "1.34"
 status: draft
 last_updated: 2026-08-02
 owner: Johan
@@ -5817,6 +5817,16 @@ not a claim about current behavior.
   enforced entirely upstream at Wikidata-query time (ADR-0025), the same
   reasoning `GridGameModule` already relies on for not re-checking this at
   runtime either.
+- **Status note (2026-08-02, bug-bundle fix): familiarity filter added
+  (ADR-0056).** Real player feedback: a structurally eligible target can
+  still be an obscure, unrecognizable career journeyman, since none of the
+  three checks above say anything about fame. `XGPathGameModule.
+  GetEligiblePlayerIdsAsync` now runs a familiarity filter
+  (`IPlayerFamiliarityService`/`PlayerFamiliarityService`, Wikipedia sitelink
+  count via the new `IWikidataClient.QuerySitelinkCountsByQidsAsync`) on top
+  of the structural checks below, before target selection — see ADR-0056 for
+  the full decision, the alternatives considered (total appearances, trophy
+  won), and the fail-open contract on a Wikidata failure or data gap.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -5832,6 +5842,13 @@ not a claim about current behavior.
 - And the player must already be a member of the existing player pool as
   restricted by REQ-112 (male, born 1939 or later) — xG Path reuses that
   population and defines no separate one of its own
+- And (ADR-0056, added 2026-08-02) the player must be judged "familiar
+  enough" by the familiarity filter — a Wikipedia sitelink count that
+  resolves to at least the configured threshold — UNLESS the filter itself
+  could not run (a Wikidata failure, or no candidate in the pool having a
+  usable `WikidataQid`), in which case this check is skipped for that
+  generation rather than blocking it (REQ-103's established "never block
+  round generation on a Wikidata failure" reasoning)
 - And a candidate failing any of these checks is never selected as a
   puzzle target
 
@@ -5841,7 +5858,16 @@ order, no stint at a seeded club, a seeded-club stint below/at/unknown
 appearance count, a player outside REQ-112's pool — the last of these
 confirmed by inspection/schema absence rather than a runtime fixture,
 since `Player` has no field that could represent "outside the pool"; see
-`XGPathGameModuleTests`'s own class doc comment)
+`XGPathGameModuleTests`'s own class doc comment. ADR-0056's familiarity
+filter: `XGPathGameModuleTests` covers the game-module-level wiring — below
+threshold, at/above threshold, structural-ineligibility candidates never
+even reaching the filter — via `FakePlayerFamiliarityService`;
+`PlayerFamiliarityServiceTests` (`XGArcade.DataSync.Tests`) covers the real
+implementation directly — threshold boundary, unresolved-QID exclusion,
+fail-open on a Wikidata failure, fail-open when nobody in the pool can be
+checked, and batching above `PlayerFamiliarityService.BatchSize`.
+`WikidataClientTests` covers `QuerySitelinkCountsByQidsAsync`'s own query
+shape and error contract.)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number
@@ -5935,6 +5961,20 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   exactly. No DTO shape change: `CurrentPathGuessResponse` already carried
   both `Locked` and `IsCorrect` separately, so the frontend can still
   distinguish "solved" from "revealed but failed" from the same response.
+- **Status note (2026-08-02, bug-bundle fix): national team caps were
+  leaking into the club-reveal clues, violating this REQ's own "national
+  team caps/appearances are never revealed as a clue" acceptance criterion
+  below.** Wikidata models national-team caps under the same P54 ("member of
+  sports team") property as club membership — `WikidataClient.
+  QueryPlayerCareerStintsByQidsAsync` (ADR-0054, xG Path's full-career fetch)
+  had no exclusion for this, so a target's national team (e.g. "Switzerland
+  men's national football team") could appear as a "club" alongside their
+  real clubs, both in `PathClueSequenceBuilder`'s club-reveal turns and in
+  REQ-1201's own stint-count eligibility check. Fixed by excluding any
+  `?club` that is (transitively, via P279 subclass) an instance of
+  Wikidata's Q6979593 "national association football team" class — see the
+  query builder's own code comment in `WikidataClient.cs` for the exact
+  SPARQL clause.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -5984,7 +6024,12 @@ correct guess at every possible point, including after each of the 3 club
 turns individually — `PathClueSequenceBuilderTests`. API: `GET
 /path/current` end to end, including auth, no-active-round 404, and the
 "only the requesting player's own unlocked turns are returned" contract —
-`PathEndpointTests`, S-082)
+`PathEndpointTests`, S-082. National-team exclusion (2026-08-02 bug-bundle
+fix): `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_
+SentQuery_ExcludesNationalTeams` covers the query-text assertion — a real
+national-team caps row is server-side excluded by WDQS itself, not
+something this codebase's own parsing can independently verify from a
+mocked response.)
 
 **REQ-1204 – Guess correctness resolution**
 > As a player, I want my guess for an xG Path puzzle checked against that
@@ -6167,6 +6212,20 @@ scoring strategy)
   `workflow_dispatch`-only). This REQ's set-once-at-creation contract above
   is unchanged going forward — the backfill only ever writes a `Player`
   row's currently-null field(s), never overwrites an already-set value.
+- **Status note (2026-08-02, bug-bundle fix): Position was persisted as a raw
+  Wikidata QID URI, not a label.** Every query that fetches P413 (the five
+  intersection query builders AND the backfill's own
+  `QueryPlayerPositionsAndBirthYearsByQidsAsync`) projected `?position`
+  straight into `Player.Position` — the bare entity URI object of the P413
+  triple (e.g. `"http://www.wikidata.org/entity/Q336286"`), never resolved
+  to a human-readable string. Real xG Path play surfaced this directly: the
+  position clue rendered the literal QID URI. Fixed by requesting
+  `?positionLabel` (auto-resolved by the existing `SERVICE wikibase:label`
+  block already used for `?playerLabel`/`?clubLabel`) instead of `?position`
+  — the backfill query additionally needed the `SERVICE wikibase:label`
+  block added at all, since it had none. This REQ's set-once persistence
+  contract and null-handling are otherwise unchanged; only what gets
+  captured as the non-null value changed, from a QID to a label.
 - Given the existing Wikidata intersection queries that create or enrich
   `Player` rows during xG Grid/xG Path player sync (Country×Club,
   National-team×Club, Club×Club, Trophy×Country, Trophy×Club — every query

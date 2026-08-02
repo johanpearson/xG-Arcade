@@ -332,4 +332,32 @@ public interface IWikidataClient
         string nationalityWikidataQid,
         bool useCountryForSportProperty,
         CancellationToken cancellationToken = default);
+
+    // ADR-0056: xG Path's familiarity signal — Wikipedia sitelink count per
+    // QID, the same VALUES-clause-over-a-bounded-QID-batch shape as
+    // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync.
+    // `wikibase:sitelinks` is WDQS's own computed predicate, not a P-number
+    // statement — see WikidataClient.QuerySitelinkCountsByQidsAsync's own doc
+    // comment for the full reasoning, including why this exists at all
+    // (REQ-1201's eligibility check had no fame/recognizability signal
+    // whatsoever before this — any player with 3+ documented stints and one
+    // seeded-club stint could be picked, regardless of how obscure).
+    //
+    // Returns a dictionary keyed by QID, present only for QIDs whose
+    // sitelink count actually resolved — a QID absent from the result is
+    // "unknown," never "confirmed 0," same "absent means no data, never an
+    // error" contract as QueryPlayerPhotosByQidsAsync.
+    //
+    // Error contract — same as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync/
+    // QueryPlayerCareerStintsByQidsAsync (throw WikidataQueryException on
+    // timeout/HTTP/parse failure): the caller
+    // (XGPathGameModule.GetEligiblePlayerIdsAsync) is responsible for
+    // deciding that a failed familiarity check must never block round
+    // generation (REQ-103's established reasoning) — this client method must
+    // not silently conflate "the query failed" with "this player has 0
+    // sitelinks."
+    Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
+        IReadOnlyList<string> wikidataQids,
+        CancellationToken cancellationToken = default);
 }

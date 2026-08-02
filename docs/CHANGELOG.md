@@ -13,6 +13,28 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/decisions/0056-xg-path-familiarity-filter.md` (new),
+  `docs/requirements-document.md` (v1.33 → v1.34, REQ-1201/1203/1207 status
+  notes), `docs/architecture-document.md` (v0.75 → v0.76, COMP-07/COMP-11),
+  `docs/implementation-document.md` (v0.88 → v0.89) — player feedback on xG
+  Path ("I got this Austrian guy I had no idea who he is," national team
+  showing up as a "club," Position clue rendering a raw Wikidata QID URI
+  instead of a name, "Age" label on what's actually a birth year). Three
+  fixes: (1) `WikidataClient.QueryPlayerCareerStintsByQidsAsync` now excludes
+  national teams from `?club` (Wikidata models caps under the same P54
+  property as club membership) — was violating REQ-1203's own "national team
+  caps are never revealed as a clue" acceptance criterion. (2) every P413
+  ("position")-fetching query now requests `?positionLabel` via
+  `SERVICE wikibase:label` instead of the raw `?position` binding, which was
+  a bare entity URI, never a label; the backfill query needed the label
+  service added outright. (3) new `IWikidataClient
+  .QuerySitelinkCountsByQidsAsync` + `PlayerFamiliarityService` — a Wikipedia
+  sitelink-count familiarity filter on top of REQ-1201's existing structural
+  eligibility checks, fails open on a Wikidata failure or data gap — ADR-0056
+  (product owner's chosen signal, among sitelink count/total appearances/
+  trophy won). Frontend: `PathTimeline.tsx`'s "Age" clue now displays as
+  "Birth year" (the value was already a birth year, never a computed age;
+  only the label changed).
 - 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
   (Consequences/Follow-up amended with real-run findings), `NOTES.md` —
   `prefetch-player-careers`'s first real run processed all 49 seeded
