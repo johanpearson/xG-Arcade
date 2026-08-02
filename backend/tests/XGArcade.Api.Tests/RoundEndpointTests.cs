@@ -625,10 +625,10 @@ public class RoundEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
-    // ---- S-088/REQ-806 extension: seed-guessable-path-round is a non-Production-only test control --
+    // ---- S-088/REQ-807 extension: seed-guessable-path-round is a non-Production-only test control --
 
     [Test]
-    public async Task S088_SeedGuessablePathRound_Post_CreatesAnActiveXgPathRoundWithOneGuessablePuzzle()
+    public async Task REQ807_SeedGuessablePathRound_Post_CreatesAnActiveXgPathRoundWithOneGuessablePuzzle()
     {
         var response = await _factory.CreateClient().PostAsync("/internal/test-data/seed-guessable-path-round", content: null);
 

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.32"
+version: "1.33"
 status: draft
 last_updated: 2026-08-02
 owner: Johan
@@ -4386,23 +4386,51 @@ flow: signup → guess → force-close → verify locked score)
   live-uniqueness test (a single valid answer can only ever show "0%
   unique"). The response gained `AlternateCorrectPlayerName` alongside the
   existing `CorrectPlayerName`; the acceptance criteria below are otherwise
-  unchanged.
+  unchanged. **Extended again in S-088:** a second, parallel endpoint,
+  `POST /internal/test-data/seed-guessable-path-round`
+  (same `XGArcade.Api.Rounds.InternalRoundEndpoints` file), was added for
+  xG Path's E2E coverage — same non-Production gate, same
+  repository-only write discipline (ADR-0006 boundary rule 4), just
+  against `IPathInstanceRepository` instead of `IGridInstanceRepository`.
+  It creates a `Player` with three chronologically distinct
+  `PlayerCareerStint` rows (enough content for
+  `PathClueSequenceBuilder`'s three club-reveal turns), a `PathInstance`
+  with one `PathPuzzle` targeting that player, and an active `Round`
+  referencing that instance — bypassing `XGPathGameModule
+  .GenerateInstanceAsync` entirely, so REQ-1201's seeded-club/appearance-
+  count eligibility rules never apply to rows created this way, same as
+  the grid endpoint above already bypasses xG Grid's own generation-time
+  eligibility logic. The acceptance criteria below now cover both
+  endpoints; this REQ's original text ("only grid/round content is seeded
+  this way") predated the second game and is corrected below.
 - Given `ASPNETCORE_ENVIRONMENT` is not `Production`
 - When a test calls `POST /internal/test-data/seed-guessable-round`
 - Then an active Round and a single-cell `GridInstance` are created, together
   with one `Player` whose `PlayerAttribute` rows satisfy that cell's row and
   column categories
 - And the response returns the created round id, cell id, and the exact
-  correct player name, so a test can deterministically submit both a correct
-  and an incorrect guess
-- And this endpoint is never registered when `ASPNETCORE_ENVIRONMENT ==
-  Production`, enforced in startup configuration, same discipline as
-  REQ-801/REQ-806
+  correct player name (`RoundId`/`CellId`/`CorrectPlayerName`, plus
+  `AlternateCorrectPlayerName` per the S-011 extension above), so a test can
+  deterministically submit both a correct and an incorrect guess
+- Given `ASPNETCORE_ENVIRONMENT` is not `Production`
+- When a test calls `POST /internal/test-data/seed-guessable-path-round`
+- Then an active Round and a single-puzzle `PathInstance` are created,
+  together with one `Player` whose `PlayerCareerStint` rows give
+  `PathClueSequenceBuilder` real content for all clue-reveal turns
+- And the response returns `RoundId`/`PuzzleId`/`CorrectPlayerName` —
+  `PuzzleId` is the "cell id" a test submits guesses against via the
+  existing game-agnostic `POST /rounds/{roundId}/cells/{cellId}/guesses`,
+  per `IGameModule.GetCellIdsAsync`'s PathPuzzle.Id-is-the-cell-id contract
+- And both endpoints above are never registered when
+  `ASPNETCORE_ENVIRONMENT == Production`, enforced in startup
+  configuration, same discipline as REQ-801/REQ-806
 - And test users are still created via the real signup endpoint (REQ-806's
-  existing convention) — only grid/round content is seeded this way
+  existing convention) for both endpoints — only grid/round or
+  xg-path/round content is seeded this way, never user accounts
 
-**Test level:** Integration (endpoint absent when Production), used as E2E
-setup by S-010's Playwright suite
+**Test level:** Integration (both endpoints absent when Production), used
+as E2E setup by S-010's Playwright suite (`seed-guessable-round`) and
+S-088's Playwright suite (`seed-guessable-path-round`)
 
 ---
 

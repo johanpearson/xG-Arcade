@@ -241,11 +241,8 @@ public static class InternalRoundEndpoints
             // players hermetic; every caller reads the actual generated name
             // back from this response rather than assuming a literal, so no
             // test file needed to change.
-            var nameTag = Guid.NewGuid().ToString("N")[..8];
-            var correctPlayerName = $"Thierry Henry {nameTag}";
-            var player = await playerStoreRepository.AddPlayerAsync(
-                new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
-                cancellationToken);
+            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Thierry Henry", cancellationToken);
+            var correctPlayerName = player.FullName;
             await playerStoreRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
@@ -260,11 +257,8 @@ public static class InternalRoundEndpoints
             // sharing the one and only valid answer). A second, equally
             // real Arsenal/France player added here so S-011's E2E suite can
             // have two players each pick a different correct answer.
-            var alternateNameTag = Guid.NewGuid().ToString("N")[..8];
-            var alternateCorrectPlayerName = $"Robert Pires {alternateNameTag}";
-            var alternatePlayer = await playerStoreRepository.AddPlayerAsync(
-                new Player { Id = Guid.NewGuid(), FullName = alternateCorrectPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
-                cancellationToken);
+            var alternatePlayer = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Robert Pires", cancellationToken);
+            var alternateCorrectPlayerName = alternatePlayer.FullName;
             await playerStoreRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
@@ -285,7 +279,7 @@ public static class InternalRoundEndpoints
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
 
-        // S-088/REQ-806 extension: the xg-path counterpart to
+        // S-088/REQ-807 extension: the xg-path counterpart to
         // seed-guessable-round above — REQ-807's own doc text ("only
         // grid/round content is seeded this way") was true only because no
         // second game existed yet to need it. S-088's E2E coverage for xG
@@ -314,11 +308,8 @@ public static class InternalRoundEndpoints
             // Same unique-tag-per-call convention as seed-guessable-round
             // above (REQ-209 fallout) — keeps repeated/concurrent test runs
             // hermetic against a shared CI Postgres instance.
-            var nameTag = Guid.NewGuid().ToString("N")[..8];
-            var correctPlayerName = $"Path Test Player {nameTag}";
-            var player = await playerStoreRepository.AddPlayerAsync(
-                new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
-                cancellationToken);
+            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Path Test Player", cancellationToken);
+            var correctPlayerName = player.FullName;
 
             // At least 3 chronologically distinct, non-overlapping stints so
             // PathClueSequenceBuilder.BuildSequence (via GET /path/current)
@@ -365,6 +356,23 @@ public static class InternalRoundEndpoints
             return Results.Ok(new SeedGuessablePathRoundResponse(round.Id, puzzleId, correctPlayerName));
         });
     }
+
+    // Shared boilerplate for the three test-data seed call sites above
+    // (seed-guessable-round's two players, seed-guessable-path-round's one)
+    // — same unique-tag-per-call convention (REQ-209 fallout) and
+    // WikidataQid uniqueness, differing only by the caller's own name
+    // prefix. Each call site still owns its own attribute/stint writes,
+    // since those differ by game.
+    private static async Task<Player> CreateUniqueTestPlayerAsync(
+        IPlayerStoreRepository playerStoreRepository,
+        string namePrefix,
+        CancellationToken cancellationToken)
+    {
+        var nameTag = Guid.NewGuid().ToString("N")[..8];
+        return await playerStoreRepository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = $"{namePrefix} {nameTag}", WikidataQid = $"Qtest-{Guid.NewGuid()}" },
+            cancellationToken);
+    }
 }
 
 public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime StartTime, DateTime EndTime);
@@ -373,7 +381,7 @@ public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 
 public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName, string AlternateCorrectPlayerName);
 
-// S-088/REQ-806 extension: PuzzleId is the "cell id" an E2E test submits
+// S-088/REQ-807 extension: PuzzleId is the "cell id" an E2E test submits
 // guesses against via the existing game-agnostic
 // POST /rounds/{roundId}/cells/{cellId}/guesses (XGArcade.Api.Guesses.
 // GuessEndpoints) — same PathPuzzle.Id-is-the-cell-id contract
