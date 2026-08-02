@@ -4389,7 +4389,7 @@ deferred to CI. No new ADR — ADR-0043's own Consequences section already
 named this exact frontend work as a deferred follow-up, not a new
 structural decision.
 
-**S-088 · E2E coverage for the full xG Path game loop**
+**S-088 · E2E coverage for the full xG Path game loop — done, 2026-08-02**
 Playwright: generate an xG Path round (extending the non-Production
 test-data endpoint, REQ-806, to cover `GameKey = "xg-path"`), solve a
 puzzle across multiple clue reveals, confirm scoring locks correctly at
@@ -4399,6 +4399,42 @@ game-scoped leaderboard (S-087) and not blended with xG Grid's.
 guess → round close → leaderboard, run against the same local-stack E2E
 setup `ci.yml` already uses for xG Grid. *Deps:* S-076 through S-087 (the
 complete feature).
+**Built as:** a genuinely new sibling endpoint, not a literal extension of
+the existing one — `POST /internal/test-data/seed-guessable-path-round`
+(`InternalRoundEndpoints.cs`, same file as `seed-guessable-round`), gated
+by the same non-Production registration and repository-only write
+discipline (ADR-0006 boundary rule 4). One deliberate deviation from the
+story's own text worth naming: "extending the non-Production test-data
+endpoint... to cover `GameKey = "xg-path"`" reads like a parameter added
+to `seed-guessable-round` itself, but in practice `seed-guessable-round`
+writes a `GridInstance`/`GridCell` directly and has no game-agnostic shape
+to extend — a second, parallel endpoint against `IPathInstanceRepository`
+(creating one `Player` with three career stints, one `PathInstance`/
+`PathPuzzle`, and an active `Round`) was the only route available inside
+this repo's own established pattern, minor but real scope drift from the
+literal story text. Two new API tests in `RoundEndpointTests.cs`:
+`REQ807_SeedGuessablePathRound_Post_CreatesAnActiveXgPathRoundWithOneGuessablePuzzle`
+and `SeedGuessablePathRound_Post_IsNeverRegistered_WhenEnvironmentIsProduction`.
+`frontend/tests/e2e/play-path.spec.ts` is the one continuous spec the
+accept criterion asked for: signup → generation via the new seed endpoint
+→ clue reveal (REQ-1203) → an intentionally wrong guess → the correct
+guess (REQ-1204/1205) → round close (REQ-205) → the puzzle's points
+showing correctly under xG Path's own game-scoped leaderboard tab and
+explicitly absent from xG Grid's (REQ-410/ADR-0043, REQ-408). Three
+commits: `c0bdd3a` (endpoint), `ae382e9` (E2E spec), `c8eb356`
+(quality-gate fixes). `architecture-reviewer` passed with no boundary
+concerns (same-shape ADR-0006 extension, no new component/data flow — no
+new ADR needed). `quality-architect` passed after three findings were
+fixed: the new endpoint's own comment banners mislabeled it as a REQ-806
+extension (it's REQ-807's — REQ-806 is `force-close-round`), one test was
+named with a non-standard `S088_` prefix instead of this repo's
+REQ-prefixed convention, and the unique-test-player boilerplate (name tag
++ `Player`/`WikidataQid` creation) had been hand-copied a third time —
+extracted into a shared `CreateUniqueTestPlayerAsync` helper used by all
+three seed call sites. `docs/requirements-document.md`'s REQ-807 was
+updated in the same `c8eb356` commit to document the new endpoint and
+correct its stale "only grid/round content is seeded this way" line — see
+that REQ's own status note for the full acceptance-criteria addition.
 
 **S-089 · REQ-215: player-submitted answer suggestion — done, 2026-08-01**
 Backend: new `PlayerSuggestion` entity/migration (player name, asserted

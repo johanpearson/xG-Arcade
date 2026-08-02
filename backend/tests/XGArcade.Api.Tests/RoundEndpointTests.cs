@@ -625,6 +625,53 @@ public class RoundEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
     }
 
+    // ---- S-088/REQ-807 extension: seed-guessable-path-round is a non-Production-only test control --
+
+    [Test]
+    public async Task REQ807_SeedGuessablePathRound_Post_CreatesAnActiveXgPathRoundWithOneGuessablePuzzle()
+    {
+        var response = await _factory.CreateClient().PostAsync("/internal/test-data/seed-guessable-path-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SeedGuessablePathRoundResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.CorrectPlayerName, Is.Not.Empty);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var round = await dbContext.Rounds.SingleAsync(r => r.Id == body.RoundId);
+        Assert.That(round.GetStatus(DateTime.UtcNow), Is.EqualTo(RoundStatus.Active));
+        Assert.That(round.GameKey, Is.EqualTo(XGPathGameModule.XGPathGameKey));
+
+        var instance = await dbContext.PathInstances.Include(pi => pi.Puzzles).SingleAsync(pi => pi.Id == round.GameInstanceId);
+        Assert.That(instance.Puzzles.Select(p => p.Id), Does.Contain(body.PuzzleId));
+
+        var puzzle = instance.Puzzles.Single(p => p.Id == body.PuzzleId);
+        var stints = await dbContext.PlayerCareerStints
+            .Where(s => s.PlayerId == puzzle.TargetPlayerId)
+            .OrderBy(s => s.SequenceOrder)
+            .ToListAsync();
+        Assert.That(stints, Has.Count.GreaterThanOrEqualTo(3));
+    }
+
+    [Test]
+    public async Task SeedGuessablePathRound_Post_IsNeverRegistered_WhenEnvironmentIsProduction()
+    {
+        using var _ = TemporaryEnvironmentVariables(
+            ("ASPNETCORE_ENVIRONMENT", "Production"),
+            ("ConnectionStrings__Database", "Host=localhost;Database=unused-in-tests;Username=postgres;Password=postgres"),
+            ("Supabase__Url", "http://localhost:54321"),
+            ("Supabase__AnonKey", "test-placeholder-anon-key"),
+            ("Supabase__ServiceRoleKey", "test-placeholder-service-role-key"));
+
+        var productionFactory = _factory.WithWebHostBuilder(builder => { });
+        var client = productionFactory.CreateClient();
+
+        var response = await client.PostAsync("/internal/test-data/seed-guessable-path-round", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
     // Sets process environment variables for the duration of one test,
     // restoring each to its original value (including "unset") on dispose.
     private static IDisposable TemporaryEnvironmentVariables(params (string Name, string Value)[] variables)
