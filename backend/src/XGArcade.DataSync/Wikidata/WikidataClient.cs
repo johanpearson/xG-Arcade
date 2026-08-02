@@ -31,6 +31,20 @@ public class WikidataClient(
     private const string MaleWikidataQid = "Q6581097";
     private const string DateOfBirthCutoff = "1939-01-01T00:00:00Z";
 
+    // Bug fix (2026-08-02, bug-bundle, REQ-1203): Wikidata models national
+    // team caps under the same P54 ("member of sports team") property as
+    // club membership — a national team like "Switzerland men's national
+    // football team" is itself a Wikidata item, instance-of (transitively,
+    // via P279 subclass chains such as "men's national association football
+    // team") this Q6979593 "national association football team" class.
+    // BuildPlayerCareerStintsByQidsQuery excludes any ?club matching this
+    // class so xG Path's career-stint fetch never surfaces a national team
+    // as a "club" — REQ-1203's own acceptance criteria are explicit that
+    // "national team caps/appearances are never revealed as a clue for this
+    // game." Confirmed via Wikidata's own item page, not training-knowledge
+    // recall — see this file's PR description for the verification.
+    private const string NationalTeamClassWikidataQid = "Q6979593";
+
     // The same ADR-0025 pool floor as DateOfBirthCutoff above, as a plain
     // year — QueryPlayerPoolBirthYearAsync slices the bulk import by birth
     // year, and PlayerNameIndexImporter iterates from this year to the
@@ -358,8 +372,19 @@ public class WikidataClient(
     // SELECT is the only change needed to make Player.BirthYear derivable —
     // no new triple pattern, no new round-trip, per REQ-1207's "no new
     // binding added to the query for this field at all."
+    //
+    // Bug fix (2026-08-02, bug-bundle): ?positionLabel, not ?position, is
+    // what actually gets projected into Player.Position (see ParseBindings
+    // below) — ?position alone is the raw P413 object, a bare entity URI
+    // (e.g. "http://www.wikidata.org/entity/Q336286"), never a human-readable
+    // string. The SERVICE wikibase:label block below was already resolving
+    // ?playerLabel/?clubLabel this whole time; ?positionLabel only needed to
+    // be added to the SELECT list to make the same auto-label join happen for
+    // ?position too — no new triple pattern. Real xG Path play surfaced this:
+    // the position clue rendered the literal QID URI instead of a position
+    // name.
     private static string BuildIntersectionQuery(string candidateClauses) => $$"""
-        SELECT ?player ?playerLabel ?alias ?photo ?position ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+        SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
           ?player wdt:P106 wd:Q937857.
         {{candidateClauses}}
           ?player wdt:P21 wd:{{MaleWikidataQid}}.
@@ -863,14 +888,25 @@ public class WikidataClient(
     // bounded-query discipline as every other query here — the caller
     // (PlayerPositionBirthYearBackfillService) is responsible for keeping
     // each batch small, not this method.
+    // Bug fix (2026-08-02, bug-bundle): this query had no SERVICE
+    // wikibase:label block at all — ?position was projected straight into
+    // Player.Position as the raw P413 entity URI, never resolved to a
+    // human-readable name (the same class of bug BuildIntersectionQuery's
+    // own comment describes, but this backfill query never even had the
+    // label service every other query in this file already uses for
+    // ?playerLabel/?clubLabel). Adding it here, plus ?positionLabel in the
+    // SELECT, is what actually fixes it for every Player row this backfill
+    // touches — see ParsePositionBirthYearBindings below for the matching
+    // read-side change.
     private static string BuildPlayerPositionsAndBirthYearsByQidsQuery(IReadOnlyList<string> qids)
     {
         var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
         return $$"""
-            SELECT ?player ?position ?dateOfBirth WHERE {
+            SELECT ?player ?positionLabel ?dateOfBirth WHERE {
               VALUES ?player { {{valuesClause}} }
               OPTIONAL { ?player wdt:P413 ?position. }
               OPTIONAL { ?player wdt:P569 ?dateOfBirth. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
             }
             """;
     }
@@ -898,7 +934,9 @@ public class WikidataClient(
             var qid = playerValue.Value.Split('/').Last();
             (string? Position, int? BirthYear) entry = entriesByQid.TryGetValue(qid, out var existing) ? existing : default;
 
-            if (entry.Position is null && binding.TryGetValue("position", out var positionValue)
+            // Reads "positionLabel" (bug fix, 2026-08-02) — see
+            // BuildPlayerPositionsAndBirthYearsByQidsQuery's own comment.
+            if (entry.Position is null && binding.TryGetValue("positionLabel", out var positionValue)
                 && !string.IsNullOrWhiteSpace(positionValue.Value))
                 entry.Position = positionValue.Value;
 
@@ -972,6 +1010,13 @@ public class WikidataClient(
     // ?clubLabel resolved by the same label service every other builder in
     // this file already uses — this is what makes the query "every club,"
     // not "this one club."
+    // Bug fix (2026-08-02, bug-bundle, REQ-1203): excludes national teams
+    // from ?club — see NationalTeamClassWikidataQid's own comment for why
+    // this is necessary at all (P54 covers both club and international
+    // caps) and why the exclusion needs the transitive P279* subclass path,
+    // not just a direct P31 check, since a specific national team's P31 is
+    // typically a narrower subclass (e.g. "men's national association
+    // football team") rather than Q6979593 itself.
     private static string BuildPlayerCareerStintsByQidsQuery(IReadOnlyList<string> qids)
     {
         var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
@@ -981,6 +1026,7 @@ public class WikidataClient(
               ?player p:P54 ?clubStatement.
               ?clubStatement ps:P54 ?club.
               MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              MINUS { ?club wdt:P31/wdt:P279* wd:{{NationalTeamClassWikidataQid}}. }
               OPTIONAL { ?clubStatement pq:P580 ?startTime. }
               OPTIONAL { ?clubStatement pq:P582 ?endTime. }
               OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
@@ -1035,6 +1081,112 @@ public class WikidataClient(
         return stintsByQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)kv.Value.ToList());
     }
 
+    // ADR-0056: xG Path's own familiarity signal — batched, direct-by-QID
+    // Wikipedia sitelink-count lookup, the same VALUES-clause-over-a-
+    // bounded-batch shape as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync. `wikibase:sitelinks` is
+    // WDQS's own computed predicate (count of Wikipedia/sister-project pages
+    // linked to the item) — not a stored Wikidata statement, so there is no
+    // corresponding P-number, and every item resolves it (0 for one with no
+    // sitelinks at all) rather than leaving it unbound; OPTIONAL is kept
+    // anyway, matching this file's own defensive style, so a batch entry
+    // that somehow fails to resolve still doesn't drop the whole query.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync/
+    // QueryPlayerCareerStintsByQidsAsync (throw WikidataQueryException on
+    // timeout/HTTP/parse failure, not the intersection queries' swallow-to-[]
+    // contract): the caller (XGPathGameModule.GetEligiblePlayerIdsAsync) is
+    // responsible for deciding a failed familiarity check must never block
+    // round generation (REQ-103's established reasoning, same as
+    // PlayerCareerStintRefreshService's own catch) — this client method
+    // itself must not silently conflate "this player really has 0 sitelinks"
+    // with "the query failed."
+    public async Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (wikidataQids.Count == 0)
+            return new Dictionary<string, int>();
+
+        foreach (var qid in wikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
+        }
+
+        var query = BuildSitelinkCountsByQidsQuery(wikidataQids);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParseSitelinkCountBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
+        }
+    }
+
+    // Same "VALUES clause over the batch, no candidate-matching filter"
+    // shape as BuildPlayerPhotosByQidsQuery/
+    // BuildPlayerPositionsAndBirthYearsByQidsQuery — the caller
+    // (XGPathGameModule) is responsible for keeping each batch within the
+    // same bounded-query class every other batch method in this file uses.
+    private static string BuildSitelinkCountsByQidsQuery(IReadOnlyList<string> qids)
+    {
+        var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?sitelinks WHERE {
+              VALUES ?player { {{valuesClause}} }
+              OPTIONAL { ?player wikibase:sitelinks ?sitelinks. }
+            }
+            """;
+    }
+
+    // Keyed by QID, same "one row per batch entry, absent means none" shape
+    // as ParsePhotoBindings — a QID whose sitelink count didn't parse as an
+    // integer is treated as absent (never a 0 masquerading as "resolved but
+    // unfamiliar"), so XGPathGameModule's threshold check correctly treats
+    // it the same as "no data available" rather than "confirmed obscure."
+    private static IReadOnlyDictionary<string, int> ParseSitelinkCountBindings(SparqlResponse? response)
+    {
+        var sitelinkCountsByQid = new Dictionary<string, int>();
+        if (response?.Results?.Bindings is null)
+            return sitelinkCountsByQid;
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+            if (!binding.TryGetValue("sitelinks", out var sitelinksValue)
+                || !int.TryParse(sitelinksValue.Value, out var count))
+                continue;
+
+            var qid = playerValue.Value.Split('/').Last();
+            sitelinkCountsByQid.TryAdd(qid, count);
+        }
+
+        return sitelinkCountsByQid;
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)
@@ -1071,8 +1223,11 @@ public class WikidataClient(
 
             // REQ-1207/S-082: same "first non-null value seen" shape as
             // PhotoUrl above — wdt:P413 is effectively single-valued in
-            // practice for a Wikidata person item.
-            if (entry.Position is null && binding.TryGetValue("position", out var positionValue)
+            // practice for a Wikidata person item. Reads "positionLabel"
+            // (bug fix, 2026-08-02), not "position" — see BuildIntersectionQuery's
+            // own comment for why the raw binding is a bare entity URI, never
+            // the human-readable string this field is meant to hold.
+            if (entry.Position is null && binding.TryGetValue("positionLabel", out var positionValue)
                 && !string.IsNullOrWhiteSpace(positionValue.Value))
                 entry.Position = positionValue.Value;
 

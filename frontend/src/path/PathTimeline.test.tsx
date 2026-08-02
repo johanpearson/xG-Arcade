@@ -61,7 +61,12 @@ describe('PathTimeline', () => {
     expect(nodes[4]).toHaveTextContent('Forward');
     expect(nodes[5]).toHaveTextContent('Nationality:');
     expect(nodes[5]).toHaveTextContent('Netherlands');
-    expect(nodes[6]).toHaveTextContent('Age:');
+    // Bug fix (2026-08-02, bug-bundle): label reads "Birth year:", not
+    // "Age:" — the value has always been a birth year (PathClueSequenceBuilder
+    // never computes an actual age), the label just never matched. The wire
+    // Kind value is still literally "Age" (see textTurn(7, 'Age', ...) above)
+    // — only the rendered label text changed.
+    expect(nodes[6]).toHaveTextContent('Birth year:');
     expect(nodes[6]).toHaveTextContent('1980');
   });
 

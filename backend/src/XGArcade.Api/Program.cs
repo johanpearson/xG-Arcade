@@ -773,6 +773,11 @@ builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
 // alongside IWikidataLookupService above since it's XGPathGameModule's own
 // concern, not a general-purpose lookup service other callers share.
 builder.Services.AddScoped<IPlayerCareerStintRefreshService, PlayerCareerStintRefreshService>();
+// ADR-0056: xG Path's familiarity filter (REQ-1201's target-player
+// eligibility, "would a casual player recognize this name" half) — same
+// Games.XGPath-only, registered-alongside-its-sibling-service reasoning as
+// IPlayerCareerStintRefreshService immediately above.
+builder.Services.AddScoped<IPlayerFamiliarityService, PlayerFamiliarityService>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
 // GridGenerationOptions' role/precedent above for xG Path's own generation

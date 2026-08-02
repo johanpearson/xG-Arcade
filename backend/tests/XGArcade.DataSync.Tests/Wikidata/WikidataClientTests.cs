@@ -1329,6 +1329,14 @@ public class WikidataClientTests
         Assert.That(sentQuery, Does.Contain("OPTIONAL { ?player wdt:P413 ?position. }"),
             "P413 must be OPTIONAL, same as photo/alias — a player with no recorded position must still match the rest of the query");
         Assert.That(sentQuery, Does.Contain("?dateOfBirth"), "no new binding needed for BirthYear — ?dateOfBirth is already a mandatory part of the WHERE clause");
+        // Bug fix (2026-08-02, bug-bundle): ?position alone is a raw QID
+        // URI, never a human-readable string — ?positionLabel (auto-resolved
+        // by the existing SERVICE wikibase:label block, same as
+        // ?playerLabel) is what must actually be requested, or Player.Position
+        // ends up persisted as e.g. "http://www.wikidata.org/entity/Q336286"
+        // instead of "midfielder".
+        Assert.That(sentQuery, Does.Contain("?positionLabel"),
+            "the raw ?position binding is a QID URI, not a label — ?positionLabel must be requested so the label service resolves it");
     }
 
     [Test]
@@ -1383,11 +1391,15 @@ public class WikidataClientTests
     [Test]
     public async Task REQ1207_QueryCountryClubIntersectionAsync_ParsesPosition_WhenP413Present()
     {
+        // "positionLabel", not "position" (bug fix, 2026-08-02) — WDQS's
+        // label service resolves ?position (a raw QID) into ?positionLabel
+        // (the human-readable string), and that's the binding ParseBindings
+        // actually reads.
         const string json = """
             {
               "results": {
                 "bindings": [
-                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "position": { "type": "literal", "value": "forward" } }
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "positionLabel": { "type": "literal", "value": "forward" } }
                 ]
               }
             }
@@ -1403,7 +1415,7 @@ public class WikidataClientTests
     [Test]
     public async Task REQ1207_QueryCountryClubIntersectionAsync_PositionIsNull_WhenP413Absent()
     {
-        // No "position" binding at all — a player with no Wikidata P413
+        // No "positionLabel" binding at all — a player with no Wikidata P413
         // statement (REQ-1207's explicit "null is a valid, expected value,
         // never an error").
         const string json = """
@@ -1472,13 +1484,13 @@ public class WikidataClientTests
     {
         // Same "first non-null value seen" shape PhotoUrl already uses — a
         // player with N aliases can produce multiple result rows for the
-        // same player, only one of which needs to carry position/dateOfBirth
-        // for the value to be captured.
+        // same player, only one of which needs to carry positionLabel/
+        // dateOfBirth for the value to be captured.
         const string json = """
             {
               "results": {
                 "bindings": [
-                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "position": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "positionLabel": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } },
                   { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "TH14" } }
                 ]
               }
@@ -1847,6 +1859,30 @@ public class WikidataClientTests
         Assert.That(sentQuery, Does.Not.Contain("?player wdt:P54"));
     }
 
+    // Bug fix (2026-08-02, bug-bundle, REQ-1203): Wikidata models national
+    // team caps under this same P54 property, so without an explicit
+    // exclusion, "Switzerland men's national football team" (or any other
+    // national side) would come back as a "club" stint — directly violating
+    // REQ-1203's "national team caps/appearances are never revealed as a
+    // clue for this game" acceptance criterion. Uses the transitive P279*
+    // subclass path (not a direct P31 check) since a specific national
+    // team's own P31 is typically a narrower subclass of Q6979593, not that
+    // class itself — see NationalTeamClassWikidataQid's own comment in
+    // WikidataClient.cs.
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_SentQuery_ExcludesNationalTeams()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593. }"),
+            "must exclude Q6979593 ('national association football team') and its subclasses from ?club, " +
+            "or a national team caps stint leaks into xG Path's club-reveal clues");
+    }
+
     [Test]
     public async Task ADR0054_QueryPlayerCareerStintsByQidsAsync_SentQuery_NeverContainsOrderByLimitOrOffset()
     {
@@ -2058,5 +2094,159 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
 
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
+    }
+
+    // ---- QueryPlayerPositionsAndBirthYearsByQidsAsync (REQ-1207 backfill) --
+    // positionLabel-specific coverage: the query-shape/error-contract tests
+    // for this method never existed before this bug-bundle fix (the batch
+    // query itself only had ParsePositionBirthYearBindings-level coverage
+    // indirectly via PlayerPositionBirthYearBackfillServiceTests' fake) — see
+    // BuildPlayerPositionsAndBirthYearsByQidsQuery's own comment for why this
+    // query specifically had no SERVICE wikibase:label block at all before
+    // this fix, unlike every other query in this file.
+
+    [Test]
+    public async Task REQ1207_QueryPlayerPositionsAndBirthYearsByQidsAsync_SentQuery_RequestsPositionLabelViaLabelService()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPositionsAndBirthYearsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?player wdt:P413 ?position. }"));
+        Assert.That(sentQuery, Does.Contain("?positionLabel"),
+            "the raw ?position binding is a QID URI, not a label — ?positionLabel must be requested");
+        Assert.That(sentQuery, Does.Contain("SERVICE wikibase:label"),
+            "this query had no label service at all before the bug fix — without it, ?positionLabel can never resolve");
+    }
+
+    [Test]
+    public async Task REQ1207_QueryPlayerPositionsAndBirthYearsByQidsAsync_ParsesPositionLabel_NotRawPosition()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "positionLabel": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPositionsAndBirthYearsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"].Position, Is.EqualTo("midfielder"));
+        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
+    }
+
+    // ---- QuerySitelinkCountsByQidsAsync (ADR-0056, xG Path's familiarity ---
+    // signal) — same VALUES-clause-over-a-bounded-batch shape and
+    // throw-on-failure error contract as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync above.
+
+    [Test]
+    public async Task ADR0056_QuerySitelinkCountsByQidsAsync_SentQuery_ContainsValuesClauseOverEveryQid()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QuerySitelinkCountsByQidsAsync(["Q1519", "Q9617"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("VALUES ?player { wd:Q1519 wd:Q9617 }"));
+        Assert.That(sentQuery, Does.Contain("wikibase:sitelinks"));
+    }
+
+    [Test]
+    public async Task ADR0056_QuerySitelinkCountsByQidsAsync_SentQuery_NeverContainsOrderByLimitOrOffset()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QuerySitelinkCountsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("ORDER BY"));
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+        Assert.That(sentQuery, Does.Not.Contain("OFFSET"));
+    }
+
+    [Test]
+    public async Task ADR0056_QuerySitelinkCountsByQidsAsync_ReturnsDictionaryKeyedByQid_ForQidsWithASitelinkCount()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "sitelinks": { "type": "literal", "value": "87" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q9617" }, "sitelinks": { "type": "literal", "value": "3" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QuerySitelinkCountsByQidsAsync(["Q1519", "Q9617"]);
+
+        Assert.That(result["Q1519"], Is.EqualTo(87));
+        Assert.That(result["Q9617"], Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task ADR0056_QuerySitelinkCountsByQidsAsync_QidWithNoSitelinksBinding_IsAbsentFromResult()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QuerySitelinkCountsByQidsAsync(["Q1519"]);
+
+        Assert.That(result.ContainsKey("Q1519"), Is.False,
+            "absent means 'unknown,' never 'confirmed 0' — the caller must not treat a missing row as a familiar/unfamiliar verdict");
+    }
+
+    [Test]
+    public async Task ADR0056_QuerySitelinkCountsByQidsAsync_EmptyQidList_ReturnsEmptyDictionaryWithoutSendingARequest()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        var result = await client.QuerySitelinkCountsByQidsAsync([]);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void ADR0056_QuerySitelinkCountsByQidsAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0056_QuerySitelinkCountsByQidsAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0056_QuerySitelinkCountsByQidsAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519"]));
+    }
+
+    [Test]
+    public void ADR0056_QuerySitelinkCountsByQidsAsync_RejectsNonQidValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519", "Arsenal"]));
     }
 }

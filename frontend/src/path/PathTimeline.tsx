@@ -26,10 +26,18 @@ export interface PathTimelineProps {
 // fixed one-at-a-time clue kinds — ClubReveal/YearRange render their own
 // structured content instead (see renderClueContent below), so they never
 // need one of these.
+// Bug fix (2026-08-02, bug-bundle): the "Age" kind's own value has always
+// been a birth year, never a computed age (PathClueSequenceBuilder's own doc
+// comment on the backend: rendering an actual age would need a
+// TimeProvider/"now" dependency this pure builder deliberately avoids) — the
+// display label just never caught up to match, so the UI showed e.g.
+// "Age: 1980" for what is really a birth year. Only the label changes here;
+// the wire-level PathClueKind "Age" identifier is untouched (an internal
+// contract, not user-facing).
 const TEXT_CLUE_LABELS: Record<'Position' | 'Nationality' | 'Age', string> = {
   Position: 'Position',
   Nationality: 'Nationality',
-  Age: 'Age',
+  Age: 'Birth year',
 };
 
 // design-document.md SCREEN-10: "the literal career path being drawn as

@@ -14,12 +14,15 @@ namespace XGArcade.Games.XGPath;
 // (per-puzzle attempt cap, fixed at 7), mirroring GridGameModule's
 // (COMP-05) established "assemble instance, persist via repository, return
 // GameInstance" shape for generation, and its
-// GuessSubmission-cast/name-resolution shape for scoring.
+// GuessSubmission-cast/name-resolution shape for scoring. ADR-0056
+// (2026-08-02, bug-bundle) added the IPlayerFamiliarityService dependency —
+// see GetEligiblePlayerIdsAsync's own doc comment.
 public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
     IPlayerStoreRepository playerStoreRepository,
     ICategoryValueRepository categoryValueRepository,
     IPlayerCareerStintRefreshService careerStintRefreshService,
+    IPlayerFamiliarityService playerFamiliarityService,
     Random? random = null) : IGameModule
 {
     public const string XGPathGameKey = "xg-path";
@@ -227,10 +230,22 @@ public class XGPathGameModule(
             .Select(c => c.Name)
             .ToHashSet();
 
-        return stintsByPlayer
+        var structurallyEligibleIds = stintsByPlayer
             .Where(kvp => IsEligible(kvp.Value, seededClubNames))
             .Select(kvp => kvp.Key)
             .ToList();
+
+        // ADR-0056: a real player-facing complaint ("I got this Austrian guy
+        // I had no idea who he is") — the three structural checks above say
+        // nothing about whether a candidate is actually recognizable, so a
+        // long-but-obscure career passed them just as easily as a star's.
+        // FilterFamiliarAsync never shrinks the pool below what's safe to
+        // shrink to on its own (it fails open on a Wikidata failure or a
+        // total data gap — see its own doc comment) — GenerateInstanceAsync's
+        // existing "not enough eligible players" abort still covers the case
+        // where familiarity filtering leaves too few candidates.
+        var familiarIds = await playerFamiliarityService.FilterFamiliarAsync(structurallyEligibleIds, cancellationToken);
+        return structurallyEligibleIds.Where(familiarIds.Contains).ToList();
     }
 
     // REQ-1201's three independent checks:
@@ -255,6 +270,12 @@ public class XGPathGameModule(
     //     known (ADR-0047) — a stint with no recorded AppearanceCount still
     //     counts, since "unknown" is not evidence of a fringe appearance;
     //     only a known, sub-threshold count disqualifies a stint.
+    //   - ADR-0056: and, on top of the three structural checks above, the
+    //     candidate is judged "familiar enough" via
+    //     IPlayerFamiliarityService.FilterFamiliarAsync (see
+    //     GetEligiblePlayerIdsAsync below) — none of the three checks here
+    //     say anything about whether a player is one a casual player would
+    //     recognize.
     private static bool IsEligible(IReadOnlyList<PlayerCareerStint> stints, IReadOnlySet<string> seededClubNames)
     {
         if (stints.Count < 3)

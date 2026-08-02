@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.88"
+version: "0.89"
 status: draft
 last_updated: 2026-08-02
 owner: Johan
@@ -1403,11 +1403,20 @@ field's already-correct state (whether that's an existing value or a
 still-unresolved null waiting for a future run). New `IWikidataClient
 .QueryPlayerPositionsAndBirthYearsByQidsAsync` mirrors
 `QueryPlayerPhotosByQidsAsync`'s VALUES-clause-by-QID shape
-(`SELECT ?player ?position ?dateOfBirth WHERE { VALUES ?player { wd:Q1
+(`SELECT ?player ?positionLabel ?dateOfBirth WHERE { VALUES ?player { wd:Q1
 wd:Q2 ... } OPTIONAL { ?player wdt:P413 ?position. } OPTIONAL { ?player
-wdt:P569 ?dateOfBirth. } }`), same throw-on-failure error contract, grouped
+wdt:P569 ?dateOfBirth. } SERVICE wikibase:label { bd:serviceParam
+wikibase:language "en". } }`), same throw-on-failure error contract, grouped
 by QID with "first non-null value seen per field" dedup (a player can have
-more than one P413/P569 binding row). Seventh `dotnet run --` CLI verb,
+more than one P413/P569 binding row). **Bug fix (2026-08-02, bug-bundle):**
+this query originally requested the raw `?position` binding (a bare
+Wikidata entity URI, e.g. `"http://www.wikidata.org/entity/Q336286"`) with
+no `SERVICE wikibase:label` block at all — real xG Path play surfaced
+`Player.Position` values persisting as literal QID URIs instead of names
+like "midfielder." Fixed by adding the label service and requesting
+`?positionLabel` instead, same fix applied to the five intersection query
+builders' shared `?position` binding (see REQ-1207's status note in
+`requirements-document.md`). Seventh `dotnet run --` CLI verb,
 `backfill-player-position-birthyear`, same shape as every verb above, run
 manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
 only).
@@ -1425,7 +1434,8 @@ above: it has no caller-supplied club to filter by at all — `?club`/
 response (`SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches
 WHERE { VALUES ?player { wd:Q1 wd:Q2 ... } ?player p:P54 ?clubStatement.
 ?clubStatement ps:P54 ?club. MINUS { ?clubStatement wikibase:rank
-wikibase:DeprecatedRank. } OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+wikibase:DeprecatedRank. } MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593. }
+OPTIONAL { ?clubStatement pq:P580 ?startTime. }
 OPTIONAL { ?clubStatement pq:P582 ?endTime. } OPTIONAL { ?clubStatement
 pq:P1350 ?numberOfMatches. } SERVICE wikibase:label { ... } }`). Uses the
 full `p:P54`/`ps:P54` statement path excluding deprecated rank, same as
@@ -1433,7 +1443,14 @@ every other P54 query in this codebase (never the truthy `wdt:P54`
 shortcut — see `BuildCountryClubIntersectionQuery`'s own comment for why
 that would silently drop historical clubs) — the whole point of this query
 is completeness, so it can't reuse the cheaper shortcut the way
-`P106`/`P21`/`P569`/`P413` safely do elsewhere.
+`P106`/`P21`/`P569`/`P413` safely do elsewhere. **Bug fix (2026-08-02,
+bug-bundle, REQ-1203):** the `MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593.
+}` clause is new — Wikidata models national-team caps under this same P54
+property, so without it a target's national team (Q6979593 = "national
+association football team," checked transitively via P279 subclass since a
+specific team's own P31 is typically a narrower subclass of that class) came
+back as a "club" stint, directly violating REQ-1203's "national team caps
+are never revealed as a clue" acceptance criterion.
 
 Same throw-on-failure client contract as `QueryPlayerPhotosByQidsAsync`, but
 the *caller* (`PlayerCareerStintRefreshService`) never lets that propagate:
@@ -1505,6 +1522,37 @@ it, so it cannot actually supply the QIDs `QueryPlayerCareerStintsByQidsAsync`
 needs. Iterating `CountryDefinition` directly, discovered during
 implementation, turned out to be the better fit anyway — see ADR-0055's own
 "Correction from this ADR's original proposal" note.
+
+**xG Path target-familiarity filter (2026-08-02, ADR-0056):** a real player
+complaint ("I got this Austrian guy I had no idea who he is") exposed that
+REQ-1201's eligibility check had zero fame/recognizability signal — every
+structural check (stint count, orderable dates, seeded-club appearance
+threshold) says nothing about whether a target is one a casual player would
+recognize, and ADR-0055's own pool-widening work above only made picking an
+obscure target more likely, not less. New `IWikidataClient
+.QuerySitelinkCountsByQidsAsync` is a fourth VALUES-clause-by-QID query,
+same bounded/batched shape as the photo and position/birth-year backfill
+queries (`SELECT ?player ?sitelinks WHERE { VALUES ?player { wd:Q1 wd:Q2
+... } OPTIONAL { ?player wikibase:sitelinks ?sitelinks. } }`) — `wikibase
+:sitelinks` is WDQS's own computed predicate (count of Wikipedia/sister-
+project pages linked to the item), not a stored P-number statement. A new
+service, `PlayerFamiliarityService`/`IPlayerFamiliarityService`
+(`XGArcade.DataSync.Wikidata`), batches the structurally-eligible candidate
+pool in groups of 200, and judges a candidate familiar when its sitelink
+count resolves to at least `MinSitelinkCount` (15, an untuned starting
+value — see ADR-0056's Follow-up). `XGPathGameModule
+.GetEligiblePlayerIdsAsync` runs this filter on top of the existing
+structural checks, before `PickDistinct` selects targets — same "Games.XGPath
+depends on a narrow, purpose-built service, never `IWikidataClient` directly"
+shape `IPlayerCareerStintRefreshService` already established (ADR-0054).
+Fails open — returns the candidate pool unfiltered — on a
+`WikidataQueryException` from any batch, or when no candidate in the pool
+has a resolvable `WikidataQid` at all, mirroring
+`PlayerCareerStintRefreshService`'s own "never block round generation on a
+Wikidata failure" catch (REQ-103). A candidate that CAN be checked but whose
+sitelink count doesn't resolve, or resolves below the threshold, is
+excluded — an unverifiable candidate is never given the benefit of the
+doubt once checking is actually possible.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

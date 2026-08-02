@@ -151,6 +151,41 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(pool);
     }
 
+    // ADR-0056: QuerySitelinkCountsByQidsAsync support — same "configured
+    // per-QID, plus one shared fail-next-N-calls counter" shape as every
+    // other batch-style method above. Never actually exercised by
+    // PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests (same
+    // "never touched by either caller" reasoning as the intersection-query
+    // stubs below) — added only so this fake still satisfies IWikidataClient's
+    // signature. PlayerFamiliarityServiceTests gets its own dedicated fake,
+    // same precedent as PlayerCareerStintRefreshServiceTests.
+    private readonly Dictionary<string, int> _sitelinkCountsByQid = new();
+    private int _remainingSitelinkBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedSitelinkBatches { get; } = [];
+
+    public void SetSitelinkCount(string wikidataQid, int count) => _sitelinkCountsByQid[wikidataQid] = count;
+
+    public void FailNextSitelinkBatches(int batches) => _remainingSitelinkBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedSitelinkBatches.Add(wikidataQids);
+
+        if (_remainingSitelinkBatchFailures > 0)
+        {
+            _remainingSitelinkBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a sitelink-count batch");
+        }
+
+        IReadOnlyDictionary<string, int> result = wikidataQids
+            .Where(qid => _sitelinkCountsByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _sitelinkCountsByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
 
