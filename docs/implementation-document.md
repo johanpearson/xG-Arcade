@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.85"
+version: "0.86"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1611,6 +1611,19 @@ establishes for every other route in this file), so behavior for xG
 Grid, the only shipped game, is unchanged. No route query parameter
 exists yet for a caller to request a second game's ranking — that's
 S-087's frontend game-switcher, tracked separately.
+
+**2026-08-02/S-087, REQ-410 — the deferred query parameter above now
+exists:** `GET /leagues/global/leaderboard`, `/active-round`,
+`/closed-rounds` (list), and `/window/{resolution}` each accept an
+optional `gameKey` query parameter (the single-round
+`/closed-rounds/{roundId}` route does not — it resolves by `roundId`
+alone). Omitted defaults to `GridGameModule.XGGridGameKey`, unchanged
+from the paragraph above; an unrecognized value 400s via a
+`ValidateGameKey` helper matching the inline-tuple-check
+`InternalRoundEndpoints.cs` already used for the same purpose. This is
+the same `gameKey` parameter `GetGlobalLeaderboardAsync`/
+`GetPerRoundFinalPointsByUserIdsAsync` have accepted since S-078 — this
+change is only in the Api/composition-root layer, not Core.Leagues.
 
 Two deliberate MVP-scale choices, not gaps, both still true post-REQ-409:
 (1) ranking/median computation and the `cursor`/`pageSize` slice happen in

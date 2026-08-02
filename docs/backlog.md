@@ -4337,7 +4337,8 @@ per-game-screen-module pattern, plus the `CategoryLabel` relocation
 already covered above. E2E not run in-sandbox (needs a local stack,
 CI-only per convention), consistent with S-085's own precedent.
 
-**S-087 · Frontend: leaderboard game switcher (SCREEN-03, ADR-0043/REQ-410)**
+**S-087 · Frontend: leaderboard game switcher (SCREEN-03, ADR-0043/REQ-410) —
+done, 2026-08-02**
 `LeaderboardScreen.tsx` gains the game-switcher tab row per SCREEN-03's
 addition, wired to S-078's now-`gameKey`-scoped endpoint. Switching games
 re-fetches whichever scope tab is currently selected without resetting it
@@ -4347,6 +4348,46 @@ scope with the new `gameKey`; the selected scope tab is preserved across
 a game switch. *Deps:* S-078 (backend), S-085 (a second game to switch
 to — the switcher is meaningfully testable once one exists, even though
 the backend change alone would technically support it earlier).
+*Built as:* a genuinely full-stack story, not just frontend — S-078 had
+already added `gameKey` to every `ILeaderboardService` method, but
+`LeaderboardEndpoints.cs` (the Api/outer-composition layer) still
+hardcoded `GridGameModule.XGGridGameKey` at every call site, so there was
+no way for any client to actually request xG Path's ranking. This story's
+backend half added an optional `gameKey` query parameter to the four
+routes that read a specific game's data (`/leaderboard`, `/active-round`,
+`/closed-rounds` list, `/window/{resolution}`) — omitted defaults to
+xg-grid (preserves pre-S-087 behavior for any caller not yet updated),
+and an unrecognized value 400s via the same inline validation
+`InternalRoundEndpoints.cs` already established, kept in the Api layer
+per ADR-0003 (`Core.Leagues` itself untouched). The single-round
+`/closed-rounds/{roundId:guid}` route deliberately gained no `gameKey` —
+it resolves by `roundId` alone, which already determines the round's
+game. Frontend: a new game-tab row (`leaderboard-screen__game-tabs`,
+xG Grid then xG Path, matching `HeaderNav`/`GameSelectScreen`'s existing
+order and reusing their `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` constants
+rather than duplicating them) sits above the existing scope-tab row;
+selecting a game never resets `scope`, and every one of the four scopes'
+fetch effects was extended with a `gameKey`-comparison ref alongside their
+existing scope-comparison ref so a game switch re-fetches whichever scope
+is active — same pattern already used for scope transitions, not a new
+one. One deliberate addition beyond the story's literal text: switching
+games while a specific past round is drilled into (`selectedRound` set)
+now backs out to the round list, since a round belongs to exactly one
+game and leaving a stale cross-game round detail on screen would be
+misleading — not spelled out in the story, called out here as a judgment
+call. REQ410-named tests added at both API level (two games' all-time
+rankings independent; a player qualifying under one game absent from the
+other's response; omitted-gameKey defaults to xg-grid; unrecognized
+gameKey 400s; one smoke test on the closed-rounds route) and UI level
+(game switch re-queries the active scope with the new gameKey; selected
+scope tab survives a game switch) — the API-level cross-game test was
+explicitly called out as "not yet addable" in S-078/REQ-410's own
+acceptance criteria until this story's query param existed. 419/419
+Vitest passing (416 pre-existing + 3 new), clean `tsc -b`/`oxlint`.
+Backend could not be built or tested in-sandbox (`dotnet` not installed);
+deferred to CI. No new ADR — ADR-0043's own Consequences section already
+named this exact frontend work as a deferred follow-up, not a new
+structural decision.
 
 **S-088 · E2E coverage for the full xG Path game loop**
 Playwright: generate an xG Path round (extending the non-Production

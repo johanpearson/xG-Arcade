@@ -13,6 +13,51 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/backlog.md`, `docs/requirements-document.md` (v1.31 →
+  v1.32), `docs/architecture-document.md` (v0.72 → v0.73),
+  `docs/implementation-document.md` (v0.85 → v0.86), `docs/design-
+  document.md` (v0.60 → v0.61) — Doc-sync for S-087 (frontend leaderboard
+  game switcher, SCREEN-03, ADR-0043/REQ-410), covering three commits
+  (`caaaade` backend, `8ce49a3` frontend, `f102f6d` tests). Turned out to
+  be full-stack, not frontend-only: S-078 had already added `gameKey` to
+  every `ILeaderboardService` method, but `LeaderboardEndpoints` (the
+  Api/outer-composition layer) still hardcoded
+  `GridGameModule.XGGridGameKey` at every call site, so no client could
+  ever request xG Path's ranking — this story closed that gap with an
+  optional `gameKey` query parameter (defaulting to xg-grid, 400 on an
+  unrecognized value, kept in the Api layer per ADR-0003) on every route
+  except the single-round-by-id one, alongside the game-switcher tab row
+  itself. `docs/backlog.md`'s S-087 entry marked "— done, 2026-08-02" with
+  a "Built as" paragraph describing the backend addition, the frontend
+  tab row (reusing `GameSelectScreen.tsx`'s existing
+  `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` constants), and one deliberate
+  scope addition beyond the story's literal text (switching games while a
+  specific past round is drilled into now backs out to the round list,
+  since a round belongs to exactly one game). `docs/requirements-
+  document.md`'s REQ-410 gained a 2026-08-02 status note marking the
+  frontend/API-parameter gap closed and its Test-level line updated —
+  the API-level cross-game test explicitly flagged as "not yet addable"
+  in REQ-410's own S-078-era text is now covered
+  (`LeaderboardEndpointTests.cs`'s `REQ410_*` cases); REQ-401/404's own
+  status notes referencing S-087 as a pending follow-up got matching
+  updates. `docs/architecture-document.md`'s COMP-02 status note gained a
+  2026-08-02 addendum describing the same Api-layer change and confirming
+  `Core.Leagues` stayed untouched (ADR-0003 boundary respected).
+  `docs/implementation-document.md`'s REQ-410/S-078 paragraph, which had
+  explicitly said "no route query parameter exists yet," gained a
+  matching 2026-08-02 addendum. `docs/design-document.md`'s SCREEN-03
+  "Game switcher" note changed from "design only ... not yet built" to
+  "built," pointing at the backlog entry for detail. No new ADR:
+  ADR-0043's own Consequences section already named this exact frontend
+  follow-up as deferred, not undecided — this story is that follow-up
+  landing, not a new structural decision, confirmed during this story's
+  own quality gate (architecture/quality review performed directly by the
+  orchestrating session after both review subagents hit the account's
+  session usage limit; see the session's own record for what was
+  checked). 419/419 Vitest passing (416 pre-existing + 3 new), clean
+  `tsc -b`/`oxlint`. Backend build/tests deferred to CI — `dotnet` is not
+  installed in this sandbox; new backend tests were hand-traced against
+  the actual endpoint/service code instead of run.
 - 2026-08-01 — `docs/backlog.md`, `docs/requirements-document.md` (v1.30 →
   v1.31), `docs/architecture-document.md` (v0.71 → v0.72),
   `docs/implementation-document.md` (v0.84 → v0.85) — Doc-sync for S-091
