@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/decisions/0054-xg-path-direct-career-stint-fetch.md` (new),
+  `docs/architecture-document.md` (v0.73 → v0.74),
+  `docs/implementation-document.md` (v0.86 → v0.87) — xG Path now fetches its
+  own targets' full career directly from Wikidata (`IWikidataClient
+  .QueryPlayerCareerStintsByQidsAsync`, a new `IPlayerCareerStintRefreshService`
+  in `XGArcade.DataSync`, called from `XGPathGameModule.GenerateInstanceAsync`
+  right after target selection) instead of relying solely on whatever xG
+  Grid's country/club lookups happened to persist as a byproduct (ADR-0042).
+  Fixes a live-reported gap (a Timothy Weah puzzle missing real Juventus/
+  Marseille stints, and unable to ever show Celtic at all since it isn't a
+  seeded club). Deliberately does not widen xG Path's candidate/eligibility
+  pool itself — see ADR-0054's Follow-up section, including an explicit
+  product-feedback note that this codebase's player-data cache should move
+  toward being built up proactively rather than purely reactively, which is
+  its own future story. `Games.XGPath` gained a `ProjectReference` to
+  `XGArcade.DataSync` (mirroring `Games.XGGrid`'s existing one) — see
+  ADR-0054.
 - 2026-08-02 — `docs/requirements-document.md` (v1.31 → v1.32),
   `docs/implementation-document.md` (v0.85 → v0.86) — Backend
   half of the xG Path live user-testing feedback batch, three fixes:

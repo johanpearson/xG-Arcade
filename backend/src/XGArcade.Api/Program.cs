@@ -699,6 +699,11 @@ builder.Services.AddScoped<IGameModule, GridGameModule>();
 // "xg-path" rounds are now actually generated on a schedule, same as
 // "xg-grid"'s.
 builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
+// ADR-0054: XGPathGameModule.GenerateInstanceAsync's own direct Wikidata
+// career fetch — a Games.XGPath-only dependency, registered here rather than
+// alongside IWikidataLookupService above since it's XGPathGameModule's own
+// concern, not a general-purpose lookup service other callers share.
+builder.Services.AddScoped<IPlayerCareerStintRefreshService, PlayerCareerStintRefreshService>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
 // GridGenerationOptions' role/precedent above for xG Path's own generation

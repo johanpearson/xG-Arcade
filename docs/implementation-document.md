@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.86"
+version: "0.87"
 status: draft
 last_updated: 2026-08-02
 owner: Johan
@@ -1411,6 +1411,54 @@ more than one P413/P569 binding row). Seventh `dotnet run --` CLI verb,
 `backfill-player-position-birthyear`, same shape as every verb above, run
 manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
 only).
+
+**xG Path's own direct career fetch (2026-08-02, ADR-0054):** unlike the two
+backfill services above (one-time, bulk, run via a CLI verb against the
+whole backlog), this one runs inline, every round generation, against a tiny
+batch (N = `PathTemplate.PuzzleCount`) — `XGPathGameModule.GenerateInstanceAsync`
+calls the new `IPlayerCareerStintRefreshService.RefreshCareerStintsAsync`
+with exactly the target players it just picked, immediately after selecting
+them. New `IWikidataClient.QueryPlayerCareerStintsByQidsAsync` is a third
+VALUES-clause-by-QID query, but a structurally different one from the two
+above: it has no caller-supplied club to filter by at all — `?club`/
+`?clubLabel` are themselves part of the `SELECT`, discovered from the
+response (`SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches
+WHERE { VALUES ?player { wd:Q1 wd:Q2 ... } ?player p:P54 ?clubStatement.
+?clubStatement ps:P54 ?club. MINUS { ?clubStatement wikibase:rank
+wikibase:DeprecatedRank. } OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+OPTIONAL { ?clubStatement pq:P582 ?endTime. } OPTIONAL { ?clubStatement
+pq:P1350 ?numberOfMatches. } SERVICE wikibase:label { ... } }`). Uses the
+full `p:P54`/`ps:P54` statement path excluding deprecated rank, same as
+every other P54 query in this codebase (never the truthy `wdt:P54`
+shortcut — see `BuildCountryClubIntersectionQuery`'s own comment for why
+that would silently drop historical clubs) — the whole point of this query
+is completeness, so it can't reuse the cheaper shortcut the way
+`P106`/`P21`/`P569`/`P413` safely do elsewhere.
+
+Same throw-on-failure client contract as `QueryPlayerPhotosByQidsAsync`, but
+the *caller* (`PlayerCareerStintRefreshService`) never lets that propagate:
+it catches `WikidataQueryException`, logs a warning, and returns — a failed
+refresh leaves whatever `PlayerCareerStint` rows a player already had
+untouched, rather than failing the whole round generation (REQ-103's "never
+block generation on a Wikidata failure," applied to xG Path). The service
+dedupes fetched stints against `IPlayerStoreRepository
+.GetCareerStintsByPlayerIdsAsync`'s existing rows via the same
+`(ClubName, StartYear, EndYear, AppearanceCount)` tuple-set reconciliation
+`WikidataLookupService.PersistCareerStintsAsync` already uses, then writes
+only the new ones through the existing `AddCareerStintsBatchAsync` — no new
+write path, no wipe-and-replace. `Games.XGPath` gained a `ProjectReference`
+to `XGArcade.DataSync` for this (mirroring `Games.XGGrid`'s existing one) —
+COMP-11's first dependency on COMP-07.
+
+Deliberately scoped to enrichment only: `XGPathGameModule
+.GetEligiblePlayerIdsAsync` (REQ-1201's candidate pool) is unchanged and
+still reads only already-persisted `PlayerCareerStint` rows — this fetch
+runs *after* eligibility is decided, so it can complete an already-selected
+target's own clues but can never make a previously-ineligible player newly
+eligible for the round being generated right now. See ADR-0054's own
+Follow-up section for the larger, explicitly-deferred "widen the candidate
+pool itself" and "build up the player-data cache proactively rather than
+reactively" decisions.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

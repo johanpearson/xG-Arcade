@@ -845,6 +845,126 @@ public class WikidataClient(
             .ToDictionary(kv => kv.Key, kv => new PlayerPositionBirthYearEntry(kv.Value.Position, kv.Value.BirthYear));
     }
 
+    // ADR-0054: xG Path's own direct career fetch — see IWikidataClient's own
+    // doc comment for why this is a different query shape from every other
+    // method in this file.
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        if (wikidataQids.Count == 0)
+            return new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>();
+
+        foreach (var qid in wikidataQids)
+        {
+            if (!WikidataQid.IsValid(qid))
+                throw new ArgumentException($"Not a valid Wikidata QID: '{qid}'", nameof(wikidataQids));
+        }
+
+        var query = BuildPlayerCareerStintsByQidsQuery(wikidataQids);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
+        // QueryPlayerPositionsAndBirthYearsByQidsAsync — see IWikidataClient's
+        // own doc comment for why.
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParseCareerStintBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
+        }
+    }
+
+    // Full P54 statement path (p:P54/ps:P54, MINUS deprecated rank), same
+    // non-negotiable "ever played for," not "currently plays for" reasoning
+    // as every other P54 use in this file — see
+    // BuildCountryClubIntersectionQuery's own comment. ?club (not a
+    // caller-supplied QID this time) is itself part of the SELECT, with
+    // ?clubLabel resolved by the same label service every other builder in
+    // this file already uses — this is what makes the query "every club,"
+    // not "this one club."
+    private static string BuildPlayerCareerStintsByQidsQuery(IReadOnlyList<string> qids)
+    {
+        var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
+        return $$"""
+            SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              VALUES ?player { {{valuesClause}} }
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 ?club.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+    }
+
+    // Grouped by QID, one list entry per distinct (ClubName, StartYear,
+    // EndYear, AppearanceCount) tuple — same HashSet-based dedup
+    // ParseBindings' CareerStints field uses, for the same reason (SPARQL's
+    // OPTIONAL semantics can otherwise multiply rows). A row where
+    // startTime never bound carries zero information (StartYear is
+    // non-nullable on WikidataCareerStintEntry) and is skipped, same as
+    // ParseBindings' own CareerStintQualifiers construction. A row with no
+    // clubLabel binding at all (should not happen — ?club is a mandatory,
+    // non-OPTIONAL match) is also skipped defensively rather than persisting
+    // a stint with a blank club name.
+    private static IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> ParseCareerStintBindings(SparqlResponse? response)
+    {
+        var stintsByQid = new Dictionary<string, HashSet<WikidataCareerStintEntry>>();
+        if (response?.Results?.Bindings is null)
+            return new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>();
+
+        foreach (var binding in response.Results.Bindings)
+        {
+            if (!binding.TryGetValue("player", out var playerValue) || string.IsNullOrEmpty(playerValue.Value))
+                continue;
+
+            if (!binding.TryGetValue("clubLabel", out var clubLabelValue) || string.IsNullOrWhiteSpace(clubLabelValue.Value))
+                continue;
+
+            if (!binding.TryGetValue("startTime", out var startTimeValue) || !TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
+                continue;
+
+            int? endYear = binding.TryGetValue("endTime", out var endTimeValue)
+                && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
+                    ? parsedEndYear
+                    : null;
+            int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue)
+                && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
+                    ? parsedAppearanceCount
+                    : null;
+
+            var qid = playerValue.Value.Split('/').Last();
+            if (!stintsByQid.TryGetValue(qid, out var stints))
+                stintsByQid[qid] = stints = [];
+
+            stints.Add(new WikidataCareerStintEntry(clubLabelValue.Value, startYear, endYear, appearanceCount));
+        }
+
+        return stintsByQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)kv.Value.ToList());
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

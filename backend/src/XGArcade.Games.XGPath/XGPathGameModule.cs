@@ -2,6 +2,7 @@ using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.Games.XGPath;
 
@@ -18,6 +19,7 @@ public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
     IPlayerStoreRepository playerStoreRepository,
     ICategoryValueRepository categoryValueRepository,
+    IPlayerCareerStintRefreshService careerStintRefreshService,
     Random? random = null) : IGameModule
 {
     public const string XGPathGameKey = "xg-path";
@@ -59,6 +61,18 @@ public class XGPathGameModule(
         }
 
         var targetPlayerIds = PickDistinct(eligiblePlayerIds, template.PuzzleCount);
+
+        // ADR-0054: refresh exactly these N targets' PlayerCareerStint rows
+        // from Wikidata's full career history, before anyone can view the
+        // puzzle — eligibility above was already decided from whatever xG
+        // Grid byproduct data existed BEFORE this call, deliberately (see
+        // IPlayerCareerStintRefreshService's own doc comment for why this
+        // can enrich an already-selected target's own clues but can never
+        // retroactively change who was eligible for this generation). Never
+        // throws — a Wikidata failure here must not fail round generation,
+        // same REQ-103 reasoning xG Grid's own generation-time lookups
+        // follow.
+        await careerStintRefreshService.RefreshCareerStintsAsync(targetPlayerIds, cancellationToken);
 
         var instanceId = Guid.NewGuid();
         var instance = new PathInstance
