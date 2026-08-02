@@ -118,23 +118,31 @@ two id spaces.
   (a structural query-shape problem masquerading as "just needs more
   retries") was caught: watch for a long contiguous stretch of failures
   against the same clubs/QIDs, not just raw failure count
-- Negative / trade-off accepted: (3)'s per-country pool query is unproven at
-  the scale a large football nation (Brazil, England, ...) could produce —
-  `QueryPlayerPoolByNationalityAsync`'s own doc comment flags this
-  explicitly. `PlayerCareerPrefetchService` treats one country's query
-  failure as recoverable (log, continue with the rest, fail the whole run
-  loudly only at the end) for exactly this reason, and
-  `prefetch-player-careers.yml` deliberately stays `workflow_dispatch`-only
-  (not on move (2)'s recurring cron) until a real run confirms cost/runtime
-  — see Follow-up
-- Follow-up: once a real `prefetch-player-careers` run confirms it completes
-  reliably within the 90-minute budget, consider putting it on a recurring
-  cron too, same as move (2). If a specific large country's query turns out
-  to exceed WDQS's ~60s server cap, the fix is the same lesson
-  `import-player-name-index` already learned once (NOTES.md 2026-07-17/18):
-  slice that country's query further (e.g. by birth-year decade, combining
-  this ADR's nationality filter with the existing birth-year-slicing
-  pattern), not raise a client-side timeout past the server's own cap
+- Negative / trade-off accepted (now resolved — see below): (3)'s per-country
+  pool query was unproven at the scale a large football nation (Brazil,
+  England, ...) could produce when this ADR was written.
+- **Resolved 2026-08-02, first real run:** `QueryPlayerPoolByNationalityAsync`
+  (the per-country pool query) never failed once, including for huge pools
+  (United Kingdom: 18,460 players; Brazil: 10,949; Germany: 10,128) — the
+  flagged server-cap risk did not materialize; that query shape is proven
+  safe. The run still went red, but from a different, more mundane cause:
+  4 of the many 200-player `QueryPlayerCareerStintsByQidsAsync` batches hit
+  `WikidataClient`'s 15s *default* timeout (tuned in ADR-0011 for much
+  narrower per-cell queries) — the same class of bug as the 2026-07-17
+  `import-player-name-index` timeout entry (NOTES.md), not the WDQS
+  server-cap issue this ADR originally anticipated. `PlayerCareerPrefetchService`'s
+  fail-loud-at-end contract worked exactly as designed: kept going, isolated
+  the 4 batch failures without losing the other 49 countries' 177,872
+  players/607,914 stints, and exited nonzero. Fixed by giving
+  `prefetch-player-careers`'s own `WikidataClient` a 60s `queryTimeout`
+  override, same fix `import-player-name-index` already needed for the
+  identical reason — see NOTES.md's matching 2026-08-02 entry for the full
+  incident.
+- Follow-up: now that a real run has confirmed the country-pool query is
+  safe and the batch-timeout bug is fixed, `prefetch-player-careers.yml` can
+  reasonably move to move (2)'s recurring cron once a clean full run
+  confirms the fix — still `workflow_dispatch`-only for now, pending that
+  confirmation.
 - Follow-up: once (1)-(3) have run for real, revisit whether
   `MinValidAnswers`/`MinAppearancesAtSeededClub` thresholds (ADR-0023/
   ADR-0047) still reflect the right trade-off now that the underlying data

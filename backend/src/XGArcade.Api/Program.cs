@@ -309,8 +309,22 @@ if (args is ["prefetch-player-careers"])
 
     using var prefetchHttpClient = new HttpClient();
     ConfigureWikidataHttpClient(prefetchHttpClient);
+    // 60s, same reasoning as import-player-name-index's own standalone
+    // client override just above: WikidataClient's 15s default is tuned
+    // (ADR-0011) for the narrow per-cell intersection queries, not this
+    // job's 200-QID VALUES-clause career-stint batches. Confirmed live
+    // (2026-08-02, this job's first real run): 4 of many 200-player
+    // career-fetch batches hit the 15s default and timed out — every
+    // country's own pool query and the vast majority of career-fetch
+    // batches easily finished well under 15s, so this genuinely was the
+    // client default being too tight for the occasional heavier batch, not
+    // WDQS's ~60s server-side cap (ADR-0055's own flagged risk, and a
+    // different failure mode from this one — don't conflate the two next
+    // time this job's log is read). 60s is still the right ceiling per
+    // that same server-cap lesson: no reason to guess higher.
     var prefetchWikidataClient = new WikidataClient(
-        prefetchHttpClient, logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
+        prefetchHttpClient, queryTimeout: TimeSpan.FromSeconds(60),
+        logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
 
     var prefetchService = new PlayerCareerPrefetchService(
         prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchWikidataClient,

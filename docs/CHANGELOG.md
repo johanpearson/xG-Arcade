@@ -14,6 +14,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 ## Unreleased
 
 - 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
+  (Consequences/Follow-up amended with real-run findings), `NOTES.md` —
+  `prefetch-player-careers`'s first real run processed all 49 seeded
+  countries (177,872 players, 607,914 stints) but 4 of many 200-player
+  career-fetch batches hit `WikidataClient`'s 15s default timeout (the same
+  bug class as the 2026-07-17 `import-player-name-index` timeout entry, not
+  the WDQS server-cap risk this ADR had originally flagged, which did not
+  materialize). Fixed with the same 60s `queryTimeout` override
+  `import-player-name-index` already needed.
+- 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
   (Proposed → Accepted, same session), `docs/architecture-document.md`
   (v0.74 → v0.75), `docs/implementation-document.md` (v0.87 → v0.88) — three
   follow-up moves to ADR-0054's "build the player-data cache up proactively"

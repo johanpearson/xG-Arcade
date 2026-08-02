@@ -27,6 +27,38 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-02 — `prefetch-player-careers`'s first real run: huge success overall, 4 batches hit the same 15s-default-timeout mistake `import-player-name-index` already made once
+
+First-ever real run (ADR-0055, right after merging PR #140) processed
+essentially the entire seeded country list — 49 countries, 177,872 players
+touched, 607,914 stints added — in ~42 minutes, comfortably inside the
+90-minute budget. `QueryPlayerPoolByNationalityAsync` (the per-country pool
+query) never failed once, including for huge pools (United Kingdom: 18,460
+players; Brazil: 10,949; Germany: 10,128) — so ADR-0055's own flagged risk
+("a large country might exceed WDQS's ~60s server-side cap") did NOT
+materialize. The job still went red at the end, though: 4 of the many
+200-player `QueryPlayerCareerStintsByQidsAsync` career-fetch batches (mixed
+in among Brazil's and Russia's batches) hit `WikidataClient`'s 15s default
+timeout and failed — recoverable, isolated batch failures, not country
+failures, exactly as designed (the fail-loud-at-end contract worked
+correctly: kept going, reported the 4 failures, preserved everything that
+succeeded, exited nonzero to signal "re-run to fill the gaps").
+
+Root cause is the *exact same class of bug* as the
+2026-07-17 `import-player-name-index` timeout entry below: 15s
+(`WikidataClient`'s default, tuned in ADR-0011 for the narrow per-cell
+intersection queries) is too tight for a 200-QID VALUES-clause query
+fetching full P54 career histories — a genuinely heavier query shape than
+what 15s was ever tuned for, not a sign of the server-side ~60s cap being
+hit (this is the important distinction: don't reach for "slice the query
+further" here, that lesson applies to the *other* failure mode). Fixed the
+same way `import-player-name-index` was fixed for the identical reason:
+gave `prefetch-player-careers`'s own standalone `WikidataClient` a 60s
+`queryTimeout` override in `Program.cs`. **Lesson worth generalizing:** any
+new by-QID batch query added to `WikidataClient` in the future should
+default its CLI verb's standalone client to 60s from the start, not wait to
+rediscover this the same way twice.
+
 ### 2026-08-02 — two `workflow_dispatch` jobs need a manual run after the diacritic-normalization/position-birthyear bug-bundle fix ships
 
 Deploying the `PlayerNameNormalizer`/`Player.Position`/`Player.BirthYear` fixes
