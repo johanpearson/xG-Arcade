@@ -61,22 +61,31 @@ public static ILoggerFactory Build(IConfiguration configuration) =>
 `AddConfiguration(configuration.GetSection("Logging"))` is exactly what
 `WebApplication.CreateBuilder`'s own default logging setup does with that
 section for the normal HTTP server path — wiring
-`Logging:LogLevel:Default`/per-category override rules (config file or
-environment variable, since each CLI verb's own `ConfigurationBuilder`
-already calls `.AddEnvironmentVariables()`) into the console provider. Each
-CLI verb passes its own already-built `IConfiguration` instance (the one it
-already uses for `ConnectionStrings:Database`), so no new configuration
-source is introduced. With no override configured, the effective behavior
-is unchanged from before this fix — .NET's own default minimum level with
-no filter rules present is `Information`, the same value the old
-`SetMinimumLevel(LogLevel.Information)` hardcoded.
+`Logging:LogLevel:Default`/per-category override rules into the console
+provider. Each CLI verb passes its own already-built `IConfiguration`
+instance (the one it already uses for `ConnectionStrings:Database`), so no
+new configuration source is introduced — and that instance is
+environment-variable-only (`.AddEnvironmentVariables()`, no
+`.AddJsonFile("appsettings.json")`), same as it was before this fix, so an
+override set only in `appsettings.json` (never as an env var) still won't
+reach these CLI verbs. That's a pre-existing characteristic of these verbs'
+config sourcing generally (identical for `ConnectionStrings:Database`), not
+something this fix claims to resolve. With no override configured at all,
+the effective behavior is unchanged from before this fix — with no filter
+rules present, `Microsoft.Extensions.Logging`'s own `LoggerFilterOptions.MinLevel`
+defaults to `Information`, the same value the old
+`SetMinimumLevel(LogLevel.Information)` hardcoded; `appsettings.json`'s
+`Logging:LogLevel:Default` (also `Information`) plays no part in either case,
+since these CLI verbs never load it.
 
 `CliLoggerFactory.Build` is a small `public static` method in its own file
-rather than staying a `Program.cs` local function (the pattern
-`ConfigureWikidataHttpClient` already uses for the same "shared between the
-DI registration and the CLI verbs" reason) specifically so this fix has a
-regression test: `Program.cs`'s top-level statements have no test harness
-of their own — `WebApplicationFactory<Program>` in `XGArcade.Api.Tests`
+rather than staying a `Program.cs` local function — the same "extract for
+independent unit testing" precedent `Auth/SupabaseJwksConfigurationRetriever.cs`
+already established (see `SupabaseJwksConfigurationRetrieverTests.cs`),
+unlike `ConfigureWikidataHttpClient`, which stays a local function precisely
+because nothing has ever needed to unit-test it on its own — specifically so
+this fix has a regression test: `Program.cs`'s top-level statements have no
+test harness of their own — `WebApplicationFactory<Program>` in `XGArcade.Api.Tests`
 only ever exercises the `WebApplication`/HTTP path, which every CLI verb
 returns before ever reaching, so a local function here would have stayed
 just as untestable as the bug it replaces.

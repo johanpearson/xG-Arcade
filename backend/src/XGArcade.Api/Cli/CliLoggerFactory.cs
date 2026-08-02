@@ -11,7 +11,9 @@ namespace XGArcade.Api.Cli;
 // bug this fixes has a regression test: Program.cs's top-level statements
 // have no test harness of their own (WebApplicationFactory<Program> only
 // ever exercises the WebApplication/HTTP path, which every CLI verb returns
-// before ever reaching).
+// before ever reaching). Same "extract to its own file for independent unit
+// testing" precedent Auth/SupabaseJwksConfigurationRetriever.cs already
+// established — see SupabaseJwksConfigurationRetrieverTests.cs.
 //
 // See ADR-0054 for the full "why this didn't work before" story. Every CLI
 // verb above used to build its ILoggerFactory with
