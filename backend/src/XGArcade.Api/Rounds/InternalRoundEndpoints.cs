@@ -284,6 +284,86 @@ public static class InternalRoundEndpoints
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
+
+        // S-088/REQ-806 extension: the xg-path counterpart to
+        // seed-guessable-round above — REQ-807's own doc text ("only
+        // grid/round content is seeded this way") was true only because no
+        // second game existed yet to need it. S-088's E2E coverage for xG
+        // Path's full loop (generation -> clue reveal -> guess -> round
+        // close -> leaderboard) needs a deterministic, guessable xg-path
+        // round the same way S-011's grid E2E suite needed
+        // seed-guessable-round — same reasoning, same repository-only write
+        // discipline (ADR-0006 boundary rule 4), just against
+        // IPathInstanceRepository instead of IGridInstanceRepository.
+        //
+        // This bypasses XGPathGameModule.GenerateInstanceAsync entirely
+        // (writes PathInstance/PathPuzzle directly), so REQ-1201's
+        // seeded-club/appearance-count eligibility rules never apply here —
+        // same "bypass the module's own generation-time eligibility logic"
+        // reasoning the grid seed endpoint above already relies on for
+        // GridGameModule.
+        app.MapPost("/internal/test-data/seed-guessable-path-round", async (
+            IPathInstanceRepository pathInstanceRepository,
+            IPlayerStoreRepository playerStoreRepository,
+            IRoundRepository roundRepository,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+
+            // Same unique-tag-per-call convention as seed-guessable-round
+            // above (REQ-209 fallout) — keeps repeated/concurrent test runs
+            // hermetic against a shared CI Postgres instance.
+            var nameTag = Guid.NewGuid().ToString("N")[..8];
+            var correctPlayerName = $"Path Test Player {nameTag}";
+            var player = await playerStoreRepository.AddPlayerAsync(
+                new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
+                cancellationToken);
+
+            // At least 3 chronologically distinct, non-overlapping stints so
+            // PathClueSequenceBuilder.BuildSequence (via GET /path/current)
+            // has real content for all 3 club-reveal turns — SequenceOrder
+            // here is illustrative only; AddCareerStintsAsync recomputes it
+            // for the player's full stint set by (StartYear, EndYear), never
+            // trusting the caller's own value.
+            await playerStoreRepository.AddCareerStintsAsync(
+                player.Id,
+                [
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Ajax", StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Juventus", StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Real Madrid", StartYear = 2016, EndYear = 2019, SequenceOrder = 2 },
+                ],
+                cancellationToken);
+
+            var instanceId = Guid.NewGuid();
+            var puzzleId = Guid.NewGuid();
+            var instance = await pathInstanceRepository.AddInstanceAsync(new PathInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Puzzles =
+                [
+                    new PathPuzzle
+                    {
+                        Id = puzzleId,
+                        PathInstanceId = instanceId,
+                        TargetPlayerId = player.Id,
+                    },
+                ],
+            }, cancellationToken);
+
+            var round = await roundRepository.AddAsync(new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = XGPathGameModule.XGPathGameKey,
+                GameInstanceId = instance.Id,
+                StartTime = now.AddMinutes(-1),
+                EndTime = now.AddHours(1),
+                AllowGuessChange = true,
+            }, cancellationToken);
+
+            return Results.Ok(new SeedGuessablePathRoundResponse(round.Id, puzzleId, correctPlayerName));
+        });
     }
 }
 
@@ -292,6 +372,13 @@ public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime Start
 public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 
 public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName, string AlternateCorrectPlayerName);
+
+// S-088/REQ-806 extension: PuzzleId is the "cell id" an E2E test submits
+// guesses against via the existing game-agnostic
+// POST /rounds/{roundId}/cells/{cellId}/guesses (XGArcade.Api.Guesses.
+// GuessEndpoints) — same PathPuzzle.Id-is-the-cell-id contract
+// IGameModule.GetCellIdsAsync already documents for xg-path.
+public record SeedGuessablePathRoundResponse(Guid RoundId, Guid PuzzleId, string CorrectPlayerName);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.
