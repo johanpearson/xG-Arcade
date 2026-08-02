@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.72"
+version: "0.73"
 status: draft
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -461,6 +461,25 @@ explicit parameter, consistent with the other three scopes. See
 three scopes' routes — xG Grid is still the only shipped game, so behavior
 is unchanged in practice; the frontend game-switcher UI this eventually
 needs (SCREEN-03) is a separate, not-yet-built follow-up (S-087).
+
+**COMP-02/COMP-05/COMP-11 status (2026-08-02, S-087):** the follow-up
+above landed. `LeaderboardEndpoints` no longer hardcodes
+`GridGameModule.XGGridGameKey` — every route above except the single-round
+`/closed-rounds/{roundId:guid}` one (which resolves by `roundId` alone,
+already uniquely determining the round's game) now accepts an optional
+`gameKey` query parameter, validated against the two known `GameKey`s via
+a `ValidateGameKey` helper that mirrors `InternalRoundEndpoints.cs`'s
+existing inline-tuple-check pattern (400 "Invalid gameKey" on anything
+else), defaulting to `GridGameModule.XGGridGameKey` when omitted so any
+caller that hasn't been updated keeps its prior behavior. `Core.Leagues`
+itself is untouched — the new validation stays in the Api layer, same
+ADR-0003 reasoning as every other `GameKey`-shaped Api-layer check in this
+codebase. `LeaderboardScreen.tsx` (frontend) gained the game-switcher tab
+row SCREEN-03 describes, sitting above the existing scope-tab row, reusing
+`GameSelectScreen.tsx`'s `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` constants
+rather than duplicating them. See `docs/backlog.md` S-087's "Built as" for
+the full implementation and `docs/requirements-document.md` REQ-410's
+matching 2026-08-02 status note.
 
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index

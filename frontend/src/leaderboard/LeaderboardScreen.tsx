@@ -15,6 +15,11 @@ import type { ClosedRoundSummary, LeaderboardRow } from '../lib/types';
 // props, no leaderboard-specific content (see ScoringExplainer.tsx's own
 // 2026-07-21 doc comment and REQ-213's matching acceptance criteria).
 import { ScoringExplainer } from '../grid/ScoringExplainer';
+// REQ-410/ADR-0043 (S-087): the same client-side `GameKey` constants
+// GameSelectScreen/HeaderNav already use — no new/duplicate string literal
+// per this repo's own established convention (see GameSelectScreen.tsx's
+// own comment on why these stay plain constants rather than API-sourced).
+import { XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from '../games/GameSelectScreen';
 import './LeaderboardScreen.css';
 
 export interface LeaderboardScreenProps {
@@ -34,6 +39,19 @@ export interface LeaderboardScreenProps {
 // browsable closed-round list + drill-in. 'window' is REQ-405's
 // calendar-aligned (never rolling) round/week/month/year leaderboard.
 type Scope = 'all-time' | 'live' | 'past' | 'window';
+
+// REQ-410/ADR-0043 (S-087): once a second game exists, "the" leaderboard
+// can no longer mean one thing — every scope's read is now scoped to one
+// `GameKey`. Same name/order as SCREEN-09's tiles and `HeaderNav`'s "Games"
+// list (xG Grid, then xG Path — never alphabetical), and xG Grid as the
+// default (matching GameSelectScreen's own tile order/"still the only
+// shipped game until S-085" precedent).
+type GameKey = typeof XG_GRID_GAME_KEY | typeof XG_PATH_GAME_KEY;
+
+const GAME_TABS: Array<{ value: GameKey; label: string }> = [
+  { value: XG_GRID_GAME_KEY, label: 'xG Grid' },
+  { value: XG_PATH_GAME_KEY, label: 'xG Path' },
+];
 
 // ---- Shared row shape used by all three scopes' "ready" states ----------
 
@@ -227,6 +245,13 @@ function LeaderboardRowsList({
 // 407/408 (S-053/S-054) add the scope selector above instead.
 export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScreenProps) {
   const [scope, setScope] = useState<Scope>('all-time');
+  // REQ-410/ADR-0043 (S-087): which game every scope below reads. Switching
+  // this must re-fetch whichever scope is currently selected, scoped to the
+  // new game — it must NOT reset `scope` itself back to 'all-time' (that
+  // would silently discard the player's chosen view, and defeats the
+  // purpose of the switcher sitting *above* the scope row rather than
+  // resetting it).
+  const [gameKey, setGameKey] = useState<GameKey>(XG_GRID_GAME_KEY);
   // REQ-213 (S-068): independent of `scope`/every scope's own load state on
   // purpose — same reasoning as GridScreen.tsx's `explainerOpen` being
   // independent of `activeCell` (SCREEN-06's "doesn't discard in-progress
@@ -283,7 +308,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     function load(showLoadingState: boolean) {
       if (showLoadingState) setState({ phase: 'loading' });
 
-      fetchLeaderboard(accessToken)
+      fetchLeaderboard(accessToken, gameKey)
         .then((response) => {
           if (cancelled) return;
           setState((prev) => {
@@ -348,7 +373,15 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
       cancelled = true;
       if (timeoutId != null) window.clearTimeout(timeoutId);
     };
-  }, [accessToken, onAuthError, handleAuthError]);
+    // REQ-410 (S-087): `gameKey` is a dependency so switching games restarts
+    // this effect exactly like a fresh mount would — the cleanup above
+    // cancels the pending poll timeout for the old game, and the effect
+    // re-running immediately calls `load(true)`, showing the loading state
+    // once and fetching the newly selected game's all-time leaderboard
+    // (never blending pages/frontier across games, since `load`'s own
+    // `prevReady` read above only sees this fresh 'loading' state, not the
+    // old game's trailing pages).
+  }, [accessToken, gameKey, onAuthError, handleAuthError]);
 
   // REQ-607: "Load more" is a separate, explicit, user-triggered action —
   // it appends the next page on top of whatever's already loaded and never
@@ -361,7 +394,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     setState((prev) => (prev.phase === 'ready' ? { ...prev, loadingMore: true, loadMoreError: null } : prev));
 
     try {
-      const response = await fetchLeaderboard(accessToken, cursor);
+      const response = await fetchLeaderboard(accessToken, gameKey, cursor);
       setState((prev) => {
         if (prev.phase !== 'ready') return prev;
         return {
@@ -409,15 +442,24 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
   // back for something more current," a brief loading flash is the more
   // honest signal than quietly leaving stale data up with no cue that a
   // refresh is even happening.
+  //
+  // REQ-410 (S-087): switching games while already on "live" is a second,
+  // equally real reason to re-fetch — same "isEntering"-style ref
+  // comparison, this time against the previous `gameKey`, so a game switch
+  // re-triggers the fetch exactly like a fresh tab entry would, without
+  // requiring the player to leave and re-enter the "live" scope tab first.
   const prevScopeForLiveRef = useRef<Scope>(scope);
+  const prevGameKeyForLiveRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     const isEnteringLive = scope === 'live' && prevScopeForLiveRef.current !== 'live';
+    const isSwitchingGameWhileLive = scope === 'live' && prevGameKeyForLiveRef.current !== gameKey;
     prevScopeForLiveRef.current = scope;
-    if (!isEnteringLive) return;
+    prevGameKeyForLiveRef.current = gameKey;
+    if (!isEnteringLive && !isSwitchingGameWhileLive) return;
     let cancelled = false;
     setLiveState({ phase: 'loading' });
 
-    fetchActiveRoundLeaderboard(accessToken)
+    fetchActiveRoundLeaderboard(accessToken, gameKey)
       .then((response) => {
         if (cancelled) return;
         setLiveState({
@@ -447,7 +489,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     return () => {
       cancelled = true;
     };
-  }, [scope, accessToken, handleAuthError]);
+  }, [scope, gameKey, accessToken, handleAuthError]);
 
   async function handleLoadMoreLive() {
     if (liveState.phase !== 'ready' || liveState.nextCursor == null || liveState.loadingMore) return;
@@ -456,7 +498,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     setLiveState((prev) => (prev.phase === 'ready' ? { ...prev, loadingMore: true, loadMoreError: null } : prev));
 
     try {
-      const response = await fetchActiveRoundLeaderboard(accessToken, cursor);
+      const response = await fetchActiveRoundLeaderboard(accessToken, gameKey, cursor);
       setLiveState((prev) => {
         if (prev.phase !== 'ready') return prev;
         return {
@@ -479,19 +521,48 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
 
   // ---- Previous Rounds scope (REQ-408) -----------------------------------
 
+  // REQ-410 (S-087): a drilled-into round belongs to exactly one game — if
+  // the player switches games while looking at a specific past round's
+  // detail (`selectedRound`/`pastDetailState` set), that round no longer
+  // means anything under the new game, so back out to the round list rather
+  // than leave a stale, now-cross-game round detail on screen. Judgement
+  // call (not spelled out in the story text beyond "use your judgement"):
+  // this resets on *any* gameKey change, not just while scope === 'past',
+  // so a stale selection can't resurface later either (e.g. drill into a
+  // round under xG Grid, switch to "Current Round", switch games, then
+  // click back into "Previous Rounds" — without this, the old round's
+  // now-mismatched detail would still be sitting in state). Mirrors
+  // `handleBackToRoundList`'s own reset below exactly, just triggered by a
+  // game switch instead of a button click. Guarded by a ref (not putting
+  // `gameKey` in a dependency array that also calls setState unconditionally)
+  // so it only fires on a genuine change, never on mount.
+  const prevGameKeyForPastDetailRef = useRef<GameKey>(gameKey);
+  useEffect(() => {
+    if (prevGameKeyForPastDetailRef.current !== gameKey) {
+      setSelectedRound(null);
+      setPastDetailState(null);
+    }
+    prevGameKeyForPastDetailRef.current = gameKey;
+  }, [gameKey]);
+
   // The round-selection list, fetched on every transition into this
   // scope — same "idle until picked" and "re-entry, not a one-time latch"
   // reasoning, and same prev-scope-ref-rather-than-phase-in-deps fix, as the
-  // live scope above.
+  // live scope above. REQ-410 (S-087): also re-fetched on a game switch
+  // while already on "past", same reasoning as the live scope's
+  // `isSwitchingGameWhileLive` above.
   const prevScopeForPastListRef = useRef<Scope>(scope);
+  const prevGameKeyForPastListRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     const isEnteringPast = scope === 'past' && prevScopeForPastListRef.current !== 'past';
+    const isSwitchingGameWhilePast = scope === 'past' && prevGameKeyForPastListRef.current !== gameKey;
     prevScopeForPastListRef.current = scope;
-    if (!isEnteringPast) return;
+    prevGameKeyForPastListRef.current = gameKey;
+    if (!isEnteringPast && !isSwitchingGameWhilePast) return;
     let cancelled = false;
     setPastListState({ phase: 'loading' });
 
-    fetchClosedRounds(accessToken)
+    fetchClosedRounds(accessToken, gameKey)
       .then((response) => {
         if (cancelled) return;
         setPastListState({
@@ -512,7 +583,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     return () => {
       cancelled = true;
     };
-  }, [scope, accessToken, handleAuthError]);
+  }, [scope, gameKey, accessToken, handleAuthError]);
 
   async function handleLoadMoreRoundList() {
     if (pastListState.phase !== 'ready' || pastListState.nextCursor == null || pastListState.loadingMore) return;
@@ -523,7 +594,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     );
 
     try {
-      const response = await fetchClosedRounds(accessToken, cursor);
+      const response = await fetchClosedRounds(accessToken, gameKey, cursor);
       setPastListState((prev) => {
         if (prev.phase !== 'ready') return prev;
         return {
@@ -633,18 +704,24 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
   // live scope: re-entering "window" (or re-picking the same sub-tab after
   // leaving and coming back) deliberately shows the loading state again
   // rather than quietly leaving the previous resolution's rows on screen.
+  //
+  // REQ-410 (S-087): switching games while already on "window" is a third
+  // real reason to re-fetch, same pattern as `isChangingResolution` above.
   const prevScopeForWindowRef = useRef<Scope>(scope);
   const prevResolutionForWindowRef = useRef<WindowResolution>(windowResolution);
+  const prevGameKeyForWindowRef = useRef<GameKey>(gameKey);
   useEffect(() => {
     const isEnteringWindow = scope === 'window' && prevScopeForWindowRef.current !== 'window';
     const isChangingResolution = scope === 'window' && prevResolutionForWindowRef.current !== windowResolution;
+    const isSwitchingGameWhileWindow = scope === 'window' && prevGameKeyForWindowRef.current !== gameKey;
     prevScopeForWindowRef.current = scope;
     prevResolutionForWindowRef.current = windowResolution;
-    if (!isEnteringWindow && !isChangingResolution) return;
+    prevGameKeyForWindowRef.current = gameKey;
+    if (!isEnteringWindow && !isChangingResolution && !isSwitchingGameWhileWindow) return;
     let cancelled = false;
     setWindowState({ phase: 'loading' });
 
-    fetchWindowedLeaderboard(accessToken, windowResolution)
+    fetchWindowedLeaderboard(accessToken, windowResolution, gameKey)
       .then((response) => {
         if (cancelled) return;
         setWindowState({
@@ -666,7 +743,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     return () => {
       cancelled = true;
     };
-  }, [scope, windowResolution, accessToken, handleAuthError]);
+  }, [scope, windowResolution, gameKey, accessToken, handleAuthError]);
 
   async function handleLoadMoreWindow() {
     if (windowState.phase !== 'ready' || windowState.nextCursor == null || windowState.loadingMore) return;
@@ -675,7 +752,7 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
     setWindowState((prev) => (prev.phase === 'ready' ? { ...prev, loadingMore: true, loadMoreError: null } : prev));
 
     try {
-      const response = await fetchWindowedLeaderboard(accessToken, windowResolution, cursor);
+      const response = await fetchWindowedLeaderboard(accessToken, windowResolution, gameKey, cursor);
       setWindowState((prev) => {
         if (prev.phase !== 'ready') return prev;
         return {
@@ -924,6 +1001,27 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
             in the ranking order alone. Shown for every scope, since it's a
             property of every ranked list this screen can show. */}
         <p className="leaderboard-screen__subtitle">Lowest total wins</p>
+      </div>
+      {/* REQ-410/ADR-0043 (S-087): the game switcher — same plain
+          underline-tab pattern as the scope tabs below (own class names
+          since it's a visually distinct row, not the same DOM row), sitting
+          above all four scope tabs since it scopes every one of them, not
+          just "All-time". Selecting a tab here deliberately never touches
+          `scope` — see each scope's own effect above for how the re-fetch
+          under the new game happens without resetting the selected tab. */}
+      <div className="leaderboard-screen__game-tabs" role="tablist" aria-label="Game">
+        {GAME_TABS.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={gameKey === value}
+            className={`leaderboard-screen__game-tab ${gameKey === value ? 'leaderboard-screen__game-tab--active' : ''}`}
+            onClick={() => setGameKey(value)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {/* REQ-406/407/408: a new, separate scope selector — distinct from the
           not-yet-built custom-league tabs (design-document.md SCREEN-03). */}

@@ -287,18 +287,23 @@ export async function submitSuggestion(
   return (await response.json()) as SubmitSuggestionResponse;
 }
 
-// REQ-401/404/607: the global leaderboard (SCREEN-03) — the only league
-// Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `cursor`/
+// REQ-401/404/607/410 (S-087): the global leaderboard (SCREEN-03) — the only
+// league Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `gameKey`
+// is optional (the backend defaults to xg-grid when omitted, ADR-0043) but
+// the leaderboard screen now always passes one explicitly once it has a
+// selected game — see SCREEN-03's "Game switcher" addition. `cursor`/
 // `pageSize` are optional and only appended as query params when provided —
 // omitting both fetches the first page at the backend's default pageSize,
 // which is what the initial load and the 15s poll both do; SCREEN-03's
 // "Load more" passes the previous response's `nextCursor` explicitly.
 export async function fetchLeaderboard(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -321,10 +326,12 @@ export async function fetchLeaderboard(
 // `error instanceof ApiError && error.status === 401` check elsewhere).
 export async function fetchActiveRoundLeaderboard(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -342,10 +349,12 @@ export async function fetchActiveRoundLeaderboard(
 // above (REQ-408's explicit "one pagination convention, not two" resolution).
 export async function fetchClosedRounds(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<ClosedRoundListResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -362,7 +371,10 @@ export async function fetchClosedRounds(
 // A 404 ("Round not found") and a 409 ("Round not closed yet") are two
 // distinct, real states the caller must tell apart — both are left to throw
 // as an ApiError so the caller can branch on `error.status`, same reasoning
-// as fetchActiveRoundLeaderboard's 404 above.
+// as fetchActiveRoundLeaderboard's 404 above. Deliberately has no `gameKey`
+// param (S-087): unlike the other four leaderboard reads, this one resolves
+// by `roundId` alone — a round already belongs to exactly one game, so
+// there's no ambiguity a gameKey filter could resolve.
 export async function fetchClosedRoundLeaderboard(
   accessToken: string,
   roundId: string,
@@ -391,9 +403,10 @@ export async function fetchClosedRoundLeaderboard(
 export type WindowResolution = 'round' | 'week' | 'month' | 'year';
 
 // REQ-405 (S-027): one calendar-aligned time-window's leaderboard
-// (SCREEN-03's "Time Windows" scope) — same cursor/pageSize/response shape as
-// fetchLeaderboard/fetchActiveRoundLeaderboard/fetchClosedRoundLeaderboard
-// above, summing only locked `FinalPoints` (never live/provisional points,
+// (SCREEN-03's "Time Windows" scope) — same optional `gameKey`/cursor/
+// pageSize/response shape as fetchLeaderboard/fetchActiveRoundLeaderboard/
+// fetchClosedRoundLeaderboard above (REQ-410/S-087), summing only locked
+// `FinalPoints` (never live/provisional points,
 // unlike fetchActiveRoundLeaderboard). An empty ranked list is a real,
 // expected state (nothing has happened in that window yet) — the response
 // still resolves normally with `rows: []`, not a 404, so there's no
@@ -402,10 +415,12 @@ export type WindowResolution = 'round' | 'week' | 'month' | 'year';
 export async function fetchWindowedLeaderboard(
   accessToken: string,
   resolution: WindowResolution,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
