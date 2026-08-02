@@ -59,3 +59,18 @@ jobs:
           exit 1
         env:
           ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+          # TEMPORARY diagnostic-only override, this branch is throwaway and
+          # not meant to merge (v2 of diagnostic/club-club-cache-warming-failures
+          # — that branch's identical override never actually reached
+          # WikidataClient's logger because of the CLI-verb ILoggerFactory
+          # bug fixed in this branch's own first commit; see ADR-0054). Bumps
+          # just WikidataClient's own logger category to Debug so its
+          # per-pair timeout/HTTP/JSON-parse-error log line (downgraded to
+          # Debug by ADR-0052 specifically to keep a normal run's console
+          # readable) is visible again, to gather real evidence on why
+          # ~100-125 Club x Club pairs still fail even after ADR-0052's
+          # FILTER EXISTS fix and a PairLookupFailure clear. Run
+          # `clear-pair-lookup-failures` first (against the same database)
+          # so this run actually re-attempts every previously-stuck pair
+          # instead of skipping them as already-persistent-failure.
+          Logging__LogLevel__XGArcade.DataSync.Wikidata.WikidataClient: Debug
