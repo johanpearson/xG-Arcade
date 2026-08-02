@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Admin;
 using XGArcade.Api.Auth;
+using XGArcade.Api.Cli;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Leagues;
@@ -87,9 +88,14 @@ if (args is ["warm-player-cache"])
         .UseNpgsql(warmingConnectionString)
         .Options;
 
-    using var warmingLoggerFactory = LoggerFactory.Create(b => b
-        .AddConsole()
-        .SetMinimumLevel(LogLevel.Information));
+    // ADR-0054 (2026-08-02): CliLoggerFactory.Build wires warmingConfig's
+    // "Logging" section (env var overrides included) into this verb's
+    // logger, so `Logging:LogLevel:Default` or a scoped category override
+    // (e.g. Logging__LogLevel__XGArcade.DataSync.Wikidata.WikidataClient=Debug)
+    // actually reaches WikidataClient's per-pair Debug logging when
+    // troubleshooting — see that class's own doc comment for the bug this
+    // replaces and ADR-0052 for the original troubleshooting instructions.
+    using var warmingLoggerFactory = CliLoggerFactory.Build(warmingConfig);
 
     await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
     var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
@@ -132,9 +138,9 @@ if (args is ["import-player-name-index"])
         .UseNpgsql(importConnectionString)
         .Options;
 
-    using var importLoggerFactory = LoggerFactory.Create(b => b
-        .AddConsole()
-        .SetMinimumLevel(LogLevel.Information));
+    // ADR-0054 (2026-08-02): same fix as warm-player-cache's own logger
+    // above — see that call site's comment.
+    using var importLoggerFactory = CliLoggerFactory.Build(importConfig);
 
     await using var importDbContext = new XGArcadeDbContext(importDbContextOptions);
     var importRepository = new PlayerNameIndexRepository(importDbContext);
@@ -195,9 +201,9 @@ if (args is ["backfill-player-photos"])
         .UseNpgsql(backfillConnectionString)
         .Options;
 
-    using var backfillLoggerFactory = LoggerFactory.Create(b => b
-        .AddConsole()
-        .SetMinimumLevel(LogLevel.Information));
+    // ADR-0054 (2026-08-02): same fix as warm-player-cache's own logger
+    // above — see that call site's comment.
+    using var backfillLoggerFactory = CliLoggerFactory.Build(backfillConfig);
 
     await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
     var backfillPlayerStoreRepository = new PlayerStoreRepository(backfillDbContext);
