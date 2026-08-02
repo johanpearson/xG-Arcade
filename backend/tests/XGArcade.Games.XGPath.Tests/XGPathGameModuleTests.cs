@@ -67,8 +67,17 @@ public class XGPathGameModuleTests
         public override int Next(int maxValue) => 0;
     }
 
-    private XGPathGameModule BuildModule(Random? random = null) =>
-        new(_pathInstanceRepository, _playerStoreRepository, _categoryValueRepository, random ?? new SequentialRandom());
+    // ADR-0054: field, not a local in BuildModule, so tests can inspect
+    // Calls after GenerateInstanceAsync runs — same pattern the class-level
+    // fields above already establish for the real repositories.
+    private FakePlayerCareerStintRefreshService _careerStintRefreshService = null!;
+
+    private XGPathGameModule BuildModule(Random? random = null)
+    {
+        _careerStintRefreshService = new FakePlayerCareerStintRefreshService();
+        return new(_pathInstanceRepository, _playerStoreRepository, _categoryValueRepository,
+            _careerStintRefreshService, random ?? new SequentialRandom());
+    }
 
     private PathTemplate SeedTemplate(int puzzleCount)
     {
@@ -347,6 +356,31 @@ public class XGPathGameModuleTests
         Assert.That(targets, Has.Count.EqualTo(3));
         Assert.That(targets.Distinct().Count(), Is.EqualTo(3));
         Assert.That(targets, Is.SubsetOf(players.Select(p => p.Id)));
+    }
+
+    // ADR-0054: GenerateInstanceAsync must refresh exactly the puzzles' own
+    // target players' career data — not the whole eligible pool, not zero
+    // players — and must do so with the SAME ids GetTargetPlayerIdsAsync
+    // reports, confirming the refresh happens before/independent of which
+    // ids end up on the persisted PathPuzzle rows.
+    [Test]
+    public async Task ADR0054_GenerateInstanceAsync_RefreshesCareerStintsForExactlyTheSelectedTargets()
+    {
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 5)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(_careerStintRefreshService.Calls, Has.Count.EqualTo(1),
+            "exactly one refresh call per generated instance, not one per target player");
+        Assert.That(_careerStintRefreshService.Calls[0], Is.EquivalentTo(targets));
+        Assert.That(_careerStintRefreshService.Calls[0], Has.Count.EqualTo(3),
+            "only the selected targets, never the whole 5-player eligible pool");
     }
 
     [Test]

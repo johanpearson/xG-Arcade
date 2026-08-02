@@ -97,6 +97,25 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
         if (entryList.Count == 0)
             return;
 
+        // 2026-08-02 fix: a single batch can contain the same PlayerId more
+        // than once — confirmed live on import-player-name-index's birth-year-1970
+        // slice, after 57,157 rows across birth years 1939-1969 had already
+        // imported cleanly (NOTES.md's 2026-08-02 entry has the full
+        // incident; the exact Wikidata-side trigger for that specific
+        // response is not confirmed from this sandbox, same "can't reach
+        // wikidata.org to verify" limitation as every other Wikidata data
+        // question here). Without collapsing this up front, the second
+        // occurrence's ReconcileWords call below tries to re-Add
+        // PlayerNameIndexWord rows the first occurrence already staged (in
+        // this same unsaved batch) for the same PlayerId — EF's change
+        // tracker rejects the second Add for an identical {PlayerId, Word}
+        // key immediately, before SaveChangesAsync ever runs a query. "Last
+        // occurrence wins" matches the last-write-wins rule this method
+        // already applies across separate runs (see
+        // ImportAsync_SameQidInTwoBirthYearSlices... in
+        // PlayerNameIndexImporterTests).
+        entryList = entryList.GroupBy(e => e.PlayerId).Select(g => g.Last()).ToList();
+
         // Keyed by PlayerId — same "correct in place, don't just blindly
         // insert" discipline as ReferenceDataSeeder.SeedAsync (see that
         // class's doc comment / S-037's precedent): a re-run of the bulk

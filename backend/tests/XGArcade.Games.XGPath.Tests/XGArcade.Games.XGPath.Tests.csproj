@@ -31,6 +31,10 @@
          here, not just the transitive one XGArcade.Games.XGPath already
          carries. -->
     <ProjectReference Include="..\..\src\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- ADR-0054: FakePlayerCareerStintRefreshService implements
+         IPlayerCareerStintRefreshService directly, same "not just the
+         transitive reference" reasoning as XGArcade.Data above. -->
+    <ProjectReference Include="..\..\src\XGArcade.DataSync\XGArcade.DataSync.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.86"
+version: "0.88"
 status: draft
 last_updated: 2026-08-02
 owner: Johan
@@ -1411,6 +1411,100 @@ more than one P413/P569 binding row). Seventh `dotnet run --` CLI verb,
 `backfill-player-position-birthyear`, same shape as every verb above, run
 manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
 only).
+
+**xG Path's own direct career fetch (2026-08-02, ADR-0054):** unlike the two
+backfill services above (one-time, bulk, run via a CLI verb against the
+whole backlog), this one runs inline, every round generation, against a tiny
+batch (N = `PathTemplate.PuzzleCount`) — `XGPathGameModule.GenerateInstanceAsync`
+calls the new `IPlayerCareerStintRefreshService.RefreshCareerStintsAsync`
+with exactly the target players it just picked, immediately after selecting
+them. New `IWikidataClient.QueryPlayerCareerStintsByQidsAsync` is a third
+VALUES-clause-by-QID query, but a structurally different one from the two
+above: it has no caller-supplied club to filter by at all — `?club`/
+`?clubLabel` are themselves part of the `SELECT`, discovered from the
+response (`SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches
+WHERE { VALUES ?player { wd:Q1 wd:Q2 ... } ?player p:P54 ?clubStatement.
+?clubStatement ps:P54 ?club. MINUS { ?clubStatement wikibase:rank
+wikibase:DeprecatedRank. } OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+OPTIONAL { ?clubStatement pq:P582 ?endTime. } OPTIONAL { ?clubStatement
+pq:P1350 ?numberOfMatches. } SERVICE wikibase:label { ... } }`). Uses the
+full `p:P54`/`ps:P54` statement path excluding deprecated rank, same as
+every other P54 query in this codebase (never the truthy `wdt:P54`
+shortcut — see `BuildCountryClubIntersectionQuery`'s own comment for why
+that would silently drop historical clubs) — the whole point of this query
+is completeness, so it can't reuse the cheaper shortcut the way
+`P106`/`P21`/`P569`/`P413` safely do elsewhere.
+
+Same throw-on-failure client contract as `QueryPlayerPhotosByQidsAsync`, but
+the *caller* (`PlayerCareerStintRefreshService`) never lets that propagate:
+it catches `WikidataQueryException`, logs a warning, and returns — a failed
+refresh leaves whatever `PlayerCareerStint` rows a player already had
+untouched, rather than failing the whole round generation (REQ-103's "never
+block generation on a Wikidata failure," applied to xG Path). The service
+dedupes fetched stints against `IPlayerStoreRepository
+.GetCareerStintsByPlayerIdsAsync`'s existing rows via the same
+`(ClubName, StartYear, EndYear, AppearanceCount)` tuple-set reconciliation
+`WikidataLookupService.PersistCareerStintsAsync` already uses, then writes
+only the new ones through the existing `AddCareerStintsBatchAsync` — no new
+write path, no wipe-and-replace. `Games.XGPath` gained a `ProjectReference`
+to `XGArcade.DataSync` for this (mirroring `Games.XGGrid`'s existing one) —
+COMP-11's first dependency on COMP-07.
+
+Deliberately scoped to enrichment only: `XGPathGameModule
+.GetEligiblePlayerIdsAsync` (REQ-1201's candidate pool) is unchanged and
+still reads only already-persisted `PlayerCareerStint` rows — this fetch
+runs *after* eligibility is decided, so it can complete an already-selected
+target's own clues but can never make a previously-ineligible player newly
+eligible for the round being generated right now. See ADR-0054's own
+Follow-up section for the larger, explicitly-deferred "widen the candidate
+pool itself" and "build up the player-data cache proactively rather than
+reactively" decisions.
+
+**Proactive player-data buildout (2026-08-02, ADR-0055):** three follow-up
+moves, all shipped the same session as the fix above. (1) `ReferenceDataSeeder.Clubs`
+gained Celtic (`Q19593`, flagged unverified from this sandbox — the
+established S-036-style pattern). (2) `warm-player-cache.yml`/
+`import-player-name-index.yml` moved from `workflow_dispatch`-only to a
+weekly cron (Sunday 03:00/04:30 UTC respectively), alongside their existing
+manual trigger. (3) A new bulk job, `prefetch-player-careers`
+(`PlayerCareerPrefetchService`, eighth `dotnet run --` CLI verb,
+`prefetch-player-careers.yml`, `workflow_dispatch` only for now — see
+below), iterates every seeded `CountryDefinition` row via a new
+`IWikidataClient.QueryPlayerPoolByNationalityAsync` (the nationality-scoped
+sibling of `QueryPlayerPoolBirthYearAsync` — same bounded shape, filtered by
+P27 or P1532 per `UsesCountryForSportProperty` instead of sliced by birth
+year, same throw-on-failure contract). Each country's pool is get-or-created
+as `Player` rows (`GetOrCreatePlayersByWikidataQidAsync`, `CareerBatchSize`
+= 200 per batch, same size as the two backfill services) and run through
+ADR-0054's `QueryPlayerCareerStintsByQidsAsync`, writing new stints via the
+existing `AddCareerStintsBatchAsync`. `PlayerCareerStintRefreshService`'s own
+tuple-dedup logic (ADR-0054) was extracted into an `internal static`
+`BuildNewStintsByPlayerId` helper so this job and the per-round refresh
+share one reconciliation path rather than risking two copies drifting apart.
+
+Failure handling mirrors `PlayerNameIndexImporter`'s "keep going, fail loud
+at the end" shape, not the two backfill services' pure log-and-continue: a
+country whose pool query fails, or a career-fetch batch within a country
+that fails, is logged and skipped, but `PrefetchAsync` still throws once
+every country has been attempted if anything failed — so the workflow run
+goes red (signaling "something needs a re-run," the job is idempotent)
+without losing whatever succeeded. `prefetch-player-careers.yml`
+deliberately stays `workflow_dispatch`-only, unlike the two jobs (2) just
+moved to a cron: this is a brand-new, unproven query shape — a single seeded
+country's full unsliced player pool — and it's not yet confirmed whether a
+large football nation (Brazil, England, ...) stays safely inside WDQS's
+~60s server-side cap the way a single `QueryPlayerPoolBirthYearAsync`
+birth-year slice does. See ADR-0055's own Consequences/Follow-up sections.
+
+**Correction worth flagging for future reference:** ADR-0055 originally
+proposed sourcing move (3)'s candidate pool from `PlayerNameIndex`
+(COMP-10's ~90k-row bulk import) rather than `CountryDefinition`. That
+turned out to be unworkable — `PlayerNameIndex` deliberately has no
+`WikidataQid` column at all (ADR-0007), only a one-way deterministic hash of
+it, so it cannot actually supply the QIDs `QueryPlayerCareerStintsByQidsAsync`
+needs. Iterating `CountryDefinition` directly, discovered during
+implementation, turned out to be the better fit anyway — see ADR-0055's own
+"Correction from this ADR's original proposal" note.
 
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a

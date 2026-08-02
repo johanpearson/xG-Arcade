@@ -90,6 +90,67 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // ADR-0054: QueryPlayerCareerStintsByQidsAsync support — same
+    // "configured per-QID, plus one shared fail-next-N-calls counter" shape
+    // as the photo/position-birth-year batch support above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>> _careerStintsByQid = new();
+    private int _remainingCareerStintBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedCareerStintBatches { get; } = [];
+
+    public void SetCareerStints(string wikidataQid, params WikidataCareerStintEntry[] stints) =>
+        _careerStintsByQid[wikidataQid] = stints;
+
+    public void FailNextCareerStintBatches(int batches) => _remainingCareerStintBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedCareerStintBatches.Add(wikidataQids);
+
+        if (_remainingCareerStintBatchFailures > 0)
+        {
+            _remainingCareerStintBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a player career-stint batch");
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> result = wikidataQids
+            .Where(qid => _careerStintsByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _careerStintsByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
+    // ADR-0055: QueryPlayerPoolByNationalityAsync support — same
+    // "configured per-QID, plus one shared fail-next-N-calls counter" shape
+    // as every other batch-style method above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataNameIndexEntry>> _poolByNationalityQid = new();
+    private int _remainingNationalityPoolFailures;
+
+    public List<string> QueriedNationalityQids { get; } = [];
+    public List<bool> QueriedUsesCountryForSportProperty { get; } = [];
+
+    public void SetPoolForNationality(string nationalityQid, IReadOnlyList<WikidataNameIndexEntry> pool) =>
+        _poolByNationalityQid[nationalityQid] = pool;
+
+    public void FailNextNationalityPoolCalls(int calls) => _remainingNationalityPoolFailures = calls;
+
+    public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default)
+    {
+        QueriedNationalityQids.Add(nationalityWikidataQid);
+        QueriedUsesCountryForSportProperty.Add(useCountryForSportProperty);
+
+        if (_remainingNationalityPoolFailures > 0)
+        {
+            _remainingNationalityPoolFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for nationality {nationalityWikidataQid}");
+        }
+
+        var pool = _poolByNationalityQid.TryGetValue(nationalityWikidataQid, out var configured) ? configured : [];
+        return Task.FromResult(pool);
+    }
+
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
 

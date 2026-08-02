@@ -255,4 +255,81 @@ public interface IWikidataClient
     Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
         IReadOnlyList<string> wikidataQids,
         CancellationToken cancellationToken = default);
+
+    // ADR-0054: xG Path's own direct career fetch — the FULL, unrestricted
+    // P54 club-membership history for a batch of QIDs, unlike every other
+    // query in this interface. The five intersection queries above only ever
+    // learn a player's career-stint qualifiers for the ONE club they happen
+    // to be scoped to (country/nationality x club, club x club, trophy x
+    // club) as a side effect of xG Grid's own lookups (ADR-0042) — a player's
+    // PlayerCareerStint set was, until this method existed, never more
+    // complete than "whatever clubs xG Grid happened to query about so far."
+    // This method exists specifically to let xG Path refresh a puzzle's
+    // target player with their real, complete career, independent of xG
+    // Grid's lookup history.
+    //
+    // Same VALUES-clause-over-a-bounded-QID-batch shape as
+    // QueryPlayerPhotosByQidsAsync/QueryPlayerPositionsAndBirthYearsByQidsAsync
+    // — not a candidate-matching intersection, no male/date-of-birth/
+    // occupation filter (same reasoning as those two: every QID in the batch
+    // is already a real Player row this codebase created via a query that DID
+    // apply those filters at the time). Unlike those two, though, this one
+    // DOES need the full P54 statement-path treatment (p:P54/ps:P54, MINUS
+    // deprecated rank) the intersection queries' BuildCountryClubIntersectionQuery
+    // comment explains at length — the truthy wdt:P54 shortcut only returns a
+    // player's best-rank (often "current club") statement, which would make a
+    // "full career" fetch just as incomplete as the byproduct it's meant to
+    // replace. Do not simplify this to wdt:P54.
+    //
+    // Returns a dictionary keyed by QID, present only for QIDs with at least
+    // one non-deprecated P54 statement whose P580 ("start time") qualifier
+    // resolved — a QID with no career data at all (or only qualifier-less
+    // statements) is simply absent from the result, never an error, same
+    // "absent means none" contract as QueryPlayerPhotosByQidsAsync.
+    //
+    // Error contract — same as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync (throw
+    // WikidataQueryException on timeout/HTTP/parse failure, not the
+    // intersection queries' swallow-to-[] contract): the caller
+    // (PlayerCareerStintRefreshService) is responsible for deciding that a
+    // failed refresh must never block xG Path round generation — see that
+    // class's own doc comment — but this client method itself must not
+    // silently conflate "Wikidata has no career data for this QID" with "the
+    // query failed," the same reasoning QueryPlayerPhotosByQidsAsync's own
+    // doc comment gives.
+    Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
+        IReadOnlyList<string> wikidataQids,
+        CancellationToken cancellationToken = default);
+
+    // ADR-0055: PlayerCareerPrefetchService's per-country pool query — the
+    // nationality-scoped counterpart of QueryPlayerPoolBirthYearAsync's
+    // birth-year-scoped one (S-032/ADR-0007). Same bounded-query shape (no
+    // ORDER BY/LIMIT/OFFSET) and same reuse of WikidataNameIndexEntry/
+    // ParseNameIndexBindings — this is still "a broad player-pool scan,"
+    // just sliced by a different, also-bounded axis. useCountryForSportProperty
+    // selects P1532 vs. P27, mirroring QueryNationalTeamClubIntersectionAsync/
+    // QueryCountryClubIntersectionAsync's own split (ADR-0035) — callers
+    // pass `CountryDefinition.UsesCountryForSportProperty`, never both for
+    // the same country.
+    //
+    // Error contract — same throw-on-failure shape as
+    // QueryPlayerPoolBirthYearAsync/QueryPlayerCareerStintsByQidsAsync: this
+    // is a batch job whose success metric is a fetched-pool count, so a
+    // swallowed failure would be indistinguishable from "this country
+    // genuinely has zero eligible players" (never actually true for a
+    // seeded country, but the client has no way to know that).
+    //
+    // Unverified from this sandbox whether a single large country's
+    // unsliced pool (e.g. Brazil, England — potentially thousands of players
+    // across the full 1939-present eligible range) stays safely inside
+    // WDQS's ~60s server-side cap the way a single birth-year slice does —
+    // flagged in ADR-0055 as an open risk, not assumed safe. The caller
+    // (PlayerCareerPrefetchService) treats a single country's failure as
+    // recoverable (log, continue with the remaining countries, fail the run
+    // loudly at the end) for exactly this reason — see that class's own doc
+    // comment.
+    Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid,
+        bool useCountryForSportProperty,
+        CancellationToken cancellationToken = default);
 }

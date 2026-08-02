@@ -13,6 +13,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
+  (Proposed → Accepted, same session), `docs/architecture-document.md`
+  (v0.74 → v0.75), `docs/implementation-document.md` (v0.87 → v0.88) — three
+  follow-up moves to ADR-0054's "build the player-data cache up proactively"
+  feedback, all shipped: (1) Celtic added to `ReferenceDataSeeder.Clubs`
+  (unverified QID, flagged for human verification, same as every other
+  recent addition); (2) `warm-player-cache.yml`/`import-player-name-index.yml`
+  moved from `workflow_dispatch`-only to a weekly cron, alongside their
+  existing manual trigger; (3) new `prefetch-player-careers` CLI verb/
+  workflow (`workflow_dispatch` only for now) and `PlayerCareerPrefetchService`
+  sweep every seeded `CountryDefinition`'s full player pool via a new
+  `IWikidataClient.QueryPlayerPoolByNationalityAsync`, writing careers
+  directly — this is what actually widens xG Path's target-player pool
+  beyond whatever xG Grid's own lookups happened to discover, not just
+  enriches an already-selected target (ADR-0054's own scope). Note: ADR-0055
+  originally proposed sourcing move (3) from `PlayerNameIndex`; that turned
+  out to be unworkable (`PlayerNameIndex` has no `WikidataQid` column at
+  all, ADR-0007) and was corrected to source from `CountryDefinition`
+  instead during implementation — see the ADR's own "Correction" note.
+- 2026-08-02 — `docs/decisions/0054-xg-path-direct-career-stint-fetch.md` (new),
+  `docs/architecture-document.md` (v0.73 → v0.74),
+  `docs/implementation-document.md` (v0.86 → v0.87) — xG Path now fetches its
+  own targets' full career directly from Wikidata (`IWikidataClient
+  .QueryPlayerCareerStintsByQidsAsync`, a new `IPlayerCareerStintRefreshService`
+  in `XGArcade.DataSync`, called from `XGPathGameModule.GenerateInstanceAsync`
+  right after target selection) instead of relying solely on whatever xG
+  Grid's country/club lookups happened to persist as a byproduct (ADR-0042).
+  Fixes a live-reported gap (a Timothy Weah puzzle missing real Juventus/
+  Marseille stints, and unable to ever show Celtic at all since it isn't a
+  seeded club). Deliberately does not widen xG Path's candidate/eligibility
+  pool itself — see ADR-0054's Follow-up section, including an explicit
+  product-feedback note that this codebase's player-data cache should move
+  toward being built up proactively rather than purely reactively, which is
+  its own future story. `Games.XGPath` gained a `ProjectReference` to
+  `XGArcade.DataSync` (mirroring `Games.XGGrid`'s existing one) — see
+  ADR-0054.
 - 2026-08-02 — `docs/requirements-document.md` (v1.31 → v1.32),
   `docs/implementation-document.md` (v0.85 → v0.86) — Backend
   half of the xG Path live user-testing feedback batch, three fixes:

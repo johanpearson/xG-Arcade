@@ -275,6 +275,61 @@ if (args is ["backfill-player-position-birthyear"])
     return;
 }
 
+// ADR-0055: `dotnet run -- prefetch-player-careers` — same shape as
+// warm-player-cache/backfill-player-photos above (builds its dependencies
+// directly rather than the full DI container, since it runs before
+// WebApplication.CreateBuilder), run via its own workflow
+// (prefetch-player-careers.yml, workflow_dispatch only for now — new and
+// unproven, unlike warm-player-cache/import-player-name-index which just
+// moved to a recurring cron on the same date; put this on a schedule too
+// once a real run has confirmed its cost/runtime). See
+// PlayerCareerPrefetchService's own doc comment for the full "why" —
+// squarely inside ADR-0024's existing "bulk job is a CLI verb" decision, not
+// a new one.
+if (args is ["prefetch-player-careers"])
+{
+    var prefetchConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var prefetchConnectionString = prefetchConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var prefetchDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(prefetchConnectionString)
+        .Options;
+
+    using var prefetchLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
+    var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
+    var prefetchPlayerStoreRepository = new PlayerStoreRepository(prefetchDbContext);
+
+    using var prefetchHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(prefetchHttpClient);
+    var prefetchWikidataClient = new WikidataClient(
+        prefetchHttpClient, logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
+
+    var prefetchService = new PlayerCareerPrefetchService(
+        prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchWikidataClient,
+        prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
+
+    // Deliberately unhandled — PrefetchAsync throws only after every seeded
+    // country has been attempted (see its own doc comment), so the process
+    // exits nonzero and the workflow run goes red exactly when something
+    // needs a re-run, same fail-loud-at-the-end contract as
+    // import-player-name-index.
+    var prefetchResult = await prefetchService.PrefetchAsync();
+
+    Console.WriteLine(
+        $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
+        $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +
+        $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added.");
+    return;
+}
+
 // ADR-0029: `dotnet run -- verify-wikidata-player-data` is a one-time
 // backlog cleanup, run once after deploying the Confidence-by-origin change
 // (WikidataLookupOrigin) so the admin review queue (REQ-503) doesn't stay
@@ -699,6 +754,11 @@ builder.Services.AddScoped<IGameModule, GridGameModule>();
 // "xg-path" rounds are now actually generated on a schedule, same as
 // "xg-grid"'s.
 builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
+// ADR-0054: XGPathGameModule.GenerateInstanceAsync's own direct Wikidata
+// career fetch — a Games.XGPath-only dependency, registered here rather than
+// alongside IWikidataLookupService above since it's XGPathGameModule's own
+// concern, not a general-purpose lookup service other callers share.
+builder.Services.AddScoped<IPlayerCareerStintRefreshService, PlayerCareerStintRefreshService>();
 builder.Services.AddScoped<IGameModule, XGPathGameModule>();
 // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
 // GridGenerationOptions' role/precedent above for xG Path's own generation
