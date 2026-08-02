@@ -59,3 +59,11 @@ jobs:
           exit 1
         env:
           ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}
+          # TEMPORARY diagnostic-only override, this branch is throwaway and
+          # not meant to merge: bumps just WikidataClient's own logger
+          # category to Debug so its per-pair timeout/HTTP/JSON-parse-error
+          # log line (downgraded to Debug by ADR-0052 specifically to keep a
+          # normal run's console readable) is visible again, to gather real
+          # evidence on why ~100-125 Club x Club pairs still fail even after
+          # ADR-0052's FILTER EXISTS fix and a PairLookupFailure clear.
+          Logging__LogLevel__XGArcade.DataSync.Wikidata.WikidataClient: Debug
