@@ -80,6 +80,42 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   implementation-level UX fixes within SCREEN-10's existing spec, not new
   requirements.
 
+- 2026-08-02 — `docs/backlog.md` — Doc-sync for S-088 (E2E coverage for
+  the full xG Path game loop), covering three commits (`c0bdd3a` backend
+  endpoint, `ae382e9` E2E spec, `c8eb356` quality-gate fixes).
+  `POST /internal/test-data/seed-guessable-path-round`
+  (`backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs`) is a new,
+  non-Production-only sibling to `seed-guessable-round` — same
+  registration gate and repository-only write discipline (ADR-0006
+  boundary rule 4) — that deterministically creates a guessable xg-path
+  round (one `Player` with three career stints, one `PathInstance`/
+  `PathPuzzle`, an active `Round`) for E2E setup; two new tests added in
+  `backend/tests/XGArcade.Api.Tests/RoundEndpointTests.cs`.
+  `frontend/tests/e2e/play-path.spec.ts` is the new Playwright spec the
+  story asked for: one continuous run through generation → clue reveal →
+  wrong guess → correct guess → round close → game-scoped leaderboard
+  (confirming xG Path's points are not blended with xG Grid's, per
+  REQ-410/ADR-0043). `docs/requirements-document.md`'s REQ-807 (v1.32 →
+  v1.33) was already extended in `c8eb356` by a separate
+  requirements-writer pass to document the new endpoint and correct its
+  stale "only grid/round content is seeded this way" line — noted here
+  for completeness, not re-edited. `docs/backlog.md`'s S-088 entry marked
+  "— done, 2026-08-02" with a "Built as:" paragraph naming one real
+  deviation from the story's literal text (a new sibling endpoint rather
+  than a parameter extension of `seed-guessable-round` itself, since that
+  endpoint has no game-agnostic shape to extend) and the quality-gate
+  outcome (`architecture-reviewer`: pass, no new ADR; `quality-architect`:
+  pass after three findings fixed — a REQ-806/REQ-807 comment mislabel, a
+  non-REQ-prefixed test name, and de-duplicating the unique-test-player
+  boilerplate into a shared helper). `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and left unchanged: the
+  new endpoint is already covered by boundary rule 4's generic wording and
+  §6.6's generic test-data-reset flow description (neither names
+  `seed-guessable-round` specifically, so neither needed a matching
+  addition for its sibling), and the implementation doc's `/e2e` folder
+  description is likewise generic (doesn't name individual spec files,
+  e.g. `play-grid.spec.ts` isn't named either) — no tech, entity, or
+  folder-layout change to record. — REQ-807, S-088
 - 2026-08-02 — `docs/backlog.md`, `docs/requirements-document.md` (v1.31 →
   v1.32), `docs/architecture-document.md` (v0.72 → v0.73),
   `docs/implementation-document.md` (v0.85 → v0.86), `docs/design-
