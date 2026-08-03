@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/backlog.md` (S-092 status) — ran `/orchestrate` on
+  S-092 ("xG Grid: widen player pool using xG Path's full-career data");
+  dropped before any code was written. `requirements-writer` and
+  `architecture-reviewer` independently found the story's own proposal —
+  `GridGameModule`'s correctness path reading `PlayerCareerStint` —
+  directly conflicts with ADR-0042 (2026-07-26), which explicitly forbids
+  exactly this read path and instructs agents to "stop and flag" rather
+  than implement it. Also found `PlayerCareerStint` has no nationality
+  field and no reliable QID join to `ClubDefinition`, so it couldn't fully
+  satisfy REQ-101/102 even absent the ADR conflict. Escalated to the user
+  via `AskUserQuestion`; decision was to drop the story rather than write
+  a superseding ADR or scope a narrower variant. No REQ or ADR changes.
+  See S-092's backlog entry for full detail. ADR-0042.
+
 - 2026-08-03 — `docs/design-document.md` (v0.63 → v0.64), `NOTES.md` —
   three user-tester bug fixes (xG Path clue reveal, country flags, a
   `PlayerNameIndex.BirthYear` data-quality bug). (1) `PathTimeline.tsx`'s

@@ -4534,8 +4534,8 @@ quality gate — no boundary drift (pure reuse of an already-generic,
 already-documented capability by a second consumer) and no fixes needed;
 no new ADR.
 
-**S-092 · xG Grid: widen player pool using xG Path's full-career data — queued, not yet built, 2026-08-03**
-Raised directly by the product owner during a feedback session, and matches
+**S-092 · xG Grid: widen player pool using xG Path's full-career data — dropped, 2026-08-03 (orchestrate run, same day it was queued)**
+Raised directly by the product owner during a feedback session, and matched
 a follow-up ADR-0054 already named on its own (2026-08-02): "this codebase's
 whole player-data cache is built reactively/on-demand... rather than
 proactively... [this] needs its own follow-up story and ADR, not bundled
@@ -4549,12 +4549,38 @@ grid cell needs, sitting unused. The ask: can a cache-miss in
 (cheap, already-persisted) before falling back to a live Wikidata query —
 while still only ever selecting from xG Grid's own existing seeded
 club/country pool (`ClubDefinition`/`CountryDefinition`), not expanding
-categories or changing what's eligible. **Not scoped or designed yet** —
-needs its own requirements pass (does a `PlayerCareerStint` hit fully
-satisfy REQ-101/102's existing correctness checks, or only partially?) and
-likely an ADR (a new read path across a component boundary that doesn't
-exist today: `Games.XGGrid` reading data currently written only via xG
-Path's `Games.XGPath` -> `DataSync` path). *Deps:* none blocking — can be
+categories or changing what's eligible.
+**Dropped before implementation — this exact idea is already forbidden by
+ADR-0042 (2026-07-26, `docs/decisions/0042-player-career-stint-data-model.md`),
+written 8 days before this story was queued and never checked against it.**
+ADR-0042's Decision and "For AI agents" sections state, in terms that name
+this precise scenario: "xG Grid's correctness path continues to read only
+`PlayerAttribute`/`PlayerOverride` and must never be changed to read
+`PlayerCareerStint`... If a task seems to need club dates/order/counts
+inside xG Grid's own logic, stop and flag it — that's a sign the task is
+misunderstood, not a sign these tables should merge." `PlayerCareerStint.cs`'s
+own doc comment repeats this verbatim. `/orchestrate` ran `requirements-writer`
+and `architecture-reviewer` independently before any code was written; both
+confirmed the conflict and recommended escalation rather than a workaround:
+(1) even setting the ADR aside, `PlayerCareerStint` has no nationality field
+at all, so it can never resolve a Country×Club cell's nationality side, and
+its `ClubName` is a free-text Wikidata label with no QID — no reliable exact
+join to `ClubDefinition`, unlike `PlayerAttribute.AttributeValue` which is
+written QID-first (the same "no lossy matching in the correctness path"
+concern ADR-0007 already protects); (2) even a bare existence check from
+`GridGameModule` would make xG Grid's live-lookup behavior implicitly
+depend on xG Path's unrelated fetch/cache-warming history — a real
+erosion of the "no automatic propagation between these tables" trade-off
+ADR-0042 knowingly accepted, not just a literal-text violation. Escalated
+to the product owner via `AskUserQuestion`; decision was to drop the story
+rather than draft a new ADR superseding ADR-0042 or pursue a narrower
+COMP-06-internal reconciliation variant (either of which would still need
+its own future design pass, not a same-session fix). The underlying product
+goal (a broader, proactively-built player dataset instead of patching
+individual gaps) remains tracked by ADR-0054's own 2026-08-02 follow-up
+note — any future attempt at this should start there, and must explicitly
+address ADR-0042's boundary rather than reproduce this same conflict.
+No code, REQ, or ADR changes were made. *Deps:* none — closed, not queued.
 picked up whenever a session is available for the design pass.
 
 **S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — queued, not yet built, 2026-08-03**
