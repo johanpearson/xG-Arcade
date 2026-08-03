@@ -37,6 +37,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   verification in CI. Frontend panel (REQ-1209) and tests (both REQs) not
   yet built — tracked by S-093's own updated status note. REQ-1208/1209,
   ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.45 → v1.46),
+  `docs/backlog.md` — frontend implementation of REQ-1209 (S-093's
+  remaining `ui-implementer` pass): new `XGPathCycleSection` in
+  `frontend/src/admin/AdminScreen.tsx`, rendered unconditionally alongside
+  `AccountMetricsSection` and reusing its exact fetch/gating pattern
+  (401 escalates via `onAuthError`, 403 hides the section, any other error
+  shows inline, "no data yet" renders via the existing
+  `admin-screen__empty` class rather than as an error or a blank section).
+  New `fetchAdminXGPathCycle` helper (`frontend/src/lib/api.ts`) and
+  `AdminXGPathCycleState` type (`frontend/src/lib/types.ts`) against
+  `GET /admin/xg-path/cycle`'s existing response shape. No new CSS/design
+  tokens — reuses `admin-screen__metrics`/`admin-screen__metric-label`/
+  `admin-screen__metric-value mono-figure`. `npx tsc -b`, `npm run build`,
+  `npm run lint`, and the full Vitest suite (453 passing, including the
+  pre-existing `AdminScreen.test.tsx` unchanged) all verified locally.
+  Tests for REQ-1209's UI coverage (and REQ-1208's backend coverage) still
+  tracked as S-093's next, separate `test-writer` pass. REQ-1209.
 
 - 2026-08-03 — `docs/requirements-document.md` (v1.43 → v1.44),
   `docs/decisions/0058-xg-path-target-cycle-tracking.md` (new),

@@ -2,6 +2,7 @@ import type {
   AdminAccountMetrics,
   AdminActiveRound,
   AdminRound,
+  AdminXGPathCycleState,
   ApprovePlayerDataResponse,
   ClearGuestAccountsResponse,
   ClosedRoundListResponse,
@@ -769,6 +770,25 @@ export async function clearGuestAccounts(accessToken: string): Promise<ClearGues
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as ClearGuestAccountsResponse;
+}
+
+// REQ-1209/ADR-0058: always registered, in every environment (including
+// Production) — mirrors fetchAdminAccountMetrics's own reasoning, this
+// reads real, always-relevant operational state (REQ-1208's persisted
+// xG Path cycle), not seeded/test data, so there's no 404-as-hidden probe
+// the way fetchActiveAdminRound has for the Non-Production-only
+// round-control feature. `hasData: false` is a normal 200 body (REQ-1209's
+// "no xG Path round has ever generated yet" case) — never a thrown error.
+// A 403 (non-admin token) is left to throw like every other admin call in
+// this file; the caller (AdminScreen's XGPathCycleSection) decides how to
+// degrade, mirroring AccountMetricsSection's own hide-not-page-wide-deny
+// choice.
+export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminXGPathCycleState> {
+  const response = await fetch(`${API_BASE_URL}/admin/xg-path/cycle`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminXGPathCycleState;
 }
 
 // This story's "simple list" of the caller's own custom leagues

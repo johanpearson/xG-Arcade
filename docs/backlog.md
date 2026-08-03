@@ -4583,7 +4583,7 @@ address ADR-0042's boundary rather than reproduce this same conflict.
 No code, REQ, or ADR changes were made. *Deps:* none — closed, not queued.
 picked up whenever a session is available for the design pass.
 
-**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03; backend implemented 2026-08-03; frontend/tests not yet started**
+**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03; backend and frontend implemented 2026-08-03; tests not yet started**
 Player feedback, 2026-08-02/03: as more familiar players get selected
 (ADR-0056), the same targets are starting to repeat noticeably across
 rounds. Today's `PickDistinct` (REQ-1202) only guarantees no repeat *within
@@ -4616,11 +4616,19 @@ unavailable in the implementation sandbox — the migration's `Designer.cs`
 and `XGArcadeDbContextModelSnapshot.cs` were hand-derived from the existing
 `AddPathInstance`/latest-migration pattern, not machine-generated; this
 still needs a real `dotnet ef migrations` / `dotnet build` verification in
-CI before merge. *Deps:* none blocking on other stories. Next:
-`ui-implementer` for REQ-1209's `AdminScreen.tsx` panel against the
-endpoint contract above, then `test-writer` for both REQs (unit coverage
+CI before merge. **Frontend implemented 2026-08-03** by `ui-implementer`:
+new `XGPathCycleSection` in `AdminScreen.tsx`, `fetchAdminXGPathCycle` in
+`frontend/src/lib/api.ts`, and `AdminXGPathCycleState` in `frontend/src/lib/
+types.ts` — reuses `AccountMetricsSection`'s exact fetch/gating pattern
+(401 escalates, 403 hides, other error shows inline) and the existing
+`admin-screen__metrics`/`admin-screen__empty` display classes, no new
+tokens. `npm run build` (`tsc -b && vite build`), `npx tsc -b`, `npm run
+lint` (oxlint), and the full Vitest suite (453 tests, including the
+pre-existing `AdminScreen.test.tsx`) all pass unchanged. *Deps:* none
+blocking on other stories. Next: `test-writer` for both REQs (unit coverage
 per REQ-1208's own "Test level" list, API coverage for the new admin
-endpoint including its 403 case), then the quality gate
+endpoint including its 403 case, and UI coverage for `XGPathCycleSection`
+per REQ-1209's own "Test level" list), then the quality gate
 (`architecture-reviewer` + `quality-architect`).
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.45"
+version: "1.46"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -6667,8 +6667,9 @@ cycle state).
 > running low and consider widening the seeded club/country pool or
 > revisiting ADR-0056's familiarity threshold.
 
-**Status: Backend implemented (2026-08-03, S-093); frontend panel not yet
-built.** New `GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.
+**Status: Backend and frontend implemented (2026-08-03, S-093); tests not
+yet written (tracked separately for a `test-writer` pass).** New
+`GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.
 AdminXGPathEndpoints`), gated on the same `"Admin"` policy every other
 admin endpoint uses (403 for a non-admin token, mirroring
 `AdminAccountsEndpoints`'s existing endpoints), registered
@@ -6686,10 +6687,22 @@ returned as a normal 200, never a 404/error), `CycleNumber`,
 `ObservedPoolSize`, `UsedInCycleCount`, `RemainingInCycleCount` (derived
 as `ObservedPoolSize - UsedInCycleCount`, not a persisted column, to avoid
 a value that could drift out of sync with the two it's computed from), and
-`LastCycleCompletedAt`. `docs/backlog.md` S-093's own entry tracks the
-still-open `ui-implementer` pass (the `AdminScreen.tsx` panel this REQ's
-acceptance criteria describe) and `test-writer` pass against this
-endpoint.
+`LastCycleCompletedAt`. **Frontend implemented 2026-08-03** by
+`ui-implementer`: a new `XGPathCycleSection` in `frontend/src/admin/
+AdminScreen.tsx`, rendered unconditionally alongside `AccountMetricsSection`
+(same "own fetch, own `useEffect`, 401-escalates via `onAuthError`,
+403-hides via a local `hidden` flag, other-error-shows-message-inline"
+pattern that section already establishes) and a new `fetchAdminXGPathCycle`
+helper in `frontend/src/lib/api.ts` (typed against the new
+`AdminXGPathCycleState` in `frontend/src/lib/types.ts`). Displays the
+current cycle number, the eligible pool size as of the most recent
+generation, used/remaining counts, and the last-cycle-completion timestamp
+(or "No cycle has completed yet") using the existing `admin-screen__metrics`
+display pattern — no new CSS/tokens introduced. The `HasData: false` case
+renders a plain "No xG Path round has generated yet — no cycle data to
+show." message via the existing `admin-screen__empty` class, never an
+error and never a blank section. `docs/backlog.md` S-093's own entry tracks
+the still-open `test-writer` pass against this endpoint/section.
 
 - Given REQ-1208's persisted cycle state (the current cycle number, the
   eligible pool size as most recently observed at generation time, how many
