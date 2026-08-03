@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/requirements-document.md` (v1.44 → v1.45),
+  `docs/architecture-document.md` (v0.79 → v0.80), `docs/backlog.md` —
+  backend implementation of REQ-1208/REQ-1209 (S-093, xG Path no-repeat
+  target-selection cycle + admin visibility), following ADR-0058's binding
+  decisions exactly. New xG Path-scoped entities `PathTargetCycle`/
+  `PathCycleTargetUsage` (`XGArcade.Data`, migration
+  `20260803140000_AddPathTargetCycle`) — never a field on the shared
+  `Player` entity. Four new `IPathInstanceRepository` methods
+  (`GetCycleStateAsync`, `GetOrCreateCycleStateAsync`,
+  `GetUsedPlayerIdsInCycleAsync`, `AddInstanceWithCycleUsageAsync`);
+  `XGPathGameModule.GenerateInstanceAsync` now selects targets only from
+  eligible players not yet used in the current cycle, rolling the cycle
+  over (tolerant "remaining unused < N" rule) before selecting when
+  needed, writing the puzzle/instance and cycle-usage state in one unit of
+  work. New `GET /admin/xg-path/cycle` (`AdminXGPathEndpoints`,
+  `"Admin"`-policy-gated, registered unconditionally) is a pure read of
+  the persisted cycle state — never triggers round generation or a live
+  familiarity check. `dotnet` was unavailable in the implementation
+  sandbox; the migration's `Designer.cs`/`XGArcadeDbContextModelSnapshot.cs`
+  were hand-derived from the existing migration pattern rather than
+  machine-generated and still need a real `dotnet build`/`dotnet ef`
+  verification in CI. Frontend panel (REQ-1209) and tests (both REQs) not
+  yet built — tracked by S-093's own updated status note. REQ-1208/1209,
+  ADR-0058.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.43 → v1.44),
   `docs/decisions/0058-xg-path-target-cycle-tracking.md` (new),
   `docs/architecture-document.md` (v0.78 → v0.79) — `/orchestrate` ran on

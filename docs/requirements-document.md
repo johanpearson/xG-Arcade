@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.44"
+version: "1.45"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -6554,9 +6554,33 @@ pool has cycled**
 > before the pool of eligible, recognizable players has actually been used
 > up once.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement. `docs/backlog.md` S-093 tracks the implementation
-story; queued behind this requirements pass, per that entry's own note.
+**Status: Implemented (backend, 2026-08-03, S-093).** Two new xG
+Path-scoped entities (`XGArcade.Data`, migration
+`20260803140000_AddPathTargetCycle`): `PathTargetCycle` (a singleton row —
+`CycleNumber`, `ObservedPoolSize`, `UsedInCycleCount`,
+`LastCycleCompletedAt`) and `PathCycleTargetUsage` (one row per
+player-used-in-a-cycle-number selection), exactly per ADR-0058's
+persistence decision — never a field on `Player`. New
+`IPathInstanceRepository` methods: `GetCycleStateAsync` (pure read, null
+until the first generation ever runs), `GetOrCreateCycleStateAsync`
+(idempotent singleton lookup, mirrors
+`ILeagueRepository.GetOrCreateGlobalLeagueAsync`),
+`GetUsedPlayerIdsInCycleAsync`, and `AddInstanceWithCycleUsageAsync` (the
+`PathInstance`/`PathPuzzle` write and the cycle-state/usage write in one
+`SaveChangesAsync` call, per this REQ's "at the same time" wording).
+`XGPathGameModule.GenerateInstanceAsync` now excludes players already
+recorded as used in the current cycle from `PickDistinct`'s candidate set,
+rolls the cycle over (new `CycleNumber`, `LastCycleCompletedAt` stamped,
+every eligible player selectable again) when the remaining-unused count
+drops below the template's `PuzzleCount`, and records the newly-selected
+targets as used in the (possibly just-rolled-over) cycle — all before
+REQ-1202's existing "no two puzzles in one instance share a target" and
+"insufficient total eligible pool" checks, both untouched. A player who
+drops out of the live eligible pool between generations is handled with no
+special-case code: their stale usage row is simply never read again, since
+lookups are always scoped to the current cycle number and filtered against
+the live eligible set. See REQ-1209 immediately below for the new
+admin-read endpoint this persisted state now supports.
 
 **Design note — which pool a cycle is scored against (explicit decision,
 not a default):** a cycle is scored against the same pool
@@ -6643,9 +6667,29 @@ cycle state).
 > running low and consider widening the seeded club/country pool or
 > revisiting ADR-0056's familiarity threshold.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement. Depends on REQ-1208's persisted cycle state
-existing first.
+**Status: Backend implemented (2026-08-03, S-093); frontend panel not yet
+built.** New `GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.
+AdminXGPathEndpoints`), gated on the same `"Admin"` policy every other
+admin endpoint uses (403 for a non-admin token, mirroring
+`AdminAccountsEndpoints`'s existing endpoints), registered
+unconditionally (including Production — this is real operational state,
+not seeded/test data). Calls only
+`IPathInstanceRepository.GetCycleStateAsync` — a pure read of REQ-1208's
+persisted `PathTargetCycle` row, never `IPlayerFamiliarityService` and
+never anything that could trigger round generation, satisfying this REQ's
+"never itself triggers a new eligible-pool computation or a live Wikidata
+familiarity check" requirement by construction (the endpoint has no route
+into `XGPathGameModule.GenerateInstanceAsync` at all). Response shape
+(`AdminXGPathCycleResponse`): `HasData` (false with every other field null
+when no xG Path round has ever generated — REQ-1209's "no data yet" case,
+returned as a normal 200, never a 404/error), `CycleNumber`,
+`ObservedPoolSize`, `UsedInCycleCount`, `RemainingInCycleCount` (derived
+as `ObservedPoolSize - UsedInCycleCount`, not a persisted column, to avoid
+a value that could drift out of sync with the two it's computed from), and
+`LastCycleCompletedAt`. `docs/backlog.md` S-093's own entry tracks the
+still-open `ui-implementer` pass (the `AdminScreen.tsx` panel this REQ's
+acceptance criteria describe) and `test-writer` pass against this
+endpoint.
 
 - Given REQ-1208's persisted cycle state (the current cycle number, the
   eligible pool size as most recently observed at generation time, how many

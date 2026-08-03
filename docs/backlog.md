@@ -4583,7 +4583,7 @@ address ADR-0042's boundary rather than reproduce this same conflict.
 No code, REQ, or ADR changes were made. *Deps:* none — closed, not queued.
 picked up whenever a session is available for the design pass.
 
-**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03, implementation not yet started**
+**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03; backend implemented 2026-08-03; frontend/tests not yet started**
 Player feedback, 2026-08-02/03: as more familiar players get selected
 (ADR-0056), the same targets are starting to repeat noticeably across
 rounds. Today's `PickDistinct` (REQ-1202) only guarantees no repeat *within
@@ -4605,11 +4605,23 @@ scored against the live, ADR-0056-familiarity-filtered pool
 `GetEligiblePlayerIdsAsync`/`PickDistinct` already use (not the larger
 structurally-eligible-only pool), with a tolerant
 "remaining-unused-count-below-N" completion rule rather than requiring an
-exact zero, to tolerate that pool's documented live instability. *Deps:*
-none blocking on other stories. Next: backend implementation
-(`backend-implementer`) of REQ-1208's persistence + `PickDistinct`
-changes and a new admin-read endpoint, then `ui-implementer` for
-REQ-1209's `AdminScreen.tsx` panel, then `test-writer`.
+exact zero, to tolerate that pool's documented live instability. **Backend
+implemented 2026-08-03** by `backend-implementer` — see REQ-1208/1209's own
+status notes for the full shape: new entities `PathTargetCycle`/
+`PathCycleTargetUsage` (migration `20260803140000_AddPathTargetCycle`), four
+new `IPathInstanceRepository` methods, `XGPathGameModule.
+GenerateInstanceAsync`'s cycle-aware selection/rollover logic, and the new
+`GET /admin/xg-path/cycle` endpoint (`AdminXGPathEndpoints`). `dotnet` was
+unavailable in the implementation sandbox — the migration's `Designer.cs`
+and `XGArcadeDbContextModelSnapshot.cs` were hand-derived from the existing
+`AddPathInstance`/latest-migration pattern, not machine-generated; this
+still needs a real `dotnet ef migrations` / `dotnet build` verification in
+CI before merge. *Deps:* none blocking on other stories. Next:
+`ui-implementer` for REQ-1209's `AdminScreen.tsx` panel against the
+endpoint contract above, then `test-writer` for both REQs (unit coverage
+per REQ-1208's own "Test level" list, API coverage for the new admin
+endpoint including its 403 case), then the quality gate
+(`architecture-reviewer` + `quality-architect`).
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
 (REQ-216) — implemented 2026-08-03 (backend and frontend, same day)**
