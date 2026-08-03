@@ -62,6 +62,23 @@ generation needs (not once it hits exactly zero), so the rule degrades
 gracefully against ADR-0056's documented live instability instead of
 depending on the pool ever stabilizing.
 
+**Amendment (2026-08-03, post-review):** `GET /admin/xg-path/cycle`
+(REQ-1209) reads `IPathInstanceRepository.GetCycleStateAsync` directly from
+the Api layer, bypassing `IGameModule` — the same mechanism ADR-0016/
+ADR-0048 already bless for read-only display endpoints. Those two ADRs'
+own decision text is scoped to queries "against an already-generated game
+instance" (`GridInstance`/`GridCell`, `PathInstance`/`PathPuzzle`) —
+`PathTargetCycle` is not per-instance content, it's cross-instance
+rotation/bookkeeping state, a structurally different kind of read neither
+ADR examined directly. This ADR confirms, as a deliberate extension rather
+than a silent assumption, that ADR-0016/ADR-0048's direct-repository-read
+precedent covers this case too: a pure, read-only query against a game
+module's own persisted state, regardless of whether that state is scoped
+to one instance or spans instances. The same conditions both ADRs require
+still apply — read-only, no generation trigger, no scoring — and continue
+to apply here (`GetCycleStateAsync` never calls `IPlayerFamiliarityService`
+or `GenerateInstanceAsync`).
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
@@ -86,6 +103,16 @@ depending on the pool ever stabilizing.
   complete, which is worse
 - Negative / trade-off accepted: one more xG Path-scoped table to maintain
   and keep in sync with `PickDistinct`'s selection step
+- Positive: `AddInstanceWithCycleUsageAsync`'s persistence write (`PathInstance`
+  + `Puzzles` + `PathTargetCycle` + `PathCycleTargetUsage` rows, all in one
+  `SaveChangesAsync`) prevents the puzzle-target write and the "recorded as
+  used" write from ever diverging on a partial failure, per REQ-1208's own
+  "at the same time" wording. This is a new shape for this codebase — every
+  prior multi-aggregate write here (e.g. `LeagueRepository`'s league +
+  membership calls) composes across separate `SaveChangesAsync` calls — worth
+  reusing this bundled-write shape for a future feature only when the same
+  "these two writes must never diverge" requirement genuinely applies, not
+  as a default way to write multiple entities.
 - Follow-up: if ADR-0056's `MinSitelinkCount` is later tuned (per that
   ADR's own follow-up), the live pool's size changes, which changes how
   often cycles complete — that's expected and requires no change here

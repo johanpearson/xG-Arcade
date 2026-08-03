@@ -361,7 +361,7 @@ export interface ClearGuestAccountsResponse {
 }
 
 // REQ-1209/ADR-0058: GET /admin/xg-path/cycle's response shape
-// (XGArcada.Api.Admin.AdminXGPathCycleResponse) — a pure read of REQ-1208's
+// (XGArcade.Api.Admin.AdminXGPathCycleResponse) — a pure read of REQ-1208's
 // persisted `PathTargetCycle` state, never a trigger for a new eligible-pool
 // computation. `hasData: false` (every other field null) is the normal,
 // non-error "no xG Path round has ever generated yet" case — always a 200,
