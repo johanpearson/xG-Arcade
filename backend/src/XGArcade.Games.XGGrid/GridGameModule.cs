@@ -298,6 +298,69 @@ public class GridGameModule(
         return new CellCategoryTypes(cell.RowCategoryType, cell.ColCategoryType);
     }
 
+    // REQ-216/ADR-0057: called by GuessSubmissionService exactly once, only
+    // once it has already determined a cell just locked with its final
+    // guess still incorrect — see IGameModule.ResolveWrongGuessPlayerAsync's
+    // own doc comment for the full "when/how often" contract this method
+    // relies on its caller enforcing.
+    //
+    // PlayerNameIndex.FindByNormalizedNameAsync (COMP-10, ADR-0007) is the
+    // ONLY thing that can confirm submittedName names a real player at all —
+    // null here means REQ-216's "no identity to show" case, unchanged from
+    // today. Its PrimaryName is also this method's guaranteed fallback name:
+    // unlike the photo half below, resolving a canonical name never depends
+    // on any live lookup succeeding.
+    public async Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default)
+    {
+        var normalized = PlayerNameNormalizer.Normalize(submittedName);
+        var nameIndexEntry = await playerNameIndexRepository.FindByNormalizedNameAsync(normalized, cancellationToken);
+        if (nameIndexEntry is null)
+            return null;
+
+        // Cache-first, same exact-then-alias matching order FindMatchAsync
+        // already uses above — a wrong-but-real guess may already have a
+        // correctness-side Player row (FullName/PhotoUrl) cached from
+        // resolving some OTHER cell's answer key, in which case no live
+        // Wikidata round-trip is needed at all. Player.FullName is preferred
+        // here over PlayerNameIndex.PrimaryName when both are available —
+        // it's the same canonical-name source REQ-214's correct-guess reveal
+        // already trusts.
+        var cached = (await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken)).FirstOrDefault()
+            ?? (await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken)).FirstOrDefault();
+        if (cached is not null)
+            return new WrongGuessPlayerInfo(cached.FullName, cached.PhotoUrl);
+
+        // ADR-0057: Wikidata-only, never API-Football, never gated on any
+        // ExternalApiUsage threshold — a cosmetic display lookup for a guess
+        // already known to be wrong, not a correctness-critical retry. Any
+        // failure (timeout, HTTP error, parse error) is caught and swallowed
+        // right here — REQ-216 still requires showing PlayerNameIndex's own
+        // PrimaryName in that case (see this method's own doc comment: the
+        // name half never depends on this lookup succeeding), just with no
+        // photo. wikidataClient is nullable purely so tests that don't care
+        // about this path aren't forced to wire one up; production DI
+        // (Program.cs) always supplies the real client.
+        if (wikidataClient is not null)
+        {
+            try
+            {
+                var lookup = await wikidataClient.QueryPlayerPhotoByNameAsync(submittedName, cancellationToken);
+                if (lookup is not null)
+                    return new WrongGuessPlayerInfo(lookup.FullName, lookup.PhotoUrl);
+            }
+            catch (WikidataQueryException ex)
+            {
+                logger.LogInformation(ex,
+                    "REQ-216/ADR-0057: Wikidata-only wrong-guess photo lookup failed — showing " +
+                    "PlayerNameIndex's canonical name with no photo, never fail-closed (no correctness " +
+                    "verdict left to compute for a guess already known to be wrong).");
+            }
+        }
+
+        return new WrongGuessPlayerInfo(nameIndexEntry.PrimaryName, null);
+    }
+
     // REQ-208's three-stage matching order — exact primary name, then
     // alias, then bounded fuzzy — each stage only runs if the previous one
     // resolved to zero candidates satisfying both of the cell's categories.

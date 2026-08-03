@@ -223,6 +223,11 @@ public class PlayerNameIndexImporterTests
         public Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
 
+        // REQ-216/ADR-0057: same "not exercised" reasoning as the two methods
+        // above.
+        public Task<PlayerNameIndex?> FindByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
+
         public Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("simulated DB write failure");
     }
