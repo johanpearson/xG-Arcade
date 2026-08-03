@@ -4533,3 +4533,47 @@ pass `accessToken`, 416/416 Vitest passing, clean `tsc -b`/`oxlint`. Both
 quality gate — no boundary drift (pure reuse of an already-generic,
 already-documented capability by a second consumer) and no fixes needed;
 no new ADR.
+
+**S-092 · xG Grid: widen player pool using xG Path's full-career data — queued, not yet built, 2026-08-03**
+Raised directly by the product owner during a feedback session, and matches
+a follow-up ADR-0054 already named on its own (2026-08-02): "this codebase's
+whole player-data cache is built reactively/on-demand... rather than
+proactively... [this] needs its own follow-up story and ADR, not bundled
+into this one." Today `GridGameModule` still only ever reads
+`PlayerAttribute`/live Wikidata country-club intersection queries — it never
+reads `PlayerCareerStint` (the full-career data xG Path fetches directly per
+ADR-0054/ADR-0055), even though a player who was already fetched for an xG
+Path puzzle may already have exactly the club/country membership data a
+grid cell needs, sitting unused. The ask: can a cache-miss in
+`GridGameModule`'s existing lookup path check `PlayerCareerStint` first
+(cheap, already-persisted) before falling back to a live Wikidata query —
+while still only ever selecting from xG Grid's own existing seeded
+club/country pool (`ClubDefinition`/`CountryDefinition`), not expanding
+categories or changing what's eligible. **Not scoped or designed yet** —
+needs its own requirements pass (does a `PlayerCareerStint` hit fully
+satisfy REQ-101/102's existing correctness checks, or only partially?) and
+likely an ADR (a new read path across a component boundary that doesn't
+exist today: `Games.XGGrid` reading data currently written only via xG
+Path's `Games.XGPath` -> `DataSync` path). *Deps:* none blocking — can be
+picked up whenever a session is available for the design pass.
+
+**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — queued, not yet built, 2026-08-03**
+Player feedback, 2026-08-02/03: as more familiar players get selected
+(ADR-0056), the same targets are starting to repeat noticeably across
+rounds. Today's `PickDistinct` (REQ-1202) only guarantees no repeat *within
+one round instance* — nothing tracks or prevents a target reappearing
+*across* rounds at all. The ask, in two parts: (1) a target should not be
+selected again until every eligible player in the current pool has been
+used once (a full "cycle"); (2) once a full cycle completes, an admin
+should be able to see that in `AdminScreen.tsx` (the existing admin
+surface, REQ-503/509/510 — no new screen needed) so they can take action
+(e.g. widen the seeded club/country pool, revisit ADR-0056's familiarity
+threshold). **Not scoped or designed yet** — needs `requirements-writer`
+first: what persists "already used this cycle" (a new table? a flag on
+`Player`? scoped to the whole pool or per-something?), how a completed
+cycle is detected and surfaced, and whether this interacts with
+ADR-0056's familiarity filter shrinking the pool (a cycle over a filtered
+pool is a different, smaller cycle than one over the full structurally-
+eligible pool — needs an explicit decision, not an assumption). *Deps:*
+none blocking on other stories, but should not be built without the
+requirements pass above landing first.

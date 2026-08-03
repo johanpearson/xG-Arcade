@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/backlog.md` (S-092/S-093 added, queued not built) —
+  product feedback session on xG Grid/xG Path raised two future-scope items
+  neither ready for implementation this session: (1) widening xG Grid's
+  player pool by reading xG Path's already-fetched `PlayerCareerStint` data
+  (ADR-0054's own follow-up note already named this as its own future story);
+  (2) xG Path no-repeat target selection across rounds plus an admin-visible
+  "full cycle completed" signal on `AdminScreen.tsx`. Both queued rather than
+  built — neither has a requirements/architecture pass yet. See this
+  session's other CHANGELOG entries for what *was* built from the same
+  feedback batch (the Liverpool/Liverpool F.C. duplicate club-node bug and
+  the correct-cell green border).
 - 2026-08-02 — `docs/decisions/0056-xg-path-familiarity-filter.md` (new),
   `docs/requirements-document.md` (v1.33 → v1.34, REQ-1201/1203/1207 status
   notes), `docs/architecture-document.md` (v0.75 → v0.76, COMP-07/COMP-11),
