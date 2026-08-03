@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.34"
+version: "1.36"
 status: draft
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1022,6 +1022,18 @@ Kingdom and England coexist as distinct rows)
   is the guessed player's name, which is a new, separate requirement
   (REQ-212) — no longer part of what REQ-204 itself governs, since it's
   not about the live/final point value at all.
+- **Status note (2026-08-03, direct product feedback): persistent
+  correct-cell border added.** States 1 and 4's checkmark-plus-points
+  structure above is unchanged, but a correct cell now also gets an
+  always-visible `--color-accent-green` border (2px), on `.grid-table__cell`
+  (the `<td>`, `Grid.tsx`/`Grid.css`) — not gated behind the tap/hover/focus
+  disclosure this REQ already governs, and not applied to an incorrect
+  (states 2/3) or unattempted cell. Before this, "correct" was signaled only
+  by the checkmark glyph and the gold-tinted points text; the border is an
+  additional, always-on cue rather than a replacement for either. See
+  `docs/design-document.md` SCREEN-01a's matching 2026-08-03 note for the
+  token/contrast rationale and why the border is placed on the `<td>` rather
+  than the button or photo-layer element.
 - Given at least one correct guess has been recorded for a cell
 - When the player views their guess for that cell
 - Then the system calculates
@@ -5975,6 +5987,25 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   Wikidata's Q6979593 "national association football team" class — see the
   query builder's own code comment in `WikidataClient.cs` for the exact
   SPARQL clause.
+- **Status note (2026-08-03, bug fix): duplicate club-reveal nodes for the
+  same real stint — fixed.** Reported directly by a player (screenshot):
+  one real career stint surfaced as two separate club-reveal entries,
+  "Liverpool" and "Liverpool F.C.," identical in every other field (start
+  year, end year, appearance count). `WikidataClient.
+  ParseCareerStintBindings` dedups career stints by exact `?clubLabel`
+  string (there is no `?club` QID selected to key on instead — see that
+  method's own code comment), so Wikidata's own statements attesting two
+  label variants for what is the same real club produced two distinct,
+  non-equal `WikidataCareerStintEntry` records instead of deduping into
+  one. Fixed with a new `NormalizeClubName` step, run before the dedup
+  HashSet sees each label, that strips a small, explicit set of trailing
+  football-club legal-suffix tokens (`FC`/`F.C.`/`AFC`/`A.F.C.`) when they
+  appear as a distinct trailing word — never a substring inside another
+  word, and never a leading token (so "AFC Bournemouth" is untouched, since
+  that's a different, legitimate club-naming convention, not a suffix
+  variant of "Bournemouth"). Deliberately narrow rather than a general
+  fuzzy-name matcher, to avoid conflating two different clubs that happen
+  to share a name prefix. Tests in `WikidataClientTests.cs`.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)

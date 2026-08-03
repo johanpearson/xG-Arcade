@@ -1061,6 +1061,25 @@ public class WikidataClient(
     // real club) isn't diagnosable from this sandbox without a live SPARQL
     // query against wikidata.org — see NormalizeClubName's own comment for
     // the (deliberately narrow) fix applied to the observed symptom.
+    //
+    // Known, ACCEPTED limitation of the above fix (quality-gate finding,
+    // 2026-08-03): the HashSet dedup two paragraphs below is still keyed
+    // on the FULL (ClubName, StartYear, EndYear, AppearanceCount) tuple.
+    // Normalizing ClubName only collapses duplicate rows that also agree
+    // on every other field. Two rows for what is really the same stint
+    // but that disagree on AppearanceCount (e.g. one row's P1350
+    // qualifier absent -> null, the other's present -> 25 -- plausible,
+    // since two Wikidata statements for "the same" stint can carry
+    // differently-complete qualifiers) or on EndYear will still fail to
+    // merge and reproduce the duplicate-node symptom for that variant.
+    // This is deliberately NOT widened here: doing so (e.g. treating a
+    // null AppearanceCount as "matches anything") would risk silently
+    // merging two GENUINELY different stints at the same club with
+    // matching dates but different, both-known appearance counts -- a
+    // correctness risk, not just a display one, and a strictly worse
+    // failure mode than the display duplicate this fix targets. If this
+    // variant is observed in practice it needs its own deliberate merge
+    // rule (and test), not a silent loosening of this tuple.
     private static IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> ParseCareerStintBindings(SparqlResponse? response)
     {
         var stintsByQid = new Dictionary<string, HashSet<WikidataCareerStintEntry>>();
@@ -1119,6 +1138,13 @@ public class WikidataClient(
     // name (preceded by whitespace) — never a substring inside an
     // unrelated word, and never a PREFIX (e.g. "AFC Bournemouth" is a
     // different, legitimate naming convention and is left untouched).
+    //
+    // Single-pass, not recursive: only ONE trailing suffix is ever
+    // stripped, so a hypothetical stacked label like "Club FC A.F.C."
+    // would only lose the first match ("A.F.C.") and come back as
+    // "Club FC", not "Club". Judged acceptable given this is a narrow,
+    // 4-entry list of real football legal suffixes -- a doubly-suffixed
+    // label has not been observed and is not expected in practice.
     private static readonly string[] ClubNameLegalSuffixes = ["A.F.C.", "F.C.", "AFC", "FC"];
 
     private static string NormalizeClubName(string rawClubName)
