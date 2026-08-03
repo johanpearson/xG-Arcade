@@ -4583,7 +4583,7 @@ address ADR-0042's boundary rather than reproduce this same conflict.
 No code, REQ, or ADR changes were made. *Deps:* none — closed, not queued.
 picked up whenever a session is available for the design pass.
 
-**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03; backend and frontend implemented 2026-08-03; tests not yet started**
+**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03; backend, frontend, and tests all implemented 2026-08-03; quality-gate follow-ups (ADR-0058 amendment) addressed 2026-08-03**
 Player feedback, 2026-08-02/03: as more familiar players get selected
 (ADR-0056), the same targets are starting to repeat noticeably across
 rounds. Today's `PickDistinct` (REQ-1202) only guarantees no repeat *within
@@ -4624,12 +4624,35 @@ types.ts` — reuses `AccountMetricsSection`'s exact fetch/gating pattern
 `admin-screen__metrics`/`admin-screen__empty` display classes, no new
 tokens. `npm run build` (`tsc -b && vite build`), `npx tsc -b`, `npm run
 lint` (oxlint), and the full Vitest suite (453 tests, including the
-pre-existing `AdminScreen.test.tsx`) all pass unchanged. *Deps:* none
-blocking on other stories. Next: `test-writer` for both REQs (unit coverage
-per REQ-1208's own "Test level" list, API coverage for the new admin
-endpoint including its 403 case, and UI coverage for `XGPathCycleSection`
-per REQ-1209's own "Test level" list), then the quality gate
-(`architecture-reviewer` + `quality-architect`).
+pre-existing `AdminScreen.test.tsx`) all pass unchanged. **Tests
+implemented 2026-08-03** by `test-writer`: backend unit coverage
+(`XGPathGameModuleTests.cs`, new `ManualTimeProvider.cs`) — usage recorded
+per selection, exclusion within a cycle, rollover once remaining-unused
+drops below N (including reselecting a just-used player), a stale usage
+row from a dropped-out player never blocking rollover, and the
+pre-existing REQ-1202 insufficient-pool abort left untouched by cycle
+state; backend API coverage (`RoundEndpointTests.cs`, new
+`AdminXGPathEndpointTests.cs`) — round generation across a rollover
+boundary and `GET /admin/xg-path/cycle`'s persisted-state/no-data-yet/403/
+401 cases plus its unconditional Production registration; frontend Vitest
+coverage (`AdminScreen.test.tsx`) — full-field render, no-data-yet empty
+state, and the 401/403/other-error handling pattern for
+`XGPathCycleSection`. Frontend: 459/459 Vitest tests pass, verified in
+this sandbox. Backend: `dotnet` is unavailable in this sandbox (same
+constraint the prior two implementation commits noted) — these tests are
+written and hand-traced against the actual implementation but not
+compiled or run; still need a real `dotnet test` pass in CI before merge.
+**Quality-gate follow-ups addressed 2026-08-03:** `architecture-reviewer`
+flagged that `GET /admin/xg-path/cycle`'s `IGameModule` bypass wasn't
+literally covered by ADR-0016/0048's stated scope (per-instance content,
+not cross-instance bookkeeping state) — ADR-0058 amended to confirm this
+is a deliberate extension, not a silent assumption, and to note
+`AddInstanceWithCycleUsageAsync`'s bundled-write shape isn't the default
+way to write multiple entities. `quality-architect`'s one nit (a comment
+typo, `XGArcada` → `XGArcade`, in `frontend/src/lib/types.ts`) also fixed.
+*Deps:* none blocking on other stories. Next: a real `dotnet build`/
+`dotnet test` verification in CI (migration files and backend tests were
+both hand-derived/hand-traced in a sandbox without `dotnet`), then merge.
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
 (REQ-216) — implemented 2026-08-03 (backend and frontend, same day)**

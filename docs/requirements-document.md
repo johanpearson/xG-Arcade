@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.46"
+version: "1.47"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -6554,8 +6554,18 @@ pool has cycled**
 > before the pool of eligible, recognizable players has actually been used
 > up once.
 
-**Status: Implemented (backend, 2026-08-03, S-093).** Two new xG
-Path-scoped entities (`XGArcade.Data`, migration
+**Status: Implemented (backend, 2026-08-03, S-093); tests written
+2026-08-03.** Unit coverage (`XGPathGameModuleTests.cs`, new
+`ManualTimeProvider.cs`): usage recorded per selection, exclusion within a
+cycle, rollover once remaining-unused drops below N (including
+reselecting a just-used player), a stale usage row from a player who
+drops out of the live pool never blocking rollover, and the pre-existing
+REQ-1202 insufficient-pool abort left untouched by cycle state. API
+coverage (`RoundEndpointTests.cs`): round generation across a rollover
+boundary. `dotnet` was unavailable in the implementation sandbox — these
+tests are written and hand-traced against the actual implementation but
+not compiled or run; still need a real `dotnet test` pass in CI before
+merge. Two new xG Path-scoped entities (`XGArcade.Data`, migration
 `20260803140000_AddPathTargetCycle`): `PathTargetCycle` (a singleton row —
 `CycleNumber`, `ObservedPoolSize`, `UsedInCycleCount`,
 `LastCycleCompletedAt`) and `PathCycleTargetUsage` (one row per
@@ -6667,9 +6677,8 @@ cycle state).
 > running low and consider widening the seeded club/country pool or
 > revisiting ADR-0056's familiarity threshold.
 
-**Status: Backend and frontend implemented (2026-08-03, S-093); tests not
-yet written (tracked separately for a `test-writer` pass).** New
-`GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.
+**Status: Backend and frontend implemented (2026-08-03, S-093); tests
+written 2026-08-03.** New `GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.
 AdminXGPathEndpoints`), gated on the same `"Admin"` policy every other
 admin endpoint uses (403 for a non-admin token, mirroring
 `AdminAccountsEndpoints`'s existing endpoints), registered
@@ -6701,8 +6710,16 @@ generation, used/remaining counts, and the last-cycle-completion timestamp
 display pattern — no new CSS/tokens introduced. The `HasData: false` case
 renders a plain "No xG Path round has generated yet — no cycle data to
 show." message via the existing `admin-screen__empty` class, never an
-error and never a blank section. `docs/backlog.md` S-093's own entry tracks
-the still-open `test-writer` pass against this endpoint/section.
+error and never a blank section. Test coverage: API (`AdminXGPathEndpointTests.cs`,
+new) — persisted-state, no-data-yet, 403, and 401 cases, plus the
+endpoint's unconditional Production registration; frontend
+(`AdminScreen.test.tsx`) — full-field render, no-data-yet empty state, and
+the 401/403/other-error handling pattern for `XGPathCycleSection`.
+Frontend: 459/459 Vitest tests pass, verified in this sandbox. Backend:
+`dotnet` was unavailable in this sandbox — these tests are written and
+hand-traced against the actual implementation but not compiled or run;
+still need a real `dotnet test` pass in CI before merge. `docs/backlog.md`
+S-093's own entry tracks this.
 
 - Given REQ-1208's persisted cycle state (the current cycle number, the
   eligible pool size as most recently observed at generation time, how many

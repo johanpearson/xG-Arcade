@@ -13,6 +13,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/backlog.md` — closes a doc-sync gap left by the prior
+  two entries below: S-093's status line and body updated to reflect that
+  ADR-0058 was amended (2026-08-03, post quality-gate review) to confirm
+  `GET /admin/xg-path/cycle`'s `IGameModule` bypass as a deliberate
+  extension of ADR-0016/ADR-0048's direct-repository-read pattern to
+  cross-instance bookkeeping state (not literally covered by either ADR's
+  original per-instance-content scope), plus a note on
+  `AddInstanceWithCycleUsageAsync`'s bundled-write shape not being the
+  default way to write multiple entities; and a one-line comment typo fix
+  (`XGArcada` → `XGArcade`) in `frontend/src/lib/types.ts`. No REQ/ADR
+  content changed beyond ADR-0058's own amendment (already committed);
+  this entry only catches `docs/backlog.md` up to it. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.46 → v1.47),
+  `docs/architecture-document.md` (v0.80 → v0.81), `docs/backlog.md` —
+  full test coverage landed for REQ-1208/REQ-1209 (S-093): backend unit
+  tests (`XGPathGameModuleTests.cs`, new `ManualTimeProvider.cs`) covering
+  per-selection usage recording, in-cycle exclusion, rollover once
+  remaining-unused drops below N (including reselecting a just-used
+  player), a stale usage row from a dropped-out player never blocking
+  rollover, and the pre-existing REQ-1202 insufficient-pool abort left
+  untouched by cycle state; backend API tests (`RoundEndpointTests.cs`,
+  new `AdminXGPathEndpointTests.cs`) covering round generation across a
+  rollover boundary and `GET /admin/xg-path/cycle`'s persisted-state/
+  no-data-yet/403/401 cases plus its unconditional Production
+  registration; frontend Vitest coverage (`AdminScreen.test.tsx`) covering
+  full-field render, the no-data-yet empty state, and the
+  401/403/other-error handling pattern for `XGPathCycleSection` (459/459
+  frontend tests passing, verified in this sandbox). `dotnet` was
+  unavailable in the implementation sandbox, consistent with the prior two
+  implementation commits' own note — backend tests are written and
+  hand-traced against the actual implementation but not compiled or run;
+  still need a real `dotnet test` pass in CI before merge. Both REQs'
+  status notes and the architecture doc's COMP-11 status (which had been
+  left saying "frontend panel not yet built" after the frontend was
+  actually implemented in the prior entry) updated to match. REQ-1208/1209,
+  ADR-0058.
 - 2026-08-03 — `docs/requirements-document.md` (v1.44 → v1.45),
   `docs/architecture-document.md` (v0.79 → v0.80), `docs/backlog.md` —
   backend implementation of REQ-1208/REQ-1209 (S-093, xG Path no-repeat
