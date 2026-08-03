@@ -35,7 +35,8 @@ public class GridGameModule(
     GridGenerationOptions options,
     ILogger<GridGameModule> logger,
     Random? random = null,
-    TimeProvider? timeProvider = null) : IGameModule
+    TimeProvider? timeProvider = null,
+    IWikidataClient? wikidataClient = null) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 

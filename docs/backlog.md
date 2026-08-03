@@ -4593,7 +4593,14 @@ question — how a wrong-but-real guessed player's photo is resolved, given
 own distinct, lower-priority live-lookup trigger, separate from REQ-211 —
 Wikidata-only (no API-Football fallback, unlike REQ-211/ADR-0011), fires
 once at cell-lock time, fails silently to no-photo (never fail-closed-as-
-incorrect) on timeout/no-match. **Not yet built** — this story still needs
+incorrect) on timeout/no-match. **Amendment, same day:** the two no-photo
+branches no longer fall back to "nothing" — direct product-owner sign-off
+now calls for a new placeholder/dummy avatar graphic in both the
+real-match-no-photo case (with name) and the no-match-at-all case (no
+name); see REQ-216's 2026-08-03 status note for the full asymmetry-with-
+REQ-214 discussion. This introduces a new visual element with no token in
+`design-document.md` §2 yet — `ui-implementer` must add one before
+building the frontend half. **Not yet built** — this story still needs
 sizing/implementation: backend (the new Wikidata-only lookup trigger +
 persistence, and exposing the resolved photo on the incorrect-guess
 response) and frontend (`CellState.tsx`'s locked-incorrect branch gaining

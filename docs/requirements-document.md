@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.39"
+version: "1.40"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -2384,15 +2384,17 @@ part of this requirement.
   REQ, not an unhandled edge case.
 - **UI template note:** the red border for the locked-incorrect case is
   uncontroversial and blocks on no prior decision. The photo/name display
-  itself should follow REQ-214's own already-established constraints (no
-  cell-footprint/layout change, no broken-image icon, graceful silent
-  fallback when no photo is available, same component family in
-  `CellState.tsx`) rather than re-deriving an equivalent set of rules
-  separately — see REQ-214's acceptance criteria for the template. Note
-  this is the **first** time the incorrect branch has ever shown a name or
-  photo at all — "the guessed player's name is shown" below is new
-  acceptance criteria, not something carried over or previously satisfied
-  in a narrower way.
+  itself should follow REQ-214's own already-established constraints
+  (no cell-footprint/layout change, no broken-image icon, same component
+  family in `CellState.tsx`) rather than re-deriving an equivalent set of
+  rules separately — see REQ-214's acceptance criteria for the template.
+  **The "graceful silent fallback when no photo is available" clause is
+  amended by the 2026-08-03 status note below** — this REQ's own no-photo
+  fallback no longer matches REQ-214's (nothing shown); it now shows a
+  placeholder avatar. Note this is the **first** time the incorrect branch
+  has ever shown a name or photo at all — "the guessed player's name is
+  shown" below is new acceptance criteria, not something carried over or
+  previously satisfied in a narrower way.
 - **Architecture question resolved 2026-08-03, `architecture-reviewer` +
   ADR-0057:** how a wrong-but-real guessed player's photo is resolved,
   given `PlayerNameIndex` itself carries no photo. Decision: reuse
@@ -2411,6 +2413,51 @@ part of this requirement.
   the confirmed ask unreliable by construction; see ADR-0057 for the full
   reasoning and the other alternatives considered. This REQ's acceptance
   criteria below are written against this resolved mechanism.
+- **Status note (2026-08-03, direct product-owner sign-off via
+  AskUserQuestion, same session as this REQ's original draft above —
+  amends, not supersedes, the two no-photo branches below):** the two
+  "no real photo to show" branches were originally written as a graceful
+  fallback to nothing, matching REQ-214's own no-broken-image-icon
+  precedent for correct cells. Asked directly, the product owner chose a
+  different treatment for **both** branches: a dummy/placeholder avatar
+  graphic is now shown in place of "nothing," specifically —
+  - a real `PlayerNameIndex` match whose photo isn't resolvable (ADR-0057
+    timeout, error, or genuinely no `P18` image) now shows the placeholder
+    avatar **alongside the matched player's canonical name** (previously:
+    name only, no image element); and
+  - a guess matching no `PlayerNameIndex` candidate at all now shows the
+    placeholder avatar **with no name** (previously: red border only, no
+    name, no image element, unchanged from pre-REQ-216 behavior).
+
+  In both cases the red border is unchanged from the original draft. The
+  only branch that shows a real photo remains the one where the guess
+  matched a real player and ADR-0057's lookup actually resolved one — that
+  branch's wording is untouched. State 2 (incorrect, attempt remaining) is
+  also untouched — it still shows no name, no photo, and no placeholder
+  avatar under any circumstance, exactly as originally drafted.
+
+  **Asymmetry, recorded plainly rather than resolved:** this creates a
+  direct inconsistency with REQ-214's own no-photo fallback for a
+  *correct* cell, which shows no image element at all (just a checkmark
+  and points value) — REQ-214's fallback is genuinely nothing, while this
+  REQ's no-photo fallback is now a placeholder avatar. This is a deliberate
+  product choice specific to the incorrect-cell case, asked and confirmed
+  directly for this REQ only — it is not derived from, and does not
+  revisit, REQ-214's own precedent, and this document is not inventing a
+  justification for why the two differ (contrast REQ-214's own
+  "the user's own explicit choice, not one this document is inventing a
+  justification for" status note, which records the same discipline for
+  a different, unrelated choice on that requirement).
+
+  **Flagged, not resolved here:** the placeholder/dummy avatar graphic is
+  a new visual element with no corresponding entry in
+  `design-document.md` §2's token system. Per CLAUDE.md's "Frontend visual
+  consistency" convention, that document needs a token/component added
+  for this graphic *before* either no-photo branch below can be
+  implemented in code. This document does not own `design-document.md`
+  and does not add that entry itself — it is `ui-implementer`'s
+  responsibility when it picks up the frontend half of this requirement's
+  implementation story.
 - Given a cell is incorrect and at least one attempt remains (state 2)
 - Then no name and no photo are shown, unchanged from today — only the
   incorrect marker and remaining-attempts text (REQ-210); this REQ does
@@ -2429,34 +2476,46 @@ part of this requirement.
 - Given the same locked-incorrect case, and the guess matched a real
   `PlayerNameIndex` candidate, but ADR-0057's Wikidata-only lookup times
   out, errors, or genuinely has no photo for that player
-- Then the cell renders with a red border and the guessed player's
-  canonical name, with no photo — this is a silent, graceful fallback
-  (ADR-0057), never a fail-closed/incorrect outcome (there is no
-  correctness verdict left to compute here) and never a broken-image icon
-  or visible error state, same fallback shape as REQ-214's no-photo case
+- Then the cell renders with a red border, the guessed player's canonical
+  name, and a dummy/placeholder avatar graphic shown in place of the photo
+  (2026-08-03 product-owner decision, see status note above) — this is
+  still a silent, graceful fallback in the sense that it is never a
+  fail-closed/incorrect outcome (there is no correctness verdict left to
+  compute here) and never a broken-image icon or visible error state, but
+  it is **not** the same fallback shape as REQ-214's no-photo case: REQ-214
+  shows no image element at all in its equivalent case, this REQ now shows
+  the placeholder avatar — see the asymmetry note above
 - Given the same locked-incorrect case, and the guess string matched no
   candidate in `PlayerNameIndex` at all (a typo, gibberish, or a fictional
   name)
-- Then today's existing behavior is unchanged: red border, no name, no
-  photo — just the incorrect marker and points value, exactly as
-  `CellState.tsx`'s states-2/3 branch renders today
+- Then the cell renders with a red border and the same dummy/placeholder
+  avatar graphic, but no name — nothing resolved to a real player, so none
+  is shown — alongside the incorrect marker and points value (2026-08-03
+  product-owner decision, see status note above); this supersedes this
+  REQ's own original wording that this branch was "today's existing
+  behavior, unchanged" — it is no longer unchanged from pre-REQ-216
+  behavior, though state 2 (attempt remaining) still is
 - And in every case above, the cell's rendered width and height are
-  identical to today's no-photo display, and identical to a correct cell
-  with or without a photo (REQ-214) — a red border and/or photo must never
-  change the cell's footprint or push neighboring cells
+  identical regardless of branch — red border alone, red border with a
+  placeholder avatar (with or without a name), red border with a real
+  photo and name, or a correct cell with or without a photo (REQ-214) —
+  none of these may ever change the cell's footprint or push neighboring
+  cells
 
-**Test level:** Unit/UI (state 2 is completely unaffected — no name/photo
-under any circumstance; locked-incorrect + real `PlayerNameIndex` match +
-resolvable photo shows red border, name, and photo; locked-incorrect +
-real match + no resolvable photo shows red border and name only, no
-broken-image icon; locked-incorrect + no `PlayerNameIndex` match at all
-shows today's unchanged red-border-only-no-name-no-photo behavior;
-cell footprint is identical across every branch above, matching REQ-214's
-own regression-test approach against the cell's bounding box, not a visual
-snapshot alone). Unit/API (ADR-0057's Wikidata-only lookup: fires exactly
-once at cell-lock time, never for a guess with no `PlayerNameIndex` match,
-never calls the API-Football client, persists a resolved photo
-immediately in the same request, and degrades to no-photo — not an
+**Test level:** Unit/UI (state 2 is completely unaffected — no name/photo/
+placeholder avatar under any circumstance; locked-incorrect + real
+`PlayerNameIndex` match + resolvable photo shows red border, name, and the
+real photo; locked-incorrect + real match + no resolvable photo shows red
+border, name, and the placeholder avatar graphic — never a broken-image
+icon, and never REQ-214's own no-image-element fallback; locked-incorrect
++ no `PlayerNameIndex` match at all shows red border and the placeholder
+avatar graphic with no name; cell footprint is identical across every
+branch above, matching REQ-214's own regression-test approach against the
+cell's bounding box, not a visual snapshot alone). Unit/API (ADR-0057's
+Wikidata-only lookup: fires exactly once at cell-lock time, never for a
+guess with no `PlayerNameIndex` match, never calls the API-Football
+client, persists a resolved photo immediately in the same request, and
+degrades to the placeholder-avatar branch above — not an
 incorrect/fail-closed outcome — on timeout, error, or genuine no-match,
 mirroring REQ-211/ADR-0046's own timeout-handling test shape without
 reusing its fail-closed assertion).
