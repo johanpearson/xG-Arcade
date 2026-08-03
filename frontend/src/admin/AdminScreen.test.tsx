@@ -762,4 +762,124 @@ describe('AdminScreen', () => {
     await screen.findByText('guest-1 — Cleared.');
     await waitFor(() => expect(screen.getByText('Current guests').nextSibling?.textContent).toBe('0'));
   });
+
+  // ---- REQ-1209: xG Path target cycle section --------------------------
+
+  it('REQ-1209: renders the current cycle number, pool size, used/remaining counts, and last-completion time from a successful fetch', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () =>
+        jsonResponse({
+          hasData: true,
+          cycleNumber: 3,
+          observedPoolSize: 42,
+          usedInCycleCount: 17,
+          remainingInCycleCount: 25,
+          lastCycleCompletedAt: '2026-08-01T09:30:00Z',
+        }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
+    expect(await screen.findByText('Current cycle')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('Eligible pool size (as of last generation)')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText('Used this cycle')).toBeInTheDocument();
+    expect(screen.getByText('17')).toBeInTheDocument();
+    expect(screen.getByText('Remaining this cycle')).toBeInTheDocument();
+    expect(screen.getByText('25')).toBeInTheDocument();
+    expect(screen.getByText('Last cycle completed')).toBeInTheDocument();
+    expect(screen.getByText('2026-08-01T09:30:00Z')).toBeInTheDocument();
+  });
+
+  it('REQ-1209: shows the pre-first-generation "no data yet" state when hasData is false, never an error and never a blank section', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () =>
+        jsonResponse({
+          hasData: false,
+          cycleNumber: null,
+          observedPoolSize: null,
+          usedInCycleCount: null,
+          remainingInCycleCount: null,
+          lastCycleCompletedAt: null,
+        }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No xG Path round has generated yet — no cycle data to show.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Current cycle')).not.toBeInTheDocument();
+  });
+
+  it('REQ-1209: renders "No cycle has completed yet" when lastCycleCompletedAt is null but a cycle is otherwise in progress', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () =>
+        jsonResponse({
+          hasData: true,
+          cycleNumber: 1,
+          observedPoolSize: 12,
+          usedInCycleCount: 4,
+          remainingInCycleCount: 8,
+          lastCycleCompletedAt: null,
+        }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('No cycle has completed yet')).toBeInTheDocument();
+  });
+
+  it('REQ-1209: a 401 from the cycle endpoint calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ-1209: a 403 from the cycle endpoint hides the section without flipping the whole page to access-denied', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('xG Path target cycle')).not.toBeInTheDocument());
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
+  it('REQ-1209: a non-401/403 error from the cycle endpoint shows an inline error message within its own section, not a page-wide failure', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/xg-path/cycle': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
+    expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+    // The rest of the page must remain usable — this section's error is
+    // scoped to itself, same as AccountMetricsSection's own error handling.
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+  });
 });

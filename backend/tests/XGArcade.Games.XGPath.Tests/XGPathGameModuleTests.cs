@@ -78,12 +78,18 @@ public class XGPathGameModuleTests
     // it before GenerateInstanceAsync runs.
     private FakePlayerFamiliarityService _playerFamiliarityService = null!;
 
-    private XGPathGameModule BuildModule(Random? random = null)
+    // REQ-1208/ADR-0058: optional timeProvider param, same "field, not a
+    // local" precedent as _careerStintRefreshService/_playerFamiliarityService
+    // above — mirrors GridGameModule's own injectable-TimeProvider
+    // constructor param. Defaults to null (XGPathGameModule falls back to
+    // TimeProvider.System itself), so every existing pre-REQ-1208 test in
+    // this file is unaffected.
+    private XGPathGameModule BuildModule(Random? random = null, TimeProvider? timeProvider = null)
     {
         _careerStintRefreshService = new FakePlayerCareerStintRefreshService();
         _playerFamiliarityService = new FakePlayerFamiliarityService();
         return new(_pathInstanceRepository, _playerStoreRepository, _categoryValueRepository,
-            _careerStintRefreshService, _playerFamiliarityService, random ?? new SequentialRandom());
+            _careerStintRefreshService, _playerFamiliarityService, random ?? new SequentialRandom(), timeProvider);
     }
 
     private PathTemplate SeedTemplate(int puzzleCount)
@@ -516,6 +522,177 @@ public class XGPathGameModuleTests
     public void REQ1202_GetCellIdsAsync_UnknownInstanceId_ThrowsPathScoringException()
     {
         Assert.ThrowsAsync<PathScoringException>(async () => await _module.GetCellIdsAsync(Guid.NewGuid()));
+    }
+
+    // ---- REQ-1208/ADR-0058: target selection does not repeat until the ----
+    // eligible pool has cycled ------------------------------------------
+
+    [Test]
+    public async Task REQ1208_GenerateInstanceAsync_SelectedTargetsRecordedAsUsedInCurrentCycle()
+    {
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 5)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        var cycleState = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleState, Is.Not.Null, "GetOrCreateCycleStateAsync must create the very first cycle row (CycleNumber 1) on this, the first-ever generation");
+        Assert.That(cycleState!.CycleNumber, Is.EqualTo(1));
+        Assert.That(cycleState.ObservedPoolSize, Is.EqualTo(5), "the eligible pool size as observed at THIS generation");
+        Assert.That(cycleState.UsedInCycleCount, Is.EqualTo(3));
+
+        var usedPlayerIds = await _pathInstanceRepository.GetUsedPlayerIdsInCycleAsync(1);
+        Assert.That(usedPlayerIds, Is.EquivalentTo(targets),
+            "each selected target must be recorded as used in the current cycle at the same time it's persisted as a puzzle's target");
+        Assert.That(players.Select(p => p.Id), Is.SupersetOf(usedPlayerIds));
+    }
+
+    [Test]
+    public async Task REQ1208_GenerateInstanceAsync_PlayerAlreadyUsedInCurrentCycle_ExcludedFromSelectionOnLaterGenerationWithinSameCycle()
+    {
+        // 7 eligible players, PuzzleCount 3: after the first generation uses
+        // 3, 4 remain unused-in-cycle — still >= PuzzleCount, so the second
+        // generation below must NOT trigger a rollover, isolating this test
+        // to the "excluded within the same cycle" behavior only.
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 7)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+        var template = SeedTemplate(3);
+
+        var instance1 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets1 = await GetTargetPlayerIdsAsync(instance1.Id);
+
+        var instance2 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets2 = await GetTargetPlayerIdsAsync(instance2.Id);
+
+        Assert.That(targets2, Has.Count.EqualTo(3));
+        Assert.That(targets2.Intersect(targets1), Is.Empty,
+            "a player already used as a target in the current cycle must never be reselected by a later generation in the same cycle");
+        Assert.That(targets1.Concat(targets2), Is.SubsetOf(players.Select(p => p.Id)));
+
+        var cycleState = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleState!.CycleNumber, Is.EqualTo(1), "7 eligible players, 2x3 used — never drops below PuzzleCount, so no rollover here");
+        Assert.That(cycleState.UsedInCycleCount, Is.EqualTo(6));
+    }
+
+    [Test]
+    public async Task REQ1208_GenerateInstanceAsync_CycleRollsOverWhenUnusedInCycleCountDropsBelowPuzzleCount_MakingEveryEligiblePlayerSelectableAgain()
+    {
+        // Only 4 eligible players, PuzzleCount 3: after the first generation
+        // uses 3, only 1 remains unused-in-cycle — below PuzzleCount(3) — so
+        // the second generation below must roll the cycle over rather than
+        // aborting for lack of candidates.
+        var manualTimeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero));
+        _module = BuildModule(timeProvider: manualTimeProvider);
+
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 4)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+        var template = SeedTemplate(3);
+
+        var instance1 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets1 = await GetTargetPlayerIdsAsync(instance1.Id);
+
+        manualTimeProvider.Advance(TimeSpan.FromHours(1));
+        var rolloverMoment = manualTimeProvider.GetUtcNow();
+
+        var instance2 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets2 = await GetTargetPlayerIdsAsync(instance2.Id);
+
+        Assert.That(targets2, Has.Count.EqualTo(3));
+        Assert.That(targets2.Distinct().Count(), Is.EqualTo(3), "REQ-1202's distinctness guarantee within one instance is unaffected by a rollover");
+        Assert.That(targets2, Is.SubsetOf(players.Select(p => p.Id)), "every eligible player, not just the previously-unused one, must be selectable again post-rollover");
+        // Pigeonhole: only 1 of the 4 eligible players was NOT used in cycle
+        // 1 — any 3-of-4 selection after rollover must therefore include at
+        // least one player used moments ago in the just-completed cycle,
+        // regardless of PickDistinct's own random order.
+        Assert.That(targets2.Intersect(targets1), Is.Not.Empty,
+            "a player used moments ago in the just-completed cycle must be selectable again once the cycle rolls over");
+
+        var cycleState = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleState!.CycleNumber, Is.EqualTo(2), "the remaining-unused-in-cycle count (1) dropped below PuzzleCount(3), so this generation must roll the cycle over");
+        Assert.That(cycleState.UsedInCycleCount, Is.EqualTo(3), "reset to 0 by the rollover, then incremented by this generation's own 3 selections");
+        Assert.That(cycleState.ObservedPoolSize, Is.EqualTo(4));
+        Assert.That(cycleState.LastCycleCompletedAt, Is.EqualTo(rolloverMoment.UtcDateTime));
+    }
+
+    [Test]
+    public async Task REQ1208_GenerateInstanceAsync_PlayerDropsFromLiveEligiblePoolBetweenGenerations_StaleUsageRowNeverBlocksRolloverOrCausesError()
+    {
+        // 5 eligible players, PuzzleCount 3. After the first generation, one
+        // of the 3 just-used targets drops out of the live eligible pool
+        // (e.g. no longer meets ADR-0056's familiarity threshold) — leaving
+        // 4 total eligible players, of which 2 are already recorded as used
+        // in the current cycle, so only 2 remain unused-in-cycle: below
+        // PuzzleCount(3), so the second generation below must still roll the
+        // cycle over correctly despite the dropped player's now-stale usage
+        // row, and must never throw.
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 5)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+        var template = SeedTemplate(3);
+
+        var instance1 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets1 = await GetTargetPlayerIdsAsync(instance1.Id);
+        Assert.That(targets1, Has.Count.EqualTo(3));
+
+        var droppedPlayerId = targets1[0];
+        _playerFamiliarityService.MarkUnfamiliar(droppedPlayerId);
+
+        GameInstance instance2 = null!;
+        List<Guid> targets2 = null!;
+        Assert.DoesNotThrowAsync(async () =>
+        {
+            instance2 = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+            targets2 = await GetTargetPlayerIdsAsync(instance2.Id);
+        }, "a stale usage row for a player who has since left the live eligible pool must never cause a generation failure");
+
+        Assert.That(targets2, Has.Count.EqualTo(3));
+        Assert.That(targets2.Distinct().Count(), Is.EqualTo(3));
+        Assert.That(targets2, Does.Not.Contain(droppedPlayerId), "the now-ineligible player can never be selected again");
+
+        var cycleState = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleState!.CycleNumber, Is.EqualTo(2),
+            "of the 4 still-eligible players, 2 were already used this cycle, leaving 2 unused-in-cycle — below PuzzleCount(3) — so this must roll over correctly even though the dropped player's own usage row is now stale");
+        Assert.That(cycleState.ObservedPoolSize, Is.EqualTo(4), "the dropped player is excluded from the pool size observed at this generation");
+    }
+
+    // REQ-1208's own "does not change REQ-1202's existing insufficient-total-
+    // pool abort" criterion: a second generation whose template needs more
+    // targets than the total live eligible pool still throws
+    // PathGenerationException, and does so BEFORE any cycle-state mutation —
+    // proven here by seeding an already-existing cycle (from a first,
+    // successful generation) and asserting it is completely untouched by the
+    // second, aborted attempt.
+    [Test]
+    public async Task REQ1202_GenerateInstanceAsync_InsufficientTotalEligiblePool_ThrowsPathGenerationException_UnaffectedByExistingCycleState()
+    {
+        SeedClub("Seeded FC");
+        var players = Enumerable.Range(0, 5)
+            .Select(i => SeedEligiblePlayer($"Eligible{i}", "Seeded FC"))
+            .ToList();
+        Assert.That(players, Has.Count.EqualTo(5), "sanity check: exactly 5 eligible players total, regardless of cycle state");
+        var smallTemplate = SeedTemplate(3);
+        await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = smallTemplate.Id });
+
+        var cycleStateBefore = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleStateBefore!.CycleNumber, Is.EqualTo(1));
+        Assert.That(cycleStateBefore.UsedInCycleCount, Is.EqualTo(3));
+
+        var tooLargeTemplate = SeedTemplate(10); // only 5 eligible players exist in total, regardless of cycle state
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = tooLargeTemplate.Id }));
+
+        var cycleStateAfter = await _pathInstanceRepository.GetCycleStateAsync();
+        Assert.That(cycleStateAfter!.CycleNumber, Is.EqualTo(1), "an aborted generation must never mutate the persisted cycle state");
+        Assert.That(cycleStateAfter.UsedInCycleCount, Is.EqualTo(3));
     }
 
     [Test]
