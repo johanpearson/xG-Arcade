@@ -509,14 +509,28 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
-        CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
+        IReadOnlySet<string> seededClubNames, int minStintCount, CancellationToken cancellationToken = default)
     {
-        var stints = await dbContext.PlayerCareerStints.AsNoTracking().ToListAsync(cancellationToken);
+        // Same "materialize via ToListAsync, then GroupBy/filter as
+        // LINQ-to-Objects" convention as GroupByPlayerIdAsync/
+        // GetUnseededClubCandidatesAsync above — but only a (PlayerId,
+        // ClubName) projection here, not the full entity, since this is a
+        // hot path (every xG Path round generation) rather than an
+        // occasional manual diagnostic job. Exact ordinal/case-sensitive
+        // Contains — matches IsEligible's own comparison exactly, NOT
+        // GetUnseededClubCandidatesAsync's OrdinalIgnoreCase (a
+        // deliberately different, diagnostic-only choice for that method).
+        var stints = await dbContext.PlayerCareerStints
+            .AsNoTracking()
+            .Select(s => new { s.PlayerId, s.ClubName })
+            .ToListAsync(cancellationToken);
 
         return stints
             .GroupBy(s => s.PlayerId)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<PlayerCareerStint>)g.ToList());
+            .Where(g => g.Count() >= minStintCount && g.Any(s => seededClubNames.Contains(s.ClubName)))
+            .Select(g => g.Key)
+            .ToList();
     }
 
     public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetCareerStintsByPlayerIdsAsync(
@@ -703,10 +717,11 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             await dbContext.ClubDefinitions.AsNoTracking().Select(c => c.Name).ToListAsync(cancellationToken),
             StringComparer.OrdinalIgnoreCase);
 
-        // Loads every PlayerCareerStint's (ClubName, PlayerId) pair —
-        // Tier 0 player-pool scale (a few thousand rows), same "tolerate a
-        // full-table-scale read" precedent GetAllCareerStintsByPlayerAsync's
-        // own doc comment already establishes for this exact table. The
+        // Loads every PlayerCareerStint's (ClubName, PlayerId) pair — a
+        // full-table-scale read, tolerated here because this is an
+        // occasional manual diagnostic job, not a hot path (contrast
+        // GetCareerStintCandidatePlayerIdsAsync below, which is a hot path
+        // and narrows further to avoid loading unrelated columns). The
         // grouping/distinct-count/case-insensitive filter below all happen
         // in memory after materializing, not translated to SQL, so there's
         // no provider-specific LOWER()-translation risk to worry about.

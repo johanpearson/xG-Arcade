@@ -325,6 +325,16 @@ public class XGPathGameModuleTests
     // REQ-1201's text never requires 3 *different* clubs — only 3 stint
     // rows, with at least one at a seeded club. A candidate whose 3 stints
     // are all at the SAME seeded club must still be eligible.
+    //
+    // Perf fix (2026-08-03): this also doubles as the "wrong minStintCount"
+    // narrowing-superset regression test — GetEligiblePlayerIdsAsync now
+    // narrows via GetCareerStintCandidatePlayerIdsAsync (grouped by
+    // PlayerId, row count >= MinStintCount) BEFORE loading full stint data
+    // and running IsEligible. A narrowing bug that counted DISTINCT clubs
+    // instead of stint ROWS would drop this candidate (1 distinct club)
+    // before IsEligible ever saw it, so this test would start failing
+    // (pool one short of PuzzleCount, generation throws) if that bug were
+    // introduced.
     [Test]
     public async Task REQ1201_GenerateInstanceAsync_CandidateWithThreeStintsAtSameSeededClub_IsEligible()
     {
@@ -345,6 +355,33 @@ public class XGPathGameModuleTests
 
         Assert.That(targets, Has.Count.EqualTo(3));
         Assert.That(targets, Does.Contain(sameClubThreeTimes.Id));
+    }
+
+    // Perf fix (2026-08-03): the narrowing pass
+    // (GetCareerStintCandidatePlayerIdsAsync) must use the same exact,
+    // ordinal/case-sensitive club-name comparison IsEligible itself uses —
+    // deliberately NOT GetUnseededClubCandidatesAsync's OrdinalIgnoreCase
+    // precedent, which is a different, diagnostic-only choice for a
+    // different method. A candidate whose only near-seeded-club stint
+    // differs from the seeded name purely by case must still be rejected,
+    // exactly as it always was before this perf fix.
+    [Test]
+    public void REQ1201_GenerateInstanceAsync_CandidateWithOnlyCaseDifferingSeededClubStint_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var caseMismatch = SeedPlayer("CaseMismatch");
+        SeedStints(caseMismatch.Id,
+            (2010, 2013, "SEEDED FC"),
+            (2013, 2016, "Unseeded Club A"),
+            (2016, null, "Unseeded Club B"));
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
     // ADR-0056: a candidate that passes every REQ-1201 structural check is

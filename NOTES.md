@@ -43,6 +43,20 @@ session's work) — worth a dedicated look at whether that read still holds up
 at real scale before it becomes a real production latency problem, rather
 than waiting for a report the way ADR-0054's Celtic gap was.
 
+**Update (2026-08-03, later same day):** the hot-path method flagged above
+is fixed. `GetAllCareerStintsByPlayerAsync` is deleted; `XGPathGameModule.
+GetEligiblePlayerIdsAsync` now reads in two passes — a new
+`GetCareerStintCandidatePlayerIdsAsync` narrows the full player pool down to
+real candidates using only a cheap `(PlayerId, ClubName)` projection (the
+two necessary-but-not-sufficient conditions computable from that alone: >= 3
+stint rows, and any stint at a seeded club), then `GetCareerStintsByPlayerIdsAsync`
+(already existed) loads full stint data only for that narrowed set before
+`IsEligible`'s existing checks run unchanged. Zero eligibility-semantics
+change — the narrowing filter is a true superset, never excluding a player
+`IsEligible` would have accepted. `GetPlayersMissingPhotoAsync` and the
+general "few thousand rows" assumption elsewhere are still unaddressed —
+this fix only covered the one hot-path method called out above.
+
 ### 2026-08-02 — `prefetch-player-careers`'s first real run: huge success overall, 4 batches hit the same 15s-default-timeout mistake `import-player-name-index` already made once
 
 First-ever real run (ADR-0055, right after merging PR #140) processed

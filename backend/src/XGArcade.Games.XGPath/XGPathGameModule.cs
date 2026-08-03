@@ -33,6 +33,15 @@ public class XGPathGameModule(
     // still passes rather than being rejected.
     private const int MinAppearancesAtSeededClub = 20;
 
+    // REQ-1201: "3 distinct documented career club stints" (read as 3
+    // stint ROWS, not 3 distinct clubs — see IsEligible's own comment).
+    // Named here, not a bare literal, because the perf fix below
+    // (GetEligiblePlayerIdsAsync's narrowing pass) needs the exact same
+    // threshold as IsEligible's own `stints.Count < MinStintCount` check —
+    // one named constant, not two independent magic 3s that could drift
+    // apart.
+    private const int MinStintCount = 3;
+
     // REQ-1205/ADR-0041: xG Path's fixed per-puzzle attempt cap — matches
     // REQ-1203's fixed 7-turn clue sequence 1:1, regardless of the target
     // player's own stint count N. Mirrors GridGameModule.MaxAttemptsPerCell's
@@ -239,10 +248,27 @@ public class XGPathGameModule(
     // not re-checking this at runtime either.
     private async Task<IReadOnlyList<Guid>> GetEligiblePlayerIdsAsync(CancellationToken cancellationToken)
     {
-        var stintsByPlayer = await playerStoreRepository.GetAllCareerStintsByPlayerAsync(cancellationToken);
         var seededClubNames = (await categoryValueRepository.GetClubsAsync(cancellationToken))
             .Select(c => c.Name)
             .ToHashSet();
+
+        // Perf fix (NOTES.md 2026-08-03): PlayerCareerStint has grown to
+        // ~608K rows (ADR-0055's prefetch-player-careers job) and keeps
+        // growing as more countries are added, so a full
+        // GetAllCareerStintsByPlayerAsync-style read on every round
+        // generation no longer scales. Narrow to real candidates first with
+        // a cheap (PlayerId, ClubName)-only read — IsEligible's >= 3-stint-
+        // row check and "any stint at a seeded club at all" (ignoring the
+        // appearance-count sub-condition, which only narrows further) are
+        // both necessary-but-not-sufficient conditions computable from that
+        // projection alone, so this is a true superset of IsEligible's
+        // actual candidates and never excludes one it would have accepted
+        // (see GetCareerStintCandidatePlayerIdsAsync's own doc comment) —
+        // then load full stint data (all columns, needed for the date-order
+        // and appearance-count checks) only for that narrowed set.
+        var candidateIds = await playerStoreRepository.GetCareerStintCandidatePlayerIdsAsync(
+            seededClubNames, MinStintCount, cancellationToken);
+        var stintsByPlayer = await playerStoreRepository.GetCareerStintsByPlayerIdsAsync(candidateIds, cancellationToken);
 
         var structurallyEligibleIds = stintsByPlayer
             .Where(kvp => IsEligible(kvp.Value, seededClubNames))
@@ -292,7 +318,7 @@ public class XGPathGameModule(
     //     recognize.
     private static bool IsEligible(IReadOnlyList<PlayerCareerStint> stints, IReadOnlySet<string> seededClubNames)
     {
-        if (stints.Count < 3)
+        if (stints.Count < MinStintCount)
             return false;
 
         var datePairs = stints.Select(s => (s.StartYear, s.EndYear)).ToList();
