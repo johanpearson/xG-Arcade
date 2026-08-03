@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.61"
+version: "0.62"
 status: draft
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -922,6 +922,30 @@ left to compute or wait on here.
 actionable text to show. State 1 and state 4 (and, as of today, state 3)
 are deliberately *not* visually distinguishable by round status at
 rest — see SCREEN-06 for where that distinction is explained instead.
+
+**Persistent correct-cell border (2026-08-03, direct product feedback):** a
+correct cell (states 1 and 4 above, no-photo or photo variant alike) now
+also gets a `--color-accent-green` border, 2px, around the whole cell —
+an always-visible cue that a cell is correct, independent of and in
+addition to the checkmark/points text tint (`--color-accent-gold-text`)
+this section already describes. Before this addition, "correct" was only
+ever signaled by the checkmark glyph and the gold-tinted points text — no
+border existed at all. `--color-accent-green`, not `--color-accent-green-scrim`
+(§2's dormant, one-off checkmark exception, not a general "correct"
+color), is the right token: it's already specified for exactly this kind
+of non-text/decorative use (live-dot, focus ring, tab underline), already
+measures ~3.4:1 against `surface-card`/white — clearing the 3:1 floor that
+applies to a decorative UI-component border, not the 4.5:1 text floor —
+and is unchanged between light/dark theme (§2's dark-theme table), so no
+new theme-specific value was needed. Implemented on `.grid-table__cell`
+(the `<td>` itself, `Grid.tsx`/`Grid.css`), not `.grid-cell` (the button)
+or anything inside `CellState.tsx`: a photo cell's photo layer bleeds only
+as far as this element's own padding edge (see this section's own S-050
+status note), never into its border area, so a border declared on the
+`<td>` is spatially guaranteed to render around/above the photo in both
+variants, without depending on paint-order/stacking-context specifics the
+way a border on `.grid-cell` would. Never applied to an incorrect (states
+2/3) or unattempted cell.
 
 ### SCREEN-02: Guess input
 

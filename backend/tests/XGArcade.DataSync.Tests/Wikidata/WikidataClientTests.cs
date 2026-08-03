@@ -1919,6 +1919,64 @@ public class WikidataClientTests
         Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Arsenal", 1999, null, null)));
     }
 
+    // Regression test for the exact bug reported with a screenshot: an xG
+    // Path puzzle showed the same real career stint as two separate path
+    // nodes — one labeled "Liverpool," one labeled "Liverpool F.C." —
+    // because BuildPlayerCareerStintsByQidsQuery never selects the
+    // underlying ?club QID (only ?clubLabel), so ParseCareerStintBindings'
+    // HashSet dedup had no way to recognize the two rows as the same real
+    // stint. Two rows, identical (startTime, endTime, numberOfMatches) but
+    // differing only by the club-name legal-suffix variant, must collapse
+    // into exactly one WikidataCareerStintEntry, keyed on the normalized
+    // ("Liverpool") form.
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_CollapsesSameStint_WhenClubLabelDiffersOnlyByLegalSuffix()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "Liverpool" }, "startTime": { "type": "literal", "value": "2010-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2015-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "25" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "Liverpool F.C." }, "startTime": { "type": "literal", "value": "2010-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2015-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "25" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Has.Count.EqualTo(1),
+            "the 'Liverpool'/'Liverpool F.C.' rows are the same real stint and must collapse into one entry");
+        Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Liverpool", 2010, 2015, 25)));
+    }
+
+    // Same normalization, but exercised through varied suffix forms and
+    // positions to pin down NormalizeClubName's exact contract, not just
+    // the one screenshot scenario above.
+    [TestCase("Liverpool FC", "Liverpool")]
+    [TestCase("Liverpool A.F.C.", "Liverpool")]
+    [TestCase("Bournemouth AFC", "Bournemouth")]
+    [TestCase("AFC Bournemouth", "AFC Bournemouth", Description = "a leading 'AFC' is a different, legitimate naming convention and must NOT be stripped")]
+    [TestCase("Deportivo Alavés", "Deportivo Alavés", Description = "must not match 'FC' as a substring inside an unrelated word")]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_NormalizesClubLegalSuffix(string rawLabel, string expectedNormalized)
+    {
+        var json = $$"""
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "{{rawLabel}}" }, "startTime": { "type": "literal", "value": "2010-01-01T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"][0].ClubName, Is.EqualTo(expectedNormalized));
+    }
+
     [Test]
     public async Task ADR0054_QueryPlayerCareerStintsByQidsAsync_QidWithNoP54Data_IsAbsentFromResult()
     {
