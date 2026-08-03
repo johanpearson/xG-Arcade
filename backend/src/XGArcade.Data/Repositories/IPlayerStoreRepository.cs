@@ -379,6 +379,17 @@ public interface IPlayerStoreRepository
         string firstAttributeType, string firstAttributeValue,
         string secondAttributeType, string secondAttributeValue,
         CancellationToken cancellationToken = default);
+
+    // One-off diagnostic (`dotnet run -- audit-club-gaps`,
+    // XGArcade.DataSync.ClubGapAuditService — see that class's own doc
+    // comment for the full "why"): every PlayerCareerStint.ClubName that
+    // doesn't match any already-seeded ClubDefinition.Name, ranked by
+    // distinct PlayerId count descending. Read-only, no side effects — never
+    // writes anything, never touches ReferenceDataSeeder. `top` bounds how
+    // many candidates are returned; the caller decides how deep a ranked
+    // list it wants, this method doesn't hardcode a count itself.
+    Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
+        int top, CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to
@@ -430,3 +441,11 @@ public enum PlayerDataRemovalFailureReason
     // existed) between selection and submission.
     NotFound,
 }
+
+// One-off diagnostic (audit-club-gaps): one candidate club — a
+// PlayerCareerStint.ClubName with no matching ClubDefinition.Name — and how
+// many distinct players already have a recorded stint there. Not itself a
+// claim that ClubName is a "real," canonical club name (it's whatever string
+// Wikidata's P54 qualifier label produced) — that's exactly why this is a
+// candidate for human review, not an automatic seed.
+public record UnseededClubCandidate(string ClubName, int PlayerCount);

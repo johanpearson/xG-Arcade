@@ -682,4 +682,45 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         dbContext.PairLookupFailures.Remove(existing);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
+        int top, CancellationToken cancellationToken = default)
+    {
+        // Case-insensitive comparison against ClubDefinition.Name — a
+        // Wikidata-sourced PlayerCareerStint.ClubName (a P54 qualifier
+        // label) and a hand-seeded ClubDefinition.Name come from two
+        // different paths and could plausibly differ only in case even when
+        // they denote the same club; an exact-case comparison would then
+        // wrongly surface an already-seeded club as a "gap." This is
+        // diagnostic-only output for a human to review — if this
+        // normalization assumption ever hides a genuinely distinct club
+        // that happens to share a case-insensitive name with a seeded one
+        // (unlikely for real football clubs), the human review step this
+        // verb's own workflow doc comment requires (manually verifying each
+        // candidate's Wikidata QID before adding anything) is exactly the
+        // safety net that catches it.
+        var seededClubNames = new HashSet<string>(
+            await dbContext.ClubDefinitions.AsNoTracking().Select(c => c.Name).ToListAsync(cancellationToken),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Loads every PlayerCareerStint's (ClubName, PlayerId) pair —
+        // Tier 0 player-pool scale (a few thousand rows), same "tolerate a
+        // full-table-scale read" precedent GetAllCareerStintsByPlayerAsync's
+        // own doc comment already establishes for this exact table. The
+        // grouping/distinct-count/case-insensitive filter below all happen
+        // in memory after materializing, not translated to SQL, so there's
+        // no provider-specific LOWER()-translation risk to worry about.
+        var stints = await dbContext.PlayerCareerStints
+            .AsNoTracking()
+            .Select(s => new { s.ClubName, s.PlayerId })
+            .ToListAsync(cancellationToken);
+
+        return stints
+            .Where(s => !seededClubNames.Contains(s.ClubName))
+            .GroupBy(s => s.ClubName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new UnseededClubCandidate(g.Key, g.Select(s => s.PlayerId).Distinct().Count()))
+            .OrderByDescending(c => c.PlayerCount)
+            .Take(top)
+            .ToList();
+    }
 }
