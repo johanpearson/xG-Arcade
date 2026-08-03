@@ -6,9 +6,17 @@
   color: var(--color-text-primary);
 }
 
+/* Bug fix (2026-08-03, user-tester report): flags moved from a Unicode
+   emoji span to a bundled inline SVG (countryFlags.tsx) — sized in `em`s so
+   it still scales with the surrounding text the same way the old emoji did,
+   rather than a fixed pixel size. width:height keeps the flag's own 3:2
+   viewBox aspect ratio regardless of the em size it's placed at. */
 .category-label__flag {
-  font-size: 1.1em;
-  line-height: 1;
+  width: 1.35em;
+  height: 0.9em;
+  border-radius: 2px;
+  border: 1px solid var(--color-border-hairline);
+  flex-shrink: 0;
 }
 
 /* Circular initial-badge — design-document.md §1's "Imagery note": the real

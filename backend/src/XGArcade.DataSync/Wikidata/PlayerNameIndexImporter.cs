@@ -75,6 +75,22 @@ public class PlayerNameIndexImporter(
         var failedYears = new List<int>();
         var currentYear = _timeProvider.GetUtcNow().Year;
 
+        // Bug fix (2026-08-03, user-tester report): a player with two P569
+        // statements in different years appears in two slices (comment
+        // below, unchanged) — but before this fix, whichever slice ran LAST
+        // (i.e. whichever has the higher birth year, since this loop runs
+        // ascending) simply overwrote the other with no correctness signal
+        // behind that choice at all. A real report showed exactly this for
+        // Michael Owen: the autocomplete suggestion carried BirthYear 1976
+        // instead of his actual 1979. Tracked across the whole run so a
+        // genuine cross-slice conflict nulls out BirthYear instead — the
+        // same "omit rather than guess" fix ParseNameIndexBindings applies
+        // for the single-response-multiple-rows case
+        // (QueryPlayerPoolByNationalityAsync). Keyed by WikidataQid, before
+        // ToIndexEntry's PlayerId derivation.
+        var firstBirthYearByQid = new Dictionary<string, int>();
+        var ambiguousQids = new HashSet<string>();
+
         for (var year = WikidataClient.FirstEligibleBirthYear; year <= currentYear; year++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -92,8 +108,14 @@ public class PlayerNameIndexImporter(
             // A player with two P569 statements in different years appears
             // in two slices — the deterministic PlayerId below makes the
             // second slice's upsert update the first's row in place rather
-            // than duplicating it.
-            var entries = slice.Select(ToIndexEntry).ToList();
+            // than duplicating it. ResolveCrossSliceBirthYearConflicts nulls
+            // out BirthYear for a genuine conflict (see this method's own
+            // doc comment above) — that corrected null then wins the same
+            // upsert-in-place, overwriting whatever wrongly-confident value
+            // an earlier slice already persisted for this QID.
+            var entries = ResolveCrossSliceBirthYearConflicts(slice, firstBirthYearByQid, ambiguousQids)
+                .Select(ToIndexEntry)
+                .ToList();
             await repository.UpsertManyAsync(entries, cancellationToken);
 
             totalUpserted += entries.Count;
@@ -146,6 +168,54 @@ public class PlayerNameIndexImporter(
         }
 
         return null;
+    }
+
+    // Bug fix (2026-08-03, user-tester report): see ImportAsync's own doc
+    // comment on firstBirthYearByQid/ambiguousQids for why this exists.
+    // Mutates the two tracking collections as a side effect (by design —
+    // they accumulate across the whole run, not per-slice) and returns a
+    // slice where any QID with a detected cross-slice conflict has its
+    // BirthYear nulled out instead of the raw (possibly wrong) value this
+    // slice's own query returned.
+    private static IReadOnlyList<WikidataNameIndexEntry> ResolveCrossSliceBirthYearConflicts(
+        IReadOnlyList<WikidataNameIndexEntry> slice,
+        Dictionary<string, int> firstBirthYearByQid,
+        HashSet<string> ambiguousQids)
+    {
+        var resolved = new List<WikidataNameIndexEntry>(slice.Count);
+
+        foreach (var entry in slice)
+        {
+            if (entry.BirthYear is null)
+            {
+                resolved.Add(entry);
+                continue;
+            }
+
+            if (ambiguousQids.Contains(entry.WikidataQid))
+            {
+                resolved.Add(entry with { BirthYear = null });
+                continue;
+            }
+
+            if (firstBirthYearByQid.TryGetValue(entry.WikidataQid, out var seenYear))
+            {
+                if (seenYear != entry.BirthYear.Value)
+                {
+                    ambiguousQids.Add(entry.WikidataQid);
+                    resolved.Add(entry with { BirthYear = null });
+                    continue;
+                }
+            }
+            else
+            {
+                firstBirthYearByQid[entry.WikidataQid] = entry.BirthYear.Value;
+            }
+
+            resolved.Add(entry);
+        }
+
+        return resolved;
     }
 
     private static PlayerNameIndex ToIndexEntry(WikidataNameIndexEntry entry) => new()

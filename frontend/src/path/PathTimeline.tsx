@@ -49,9 +49,20 @@ const TEXT_CLUE_LABELS: Record<'Position' | 'Nationality' | 'Age', string> = {
 // re-render, unlike CellState's badge-dock reveal (which needed an explicit
 // replay token because that element toggles visible/hidden repeatedly, not
 // append-only).
+//
+// Bug fix (2026-08-03, user-tester report): the solved/failed reveal used to
+// REPLACE the last real clue turn's own content (the old isLastNode branch
+// rendered SolvedNode/FailedRevealNode *instead of* renderClueContent) — for
+// a single-club turn that's a small cosmetic swap, but the same turn can
+// carry several bundled clubs (PathClueSequenceBuilder's 3-3-4 split for a
+// long career) or the bundled year-range/position/nationality/age content,
+// and replacing it wholesale silently deleted that entire turn's real
+// content the instant the puzzle locked — directly contradicting this
+// file's own "every past clue stays visible" doc comment above, and exactly
+// what the tester reported as "the latest shown clue was removed upon
+// correct answer." The reveal is now its own trailing node, appended after
+// every real clue turn rather than displacing one.
 export function PathTimeline({ clues, solved, locked, resolvedPlayerName, resolvedPlayerPhotoUrl }: PathTimelineProps) {
-  const lastIndex = clues.length - 1;
-
   // REQ-1203: the bundled year-range turn's own payload is just a list of
   // strings, in the same order every club was revealed across the 3
   // preceding ClubReveal turns combined (PathClueTurn's own backend doc
@@ -63,46 +74,51 @@ export function PathTimeline({ clues, solved, locked, resolvedPlayerName, resolv
     .flatMap((turn) => turn.clubs ?? [])
     .map((club) => club.clubName);
 
+  // User-testing fix (2026-08-02, unchanged by this fix): a puzzle that
+  // locked *without* ever being solved (the fixed attempt cap ran out,
+  // REQ-1205) used to show nothing beyond the last real clue — no reveal at
+  // all, leaving the player never told what the answer was. `locked` covers
+  // both "solved" and "locked-unsolved"; `isFailedReveal` is specifically
+  // the second case (locked is true, solved is false), rendered as a
+  // clearly distinct, non-gold node — see FailedRevealNode below and its own
+  // design-document.md SCREEN-10 status note.
+  const isSolvedReveal = solved;
+  const isFailedReveal = locked && !solved;
+
   return (
     <ol className="path-timeline" aria-label="Revealed clues, oldest first">
-      {clues.map((turn, index) => {
-        const isLastNode = index === lastIndex;
-        const isSolvedReveal = solved && isLastNode;
-        // User-testing fix (2026-08-02): a puzzle that locked *without* ever
-        // being solved (the fixed attempt cap ran out, REQ-1205) used to
-        // show nothing beyond the last real clue — no reveal at all, leaving
-        // the player never told what the answer was. `locked` covers both
-        // "solved" and "locked-unsolved"; `isFailedReveal` is specifically
-        // the second case (locked is true, solved is false), rendered as a
-        // clearly distinct, non-gold node — see FailedRevealNode below and
-        // its own design-document.md SCREEN-10 status note.
-        const isFailedReveal = locked && !solved && isLastNode;
-        return (
-          <li
-            key={turn.turnNumber}
-            // Quality-gate fix (S-086 follow-up): the settle-in animation
-            // class is now applied unconditionally — `prefers-reduced-motion`
-            // is handled entirely by PathTimeline.css's own `@media` override
-            // (which sets `animation: none`, fully cancelling the animation,
-            // same end result as never applying the class), matching
-            // CellState.css's own CSS-only reduced-motion pattern rather than
-            // duplicating that logic in JS. See PathTimeline.css's comment on
-            // this rule for the full reasoning.
-            className={`path-timeline__node ${isSolvedReveal ? 'path-timeline__node--solved' : ''} ${isFailedReveal ? 'path-timeline__node--failed' : ''} path-timeline__node--animate-in`}
-          >
-            <span className="path-timeline__dot" aria-hidden="true" />
-            <div className="path-timeline__content">
-              {isSolvedReveal ? (
-                <SolvedNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
-              ) : isFailedReveal ? (
-                <FailedRevealNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
-              ) : (
-                renderClueContent(turn, revealedClubNames)
-              )}
-            </div>
-          </li>
-        );
-      })}
+      {clues.map((turn) => (
+        <li
+          key={turn.turnNumber}
+          // Quality-gate fix (S-086 follow-up): the settle-in animation
+          // class is now applied unconditionally — `prefers-reduced-motion`
+          // is handled entirely by PathTimeline.css's own `@media` override
+          // (which sets `animation: none`, fully cancelling the animation,
+          // same end result as never applying the class), matching
+          // CellState.css's own CSS-only reduced-motion pattern rather than
+          // duplicating that logic in JS. See PathTimeline.css's comment on
+          // this rule for the full reasoning.
+          className="path-timeline__node path-timeline__node--animate-in"
+        >
+          <span className="path-timeline__dot" aria-hidden="true" />
+          <div className="path-timeline__content">{renderClueContent(turn, revealedClubNames)}</div>
+        </li>
+      ))}
+      {(isSolvedReveal || isFailedReveal) && (
+        <li
+          key="reveal"
+          className={`path-timeline__node ${isSolvedReveal ? 'path-timeline__node--solved' : 'path-timeline__node--failed'} path-timeline__node--animate-in`}
+        >
+          <span className="path-timeline__dot" aria-hidden="true" />
+          <div className="path-timeline__content">
+            {isSolvedReveal ? (
+              <SolvedNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
+            ) : (
+              <FailedRevealNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
+            )}
+          </div>
+        </li>
+      )}
     </ol>
   );
 }

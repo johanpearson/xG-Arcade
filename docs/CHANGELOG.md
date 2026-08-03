@@ -13,6 +13,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/design-document.md` (v0.63 → v0.64), `NOTES.md` —
+  three user-tester bug fixes (xG Path clue reveal, country flags, a
+  `PlayerNameIndex.BirthYear` data-quality bug). (1) `PathTimeline.tsx`'s
+  solved/failed reveal used to REPLACE the last real clue turn's own node
+  instead of appending after it, silently deleting that turn's content
+  (a bundled multi-club turn or the year-range/position/nationality/age
+  content) the instant the puzzle locked — contradicted this codebase's own
+  "every past clue stays visible" rule. Fixed to append the reveal as a
+  separate, trailing node; design doc's SCREEN-10 "Solved state" bullet
+  status-noted (not rewritten) the same way its existing S-086 note already
+  documents a stale assumption. (2) Flags moved from Unicode emoji
+  (`categoryDisplay.ts`'s old `flagEmojiFor`) to bundled inline SVGs
+  (`frontend/src/lib/countryFlags.tsx`) — Windows Chrome/Edge render emoji
+  through the host OS font, and Windows dropped color flag glyphs from its
+  system font, so a flag emoji degraded to its two bare Regional Indicator
+  Symbol letters (e.g. "GB") with no flag graphic at all; Firefox alone
+  avoided this by bundling its own emoji font. Design doc's §1 "Imagery
+  note" updated to match. (3) `WikidataClient.ParseNameIndexBindings` and
+  `PlayerNameIndexImporter` used to silently pick one of two conflicting
+  Wikidata P569 (date of birth) statements for the same player with no
+  correctness signal behind the choice (whichever SPARQL row arrived first,
+  or whichever birth-year slice ran last) — a real report showed Michael
+  Owen's autocomplete entry carrying birth year 1976 instead of his actual
+  1979. Fixed to null out the ambiguous value instead of guessing either
+  way; see `NOTES.md`'s own entry for the full mechanism and a flagged
+  sandbox limitation (no live Wikidata/`dotnet` access this session, so the
+  backend fix was verified by manual review, not a real build/test run —
+  recommend a CI run before merging).
+
 - 2026-08-03 — `docs/design-document.md` (v0.62 → v0.63),
   `docs/requirements-document.md` (v1.41 → v1.42), `docs/backlog.md`
   (S-094 status) — `ui-implementer` shipped REQ-216's frontend half.

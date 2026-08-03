@@ -143,9 +143,12 @@ describe('PathScreen', () => {
 
     expect(await screen.findByText('Zlatan Ibrahimović')).toBeInTheDocument();
     expect(screen.getByText('Solved')).toBeInTheDocument();
-    // Still exactly 1 clue turn rendered — the correct guess never revealed
-    // a 2nd one.
-    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    // Still exactly 1 real clue turn rendered — the correct guess never
+    // revealed a 2nd one — plus a separate, trailing solved node appended
+    // after it (bug fix, 2026-08-03: the solved node used to replace the
+    // last clue turn instead of appending after it — see PathTimeline.tsx's
+    // own comment).
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(screen.getByLabelText('Player name')).toBeDisabled();
     // A single puzzle in the round completes it — no "Next puzzle" button,
     // just the completion message.

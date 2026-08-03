@@ -111,7 +111,7 @@ describe('PathTimeline', () => {
     expect(screen.getByText('not available')).toBeInTheDocument();
   });
 
-  it('REQ-1204: a correct guess renders the final node as solved (gold), showing the resolved player\'s name', () => {
+  it('REQ-1204/bug fix (2026-08-03): a correct guess appends a trailing solved (gold) node, showing the resolved player\'s name, without disturbing the real clue nodes', () => {
     const clues: PathClueTurn[] = [
       clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }]),
       clubTurn(2, [{ clubName: 'Juventus', appearanceCount: 94 }]),
@@ -127,22 +127,30 @@ describe('PathTimeline', () => {
       />,
     );
 
+    // Bug fix (2026-08-03, user-tester report): the solved reveal used to
+    // REPLACE the last clue turn's own node instead of appending after it —
+    // "the latest shown clue was removed upon correct answer." Both real
+    // clue turns must still be visible, plus a third, separate solved node.
     const nodes = screen.getAllByRole('listitem');
-    expect(nodes).toHaveLength(2);
+    expect(nodes).toHaveLength(3);
+    expect(nodes[0]).toHaveTextContent('Ajax');
+    expect(nodes[1]).toHaveTextContent('Juventus');
     // §6: never a color-only signal — "Solved" is real text, not just a
     // gold class name.
-    expect(nodes[1]).toHaveTextContent('Solved');
-    expect(nodes[1]).toHaveTextContent('Zlatan Ibrahimović');
-    expect(nodes[1].className).toContain('path-timeline__node--solved');
-    // The earlier, un-solved node is unaffected.
+    expect(nodes[2]).toHaveTextContent('Solved');
+    expect(nodes[2]).toHaveTextContent('Zlatan Ibrahimović');
+    expect(nodes[2].className).toContain('path-timeline__node--solved');
+    // The earlier, un-solved nodes are unaffected.
     expect(nodes[0].className).not.toContain('path-timeline__node--solved');
+    expect(nodes[1].className).not.toContain('path-timeline__node--solved');
   });
 
-  it('REQ-1203: a correct guess at any point means no further turn is ever rendered beyond what was actually revealed', () => {
+  it('REQ-1203: a correct guess at any point means no further real clue turn is ever rendered beyond what was actually revealed', () => {
     // Only 2 turns were ever revealed before the puzzle was solved on the
     // 2nd attempt — GET /path/current's own contract (only unlocked turns
     // are sent at all), so this component has nothing beyond `clues` to
-    // render regardless of the puzzle's fixed 7-turn maximum.
+    // render regardless of the puzzle's fixed 7-turn maximum. The trailing
+    // solved node is a 3rd, additional node, not one of the revealed turns.
     const clues: PathClueTurn[] = [
       clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }]),
       clubTurn(2, [{ clubName: 'Juventus', appearanceCount: 94 }]),
@@ -150,7 +158,7 @@ describe('PathTimeline', () => {
 
     render(<PathTimeline clues={clues} solved locked resolvedPlayerName="Zlatan Ibrahimović" resolvedPlayerPhotoUrl={null} />);
 
-    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
   });
 
   // Quality-gate fix (S-086 follow-up): prefers-reduced-motion used to be
@@ -186,12 +194,16 @@ describe('PathTimeline', () => {
       />,
     );
 
-    const img = screen.getByRole('listitem').querySelector('.path-timeline__solved-photo') as HTMLImageElement;
+    // Bug fix (2026-08-03): the solved reveal is now a separate, trailing
+    // node appended after the real clue turn (see PathTimeline.tsx's own
+    // comment), so there are 2 listitems here, not 1 — query within the
+    // document rather than assuming a single listitem.
+    const img = document.querySelector('.path-timeline__solved-photo') as HTMLImageElement;
     expect(img).toBeInTheDocument();
 
     fireEvent.error(img);
 
-    expect(screen.queryByRole('listitem')?.querySelector('.path-timeline__solved-photo')).not.toBeInTheDocument();
+    expect(document.querySelector('.path-timeline__solved-photo')).not.toBeInTheDocument();
     // The rest of the solved node — name, "Solved" label — is unaffected by
     // the photo failing.
     expect(screen.getByText('Zlatan Ibrahimović')).toBeInTheDocument();
@@ -217,15 +229,20 @@ describe('PathTimeline', () => {
         />,
       );
 
+      // Bug fix (2026-08-03): 2 real clue turns plus a separate trailing
+      // failed-reveal node — 3 listitems, not 2 (the old behavior replaced
+      // the 2nd clue turn's own node instead of appending after it).
       const nodes = screen.getAllByRole('listitem');
-      expect(nodes).toHaveLength(2);
+      expect(nodes).toHaveLength(3);
+      expect(nodes[0]).toHaveTextContent('Ajax');
+      expect(nodes[1]).toHaveTextContent('Juventus');
       // §6: never a color-only signal — "Out of attempts" is real text.
-      expect(nodes[1]).toHaveTextContent('Out of attempts');
-      expect(nodes[1]).toHaveTextContent('Zlatan Ibrahimović');
-      expect(nodes[1].className).toContain('path-timeline__node--failed');
+      expect(nodes[2]).toHaveTextContent('Out of attempts');
+      expect(nodes[2]).toHaveTextContent('Zlatan Ibrahimović');
+      expect(nodes[2].className).toContain('path-timeline__node--failed');
       // Never the correct-guess gold treatment — that would misleadingly
       // imply this player got it right.
-      expect(nodes[1].className).not.toContain('path-timeline__node--solved');
+      expect(nodes[2].className).not.toContain('path-timeline__node--solved');
       expect(screen.queryByText('Solved')).not.toBeInTheDocument();
     });
 
@@ -265,12 +282,15 @@ describe('PathTimeline', () => {
         />,
       );
 
-      const img = screen.getByRole('listitem').querySelector('.path-timeline__failed-photo') as HTMLImageElement;
+      // Bug fix (2026-08-03): failed reveal is a separate, trailing node —
+      // see the earlier solved-photo test's own comment for why this
+      // queries the document rather than assuming a single listitem.
+      const img = document.querySelector('.path-timeline__failed-photo') as HTMLImageElement;
       expect(img).toBeInTheDocument();
 
       fireEvent.error(img);
 
-      expect(screen.queryByRole('listitem')?.querySelector('.path-timeline__failed-photo')).not.toBeInTheDocument();
+      expect(document.querySelector('.path-timeline__failed-photo')).not.toBeInTheDocument();
       expect(screen.getByText('Zlatan Ibrahimović')).toBeInTheDocument();
       expect(screen.getByText('Out of attempts')).toBeInTheDocument();
     });
