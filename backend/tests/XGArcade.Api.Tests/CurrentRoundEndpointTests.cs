@@ -195,6 +195,14 @@ public class CurrentRoundEndpointTests
             UserId = userId,
             CellId = cellId,
             SubmittedName = "Clarence Seedorf",
+            // A real correct guess always has PlayerAnswerId set
+            // (GuessSubmissionService's own write path, and
+            // RoundEndpoints.cs's UniquenessCalculator.Calculate call relies
+            // on this invariant) — set it here too whenever isCorrect is
+            // true, same as SeedCorrectGuessDirectlyAsync above, so the
+            // "somehow persisted" defensive test case doesn't also violate
+            // an unrelated invariant this helper isn't testing.
+            PlayerAnswerId = isCorrect ? Guid.NewGuid() : null,
             IsCorrect = isCorrect,
             AttemptCount = 2,
             CreatedAt = DateTime.UtcNow,
