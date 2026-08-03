@@ -77,8 +77,29 @@ export function Grid({ cells, roundStatus, submittedThisSessionCellIds, onCellCl
               </th>
               {colHeaders.map((col) => {
                 const cell = cellByPosition.get(positionKey(row.row, col.col));
+                // Product feedback (2026-08-03): a correct cell (SCREEN-01a
+                // states 1/4 — round-active or round-closed, `guess.isCorrect`
+                // either way) gets a persistent light-green border, not just
+                // the checkmark/points text tint — see design-document.md
+                // SCREEN-01a's matching note. Applied here, on the `<td>`
+                // itself, rather than on `.grid-cell` (the button, GridCell.tsx)
+                // or `.cell-state`/`.cell-state--photo` (CellState.tsx):
+                // `.cell-state--photo`'s photo layer bleeds via `inset: 0` only
+                // as far as this element's own *padding* edge (Grid.css's
+                // `.grid-table__cell`/S-050 comment), never into its *border*
+                // area — so a border declared here is spatially guaranteed to
+                // never sit under the photo, in either variant, regardless of
+                // stacking order. A border on `.grid-cell` instead would risk
+                // exactly that: it occupies the same box the photo bleeds to,
+                // and (verified against Grid.css's own painting-order notes)
+                // a positioned descendant like `.cell-state--photo` paints
+                // after `.grid-cell`'s own non-positioned border in that case.
+                const isCorrectCell = cell?.guess?.isCorrect === true;
+                const cellClassName = isCorrectCell
+                  ? 'grid-table__cell grid-table__cell--correct'
+                  : 'grid-table__cell';
                 return (
-                  <td key={`cell-${row.row}-${col.col}`} className="grid-table__cell">
+                  <td key={`cell-${row.row}-${col.col}`} className={cellClassName}>
                     {cell ? (
                       <GridCell
                         cell={cell}

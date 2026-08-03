@@ -1045,6 +1045,41 @@ public class WikidataClient(
     // clubLabel binding at all (should not happen — ?club is a mandatory,
     // non-OPTIONAL match) is also skipped defensively rather than persisting
     // a stint with a blank club name.
+    //
+    // Bug fix (2026-08-03, xG Path duplicate-stint bug, REQ-1203): the
+    // ClubName the HashSet dedups (and every caller ultimately persists) is
+    // ?clubLabel, since BuildPlayerCareerStintsByQidsQuery never selects the
+    // underlying ?club QID itself — this method has no QID to dedupe or key
+    // on, only the rendered label string. Observed in production (bug
+    // report with screenshot): one real stint surfaced across two rows as
+    // "Liverpool" on one and "Liverpool F.C." on the other — otherwise
+    // identical (start, end, appearance count), so the two rows are
+    // structurally the same real stint but fail this HashSet's exact
+    // string/record equality and show up as two path nodes. WHY Wikidata's
+    // own statements carry two label variants for what is presumably one
+    // underlying ?club (or two ?club items both resolving to "the same"
+    // real club) isn't diagnosable from this sandbox without a live SPARQL
+    // query against wikidata.org — see NormalizeClubName's own comment for
+    // the (deliberately narrow) fix applied to the observed symptom.
+    //
+    // Known, ACCEPTED limitation of the above fix (quality-gate finding,
+    // 2026-08-03): the HashSet dedup two paragraphs below is still keyed
+    // on the FULL (ClubName, StartYear, EndYear, AppearanceCount) tuple.
+    // Normalizing ClubName only collapses duplicate rows that also agree
+    // on every other field. Two rows for what is really the same stint
+    // but that disagree on AppearanceCount (e.g. one row's P1350
+    // qualifier absent -> null, the other's present -> 25 -- plausible,
+    // since two Wikidata statements for "the same" stint can carry
+    // differently-complete qualifiers) or on EndYear will still fail to
+    // merge and reproduce the duplicate-node symptom for that variant.
+    // This is deliberately NOT widened here: doing so (e.g. treating a
+    // null AppearanceCount as "matches anything") would risk silently
+    // merging two GENUINELY different stints at the same club with
+    // matching dates but different, both-known appearance counts -- a
+    // correctness risk, not just a display one, and a strictly worse
+    // failure mode than the display duplicate this fix targets. If this
+    // variant is observed in practice it needs its own deliberate merge
+    // rule (and test), not a silent loosening of this tuple.
     private static IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> ParseCareerStintBindings(SparqlResponse? response)
     {
         var stintsByQid = new Dictionary<string, HashSet<WikidataCareerStintEntry>>();
@@ -1075,10 +1110,66 @@ public class WikidataClient(
             if (!stintsByQid.TryGetValue(qid, out var stints))
                 stintsByQid[qid] = stints = [];
 
-            stints.Add(new WikidataCareerStintEntry(clubLabelValue.Value, startYear, endYear, appearanceCount));
+            // Normalize BEFORE the HashSet sees it: this is the club name
+            // that both dedup and every downstream persistence use — see
+            // WikidataCareerStintEntry's own doc comment and this class's
+            // NormalizeClubName for why the canonical (not raw) form is
+            // what gets stored.
+            stints.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount));
         }
 
         return stintsByQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)kv.Value.ToList());
+    }
+
+    // Legal-suffix variants Wikidata is observed to use interchangeably for
+    // what is the same real club (e.g. "Liverpool" vs "Liverpool F.C.",
+    // both attested as ?clubLabel values for the same P54 statement shape —
+    // see ParseCareerStintBindings' own comment for the exact bug this
+    // fixes). Ordered longest-first so a longer variant (e.g. "A.F.C.")
+    // is matched whole rather than partially matching a shorter entry
+    // later in the list ("F.C.") first.
+    //
+    // Deliberately a small, explicit list, not a fuzzy/generic name
+    // matcher: a generic matcher risks merging two DIFFERENT clubs that
+    // happen to share a prefix (e.g. stripping too aggressively could
+    // conflate "Real Madrid" and "Real Sociedad"-style near-collisions).
+    // This only ever strips one of these four exact, well-known football
+    // legal-suffix tokens, and only when it is the trailing token of the
+    // name (preceded by whitespace) — never a substring inside an
+    // unrelated word, and never a PREFIX (e.g. "AFC Bournemouth" is a
+    // different, legitimate naming convention and is left untouched).
+    //
+    // Single-pass, not recursive: only ONE trailing suffix is ever
+    // stripped, so a hypothetical stacked label like "Club FC A.F.C."
+    // would only lose the first match ("A.F.C.") and come back as
+    // "Club FC", not "Club". Judged acceptable given this is a narrow,
+    // 4-entry list of real football legal suffixes -- a doubly-suffixed
+    // label has not been observed and is not expected in practice.
+    private static readonly string[] ClubNameLegalSuffixes = ["A.F.C.", "F.C.", "AFC", "FC"];
+
+    private static string NormalizeClubName(string rawClubName)
+    {
+        var trimmed = rawClubName.Trim();
+
+        foreach (var suffix in ClubNameLegalSuffixes)
+        {
+            if (trimmed.Length <= suffix.Length)
+                continue;
+
+            if (!trimmed.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Must be a distinct trailing TOKEN — the character right
+            // before the suffix must be whitespace, or this would also
+            // strip "FC" out of the middle/end of an unrelated single
+            // word.
+            if (!char.IsWhiteSpace(trimmed[trimmed.Length - suffix.Length - 1]))
+                continue;
+
+            return trimmed[..^suffix.Length].TrimEnd();
+        }
+
+        return trimmed;
     }
 
     // ADR-0056: xG Path's own familiarity signal — batched, direct-by-QID

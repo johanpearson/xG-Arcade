@@ -167,6 +167,142 @@ function photoCorrectCell(hasPhoto: boolean): CurrentRoundCell {
   };
 }
 
+// Product feedback (2026-08-03): a correct cell (SCREEN-01a states 1/4)
+// gets a persistent `--color-accent-green` border on `.grid-table__cell`
+// (the `<td>`), not just the checkmark/points text tint — see
+// design-document.md SCREEN-01a's matching note and Grid.css's own comment
+// on `.grid-table__cell--correct` for why the `<td>`, not `.grid-cell` or
+// anything inside `CellState.tsx`, is the element that carries it (a
+// photo cell's photo layer only ever bleeds to this element's padding
+// edge, never its border area, so a border here is guaranteed visible
+// around/above the photo in both variants).
+function incorrectCell(locked: boolean): CurrentRoundCell {
+  return {
+    cellId: 'cell-incorrect',
+    row: 0,
+    col: 0,
+    rowCategoryType: 'country',
+    rowCategoryValue: 'France',
+    colCategoryType: 'club',
+    colCategoryValue: 'Arsenal',
+    guess: {
+      isCorrect: false,
+      attemptCount: locked ? 2 : 1,
+      locked,
+      submittedName: 'Wrong Guess',
+      resolvedPlayerName: null,
+      uniquePercent: null,
+      livePoints: null,
+    },
+  };
+}
+
+function unattemptedCell(): CurrentRoundCell {
+  return {
+    cellId: 'cell-empty',
+    row: 0,
+    col: 0,
+    rowCategoryType: 'country',
+    rowCategoryValue: 'France',
+    colCategoryType: 'club',
+    colCategoryValue: 'Arsenal',
+    guess: null,
+  };
+}
+
+describe('Grid correct-cell persistent border (product feedback, 2026-08-03)', () => {
+  it('adds grid-table__cell--correct to a correct, round-active, no-photo cell (state 1)', () => {
+    const { container } = render(
+      <Grid
+        cells={[photoCorrectCell(false)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toBeInTheDocument();
+    expect(td).toHaveClass('grid-table__cell--correct');
+  });
+
+  it('adds grid-table__cell--correct to a correct cell with a photo too (state 1, photo variant) — the border must not depend on whether a photo is showing', () => {
+    const { container } = render(
+      <Grid
+        cells={[photoCorrectCell(true)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toBeInTheDocument();
+    expect(td).toHaveClass('grid-table__cell--correct');
+    // Sanity check this is genuinely the photo variant, not accidentally
+    // the no-photo branch.
+    expect(container.querySelector('.cell-state--photo')).toBeInTheDocument();
+  });
+
+  it('adds grid-table__cell--correct to a correct, round-closed cell (state 4)', () => {
+    const { container } = render(
+      <Grid
+        cells={[photoCorrectCell(false)]}
+        roundStatus="closed"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toHaveClass('grid-table__cell--correct');
+  });
+
+  it('never adds grid-table__cell--correct to an incorrect cell, whether an attempt remains (state 2) or the cell is locked out (state 3)', () => {
+    const withAttempt = render(
+      <Grid
+        cells={[incorrectCell(false)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    expect(withAttempt.container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--correct');
+    withAttempt.unmount();
+
+    const lockedOut = render(
+      <Grid
+        cells={[incorrectCell(true)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    expect(lockedOut.container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--correct');
+  });
+
+  it('never adds grid-table__cell--correct to an unattempted cell', () => {
+    const { container } = render(
+      <Grid
+        cells={[unattemptedCell()]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    expect(container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--correct');
+  });
+
+  it('gives .grid-table__cell--correct a --color-accent-green border, 2px, overriding the base hairline border-color/width — Grid.css', () => {
+    const ruleIndex = gridCss.indexOf('.grid-table__cell--correct {');
+    expect(ruleIndex, 'expected to find a .grid-table__cell--correct rule in Grid.css').toBeGreaterThanOrEqual(0);
+    const rule = extractBraceBlock(gridCss, ruleIndex + '.grid-table__cell--correct '.length);
+    expect(rule).toContain('border-color: var(--color-accent-green)');
+    expect(rule).toContain('border-width: 2px');
+  });
+});
+
 describe('Grid photo fills to the cell edge (S-050)', () => {
   it('.grid-table__cell (the <td>) is the positioned ancestor now, not .grid-cell (the button) — the mechanism that lets the photo bleed through both padding layers instead of just one', () => {
     const tdRuleIndex = gridCss.indexOf('.grid-table__cell {');

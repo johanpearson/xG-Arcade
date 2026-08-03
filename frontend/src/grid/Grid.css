@@ -387,6 +387,32 @@
   position: relative;
 }
 
+/* Product feedback (2026-08-03): a correct cell (SCREEN-01a states 1/4 —
+   round-active or round-closed, no-photo or photo variant alike) gets a
+   persistent light-green border as an always-visible "this one's correct"
+   cue, distinct from the checkmark/points text tint alone
+   (`--color-accent-gold-text`) — see design-document.md SCREEN-01a's
+   matching note. `--color-accent-green` (not `--color-accent-green-scrim`,
+   which §2 explicitly reserves as a one-off, dormant checkmark exception
+   not to be reused as a general "correct" color) is the right token here:
+   it's already documented for exactly this kind of non-text/decorative use
+   (live-dot, focus ring, tab underline — §2's "Text vs. decorative
+   contrast" note), and already measures ~3.4:1 against `surface-card`/
+   white, clearing the 3:1 floor that applies to a decorative UI-component
+   border (not the 4.5:1 text floor). 2px, not 1px, so the color change
+   reads as a deliberate cue rather than a barely-different hairline —
+   matching this file's own existing `:focus-visible` treatment
+   (`index.css`), which already uses `--color-accent-green` at 2px for the
+   same "a green ring/border is a decorative signal" role. Applied on this
+   element (`.grid-table__cell`, the `<td>`) specifically, not `.grid-cell`
+   (the button) or anything inside `CellState.tsx` — see Grid.tsx's own
+   comment on the `<td>`'s className for why this is the one place
+   guaranteed to render above/around a photo cell's photo layer too. */
+.grid-table__cell--correct {
+  border-color: var(--color-accent-green);
+  border-width: 2px;
+}
+
 /* S-059 (real-browser root cause — see this file's other S-059 comment,
    inside the earlier `@media (max-width: 480px)` block, for the full
    before/after numbers and why the 78px figure/3-line clamp pair was

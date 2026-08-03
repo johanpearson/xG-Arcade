@@ -13,6 +13,55 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/requirements-document.md` (v1.36 → v1.37, REQ-1203
+  status note addendum) — a concurrent quality-gate pass on the same
+  session's dedup fix (commit `a78e52d`) found and documented (in code
+  comments/tests, `WikidataClient.cs`/`WikidataClientTests.cs`) a known,
+  accepted limitation the REQ note below hadn't yet stated: dedup is still
+  keyed on the full `(ClubName, StartYear, EndYear, AppearanceCount)`
+  tuple, so two rows for what could plausibly be the same stint but that
+  disagree on `AppearanceCount` (one `null`, one known) still do not merge.
+  Deliberately not widened — see the new status note for why loosening the
+  match risks a correctness regression, not just a display one. This entry
+  adds the corresponding requirements-document.md note; the code/test
+  changes themselves were already committed in `a78e52d`, not by this
+  doc-sync pass.
+- 2026-08-03 — `docs/requirements-document.md` (v1.35 → v1.36, REQ-204
+  status note) — direct product feedback: a correct cell (SCREEN-01a
+  states 1/4) now also gets a persistent light-green (`--color-accent-green`)
+  2px border, always visible, in addition to the existing checkmark/points
+  text — previously "correct" was signaled by text alone.
+  `frontend/src/grid/Grid.tsx`/`Grid.css` apply the new
+  `.grid-table__cell--correct` class on `.grid-table__cell` (the `<td>`),
+  never on the button or photo-layer element, so the border renders
+  correctly around both the no-photo and photo cell variants.
+  `docs/design-document.md`'s matching SCREEN-01a note (v0.62) was already
+  added earlier this session; this entry just adds requirements-document.md's
+  own status note and its CHANGELOG line. Tests: `Grid.test.tsx`.
+- 2026-08-03 — `docs/requirements-document.md` (v1.34 → v1.35, REQ-1203
+  status note) — bug fix: `WikidataClient.ParseCareerStintBindings`
+  deduplicates career stints by exact `?clubLabel` string (no `?club` QID is
+  selected to key on instead), so a real stint whose label appeared in two
+  variants — e.g. "Liverpool" and "Liverpool F.C." — surfaced as two
+  separate xG Path club-reveal nodes instead of deduping into one, reported
+  directly by a player with a screenshot. Fixed with a new
+  `NormalizeClubName` step (`backend/src/XGArcade.DataSync/Wikidata/
+  WikidataClient.cs`) that strips a small, explicit set of trailing
+  football-club legal-suffix tokens (`FC`/`F.C.`/`AFC`/`A.F.C.`) before the
+  existing dedup runs — deliberately narrow, not a general fuzzy-name
+  matcher, to avoid conflating two different clubs. Tests in
+  `WikidataClientTests.cs`.
+- 2026-08-03 — `docs/backlog.md` (S-092/S-093 added, queued not built) —
+  product feedback session on xG Grid/xG Path raised two future-scope items
+  neither ready for implementation this session: (1) widening xG Grid's
+  player pool by reading xG Path's already-fetched `PlayerCareerStint` data
+  (ADR-0054's own follow-up note already named this as its own future story);
+  (2) xG Path no-repeat target selection across rounds plus an admin-visible
+  "full cycle completed" signal on `AdminScreen.tsx`. Both queued rather than
+  built — neither has a requirements/architecture pass yet. See the three
+  entries above for what *was* built from the same feedback batch (the
+  Liverpool/Liverpool F.C. duplicate club-node bug, its accepted dedup
+  limitation, and the correct-cell green border).
 - 2026-08-02 — `docs/decisions/0056-xg-path-familiarity-filter.md` (new),
   `docs/requirements-document.md` (v1.33 → v1.34, REQ-1201/1203/1207 status
   notes), `docs/architecture-document.md` (v0.75 → v0.76, COMP-07/COMP-11),
