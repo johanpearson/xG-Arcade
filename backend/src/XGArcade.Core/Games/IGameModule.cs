@@ -57,4 +57,34 @@ public interface IGameModule
     // ScoreSubmissionAsync/GetCellIdsAsync's existing convention) when
     // instanceId/cellId don't resolve to a real cell.
     Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default);
+
+    // REQ-216/ADR-0057: resolves the guessed player's canonical name (and,
+    // independently, an optional photo) for a cell that has just locked with
+    // its final guess still incorrect — called by GuessSubmissionService
+    // exactly once, only when it has already determined
+    // `locked && !scoreResult.IsCorrect` for THIS submission (never for
+    // state 2, an incorrect guess with attempts still remaining, and never
+    // more than once per cell — the existing REQ-210 lock/cap rejection
+    // checks in GuessSubmissionService already make a second call for the
+    // same cell impossible, since a locked cell rejects any further guess
+    // before this method would ever be reached again).
+    //
+    // Returns null when submittedName didn't match any real PlayerNameIndex
+    // candidate at all (ADR-0007) — REQ-216's "no identity to show" case,
+    // unchanged from today's behavior. A non-null result's PhotoUrl is
+    // itself independently nullable — see WrongGuessPlayerInfo's own doc
+    // comment for why a resolved name with no photo is a normal, silent
+    // outcome (ADR-0057), never an error and never fed into any
+    // fail-closed/incorrect verdict (there is none left to compute for a
+    // guess already known to be wrong).
+    //
+    // This is a SEPARATE, lower-priority trigger from REQ-211's existing
+    // guess-time live lookup (IGameModule.ScoreSubmissionAsync's own
+    // fallback path) — Wikidata-only, never API-Football, never gated on
+    // any ExternalApiUsage threshold (ADR-0057). Not every game supports
+    // this display feature: xG Path's implementation returns null
+    // unconditionally rather than fabricating a value — see that class's
+    // own comment.
+    Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default);
 }

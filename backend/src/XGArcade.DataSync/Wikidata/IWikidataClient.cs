@@ -360,4 +360,46 @@ public interface IWikidataClient
     Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
         IReadOnlyList<string> wikidataQids,
         CancellationToken cancellationToken = default);
+
+    // REQ-216/ADR-0057: a NAME-based counterpart to
+    // QueryPlayerPhotosByQidsAsync, for a wrong-but-real guess that has no
+    // WikidataQid to look up by yet (no existing Player row) — the only
+    // signal available is the raw guess string itself, already confirmed
+    // by the caller (GridGameModule) to match a real PlayerNameIndex
+    // candidate (ADR-0007). This is its own distinct, lower-priority
+    // trigger, separate from REQ-211's correctness-critical live lookup —
+    // never called for anything but this cosmetic, already-known-wrong-guess
+    // display case, and never routed through any API-Football client or
+    // ExternalApiUsage threshold (ADR-0057's whole point).
+    //
+    // Matches a footballer (P106=Q937857) by exact case-insensitive label OR
+    // alias — case-insensitive because the caller only reaches this method
+    // after a PlayerNameIndex match on PlayerNameNormalizer's normalized
+    // form, not necessarily identical casing to Wikidata's own label.
+    // Deliberately LIMIT 1, unlike every other query in this file
+    // (implementation-document.md §6a's "never LIMIT, the result set IS the
+    // answer key" rule applies to grid generation/scoring only): this is a
+    // single cosmetic display lookup for one already-known-wrong guess, not
+    // an answer key — more than one same-named footballer existing on
+    // Wikidata is a real but rare case this doesn't need to disambiguate,
+    // since any one of them is equally "a real footballer with this name"
+    // for REQ-216's purposes.
+    //
+    // Returns null when the query found no matching player at all (a
+    // PlayerNameIndex hit that Wikidata's own live data no longer confirms —
+    // rare, but possible) or when the matched player has no P18 photo
+    // statement — both are ordinary, error-free outcomes.
+    //
+    // Error contract — throws WikidataQueryException on timeout/HTTP/parse
+    // failure, the same as QueryPlayerPhotosByQidsAsync, rather than
+    // swallowing to null: this keeps the client's own honest signal
+    // ("the query failed" vs. "the query succeeded and found nothing")
+    // available to the caller, exactly as ADR-0057 requires — but the
+    // caller (GridGameModule.ResolveWrongGuessPlayerAsync) is the one
+    // responsible for catching this and turning it into a silent null,
+    // never a fail-closed/incorrect outcome (there is no correctness verdict
+    // left to compute for a guess already known to be wrong).
+    Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
+        string playerName,
+        CancellationToken cancellationToken = default);
 }

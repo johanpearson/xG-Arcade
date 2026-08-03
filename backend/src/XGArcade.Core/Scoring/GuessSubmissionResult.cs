@@ -56,6 +56,26 @@ public class GuessSubmissionResult
     // error either way; the field is simply absent).
     public string? ResolvedPlayerPhotoUrl { get; init; }
 
+    // REQ-216/ADR-0057: the canonical name of a real, but wrong, player a
+    // LOCKED, FINAL-incorrect guess turned out to name — the mirror-image
+    // case of ResolvedPlayerName above (which is only ever set when
+    // IsCorrect). Null whenever IsCorrect is true (nothing to show — REQ-214
+    // owns that case), whenever the cell isn't locked yet (state 2 is
+    // completely unaffected by this REQ), or whenever the guess string
+    // matched no real PlayerNameIndex candidate at all (ADR-0007's "no
+    // identity to show" case). Never the raw as-typed guess text — same
+    // "misleading" reasoning ResolvedPlayerName's own doc comment gives; see
+    // GuessSubmissionService.SubmitGuessAsync for where this is resolved.
+    public string? IncorrectGuessMatchedPlayerName { get; init; }
+
+    // ADR-0057: additive alongside IncorrectGuessMatchedPlayerName, same
+    // null-whenever-that's-null rule, plus independently null whenever the
+    // Wikidata-only lookup timed out, errored, or genuinely found no photo —
+    // a silent, graceful fallback (never an error, never fail-closed; there
+    // is no correctness verdict left to compute for a guess already known to
+    // be wrong).
+    public string? IncorrectGuessMatchedPlayerPhotoUrl { get; init; }
+
     // REQ-209: non-null and non-empty only when Outcome is
     // NeedsDisambiguation — the candidates the player must choose between.
     // Null in every other case.
@@ -65,7 +85,8 @@ public class GuessSubmissionResult
         new() { Outcome = outcome };
 
     public static GuessSubmissionResult Accepted(
-        bool isCorrect, int attemptCount, bool locked, string? resolvedPlayerName = null, string? resolvedPlayerPhotoUrl = null) =>
+        bool isCorrect, int attemptCount, bool locked, string? resolvedPlayerName = null, string? resolvedPlayerPhotoUrl = null,
+        string? incorrectGuessMatchedPlayerName = null, string? incorrectGuessMatchedPlayerPhotoUrl = null) =>
         new()
         {
             Outcome = GuessSubmissionOutcome.Accepted,
@@ -74,6 +95,8 @@ public class GuessSubmissionResult
             Locked = locked,
             ResolvedPlayerName = resolvedPlayerName,
             ResolvedPlayerPhotoUrl = resolvedPlayerPhotoUrl,
+            IncorrectGuessMatchedPlayerName = incorrectGuessMatchedPlayerName,
+            IncorrectGuessMatchedPlayerPhotoUrl = incorrectGuessMatchedPlayerPhotoUrl,
         };
 
     // REQ-209/REQ-210: returned instead of Accepted whenever the game
