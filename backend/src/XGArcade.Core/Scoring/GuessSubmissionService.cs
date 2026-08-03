@@ -86,6 +86,32 @@ public class GuessSubmissionService(
             return GuessSubmissionResult.NeedsDisambiguation(scoreResult.DisambiguationCandidates);
 
         var attemptCount = (existingGuess?.AttemptCount ?? 0) + 1;
+
+        // REQ-210: locks immediately on a correct answer, even if only 1 of
+        // the 2 attempts was used; otherwise locks once the cell's own
+        // max-attempts (ADR-0041) is used. Computed here, before the Guess
+        // row is written below, so REQ-216's wrong-guess resolution (next)
+        // can be persisted in the SAME write — never a second/batched
+        // update.
+        var locked = scoreResult.IsCorrect || attemptCount >= maxAttemptsForCell;
+
+        // REQ-216/ADR-0057: fires exactly once, only on the submission that
+        // just locked this cell with its final guess still incorrect — never
+        // for state 2 (incorrect, attempts remaining), which this condition
+        // excludes outright. A second call for the same cell can never
+        // happen: once locked, the REQ-210 checks above (CellAlreadySolved/
+        // NoAttemptsRemaining) reject any further guess before this point is
+        // ever reached again. Wikidata-only, never API-Football, never
+        // gated on any ExternalApiUsage threshold — see
+        // IGameModule.ResolveWrongGuessPlayerAsync's own doc comment. Any
+        // failure (timeout, error, no PlayerNameIndex match) surfaces here as
+        // a plain null, never an exception — ADR-0057's silent, graceful
+        // fallback; there is no correctness verdict left to compute for a
+        // guess already known to be wrong.
+        var wrongGuessPlayer = locked && !scoreResult.IsCorrect
+            ? await gameModule.ResolveWrongGuessPlayerAsync(round.GameInstanceId, submittedName, cancellationToken)
+            : null;
+
         if (existingGuess is null)
         {
             await guessRepository.AddAsync(new Guess
@@ -99,6 +125,8 @@ public class GuessSubmissionService(
                 IsCorrect = scoreResult.IsCorrect,
                 AttemptCount = attemptCount,
                 CreatedAt = now,
+                MatchedPlayerName = wrongGuessPlayer?.PlayerName,
+                MatchedPlayerPhotoUrl = wrongGuessPlayer?.PhotoUrl,
             }, cancellationToken);
         }
         else
@@ -107,13 +135,10 @@ public class GuessSubmissionService(
             existingGuess.PlayerAnswerId = scoreResult.PlayerAnswerId;
             existingGuess.IsCorrect = scoreResult.IsCorrect;
             existingGuess.AttemptCount = attemptCount;
+            existingGuess.MatchedPlayerName = wrongGuessPlayer?.PlayerName;
+            existingGuess.MatchedPlayerPhotoUrl = wrongGuessPlayer?.PhotoUrl;
             await guessRepository.UpdateAsync(existingGuess, cancellationToken);
         }
-
-        // REQ-210: locks immediately on a correct answer, even if only 1 of
-        // the 2 attempts was used; otherwise locks once the cell's own
-        // max-attempts (ADR-0041) is used.
-        var locked = scoreResult.IsCorrect || attemptCount >= maxAttemptsForCell;
 
         // Frontend name-display fix: a correct guess's canonical, properly-
         // cased name — never the raw as-typed submittedName, which stays
@@ -128,6 +153,7 @@ public class GuessSubmissionService(
             : null;
 
         return GuessSubmissionResult.Accepted(
-            scoreResult.IsCorrect, attemptCount, locked, resolvedPlayer?.FullName, resolvedPlayer?.PhotoUrl);
+            scoreResult.IsCorrect, attemptCount, locked, resolvedPlayer?.FullName, resolvedPlayer?.PhotoUrl,
+            wrongGuessPlayer?.PlayerName, wrongGuessPlayer?.PhotoUrl);
     }
 }

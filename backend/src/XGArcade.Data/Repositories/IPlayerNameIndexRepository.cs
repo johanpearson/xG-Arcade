@@ -29,6 +29,22 @@ public interface IPlayerNameIndexRepository
     // the caller — same convention as SearchByPrefixAsync's own parameter.
     Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default);
 
+    // REQ-216/ADR-0057: the wrong-guess photo lookup's own read path — unlike
+    // ExistsByNormalizedNameAsync's plain bool (REQ-211's gate only ever
+    // needed a yes/no), this needs the matched entry's own PrimaryName: the
+    // one canonical-name source REQ-216 can ALWAYS show for a locked,
+    // final-incorrect guess that matched a real player, even when
+    // ADR-0057's separate Wikidata-only photo lookup times out, errors, or
+    // finds nothing (REQ-216's own acceptance criteria: a resolved name with
+    // no photo is a normal, silent outcome; a resolved name never depends on
+    // that photo lookup succeeding). Same exact-match-against-NormalizedName
+    // contract as ExistsByNormalizedNameAsync (never SearchByPrefixAsync's
+    // looser prefix scan) — normalizedName is expected to already be
+    // normalized by the caller, same convention as every other method here.
+    // Returns null when no entry matches at all — REQ-216's "no identity to
+    // show" case.
+    Task<PlayerNameIndex?> FindByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default);
+
     // PlayerNameIndexImporter's bulk-refresh write path. Upserts keyed on
     // PlayerId — an entry for a player already in the index is corrected in
     // place, not duplicated (same "correct in place, don't just blindly

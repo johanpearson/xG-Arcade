@@ -13,6 +13,87 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/design-document.md` (v0.62 → v0.63),
+  `docs/requirements-document.md` (v1.41 → v1.42), `docs/backlog.md`
+  (S-094 status) — `ui-implementer` shipped REQ-216's frontend half.
+  Design doc first: §2 gained a new "Placeholder avatar" token/component
+  entry (reuses `surface-sunken`/`text-muted`, no new color) per the
+  amendment's own flagged blocker, and SCREEN-01a's states 2-4 mocks/
+  "Persistent correct-cell border" note were updated with a matching
+  REQ-216 status note (the three locked-incorrect combinations, and the
+  new `.grid-table__cell--incorrect` red border extending the existing
+  correct-cell green-border mechanism). Code:
+  `frontend/src/grid/CellState.tsx`'s locked-incorrect branch now renders
+  a real matched-player photo (reusing the existing `CellPhoto`
+  component), the new placeholder avatar (`CellPlaceholderAvatar`), or
+  both with/without a canonical name, depending on which of REQ-216's
+  three combinations applies — never a checkmark/cross icon there anymore,
+  mirroring REQ-214/S-048's own established pattern. State 2 is completely
+  unaffected. `frontend/src/grid/Grid.tsx`/`Grid.css` add the red border on
+  `.grid-table__cell` (not `.grid-cell`/`CellState.tsx`), mirroring the
+  correct-cell border's own placement and reasoning.
+  `frontend/src/lib/types.ts` adds `incorrectGuessMatchedPlayerName`/
+  `incorrectGuessMatchedPlayerPhotoUrl` to `CurrentRoundGuess`/
+  `SubmitGuessResponse`, confirmed camelCase against the backend records.
+  Vitest coverage added/updated in `CellState.test.tsx`, `Grid.test.tsx`,
+  `GridCell.test.tsx` for state 2 (unaffected), the three locked-incorrect
+  combinations, and the fixed-footprint mechanism. REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.40 → v1.41),
+  `docs/backlog.md` (S-094 status) — `backend-implementer` shipped REQ-216's
+  backend half: `GuessSubmissionService` resolves
+  `IGameModule.ResolveWrongGuessPlayerAsync` exactly once, only when a cell
+  locks with its final guess still incorrect; `GridGameModule`'s
+  implementation is cache-first, then ADR-0057's Wikidata-only
+  `WikidataClient.QueryPlayerPhotoByNameAsync` for the photo (new
+  `IPlayerNameIndexRepository.FindByNormalizedNameAsync` supplies the
+  always-resolvable canonical-name fallback); persisted onto two new
+  nullable `Guess` columns (migration `AddGuessMatchedPlayerNameAndPhoto`)
+  in the same write, read back (never re-resolved) by `GET /rounds/current`
+  as `IncorrectGuessMatchedPlayerName`/`IncorrectGuessMatchedPlayerPhotoUrl`.
+  Also documents, retroactively, the same-day placeholder-avatar amendment
+  (both REQ-216 no-photo branches now show a placeholder graphic instead of
+  nothing, per direct product-owner sign-off) that had updated
+  `docs/requirements-document.md`/`docs/backlog.md` without a CHANGELOG
+  entry — confirmed to require no backend change, since it's a pure
+  frontend rendering decision against the same two nullable fields.
+  Frontend (`CellState.tsx`) is still queued. REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/architecture-document.md` (v0.76 → v0.77),
+  `docs/decisions/0057-wrong-guess-photo-lookup-scope.md` — `doc-sync`
+  closed two non-blocking architecture-review gaps from REQ-216's
+  pre-merge gate. Architecture doc: added a COMP-04/COMP-05 status note
+  (the §10 ADR-log entry alone wasn't the "component responsibility/data
+  flow changed" update CLAUDE.md step 3 calls for) covering the new
+  `IGameModule.ResolveWrongGuessPlayerAsync` method, `GridGameModule`'s
+  cache-first-then-Wikidata-only implementation, the two new nullable
+  `Guess` columns, and `XGPathGameModule`'s unconditional-null
+  implementation. ADR-0057: added a Consequences addendum naming that this
+  trigger has no WDQS-level rate-limiting of its own — same uncapped
+  exposure as REQ-211's existing guess-time fallback
+  (`GridGameModule.RefreshCellFromLiveLookupAsync`) today, not a new gap,
+  but worth stating explicitly given REQ-216's plausibly higher firing
+  volume. No code, tests, requirements, backlog, or design doc changes.
+  REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.37 → v1.39, new REQ-216),
+  `docs/backlog.md` (new S-094), `docs/decisions/0057-wrong-guess-photo-lookup-scope.md`
+  (new), `docs/architecture-document.md` (§10 table) — GitHub feature
+  request "show the guessed player's photo on an incorrect guess, with a
+  red border" (xG Grid) was flagged before any code, since it reverses a
+  deliberate prior decision (`CellState.tsx`'s states-2/3 "no name shown on
+  a wrong guess" comment) and has no existing data path (`PlayerNameIndex.PhotoUrl`
+  was removed 2026-07-18). Confirmed with the product owner via
+  `AskUserQuestion`: wanted, but only on the locked/final-incorrect case
+  (state 3/4), never an in-progress guess (state 2). Drafted as REQ-216.
+  `architecture-reviewer` then resolved the open "how is the photo
+  resolved" question via ADR-0057: reuse ADR-0011's `WikidataClient` as a
+  new, distinct, lower-priority trigger — Wikidata-only, no API-Football
+  fallback, fires once at cell-lock time, fails silently to no-photo
+  rather than fail-closed-as-incorrect, since a wrong guess has no
+  correctness verdict left to compute. Not yet implemented — S-094 is
+  ready to size/build in a future session.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.36 → v1.37, REQ-1203
   status note addendum) — a concurrent quality-gate pass on the same
   session's dedup fix (commit `a78e52d`) found and documented (in code

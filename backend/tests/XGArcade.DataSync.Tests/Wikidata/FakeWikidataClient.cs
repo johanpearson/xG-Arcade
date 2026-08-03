@@ -267,4 +267,14 @@ internal sealed class FakeWikidataClient : IWikidataClient
         var entries = _entriesByYear.TryGetValue(birthYear, out var configured) ? configured : [];
         return Task.FromResult(entries);
     }
+
+    // REQ-216/ADR-0057: QueryPlayerPhotoByNameAsync support — never touched
+    // by PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests (same
+    // "never touched by either caller" reasoning as the intersection-query
+    // stubs above), added only so this fake still satisfies IWikidataClient's
+    // signature. GridGameModuleTests gets its own dedicated fake, same
+    // precedent as PlayerFamiliarityServiceTests/PlayerCareerStintRefreshServiceTests.
+    public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
+        string playerName, CancellationToken cancellationToken = default) =>
+        Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
 }

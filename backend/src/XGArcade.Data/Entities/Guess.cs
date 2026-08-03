@@ -40,4 +40,26 @@ public class Guess
     public double? FinalUniquenessScore { get; set; }   // null until the round closes (S-011)
     public int? FinalPoints { get; set; }                // null until the round closes (S-011)
     public DateTime CreatedAt { get; set; }
+
+    // REQ-216/ADR-0057: the canonical name (+ optional photo) of a real, but
+    // wrong, player this cell's LOCKED, FINAL-incorrect guess turned out to
+    // name — set at most once, at the exact GuessSubmissionService write
+    // that locks this row with IsCorrect still false, never batched or
+    // updated afterward. Both stay null for every other case: a
+    // still-unlocked incorrect guess (state 2, attempts remaining — this
+    // REQ never applies), a correct guess (REQ-214's PlayerAnswerId/
+    // Player.PhotoUrl own that case instead), or a locked-incorrect guess
+    // whose SubmittedName matched no real PlayerNameIndex candidate at all
+    // (ADR-0007's "no identity to show" case). Read back, never
+    // re-resolved, by GET /rounds/current (RoundEndpoints) so state 4 (round
+    // closed, page reload) shows the same value without a second live
+    // lookup.
+    public string? MatchedPlayerName { get; set; }
+
+    // ADR-0057: independently nullable from MatchedPlayerName — a resolved
+    // name with no photo (Wikidata timeout/error/genuine no-P18) is a
+    // normal, silent outcome, never an error and never a fail-closed/
+    // incorrect signal (there is no correctness verdict left to compute for
+    // a guess already known to be wrong).
+    public string? MatchedPlayerPhotoUrl { get; set; }
 }

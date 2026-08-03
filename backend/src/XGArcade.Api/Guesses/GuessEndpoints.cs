@@ -89,7 +89,8 @@ public static class GuessEndpoints
             {
                 GuessSubmissionOutcome.Accepted => Results.Ok(
                     new SubmitGuessResponse(
-                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl, Candidates: null)),
+                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl,
+                        result.IncorrectGuessMatchedPlayerName, result.IncorrectGuessMatchedPlayerPhotoUrl, Candidates: null)),
                 // REQ-209/REQ-210: still a 200 (nothing about the request was
                 // wrong — the guess just resolved to more than one fitting
                 // candidate), but with Candidates populated and every other
@@ -100,6 +101,7 @@ public static class GuessEndpoints
                 GuessSubmissionOutcome.NeedsDisambiguation => Results.Ok(
                     new SubmitGuessResponse(
                         IsCorrect: false, AttemptCount: 0, Locked: false, ResolvedPlayerName: null, ResolvedPlayerPhotoUrl: null,
+                        IncorrectGuessMatchedPlayerName: null, IncorrectGuessMatchedPlayerPhotoUrl: null,
                         Candidates: result.DisambiguationCandidates!
                             .Select(c => new DisambiguationCandidateResponse(c.PlayerId, c.Name, c.DistinguishingAttributes))
                             .ToList())),
@@ -158,6 +160,19 @@ public record SubmitGuessRequest(string SubmittedName, Guid? ChosenPlayerId = nu
 // is the normal, error-free "no photo" case; the frontend falls back to
 // today's text-only reveal (REQ-212) whenever this is null.
 //
+// IncorrectGuessMatchedPlayerName/IncorrectGuessMatchedPlayerPhotoUrl
+// (REQ-216/ADR-0057): the mirror-image case of ResolvedPlayerName/
+// ResolvedPlayerPhotoUrl above — set only when this cell just locked with
+// its final guess still incorrect (state 3, or state 4's incorrect branch)
+// AND that guess string matched a real PlayerNameIndex candidate. Null in
+// every other case: IsCorrect true (REQ-214 owns that case instead), the
+// cell not yet locked (state 2 is completely unaffected by this REQ), or a
+// guess matching no real PlayerNameIndex candidate at all. PhotoUrl is
+// independently nullable even when Name is set — ADR-0057's own silent,
+// graceful fallback when the Wikidata-only lookup times out, errors, or
+// finds no photo; never a broken-image icon, never a fail-closed/incorrect
+// signal.
+//
 // Candidates (REQ-209): null on every ordinary (scored) response — this is
 // the frontend's unambiguous signal to distinguish "this response means:
 // show a picker" (Candidates != null) from "this response means: scored,
@@ -174,6 +189,8 @@ public record SubmitGuessResponse(
     bool Locked,
     string? ResolvedPlayerName,
     string? ResolvedPlayerPhotoUrl,
+    string? IncorrectGuessMatchedPlayerName,
+    string? IncorrectGuessMatchedPlayerPhotoUrl,
     IReadOnlyList<DisambiguationCandidateResponse>? Candidates);
 
 // REQ-209: one entry per candidate the player must choose between — mirrors

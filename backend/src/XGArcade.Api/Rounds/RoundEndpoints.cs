@@ -129,6 +129,20 @@ public static class RoundEndpoints
                     // resolvedPlayer lookup ResolvedPlayerName already
                     // uses — no second query, and null exactly when
                     // Wikidata had no P18 for this player (never an error).
+                    //
+                    // REQ-216/ADR-0057: reads back MatchedPlayerName/
+                    // MatchedPlayerPhotoUrl straight off the persisted Guess
+                    // row (GuessSubmissionService's own write, at submission
+                    // time) — this endpoint never triggers a new live
+                    // Wikidata lookup itself, which is exactly what makes
+                    // state 4 (round closed, page reload) work. Both are
+                    // guaranteed null whenever guess.IsCorrect is true (the
+                    // write path never sets them for a correct guess) or the
+                    // guess never actually locked incorrect (never set for
+                    // state 2 either) — the explicit !guess.IsCorrect guard
+                    // here is defensive, matching this file's existing
+                    // "trust but verify the persisted invariant" style for
+                    // resolvedPlayer above.
                     guessResponse = new CurrentRoundGuessResponse(
                         guess.IsCorrect,
                         guess.AttemptCount,
@@ -136,6 +150,8 @@ public static class RoundEndpoints
                         guess.SubmittedName,
                         resolvedPlayer?.FullName,
                         resolvedPlayer?.PhotoUrl,
+                        guess.IsCorrect ? null : guess.MatchedPlayerName,
+                        guess.IsCorrect ? null : guess.MatchedPlayerPhotoUrl,
                         uniquePercent,
                         livePoints);
                 }
@@ -200,6 +216,22 @@ public record CurrentRoundCellResponse(
 // (REQ-212) whenever this is null. Recomputed on every request from the
 // same bulk playersById lookup ResolvedPlayerName already uses, so it stays
 // in sync across reads without a second query.
+//
+// IncorrectGuessMatchedPlayerName/IncorrectGuessMatchedPlayerPhotoUrl
+// (REQ-216/ADR-0057): the mirror-image case of ResolvedPlayerName/
+// ResolvedPlayerPhotoUrl — non-null only when this guess locked the cell
+// with its final attempt still incorrect (state 3, or state 4's incorrect
+// branch) AND the guess string matched a real PlayerNameIndex candidate.
+// Read straight off the persisted Guess.MatchedPlayerName/
+// MatchedPlayerPhotoUrl columns (set once, at submission time, by
+// GuessSubmissionService) — this endpoint never triggers a new live
+// Wikidata lookup itself, which is what makes state 4 (round closed, page
+// reload) show the same value without a second lookup. PhotoUrl is
+// independently nullable even when Name is set — ADR-0057's own silent,
+// graceful fallback when the Wikidata-only lookup timed out, errored, or
+// found no photo at submission time; never a broken-image icon.
 public record CurrentRoundGuessResponse(
     bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName,
-    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl, double? UniquePercent, int? LivePoints);
+    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl,
+    string? IncorrectGuessMatchedPlayerName, string? IncorrectGuessMatchedPlayerPhotoUrl,
+    double? UniquePercent, int? LivePoints);

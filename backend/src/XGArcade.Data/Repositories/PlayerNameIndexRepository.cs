@@ -91,6 +91,14 @@ public class PlayerNameIndexRepository(XGArcadeDbContext dbContext) : IPlayerNam
     public async Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerNameIndexEntries.AsNoTracking().AnyAsync(pni => pni.NormalizedName == normalizedName, cancellationToken);
 
+    // REQ-216/ADR-0057: same exact-match index-backed lookup as
+    // ExistsByNormalizedNameAsync above, just returning the matched entry
+    // itself (for PrimaryName) instead of a bare bool — see this method's own
+    // doc comment (interface) for why the wrong-guess photo lookup needs
+    // more than a yes/no here.
+    public async Task<PlayerNameIndex?> FindByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerNameIndexEntries.AsNoTracking().FirstOrDefaultAsync(pni => pni.NormalizedName == normalizedName, cancellationToken);
+
     public async Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default)
     {
         var entryList = entries as IReadOnlyCollection<PlayerNameIndex> ?? entries.ToList();

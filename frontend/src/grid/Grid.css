@@ -413,6 +413,29 @@
   border-width: 2px;
 }
 
+/* REQ-216 (2026-08-03): the mirror-image case of .grid-table__cell--correct
+   above — a locked-incorrect cell (SCREEN-01a states 3/4's incorrect
+   branch) now gets a persistent `--color-accent-red` border too, same 2px
+   weight, same reasoning for living on this element rather than
+   `.grid-cell` or anything inside `CellState.tsx`: REQ-216 can put a
+   full-bleed matched-player photo or the new placeholder-avatar graphic on
+   an incorrect cell the same way a correct cell can carry a photo, and
+   `.cell-state--incorrect-photo`'s own layer (CellState.css) only ever
+   bleeds to this element's padding edge, never its border area, for the
+   identical structural reason `.cell-state--photo` doesn't either. Before
+   REQ-216, an incorrect cell (locked or not) had no border at all — this is
+   new for the locked case specifically; state 2 (an attempt remains, Grid.tsx's
+   own isLockedIncorrectCell check) is unaffected, same as an unattempted
+   cell. `--color-accent-red` already measures ~4.9:1 against `surface-card`/
+   white (design-document.md §2), clearing the 3:1 floor that applies to
+   this kind of decorative UI-component border with real margin, and is
+   unchanged between light/dark theme (§2's dark-theme table), so no new
+   theme-specific value was needed here either. */
+.grid-table__cell--incorrect {
+  border-color: var(--color-accent-red);
+  border-width: 2px;
+}
+
 /* S-059 (real-browser root cause — see this file's other S-059 comment,
    inside the earlier `@media (max-width: 480px)` block, for the full
    before/after numbers and why the 78px figure/3-line clamp pair was

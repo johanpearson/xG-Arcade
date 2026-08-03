@@ -176,7 +176,14 @@ function photoCorrectCell(hasPhoto: boolean): CurrentRoundCell {
 // photo cell's photo layer only ever bleeds to this element's padding
 // edge, never its border area, so a border here is guaranteed visible
 // around/above the photo in both variants).
-function incorrectCell(locked: boolean): CurrentRoundCell {
+// REQ-216 (2026-08-03) extension: `hasMatchedPhoto` optionally sets
+// incorrectGuessMatchedPlayerName/incorrectGuessMatchedPlayerPhotoUrl too
+// (only meaningful once `locked` is true — mirrors ADR-0057's own "only
+// populated when a cell locks with its final guess still incorrect" rule)
+// so this same helper can exercise both the plain locked-incorrect case and
+// the new full-bleed matched-photo variant, the same way photoCorrectCell
+// above covers both photo/no-photo for the correct-cell border.
+function incorrectCell(locked: boolean, hasMatchedPhoto = false): CurrentRoundCell {
   return {
     cellId: 'cell-incorrect',
     row: 0,
@@ -193,6 +200,8 @@ function incorrectCell(locked: boolean): CurrentRoundCell {
       resolvedPlayerName: null,
       uniquePercent: null,
       livePoints: null,
+      incorrectGuessMatchedPlayerName: hasMatchedPhoto ? 'Clarence Seedorf' : null,
+      incorrectGuessMatchedPlayerPhotoUrl: hasMatchedPhoto ? 'https://example.com/seedorf.jpg' : null,
     },
   };
 }
@@ -299,6 +308,105 @@ describe('Grid correct-cell persistent border (product feedback, 2026-08-03)', (
     expect(ruleIndex, 'expected to find a .grid-table__cell--correct rule in Grid.css').toBeGreaterThanOrEqual(0);
     const rule = extractBraceBlock(gridCss, ruleIndex + '.grid-table__cell--correct '.length);
     expect(rule).toContain('border-color: var(--color-accent-green)');
+    expect(rule).toContain('border-width: 2px');
+  });
+});
+
+// REQ-216 (2026-08-03): the mirror-image case of the correct-cell border
+// describe block above — a locked-incorrect cell now also gets a
+// persistent border (red, not green), for the same reason (a full-bleed
+// matched-player photo or placeholder avatar can now appear on an
+// incorrect cell too, exactly the scenario the correct-cell border was
+// already built to survive regardless of stacking order).
+describe('Grid incorrect-cell persistent border (REQ-216, 2026-08-03)', () => {
+  it('adds grid-table__cell--incorrect to a locked-incorrect cell with no matched photo (state 3/4\'s "no match at all" combination)', () => {
+    const { container } = render(
+      <Grid
+        cells={[incorrectCell(true)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toBeInTheDocument();
+    expect(td).toHaveClass('grid-table__cell--incorrect');
+  });
+
+  it('adds grid-table__cell--incorrect to a locked-incorrect cell with a matched photo too — the border must not depend on whether a photo is showing', () => {
+    const { container } = render(
+      <Grid
+        cells={[incorrectCell(true, true)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toBeInTheDocument();
+    expect(td).toHaveClass('grid-table__cell--incorrect');
+    // Sanity check this is genuinely the matched-photo variant, not
+    // accidentally the placeholder-avatar branch.
+    expect(container.querySelector('.cell-state__photo-img')).toBeInTheDocument();
+  });
+
+  it('adds grid-table__cell--incorrect to a round-closed cell whose guess was incorrect (state 4\'s incorrect branch)', () => {
+    const { container } = render(
+      <Grid
+        cells={[incorrectCell(true)]}
+        roundStatus="closed"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    const td = container.querySelector('.grid-table__cell');
+    expect(td).toHaveClass('grid-table__cell--incorrect');
+  });
+
+  it('never adds grid-table__cell--incorrect to an incorrect cell that still has an attempt remaining (state 2)', () => {
+    const { container } = render(
+      <Grid
+        cells={[incorrectCell(false)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+
+    expect(container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--incorrect');
+  });
+
+  it('never adds grid-table__cell--incorrect to a correct or unattempted cell', () => {
+    const correct = render(
+      <Grid
+        cells={[photoCorrectCell(false)]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    expect(correct.container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--incorrect');
+    correct.unmount();
+
+    const empty = render(
+      <Grid
+        cells={[unattemptedCell()]}
+        roundStatus="active"
+        submittedThisSessionCellIds={new Set()}
+        onCellClick={() => {}}
+      />,
+    );
+    expect(empty.container.querySelector('.grid-table__cell')).not.toHaveClass('grid-table__cell--incorrect');
+  });
+
+  it('gives .grid-table__cell--incorrect a --color-accent-red border, 2px, overriding the base hairline border-color/width — Grid.css', () => {
+    const ruleIndex = gridCss.indexOf('.grid-table__cell--incorrect {');
+    expect(ruleIndex, 'expected to find a .grid-table__cell--incorrect rule in Grid.css').toBeGreaterThanOrEqual(0);
+    const rule = extractBraceBlock(gridCss, ruleIndex + '.grid-table__cell--incorrect '.length);
+    expect(rule).toContain('border-color: var(--color-accent-red)');
     expect(rule).toContain('border-width: 2px');
   });
 });

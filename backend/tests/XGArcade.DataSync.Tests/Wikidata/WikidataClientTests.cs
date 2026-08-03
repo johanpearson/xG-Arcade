@@ -1818,6 +1818,153 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryPlayerPhotosByQidsAsync(["Q1519", "Arsenal"]));
     }
 
+    // ---- QueryPlayerPhotoByNameAsync (REQ-216/ADR-0057, wrong-guess photo
+    // lookup) --------------------------------------------------------------
+    // A single, name-based (not QID-based) lookup — the one case
+    // QueryPlayerPhotosByQidsAsync above can't serve, since a wrong-but-real
+    // guess has no existing Player row (and so no WikidataQid) to look up
+    // by. Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync,
+    // but unlike every other query in this file, this one both filters by a
+    // free-text string and caps its result set (LIMIT 1) — see
+    // IWikidataClient's own doc comment for why.
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_SentQuery_MatchesFootballerByCaseInsensitiveLabelOrAlias_AndLimitsToOne()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPhotoByNameAsync("Clarence Seedorf");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
+        Assert.That(sentQuery, Does.Contain("rdfs:label ?matchedLabel"));
+        Assert.That(sentQuery, Does.Contain("skos:altLabel ?matchedLabel"));
+        Assert.That(sentQuery, Does.Contain("LCASE(STR(?matchedLabel)) = LCASE(\"Clarence Seedorf\")"));
+        Assert.That(sentQuery, Does.Contain("LIMIT 1"));
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_SentQuery_FetchesP18ImageAsOptional()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPhotoByNameAsync("Clarence Seedorf");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("OPTIONAL { ?player wdt:P18 ?photo. }"));
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_NoMatchingRows_ReturnsNullWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(
+            FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""")));
+
+        var result = await client.QueryPlayerPhotoByNameAsync("Nobody Real");
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_ReturnsCanonicalNameAndPhoto_WhenBothPresent()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Clarence%20Seedorf.jpg" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPhotoByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.FullName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.EqualTo("http://commons.wikimedia.org/wiki/Special:FilePath/Clarence%20Seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_ReturnsNameWithNullPhoto_WhenP18Absent()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPhotoByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.FullName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.Null, "a resolved name with no P18 statement is a normal, error-free outcome (ADR-0057)");
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_BlankName_ReturnsNullWithoutSendingARequest()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryPlayerPhotoByNameAsync("   ");
+
+        Assert.That(result, Is.Null);
+        Assert.That(handler.LastRequest, Is.Null);
+    }
+
+    [Test]
+    public void REQ216_QueryPlayerPhotoByNameAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+    }
+
+    [Test]
+    public void REQ216_QueryPlayerPhotoByNameAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+    }
+
+    [Test]
+    public void REQ216_QueryPlayerPhotoByNameAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+    }
+
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_NameContainingQuote_EscapesItInTheSentQuery()
+    {
+        // This file's first query to interpolate free, player-supplied text
+        // — a guessed name containing a double quote must not be able to
+        // break out of the SPARQL string literal.
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPhotoByNameAsync("O\"Malley");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("LCASE(\"O\\\"Malley\")"));
+    }
+
     // ---- QueryPlayerCareerStintsByQidsAsync (ADR-0054, xG Path's own
     // direct career fetch) -----------------------------------------------
     // Batched, direct-by-QID lookup — a VALUES clause, not an intersection

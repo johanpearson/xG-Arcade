@@ -1278,6 +1278,121 @@ public class WikidataClient(
         return sitelinkCountsByQid;
     }
 
+    // REQ-216/ADR-0057: see IWikidataClient's own doc comment for the full
+    // "why this exists, why LIMIT 1, why it throws" reasoning.
+    //
+    // Timeout budget: deliberately reuses _queryTimeout (15s), the same
+    // budget REQ-103/grid-generation's Sync-origin lookups use — NOT
+    // _guessTimeFallbackQueryTimeout's 28s. That longer budget exists
+    // specifically because ADR-0046's REQ-211 caller has no fallback (a slow
+    // timeout there means the player's genuinely-correct guess gets scored
+    // wrong), so it's worth making them wait longer for an honest answer.
+    // This trigger has the opposite shape: on any failure it silently shows
+    // nothing (ADR-0057), so there's no equivalent "worth waiting longer"
+    // argument, and this query's shape (a single label/alias match, no P54
+    // full-statement-path join) is far cheaper than the club-membership
+    // queries that motivated the 28s budget in the first place. Reusing the
+    // existing 15s constant also avoids adding a fourth constructor
+    // parameter/timeout field to this class for a single new call site.
+    public async Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
+        string playerName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+            return null;
+
+        var query = BuildPlayerPhotoByNameQuery(playerName);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParsePlayerPhotoByNameBinding(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata wrong-guess photo-by-name query for '{playerName}' timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata wrong-guess photo-by-name query for '{playerName}' failed: {ex.Message}", ex);
+        }
+    }
+
+    // Case-insensitive label-OR-alias match, deliberately LIMIT 1 — see
+    // IWikidataClient.QueryPlayerPhotoByNameAsync's own doc comment for why
+    // this is the one query in this file that both filters by a free-text
+    // string and caps its result set. rdfs:label is Wikidata's primary
+    // label triple (distinct from the SERVICE wikibase:label block below,
+    // which resolves ?playerLabel for the SELECTed player once a match is
+    // already found via either branch of the UNION) — skos:altLabel is the
+    // same alias predicate BuildIntersectionQuery already uses elsewhere in
+    // this file.
+    private static string BuildPlayerPhotoByNameQuery(string playerName)
+    {
+        var escapedName = EscapeSparqlStringLiteral(playerName);
+        return $$"""
+            SELECT ?player ?playerLabel ?photo WHERE {
+              ?player wdt:P106 wd:Q937857.
+              {
+                ?player rdfs:label ?matchedLabel.
+                FILTER(LANG(?matchedLabel) = "en")
+              }
+              UNION
+              {
+                ?player skos:altLabel ?matchedLabel.
+                FILTER(LANG(?matchedLabel) = "en")
+              }
+              FILTER(LCASE(STR(?matchedLabel)) = LCASE("{{escapedName}}"))
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            LIMIT 1
+            """;
+    }
+
+    // This file's first query to interpolate free, player-supplied text
+    // (every other query only ever interpolates a QID this codebase itself
+    // resolved, or a fixed constant) — escapes the two characters that would
+    // otherwise break out of the SPARQL string literal (backslash, double
+    // quote) and strips newlines (a submitted guess should never contain
+    // one, but a SPARQL string literal can't safely span lines either way).
+    private static string EscapeSparqlStringLiteral(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", " ").Replace("\r", " ");
+
+    // Single-row result (LIMIT 1) — takes the first (only) binding, same
+    // "absent means none, never an error" contract as ParsePhotoBindings.
+    // A binding with no playerLabel is defensively treated as no match at
+    // all (never seen in practice, since SERVICE wikibase:label always
+    // resolves a label for any real player item, but this avoids ever
+    // returning a WikidataPlayerPhotoLookupResult with an empty FullName).
+    private static WikidataPlayerPhotoLookupResult? ParsePlayerPhotoByNameBinding(SparqlResponse? response)
+    {
+        var binding = response?.Results?.Bindings?.FirstOrDefault();
+        if (binding is null)
+            return null;
+        if (!binding.TryGetValue("playerLabel", out var labelValue) || string.IsNullOrWhiteSpace(labelValue.Value))
+            return null;
+
+        var photoUrl = binding.TryGetValue("photo", out var photoValue) && !string.IsNullOrWhiteSpace(photoValue.Value)
+            ? photoValue.Value
+            : null;
+
+        return new WikidataPlayerPhotoLookupResult(labelValue.Value, photoUrl);
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)

@@ -4577,3 +4577,47 @@ pool is a different, smaller cycle than one over the full structurally-
 eligible pool — needs an explicit decision, not an assumption). *Deps:*
 none blocking on other stories, but should not be built without the
 requirements pass above landing first.
+
+**S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
+(REQ-216) — implemented 2026-08-03 (backend and frontend, same day)**
+Direct product-owner sign-off this session, reversing a deliberate prior
+decision (`CellState.tsx`'s states-2/3 comment) narrowly for the
+locked-incorrect case only (state 3, and state 4's incorrect branch) —
+state 2 (attempts remaining) is explicitly unaffected. REQ-216 records the
+confirmed product scope and UI template (red border + REQ-214-style
+photo/name display, graceful fallback to today's behavior when the guess
+matched no real `PlayerNameIndex` candidate). The open architecture
+question — how a wrong-but-real guessed player's photo is resolved, given
+`PlayerNameIndex` carries no photo of its own (ADR-0007) — is now
+**resolved**: `architecture-reviewer` + **ADR-0057** decided this is its
+own distinct, lower-priority live-lookup trigger, separate from REQ-211 —
+Wikidata-only (no API-Football fallback, unlike REQ-211/ADR-0011), fires
+once at cell-lock time, fails silently to no-photo (never fail-closed-as-
+incorrect) on timeout/no-match. **Amendment, same day:** the two no-photo
+branches no longer fall back to "nothing" — direct product-owner sign-off
+now calls for a new placeholder/dummy avatar graphic in both the
+real-match-no-photo case (with name) and the no-match-at-all case (no
+name); see REQ-216's 2026-08-03 status note for the full asymmetry-with-
+REQ-214 discussion. This introduces a new visual element with no token in
+`design-document.md` §2 yet — `ui-implementer` must add one before
+building the frontend half. **Backend implemented 2026-08-03** by
+`backend-implementer` — see REQ-216's own status note for the full shape
+(`IGameModule.ResolveWrongGuessPlayerAsync`,
+`WikidataClient.QueryPlayerPhotoByNameAsync`,
+`IPlayerNameIndexRepository.FindByNormalizedNameAsync`, the two new
+`Guess` columns, and the new response fields on both
+`POST .../guesses` and `GET /rounds/current`). Note the placeholder-avatar
+amendment above is a pure frontend/rendering decision — the backend only
+ever exposes the same two nullable name/photo fields regardless of
+whether the frontend renders "nothing" or a placeholder graphic for a
+null photo, so this amendment required no backend change. **Frontend
+implemented 2026-08-03** by `ui-implementer`: `design-document.md` §2's
+"Placeholder avatar" token/component entry added first (per the flagged
+blocker above), then `CellState.tsx`'s locked-incorrect branch (red border
+via `Grid.tsx`/`Grid.css`'s new `.grid-table__cell--incorrect`, real photo
+via the existing `CellPhoto` component reused as-is, the placeholder via a
+new `CellPlaceholderAvatar`), `GridCell.tsx`'s prop passthrough, and
+`lib/types.ts`'s two new `incorrectGuessMatchedPlayerName`/
+`incorrectGuessMatchedPlayerPhotoUrl` fields. *Deps:* ADR-0057 (resolved
+this session); REQ-211/ADR-0011 (existing, `WikidataClient` reused,
+budget/fallback tier NOT shared); REQ-214 (existing, UI template).
