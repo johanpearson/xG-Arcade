@@ -59,6 +59,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   frontend rendering decision against the same two nullable fields.
   Frontend (`CellState.tsx`) is still queued. REQ-216/ADR-0057/S-094.
 
+- 2026-08-03 — `docs/architecture-document.md` (v0.76 → v0.77),
+  `docs/decisions/0057-wrong-guess-photo-lookup-scope.md` — `doc-sync`
+  closed two non-blocking architecture-review gaps from REQ-216's
+  pre-merge gate. Architecture doc: added a COMP-04/COMP-05 status note
+  (the §10 ADR-log entry alone wasn't the "component responsibility/data
+  flow changed" update CLAUDE.md step 3 calls for) covering the new
+  `IGameModule.ResolveWrongGuessPlayerAsync` method, `GridGameModule`'s
+  cache-first-then-Wikidata-only implementation, the two new nullable
+  `Guess` columns, and `XGPathGameModule`'s unconditional-null
+  implementation. ADR-0057: added a Consequences addendum naming that this
+  trigger has no WDQS-level rate-limiting of its own — same uncapped
+  exposure as REQ-211's existing guess-time fallback
+  (`GridGameModule.RefreshCellFromLiveLookupAsync`) today, not a new gap,
+  but worth stating explicitly given REQ-216's plausibly higher firing
+  volume. No code, tests, requirements, backlog, or design doc changes.
+  REQ-216/ADR-0057/S-094.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.37 → v1.39, new REQ-216),
   `docs/backlog.md` (new S-094), `docs/decisions/0057-wrong-guess-photo-lookup-scope.md`
   (new), `docs/architecture-document.md` (§10 table) — GitHub feature

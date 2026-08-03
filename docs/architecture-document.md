@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.76"
+version: "0.77"
 status: draft
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -480,6 +480,41 @@ row SCREEN-03 describes, sitting above the existing scope-tab row, reusing
 rather than duplicating them. See `docs/backlog.md` S-087's "Built as" for
 the full implementation and `docs/requirements-document.md` REQ-410's
 matching 2026-08-02 status note.
+
+**COMP-04/COMP-05 status (2026-08-03, S-094, REQ-216/ADR-0057):** `IGameModule`
+gained a fifth method, `Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync
+(Guid instanceId, string submittedName, CancellationToken)`
+(`XGArcade.Core.Games`), resolved through `IGameModuleResolver` the same way
+`GetCellCategoryTypesAsync`/`GetMaxAttemptsForCellAsync` already are.
+`GuessSubmissionService` (COMP-04) calls it exactly once per cell, only after
+it has already determined the cell just locked with its final guess still
+incorrect — a new, distinct live-lookup trigger from REQ-211's existing
+correctness-fallback one, deliberately Wikidata-only with no API-Football
+fallback and no `ExternalApiUsage` threshold gate, since this resolves a
+cosmetic display value (the guessed player's canonical name/photo for the
+locked, red-bordered cell), not a correctness verdict — see ADR-0057 for the
+full reasoning. `GridGameModule`'s implementation (COMP-05) is cache-first:
+it first requires `IPlayerNameIndexRepository.FindByNormalizedNameAsync`
+(COMP-10, ADR-0007) to confirm the submitted string names a real player at
+all — returning `null` (REQ-216's "no identity to show" case) if it doesn't,
+so this trigger never fires for a guess matching no real player — then
+prefers any `Player`/`PlayerAttribute` data already cached from resolving some
+other cell's answer key (`IPlayerStoreRepository`, by normalized full name
+then alias, same order `FindMatchAsync` already uses), and only falls back to
+a live `WikidataClient.QueryPlayerPhotoByNameAsync` call when nothing is
+cached, swallowing any failure (timeout/HTTP/parse error) to show the name
+index's own name with no photo rather than failing closed — there is no
+correctness outcome left to compute for a guess already known to be wrong.
+Two new nullable columns, `Guess.MatchedPlayerName`/`Guess.MatchedPlayerPhotoUrl`,
+persist this result in the same write as the locking guess, never batched.
+`XGPathGameModule` (COMP-11) implements the method by returning `null`
+unconditionally — not because xG Path lacks the concept (a wrong-but-real
+guess against a `PathPuzzle` is just as real a case as against a `GridCell`),
+but because `docs/backlog.md` S-094 scoped this feature to xG Grid only;
+`GuessSubmissionService`'s existing null-means-no-identity handling already
+makes this a no-op for xG Path, leaving its incorrect-guess display
+unaffected. See `docs/requirements-document.md` REQ-216 and ADR-0057 for the
+full requirement/decision.
 
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index

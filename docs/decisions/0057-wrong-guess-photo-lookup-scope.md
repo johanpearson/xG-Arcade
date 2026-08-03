@@ -79,6 +79,18 @@ separate from REQ-211's:
   Wikidata timeouts (not genuine data absence), revisit whether a fallback
   is worth adding — but only as a deliberate, budget-aware decision, not
   by quietly reusing REQ-211's fallback tier
+- Addendum (2026-08-03): this decision only scopes REQ-216's lookup out of
+  the shared `ExternalApiUsage`/API-Football budget — it does not add any
+  rate-limiting of its own against WDQS (Wikidata's public query service)
+  itself. That is not a new gap this ADR introduces: REQ-211's own existing
+  guess-time correctness fallback (`GridGameModule.RefreshCellFromLiveLookupAsync`)
+  is equally uncapped against WDQS today, so this trigger is at least no
+  worse than existing precedent. It is worth naming explicitly, though,
+  since REQ-216's trigger plausibly fires at meaningfully higher volume —
+  once per distinct incorrect final guesser per cell — than REQ-211's own
+  narrower missing-`PlayerAttribute`-data trigger. If WDQS-level
+  rate-limiting is ever added, it should cover both callers together, not
+  be bolted onto this one alone.
 
 ## For AI agents
 
