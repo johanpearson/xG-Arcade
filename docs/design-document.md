@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.62"
+version: "0.63"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -351,6 +351,67 @@ reason above, since that's independent of whether a ball accent exists);
 `LogoMark`/`favicon.svg` are back to the plain white-on-green monogram
 with no corner glyph.
 
+**Placeholder avatar (REQ-216, 2026-08-03 amendment).** A new, generic
+graphic — flagged as a gap by `requirements-document.md`'s REQ-216 (the
+"2026-08-03 status note" amending its original no-photo-fallback wording)
+and added here, per CLAUDE.md's "Frontend visual consistency" rule, before
+`ui-implementer` wrote any code against it. Shown on a locked, incorrect
+cell (SCREEN-01a states 3/4's incorrect branch) in place of a real photo
+whenever one isn't available — either the guess matched no
+`PlayerNameIndex` candidate at all, or it matched a real player but
+ADR-0057's Wikidata-only lookup didn't resolve a photo (timeout, error, or
+genuinely no image). Never shown on a *correct* cell — REQ-214's own
+no-photo fallback there stays genuinely nothing, an intentional asymmetry
+recorded (not re-litigated) in REQ-216's own status note.
+
+- **Shape:** a flat, single-tone generic person silhouette (a circle for
+  the head, a simple rounded shoulder shape beneath it) — no gradient,
+  texture, or literal likeness, consistent with §1's flat/quiet direction
+  and the same "no textured illustration" restraint the brand mark's ball
+  glyph note above already applies. It is deliberately generic/anonymous:
+  this graphic never implies a specific player, real or fictional — it
+  means "no confirmed image," nothing more.
+- **Color tokens — both reused, no new color added:** the silhouette
+  itself uses `text-muted` (the same "quiet, secondary content" role that
+  token already carries everywhere else in this table — a placeholder
+  glyph is exactly that, not a status signal); its containing slot's
+  background uses `surface-sunken` (the same "recessed/inactive" role that
+  token already documents for empty/inactive cells and input backgrounds —
+  a placeholder avatar's backdrop is conceptually the same "nothing here
+  yet" recess). Deliberately **not** `accent-red`: the locked-incorrect
+  cell's persistent red border (below) already carries the "this is
+  wrong" signal on its own — painting the avatar itself red as well would
+  make the avatar read as a second, redundant incorrect-cue rather than
+  the neutral "no image" cue it's meant to be, and would need its own
+  fresh contrast derivation the way `accent-green-scrim` needed one for
+  its own narrow exception, which nothing about this graphic warrants.
+- **Footprint:** fills the cell's whole box using the exact same full-bleed
+  mechanism REQ-214's photo already established — absolutely positioned
+  against `.grid-table__cell` (the `<td>`), `inset: 0`, so it can never
+  grow or shrink the cell regardless of viewport, matching every other
+  state's fixed-footprint guarantee. See `CellState.css`'s
+  `.cell-state--incorrect-photo` rule (shared with `.cell-state--photo`
+  where the properties are identical) for the implementation.
+- **Accessibility:** decorative only, same pairing rule §6 already applies
+  to every other glyph in this file (flag/badge glyphs, the correct/
+  incorrect check/cross icons) — the graphic itself carries no accessible
+  name of its own; the cell's own accessible text (its aria-label, or the
+  guessed player's name when one is shown alongside it) is what a screen
+  reader actually announces.
+- **Persistent incorrect-cell border, extended (2026-08-03):** the
+  correct-cell-only persistent border this section documents further below
+  (SCREEN-01a's "Persistent correct-cell border" note) is joined by a
+  matching persistent `accent-red` border on a locked-incorrect cell
+  (states 3/4's incorrect branch) — REQ-216's own acceptance criteria
+  requires a red border on all three of its combinations, including the
+  "no match at all" case that previously had no border at all. Same
+  mechanism, same element (`.grid-table__cell`, not `.grid-cell` or
+  anything inside `CellState.tsx`), same reasoning (a full-bleed photo/
+  placeholder layer can now appear on an incorrect cell too, exactly the
+  scenario the correct-cell border was already built to survive
+  regardless of stacking order) — see SCREEN-01a's own status note for the
+  full detail and Grid.css's `.grid-table__cell--incorrect` rule.
+
 ## 3. Key screens
 
 ### SCREEN-01: Grid (home)
@@ -593,19 +654,78 @@ actionable information, not a redundant status label.
 by default), not 0 — xG Arcade is scored like golf, so 0 is the *best*
 possible score and must never be free just for guessing wrong.
 
+**REQ-216 status note (2026-08-03, direct product-owner sign-off — narrowly
+supersedes the S-029 "no name shown" rule above, but only for states 3/4's
+incorrect branch, never state 2):** a cell that locks with its final guess
+still incorrect now shows some feedback about who was actually guessed,
+instead of a bare ✕. Three combinations, all sharing the same full-bleed
+"photo slot" mechanism REQ-214's own photo cell already established
+(`CellState.css`'s `.cell-state--incorrect-photo`, reusing the identical
+positioning rule `.cell-state--photo` uses) — a red border (§2's persistent-
+border note, extended) is common to all three:
+
+```
+(1) Guess matched a real player, photo resolved (ADR-0057)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ matched player's ▒│   ← red border around the whole cell
+│▒▒▒▒▒▒ photo, fills cell]▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Seedorf                  │   ← canonical name, always shown here
+│▓ 100 pts                  │
+└─────────────────────────┘
+
+(2) Guess matched a real player, no photo resolved (timeout/error/no image)
+┌─────────────────────────┐
+│▒▒▒▒[ placeholder avatar ▒│   ← red border; §2's new "Placeholder avatar"
+│▒▒▒▒  — muted silhouette]▒│     graphic in place of the photo
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Seedorf                  │   ← name still shown — only the photo failed
+│▓ 100 pts                  │
+└─────────────────────────┘
+
+(3) Guess matched no PlayerNameIndex candidate at all (typo/gibberish)
+┌─────────────────────────┐
+│▒▒▒▒[ placeholder avatar ▒│   ← red border; same graphic as (2)
+│▒▒▒▒  — muted silhouette]▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ 100 pts                  │   ← no name — nothing resolved to a real
+└─────────────────────────┘        player, so none is shown
+```
+
+Never shown for state 2 (an attempt remains) — that state is completely
+unaffected by this note, still exactly the plain "✕ + N attempt(s) left"
+mock above, no image, no name, no border. No checkmark/cross icon is
+rendered in any of the three combinations above either — mirroring REQ-214/
+S-048's own established "the photo overlay shows only name + points, never
+a status glyph" pattern; the red border is what signals "incorrect" here
+instead, the same way the green border now signals "correct" for a photo
+cell that has none of its own status glyph either. **Asymmetry, recorded
+plainly rather than resolved (see `requirements-document.md`'s REQ-216
+status note for the full reasoning):** this is a direct, deliberate
+inconsistency with REQ-214's own no-photo fallback for a *correct* cell
+(shows nothing at all) — this REQ's own no-photo fallback is the
+placeholder avatar, never nothing.
+
 **4. Round closed** (either prior state, now permanent):
 
 ```
-Prior outcome: correct (at rest)      Prior outcome: incorrect
-┌─────────────────────────┐           ┌─────────────────────────┐
-│                     ✓     │           │                     ✕    │
-│  88 pts                   │           │  100 pts                 │
-└─────────────────────────┘           └─────────────────────────┘
-   ↑ gold checkmark — identical           ← no name here either,
-     structure to state 1 at rest           same S-029 rule as states
-                                             2/3; points value is the
-                                             same MaxPointsPerCell state
-                                             3 shows, per today's fix
+Prior outcome: correct (at rest)      Prior outcome: incorrect (typo/no match
+┌─────────────────────────┐           — see REQ-216's combination (3) above
+│                     ✓     │           for the matched/real-player variants)
+│  88 pts                   │           ┌─────────────────────────┐
+└─────────────────────────┘           │▒▒▒▒[ placeholder avatar ▒│
+   ↑ gold checkmark — identical        │▒▒▒▒  — muted silhouette]▒│
+     structure to state 1 at rest      │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+                                        │▓ 100 pts                  │
+                                        └─────────────────────────┘
+                                           ↑ red border, no name — same
+                                             REQ-216 combination (3) mock
+                                             above; state 4's incorrect
+                                             branch renders identically to
+                                             state 3, same MaxPointsPerCell
+                                             value regardless of when the
+                                             cell locked (unchanged from
+                                             before REQ-216)
 
 Prior outcome: correct, no photo (revealed — click/tap the cell)
 ┌─────────────────────────┐
@@ -944,8 +1064,23 @@ as far as this element's own padding edge (see this section's own S-050
 status note), never into its border area, so a border declared on the
 `<td>` is spatially guaranteed to render around/above the photo in both
 variants, without depending on paint-order/stacking-context specifics the
-way a border on `.grid-cell` would. Never applied to an incorrect (states
-2/3) or unattempted cell.
+way a border on `.grid-cell` would.
+
+**Extended to a locked-incorrect cell too (REQ-216, 2026-08-03):** the same
+`.grid-table__cell`-not-`.grid-cell` reasoning above now also applies to a
+locked-incorrect cell (states 3/4's incorrect branch) — see this state's
+own REQ-216 status note above for the three combinations this covers.
+`.grid-table__cell--incorrect` (Grid.tsx/Grid.css) gives that element a
+`--color-accent-red` border, same 2px weight, same non-text 3:1 floor
+reasoning (`accent-red` already measures ~4.9:1 against `surface-card`/
+white, clearing it with real margin) — added specifically because REQ-216
+can now put a full-bleed photo or placeholder-avatar layer on an incorrect
+cell too, the exact scenario this element (rather than `.grid-cell` or
+`CellState.tsx`) was already chosen to survive regardless of stacking
+order. Before REQ-216, an incorrect cell (locked or not) had no border at
+all — this is a genuinely new cue for the locked case specifically, not
+carried over from anywhere. Still never applied to state 2 (an attempt
+remains) or an unattempted cell — only once locked-incorrect.
 
 ### SCREEN-02: Guess input
 

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.41"
+version: "1.42"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -2339,7 +2339,7 @@ copy; a non-guest sees it enabled and can complete the form)
 > instead of a bare X — even though I never find out who the *correct*
 > answer was.
 
-**Status: Backend implemented (2026-08-03), frontend not yet built.**
+**Status: Implemented (backend 2026-08-03, frontend 2026-08-03).**
 `GuessSubmissionService.SubmitGuessAsync` (`XGArcade.Core.Scoring`) now
 resolves `IGameModule.ResolveWrongGuessPlayerAsync` exactly once — only on
 the submission that locks a cell with its final guess still incorrect,
@@ -2363,10 +2363,19 @@ is what makes state 4 (round closed, page reload) work. xG Path's
 per `docs/backlog.md` S-094). The same-day placeholder-avatar amendment
 below (whether a null photo renders as nothing or a placeholder graphic)
 is a pure frontend rendering decision against these same two nullable
-fields — it required no backend change and none was made. **Not yet
-done:** `CellState.tsx`'s frontend red-border/real-photo/placeholder-
-avatar/name display (S-094's remaining half, blocked on a
-`design-document.md` §2 token per the amendment's own flagged note).
+fields — it required no backend change and none was made. **Frontend
+half (S-094's remaining half), done same day:** `design-document.md` §2's
+"Placeholder avatar" entry was added first, per the amendment's own
+flagged note, then `frontend/src/grid/CellState.tsx`'s locked-incorrect
+branch (`incorrectMatchedPlayerName`/`incorrectMatchedPlayerPhotoUrl`
+props, reusing the existing `CellPhoto` component for the real-photo case
+and a new `CellPlaceholderAvatar` for the other two) plus
+`frontend/src/grid/Grid.tsx`/`Grid.css`'s `.grid-table__cell--incorrect`
+persistent red border, mirroring the correct-cell border's own
+`.grid-table__cell`-not-`.grid-cell` placement for the same photo-bleed/
+stacking-order reason. `frontend/src/lib/types.ts`'s
+`CurrentRoundGuess`/`SubmitGuessResponse` carry the two new camelCase
+fields confirmed against the backend records above.
 
 - **Status note (2026-08-03, direct product-owner sign-off this session —
   supersedes, narrowly, `frontend/src/grid/CellState.tsx`'s states-2/3
@@ -2516,11 +2525,13 @@ avatar/name display (S-094's remaining half, blocked on a
   name)
 - Then the cell renders with a red border and the same dummy/placeholder
   avatar graphic, but no name — nothing resolved to a real player, so none
-  is shown — alongside the incorrect marker and points value (2026-08-03
-  product-owner decision, see status note above); this supersedes this
-  REQ's own original wording that this branch was "today's existing
-  behavior, unchanged" — it is no longer unchanged from pre-REQ-216
-  behavior, though state 2 (attempt remaining) still is
+  is shown — no checkmark/cross icon renders in this branch either,
+  consistent with the other two locked-incorrect combinations above (the
+  red border is what signals "incorrect" instead), and the points value is
+  still shown (2026-08-03 product-owner decision, see status note above);
+  this supersedes this REQ's own original wording that this branch was
+  "today's existing behavior, unchanged" — it is no longer unchanged from
+  pre-REQ-216 behavior, though state 2 (attempt remaining) still is
 - And in every case above, the cell's rendered width and height are
   identical regardless of branch — red border alone, red border with a
   placeholder avatar (with or without a name), red border with a real

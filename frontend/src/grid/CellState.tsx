@@ -24,6 +24,28 @@ export interface CellStateProps {
   // no-photo at-rest display, no broken-image icon, no error state. Only
   // ever meaningful for a correct guess, same as playerName.
   photoUrl?: string | null;
+  // REQ-216/ADR-0057: the guessed player's canonical name for a cell that
+  // locked with its final guess still INCORRECT (states 3/4's incorrect
+  // outcome only) — the mirror-image case of playerName above, which is
+  // correct-guess-only. Absent/null whenever the guess string matched no
+  // real PlayerNameIndex candidate at all (a typo, gibberish, a fictional
+  // name) — same "never a substitute for the raw as-typed guess, never a
+  // fabricated identity" rule playerName's own doc comment states. Ignored
+  // entirely for state 2 (an attempt remains) — S-029's "no name at all"
+  // rule is untouched there; only the locked/final case is reversed.
+  incorrectMatchedPlayerName?: string | null;
+  // REQ-216/ADR-0057: a nullable Wikidata photo URL for the same
+  // incorrect-but-real matched player above — independently nullable even
+  // when incorrectMatchedPlayerName is set (ADR-0057's Wikidata-only lookup
+  // can time out, error, or genuinely have no photo — its own silent,
+  // graceful fallback, never a fail-closed outcome). Unlike photoUrl's own
+  // REQ-214 fallback (nothing shown at all when absent), this REQ's own
+  // no-photo fallback renders CellPlaceholderAvatar below instead — a
+  // deliberate, confirmed asymmetry (2026-08-03 product-owner amendment),
+  // not something this component should "fix" to match REQ-214's shape. See
+  // design-document.md §2's "Placeholder avatar" entry and
+  // requirements-document.md's REQ-216 asymmetry status note.
+  incorrectMatchedPlayerPhotoUrl?: string | null;
   isCorrect: boolean;
   attemptCount: number;
   locked: boolean;
@@ -164,6 +186,8 @@ function useShakeToken(attemptCount: number, isCorrect: boolean, submittedThisSe
 export function CellState({
   playerName,
   photoUrl,
+  incorrectMatchedPlayerName,
+  incorrectMatchedPlayerPhotoUrl,
   isCorrect,
   attemptCount,
   locked,
@@ -190,6 +214,12 @@ export function CellState({
   // the photo is now rendered whether or not the cell is revealed, so its
   // failure state needs to survive independently of the reveal toggle.
   const [photoFailed, setPhotoFailed] = useState(false);
+  // REQ-216: an independent load-failure flag for the incorrect-locked
+  // branch's own matched-player photo — kept separate from photoFailed
+  // above (never both meaningful at once, since isCorrect gates which
+  // branch renders at all, but each branch needs its own state so a
+  // failure in one can never be confused with the other).
+  const [incorrectMatchedPhotoFailed, setIncorrectMatchedPhotoFailed] = useState(false);
   const badges =
     rowCategoryType != null && rowCategoryValue != null && colCategoryType != null && colCategoryValue != null
       ? {
@@ -285,19 +315,56 @@ export function CellState({
   // State 3 (round active, no attempts left) / state 4's incorrect outcome
   // (round closed): both locked, both guaranteed to score MaxPointsPerCell
   // (ADR-0021's golf-scoring worst case, never 0 — 0 is reserved for the
-  // best possible correct guess). Same minimal "✕ + points" structure the
-  // correct branch above uses, no "no attempts left"/"final" qualifier —
-  // simplified same-day from an earlier version that kept the qualifier,
-  // per direct feedback that the points value alone already says "this
-  // cell is done," same as a correct cell needs no "correct" label
-  // alongside its own points. roundStatus no longer affects this branch's
+  // best possible correct guess). roundStatus doesn't affect this branch's
   // output at all: the incorrect-lock value is the same known constant
-  // regardless of *when* the cell locked, so there's nothing left here
-  // that depends on whether the round itself is still active or closed.
+  // regardless of *when* the cell locked, so there's nothing here that
+  // depends on whether the round itself is still active or closed.
+  //
+  // REQ-216 (2026-08-03, ADR-0057, direct product-owner sign-off) — this
+  // branch used to render no name and no image at all (S-029's "wrong
+  // guess isn't useful information" rule above); that's now reversed for
+  // this locked/final case ONLY, never state 2 above. Three combinations,
+  // all sharing the exact full-bleed "photo slot" mechanism REQ-214's photo
+  // cell already established (CellState.css's `.cell-state--incorrect-photo`
+  // rule is declared alongside, and shares its footprint-fixing properties
+  // with, `.cell-state--photo`):
+  //   1. incorrectMatchedPlayerPhotoUrl resolved (and hasn't failed to load
+  //      this session) -> the real matched player's photo (CellPhoto,
+  //      reused as-is) + their canonical name.
+  //   2. incorrectMatchedPlayerName resolved but no photo (ADR-0057 timeout/
+  //      error/no image, or a same-session load failure) ->
+  //      CellPlaceholderAvatar + the name.
+  //   3. Neither resolved (the guess matched no PlayerNameIndex candidate at
+  //      all — a typo/gibberish/fictional name) -> CellPlaceholderAvatar,
+  //      no name.
+  // No checkmark/cross icon in any of the three — mirrors REQ-214/S-048's
+  // own established "the photo overlay shows only name + points, never a
+  // status glyph" pattern. The red border that visually distinguishes this
+  // from a correct photo cell is applied one level up, on `.grid-table__cell`
+  // (Grid.tsx/Grid.css's `.grid-table__cell--incorrect`), not here — see
+  // that file's own comment for why the border lives there instead of on
+  // this element (the same reason the correct-cell border does).
+  const hasMatchedPhoto = Boolean(incorrectMatchedPlayerPhotoUrl) && !incorrectMatchedPhotoFailed;
+
   return (
-    <div key={shakeToken} className={`cell-state cell-state--incorrect ${shakeClassName}`}>
-      <Row correct={false} />
-      <p className="cell-state__meta mono-figure">{MAX_POINTS_PER_CELL} pts</p>
+    <div
+      key={shakeToken}
+      className={`cell-state cell-state--incorrect cell-state--incorrect-photo ${shakeClassName}`}
+    >
+      {hasMatchedPhoto ? (
+        <CellPhoto
+          src={incorrectMatchedPlayerPhotoUrl as string}
+          onError={() => setIncorrectMatchedPhotoFailed(true)}
+        />
+      ) : (
+        <CellPlaceholderAvatar />
+      )}
+      <div className="cell-state__overlay">
+        {incorrectMatchedPlayerName && (
+          <span className="cell-state__name">{incorrectMatchedPlayerName}</span>
+        )}
+        <p className="cell-state__meta mono-figure">{MAX_POINTS_PER_CELL} pts</p>
+      </div>
     </div>
   );
 }
@@ -376,4 +443,36 @@ function Row({
 // carries this cell's accessible name, not any text inside CellState.
 function CellPhoto({ src, onError }: { src: string; onError: () => void }) {
   return <img className="cell-state__photo-img" src={src} alt="" aria-hidden="true" onError={onError} />;
+}
+
+// REQ-216 (2026-08-03 placeholder-avatar amendment) — design-document.md
+// §2's new "Placeholder avatar" entry. Shown in the same full-bleed "photo
+// slot" a real matched-player photo would otherwise occupy, on a locked,
+// incorrect cell, whenever no real photo is available: either the guess
+// matched a real PlayerNameIndex candidate but ADR-0057's Wikidata-only
+// lookup didn't resolve a photo (timeout, error, no image, or a
+// same-session load failure), or the guess matched no candidate at all. A
+// flat, generic person-silhouette glyph — never a real player likeness, and
+// carries no identity of its own regardless of which of those two cases
+// triggered it (the accompanying name, when present, is rendered
+// separately by the caller). Never used on a correct cell — REQ-214's own
+// no-photo fallback there stays genuinely nothing; this graphic is scoped
+// to REQ-216's own, deliberately different, no-photo treatment (see this
+// file's incorrect-locked branch above and requirements-document.md's
+// REQ-216 asymmetry status note). Decorative only: this is an inline SVG,
+// not an <img>, so there's no `alt` attribute to set — `aria-hidden` on the
+// wrapping element is this file's existing pattern for a purely decorative
+// glyph carrying no accessible content of its own (see the badge-dock spans
+// above), the SVG-appropriate equivalent of CellPhoto's `alt=""` pairing.
+// The cell's own accessible name/text (GridCell.tsx's aria-label, or the
+// name rendered alongside this graphic) is unaffected either way.
+function CellPlaceholderAvatar() {
+  return (
+    <div className="cell-state__placeholder-avatar-slot" aria-hidden="true">
+      <svg className="cell-state__placeholder-avatar" viewBox="0 0 24 24" focusable="false">
+        <circle cx="12" cy="8" r="4" fill="currentColor" />
+        <path d="M4 21c0-4.42 3.58-8 8-8s8 3.58 8 8" fill="currentColor" />
+      </svg>
+    </div>
+  );
 }

@@ -13,6 +13,32 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/design-document.md` (v0.62 → v0.63),
+  `docs/requirements-document.md` (v1.41 → v1.42), `docs/backlog.md`
+  (S-094 status) — `ui-implementer` shipped REQ-216's frontend half.
+  Design doc first: §2 gained a new "Placeholder avatar" token/component
+  entry (reuses `surface-sunken`/`text-muted`, no new color) per the
+  amendment's own flagged blocker, and SCREEN-01a's states 2-4 mocks/
+  "Persistent correct-cell border" note were updated with a matching
+  REQ-216 status note (the three locked-incorrect combinations, and the
+  new `.grid-table__cell--incorrect` red border extending the existing
+  correct-cell green-border mechanism). Code:
+  `frontend/src/grid/CellState.tsx`'s locked-incorrect branch now renders
+  a real matched-player photo (reusing the existing `CellPhoto`
+  component), the new placeholder avatar (`CellPlaceholderAvatar`), or
+  both with/without a canonical name, depending on which of REQ-216's
+  three combinations applies — never a checkmark/cross icon there anymore,
+  mirroring REQ-214/S-048's own established pattern. State 2 is completely
+  unaffected. `frontend/src/grid/Grid.tsx`/`Grid.css` add the red border on
+  `.grid-table__cell` (not `.grid-cell`/`CellState.tsx`), mirroring the
+  correct-cell border's own placement and reasoning.
+  `frontend/src/lib/types.ts` adds `incorrectGuessMatchedPlayerName`/
+  `incorrectGuessMatchedPlayerPhotoUrl` to `CurrentRoundGuess`/
+  `SubmitGuessResponse`, confirmed camelCase against the backend records.
+  Vitest coverage added/updated in `CellState.test.tsx`, `Grid.test.tsx`,
+  `GridCell.test.tsx` for state 2 (unaffected), the three locked-incorrect
+  combinations, and the fixed-footprint mechanism. REQ-216/ADR-0057/S-094.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.40 → v1.41),
   `docs/backlog.md` (S-094 status) — `backend-implementer` shipped REQ-216's
   backend half: `GuessSubmissionService` resolves

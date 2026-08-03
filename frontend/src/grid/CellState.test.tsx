@@ -48,15 +48,28 @@ describe('CellState', () => {
   // locked-incorrect cell is guaranteed to lock at MaxPointsPerCell
   // (ADR-0021's golf-scoring worst case, not 0) — a known constant, not a
   // live computation, so it's shown immediately rather than waiting on
-  // REQ-205's actual round-close lock. No "no attempts left" qualifier —
-  // same minimal "✕ + points" structure a correct cell uses.
-  it('REQ-210 state 3: incorrect with no attempts left is locked and shows the guaranteed MaxPointsPerCell value, nothing else', () => {
+  // REQ-205's actual round-close lock. No "no attempts left" qualifier.
+  //
+  // REQ-216 (2026-08-03) superseded this branch's own "nothing else" —
+  // see the dedicated describe block below for the three locked-incorrect
+  // combinations (real photo + name, placeholder + name, placeholder with
+  // no name) this state now renders. `playerName` here is the *correct*-
+  // guess-only prop (unused for an incorrect cell either way) — it's
+  // `incorrectMatchedPlayerName` that would show a name on this branch, and
+  // this test deliberately omits it, so "no name shown" remains accurate.
+  it('REQ-210 state 3: incorrect with no attempts left is locked and shows the guaranteed MaxPointsPerCell value and the placeholder avatar (no matched name/photo given), and no checkmark/cross icon', () => {
     render(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />);
 
-    expect(screen.getByText('✕')).toBeInTheDocument();
     expect(screen.getByText('100 pts')).toBeInTheDocument();
     expect(screen.queryByText('Ronaldinho')).not.toBeInTheDocument();
     expect(screen.queryByText(/no attempts left/i)).not.toBeInTheDocument();
+    // No checkmark/cross icon at all on this branch (REQ-216 mirrors
+    // REQ-214/S-048's "photo overlay shows only name + points, never a
+    // status glyph" pattern) — the red border (applied one level up, on
+    // Grid.tsx's <td>) is what signals "incorrect" instead.
+    expect(screen.queryByText('✕')).not.toBeInTheDocument();
+    expect(document.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+    expect(document.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
   });
 
   it('REQ-210 state 4: round closed, correct outcome, shows only a checkmark and the locked FinalPoints — no "final" wording on a correct cell', () => {
@@ -74,14 +87,17 @@ describe('CellState', () => {
   // frontend's own known constant rather than a FinalPoints value that
   // would need to come from the API (which, per the S-011 scope gap, this
   // state can't reach live yet anyway) — no "final" wording, same as
-  // state 3 dropped "no attempts left".
-  it('REQ-210 state 4: round closed, incorrect outcome, is locked and shows the guaranteed MaxPointsPerCell value, nothing else', () => {
+  // state 3 dropped "no attempts left". REQ-216 (2026-08-03) update: same
+  // placeholder-avatar/no-checkmark treatment as state 3 above — see this
+  // test's state 3 sibling and the dedicated REQ-216 describe block below.
+  it('REQ-210 state 4: round closed, incorrect outcome, is locked and shows the guaranteed MaxPointsPerCell value and the placeholder avatar, no checkmark/cross icon', () => {
     render(<CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="closed" />);
 
-    expect(screen.getByText('✕')).toBeInTheDocument();
     expect(screen.getByText('100 pts')).toBeInTheDocument();
     expect(screen.queryByText('Ronaldinho')).not.toBeInTheDocument();
     expect(screen.queryByText(/final/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('✕')).not.toBeInTheDocument();
+    expect(document.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
   });
 
   it('REQ-204: state 1 and state 4 render identically in structure at rest given equivalent points — checkmark + points, no live indicator of any kind, no percent', () => {
@@ -109,8 +125,11 @@ describe('CellState', () => {
   // Same parity check as above, for the incorrect-locked branch (state 3
   // vs. state 4's incorrect outcome) — both are guaranteed to score
   // MaxPointsPerCell regardless of when the cell locked, so their markup
-  // should be identical too, not just individually correct.
-  it('REQ-204: state 3 and state 4\'s incorrect outcome render identically in structure — checkmark + MaxPointsPerCell, no qualifier text of any kind', () => {
+  // should be identical too, not just individually correct. Updated for
+  // REQ-216 (2026-08-03): no checkmark/cross icon renders on this branch at
+  // all anymore (see this file's REQ-216 describe block below) — the
+  // parity check now asserts the placeholder-avatar slot instead.
+  it('REQ-204: state 3 and state 4\'s incorrect outcome render identically in structure — placeholder avatar + MaxPointsPerCell, no qualifier text, no checkmark/cross icon', () => {
     const { container: activeContainer } = render(
       <CellState playerName="Ronaldinho" isCorrect={false} attemptCount={2} locked roundStatus="active" />,
     );
@@ -119,7 +138,8 @@ describe('CellState', () => {
     );
 
     for (const container of [activeContainer, closedContainer]) {
-      expect(container.querySelector('.cell-state__icon--incorrect')).toBeInTheDocument();
+      expect(container.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
+      expect(container.querySelector('.cell-state__icon')).not.toBeInTheDocument();
       expect(container.textContent).not.toMatch(/no attempts left|final/i);
     }
 
@@ -1130,6 +1150,200 @@ describe('CellState photo reveal (REQ-214, 2026-07-18: decoupled from click/tap 
 
     const noPhotoName = noPhotoContainer.querySelector('.cell-state__name');
     expect(getComputedStyle(noPhotoName as Element).getPropertyValue('-webkit-line-clamp')).not.toBe('1');
+  });
+});
+
+// REQ-216 (2026-08-03, ADR-0057, direct product-owner sign-off — the
+// "2026-08-03 placeholder-avatar amendment" recorded in
+// requirements-document.md/design-document.md): a cell that locks with its
+// final guess still incorrect (state 3, or state 4's incorrect branch) now
+// shows some feedback about who was actually guessed, instead of a bare ✕
+// — but ONLY for that locked/final case, never state 2 (an attempt
+// remains), which stays completely untouched. Three combinations, all
+// sharing REQ-214's own full-bleed "photo slot" mechanism
+// (`.cell-state--incorrect-photo`, CellState.css).
+describe('CellState locked-incorrect matched player/placeholder avatar (REQ-216)', () => {
+  it('REQ-216: state 2 (an attempt remains) is completely unaffected even if incorrectMatchedPlayerName/incorrectMatchedPlayerPhotoUrl are somehow given — no name, no photo, no placeholder avatar, no red-photo-slot class', () => {
+    const { container } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={1}
+        locked={false}
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl="https://example.test/seedorf.jpg"
+      />,
+    );
+
+    expect(screen.queryByText('Clarence Seedorf')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__placeholder-avatar-slot')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state--incorrect-photo')).not.toBeInTheDocument();
+    expect(screen.getByText('1 attempt left')).toBeInTheDocument();
+  });
+
+  // Combination 1: the guess matched a real player and ADR-0057's
+  // Wikidata-only lookup resolved a photo before its own timeout.
+  it('REQ-216 combination 1: locked-incorrect with both a matched name and a resolved photo shows the real photo, the canonical name, and no placeholder avatar', () => {
+    const { container } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl="https://example.test/seedorf.jpg"
+      />,
+    );
+
+    const img = container.querySelector('.cell-state__photo-img') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.test/seedorf.jpg');
+    // Decorative only, same pairing rule CellPhoto already follows for the
+    // correct-cell photo case.
+    expect(img).toHaveAttribute('alt', '');
+    expect(img).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText('Clarence Seedorf')).toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state__placeholder-avatar-slot')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state--incorrect-photo')).toBeInTheDocument();
+  });
+
+  // Combination 2: the guess matched a real player, but ADR-0057's
+  // Wikidata-only lookup didn't resolve a photo (timeout/error/no image) —
+  // the 2026-08-03 amendment: this now shows the placeholder avatar
+  // alongside the name, not just the name alone.
+  it('REQ-216 combination 2: locked-incorrect with a matched name but no photo shows the placeholder avatar alongside the canonical name — never a broken-image icon', () => {
+    const { container } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl={null}
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
+    const slot = container.querySelector('.cell-state__placeholder-avatar-slot');
+    expect(slot).toBeInTheDocument();
+    expect(slot).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText('Clarence Seedorf')).toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+  });
+
+  // Combination 3: the guess string matched no PlayerNameIndex candidate at
+  // all (a typo, gibberish, or a fictional name) — the 2026-08-03 amendment
+  // supersedes this branch's own original "unchanged from today" wording:
+  // it now shows the placeholder avatar too, just with no name.
+  it('REQ-216 combination 3: locked-incorrect with no matched name and no photo shows the placeholder avatar with no name at all', () => {
+    const { container } = render(
+      <CellState isCorrect={false} attemptCount={2} locked roundStatus="active" />,
+    );
+
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
+    expect(container.querySelector('.cell-state__name')).not.toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+  });
+
+  it('REQ-216: an image load failure on the real matched-player photo falls back to the placeholder avatar, never a broken-image icon', () => {
+    const { container } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl="https://example.test/broken.jpg"
+      />,
+    );
+
+    const img = container.querySelector('.cell-state__photo-img') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    fireEvent.error(img);
+
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
+    // The name is unaffected by the photo's own failure — still shown.
+    expect(screen.getByText('Clarence Seedorf')).toBeInTheDocument();
+  });
+
+  it('REQ-216: no checkmark/cross icon renders in any of the three locked-incorrect combinations — the red border (Grid.tsx/Grid.css, not this component) is what signals "incorrect" instead', () => {
+    const { container: realPhotoContainer } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl="https://example.test/seedorf.jpg"
+      />,
+    );
+    const { container: placeholderWithNameContainer } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl={null}
+      />,
+    );
+    const { container: placeholderNoNameContainer } = render(
+      <CellState isCorrect={false} attemptCount={2} locked roundStatus="active" />,
+    );
+
+    for (const container of [realPhotoContainer, placeholderWithNameContainer, placeholderNoNameContainer]) {
+      expect(container.querySelector('.cell-state__icon')).not.toBeInTheDocument();
+      expect(container.querySelector('.cell-state__row')).not.toBeInTheDocument();
+    }
+  });
+
+  // Footprint/structural check — the same "check the mechanism, not a pixel
+  // snapshot" approach REQ-214's own footprint tests above already use
+  // (jsdom has no real layout engine): the locked-incorrect photo/
+  // placeholder-avatar layer must be taken out of normal flow the same way
+  // the correct-cell photo layer already is, so it can never grow the
+  // cell's own box.
+  it('REQ-216: the locked-incorrect photo/placeholder layer is taken out of normal flow (position: absolute, inset: 0) — the same fixed-footprint mechanism REQ-214\'s correct-cell photo already uses, reused rather than re-derived', () => {
+    const { container: photoContainer } = render(
+      <CellState
+        isCorrect={false}
+        attemptCount={2}
+        locked
+        roundStatus="active"
+        incorrectMatchedPlayerName="Clarence Seedorf"
+        incorrectMatchedPlayerPhotoUrl="https://example.test/seedorf.jpg"
+      />,
+    );
+    const photoLayer = photoContainer.querySelector('.cell-state--incorrect-photo');
+    expect(photoLayer).toBeInTheDocument();
+    const photoLayerStyle = getComputedStyle(photoLayer as Element);
+    expect(photoLayerStyle.position).toBe('absolute');
+    expect(photoLayerStyle.getPropertyValue('inset')).toBe('0px');
+
+    const { container: placeholderContainer } = render(
+      <CellState isCorrect={false} attemptCount={2} locked roundStatus="active" />,
+    );
+    const placeholderLayer = placeholderContainer.querySelector('.cell-state--incorrect-photo');
+    expect(placeholderLayer).toBeInTheDocument();
+    const placeholderLayerStyle = getComputedStyle(placeholderLayer as Element);
+    expect(placeholderLayerStyle.position).toBe('absolute');
+    expect(placeholderLayerStyle.getPropertyValue('inset')).toBe('0px');
+  });
+
+  it('REQ-216: state 2 rendering (no matched name/photo props at all, the ordinary case) is byte-for-byte identical to before this story — a plain regression guard that this change didn\'t alter state 2\'s own markup', () => {
+    const { container } = render(
+      <CellState playerName="Ronaldinho" isCorrect={false} attemptCount={1} locked={false} roundStatus="active" />,
+    );
+
+    expect(container.querySelector('.cell-state')).toHaveClass('cell-state--incorrect');
+    expect(container.querySelector('.cell-state--incorrect-photo')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__row')).toBeInTheDocument();
+    expect(screen.getByText('✕')).toBeInTheDocument();
+    expect(screen.getByText('1 attempt left')).toBeInTheDocument();
   });
 });
 

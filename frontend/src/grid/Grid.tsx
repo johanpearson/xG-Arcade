@@ -95,9 +95,21 @@ export function Grid({ cells, roundStatus, submittedThisSessionCellIds, onCellCl
                 // a positioned descendant like `.cell-state--photo` paints
                 // after `.grid-cell`'s own non-positioned border in that case.
                 const isCorrectCell = cell?.guess?.isCorrect === true;
+                // REQ-216 (2026-08-03): the same reasoning that put the
+                // correct-cell border here (not `.grid-cell`/`CellState.tsx`)
+                // now applies to a locked-incorrect cell too — REQ-216 can
+                // put a full-bleed matched-player photo or placeholder
+                // avatar on an incorrect cell the same way a correct cell
+                // can have one, so the border needs the identical guarantee
+                // of rendering above/around that layer regardless of
+                // stacking order. Only once locked: state 2 (an attempt
+                // remains) still gets no border at all, unaffected.
+                const isLockedIncorrectCell = cell?.guess?.locked === true && cell?.guess?.isCorrect === false;
                 const cellClassName = isCorrectCell
                   ? 'grid-table__cell grid-table__cell--correct'
-                  : 'grid-table__cell';
+                  : isLockedIncorrectCell
+                    ? 'grid-table__cell grid-table__cell--incorrect'
+                    : 'grid-table__cell';
                 return (
                   <td key={`cell-${row.row}-${col.col}`} className={cellClassName}>
                     {cell ? (

@@ -4579,7 +4579,7 @@ none blocking on other stories, but should not be built without the
 requirements pass above landing first.
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
-(REQ-216) — backend implemented 2026-08-03, frontend still queued**
+(REQ-216) — implemented 2026-08-03 (backend and frontend, same day)**
 Direct product-owner sign-off this session, reversing a deliberate prior
 decision (`CellState.tsx`'s states-2/3 comment) narrowly for the
 locked-incorrect case only (state 3, and state 4's incorrect branch) —
@@ -4610,9 +4610,14 @@ building the frontend half. **Backend implemented 2026-08-03** by
 amendment above is a pure frontend/rendering decision — the backend only
 ever exposes the same two nullable name/photo fields regardless of
 whether the frontend renders "nothing" or a placeholder graphic for a
-null photo, so this amendment required no backend change. **Still
-queued:** frontend (`CellState.tsx`'s locked-incorrect branch gaining the
-red border + real-photo/placeholder-avatar/name display, blocked on the
-`design-document.md` §2 token above). *Deps:* ADR-0057 (resolved this
-session); REQ-211/ADR-0011 (existing, `WikidataClient` reused, budget/
-fallback tier NOT shared); REQ-214 (existing, UI template).
+null photo, so this amendment required no backend change. **Frontend
+implemented 2026-08-03** by `ui-implementer`: `design-document.md` §2's
+"Placeholder avatar" token/component entry added first (per the flagged
+blocker above), then `CellState.tsx`'s locked-incorrect branch (red border
+via `Grid.tsx`/`Grid.css`'s new `.grid-table__cell--incorrect`, real photo
+via the existing `CellPhoto` component reused as-is, the placeholder via a
+new `CellPlaceholderAvatar`), `GridCell.tsx`'s prop passthrough, and
+`lib/types.ts`'s two new `incorrectGuessMatchedPlayerName`/
+`incorrectGuessMatchedPlayerPhotoUrl` fields. *Deps:* ADR-0057 (resolved
+this session); REQ-211/ADR-0011 (existing, `WikidataClient` reused,
+budget/fallback tier NOT shared); REQ-214 (existing, UI template).

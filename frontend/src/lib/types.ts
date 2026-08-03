@@ -38,6 +38,27 @@ export interface CurrentRoundGuess {
   // "no photo," same as an explicit `null` — never a type error and never a
   // fabricated photo.
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-216/ADR-0057: the mirror-image case of resolvedPlayerName/
+  // resolvedPlayerPhotoUrl above — non-null ONLY when this guess locked the
+  // cell with its final attempt still INCORRECT (state 3, or state 4's
+  // incorrect branch) AND the submitted guess string matched a real
+  // PlayerNameIndex candidate (never for state 2, and never for a guess
+  // that matched nothing at all — a typo/gibberish/fictional name). Field
+  // name confirmed against the backend half
+  // (`CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerName` in
+  // `XGArcade.Api.Rounds.RoundEndpoints`, already merged) — camelCase JSON
+  // matches exactly, same convention as every other field on this shape.
+  // Deliberately optional (`?:`), not just nullable, for the same
+  // older-cached-response-degrades-safely reason resolvedPlayerPhotoUrl
+  // above already documents.
+  incorrectGuessMatchedPlayerName?: string | null;
+  // REQ-216/ADR-0057: a nullable Wikidata photo URL for the same
+  // incorrect-but-real matched player above — independently nullable even
+  // when incorrectGuessMatchedPlayerName is set (ADR-0057's Wikidata-only
+  // lookup can time out, error, or genuinely have no photo; this is its own
+  // silent, graceful fallback, never a fail-closed outcome). Confirmed
+  // against `CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerPhotoUrl`.
+  incorrectGuessMatchedPlayerPhotoUrl?: string | null;
 }
 
 export interface CurrentRoundCell {
@@ -90,6 +111,15 @@ export interface SubmitGuessResponse {
   // revealed immediately after submitting (not just after a later reload)
   // needs it on this shape as well.
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-216/ADR-0057: see CurrentRoundGuess.incorrectGuessMatchedPlayerName/
+  // incorrectGuessMatchedPlayerPhotoUrl — present here too (mirrors why
+  // resolvedPlayerPhotoUrl is on this shape as well) since
+  // GridScreen.applyScoredGuess spreads this response directly into the
+  // cell's guess without an intervening GET /rounds/current, so a
+  // just-locked incorrect cell shows its matched name/photo (or the
+  // placeholder avatar) immediately, not only after a later reload.
+  incorrectGuessMatchedPlayerName?: string | null;
+  incorrectGuessMatchedPlayerPhotoUrl?: string | null;
   // REQ-209/REQ-210: null (and every other field behaves exactly as always)
   // on a normal, scored response. Non-null and non-empty ONLY when the
   // submitted name resolved to more than one fitting candidate — in that
