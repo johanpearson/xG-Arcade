@@ -1,4 +1,5 @@
-import { clubInitials, flagEmojiFor } from '../lib/categoryDisplay';
+import { clubInitials } from '../lib/categoryDisplay';
+import { CountryFlag } from '../lib/countryFlags';
 import './CategoryLabel.css';
 
 // Quality-gate fix (S-086 follow-up): moved here from frontend/src/grid/
@@ -51,14 +52,13 @@ export function CategoryGlyph({ categoryType, value, size = 'medium' }: Category
   );
 }
 
+// Bug fix (2026-08-03, user-tester report): was a Unicode flag emoji span —
+// see countryFlags.tsx's own top-of-file comment for why that broke on
+// Windows Chrome/Edge (no flag glyph in the host font, degrading to bare
+// "GB"-style regional-indicator letters) and why this renders a bundled SVG
+// instead, which needs no host font support at all.
 function FlagGlyph({ countryName }: { countryName: string }) {
-  const emoji = flagEmojiFor(countryName);
-  if (!emoji) return null;
-  return (
-    <span className="category-label__flag" aria-hidden="true">
-      {emoji}
-    </span>
-  );
+  return <CountryFlag countryName={countryName} />;
 }
 
 function ClubBadge({ clubName, size = 'medium' }: { clubName: string; size?: 'small' | 'medium' }) {

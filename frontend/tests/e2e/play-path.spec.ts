@@ -229,12 +229,12 @@ test.describe('REQ-1201/1202/1203/1204/1205/1206/410/408: play a full xG Path ro
     // REQ-1203's "no further clue is ever revealed once solved" / REQ-1205's
     // "locks immediately regardless of remaining attempts": the winning
     // guess's own attemptCount (2, one wrong + this correct one) freezes
-    // GetRevealedTurnCount(2, true) = min(2,7) = 2 -- so the timeline still
-    // shows exactly 2 nodes, but the 2nd (the puzzle's own lastIndex) is now
-    // the gold "solved" node (PathTimeline.tsx's isFinal branch) instead of
-    // turn 2's real Juventus content -- the timeline's own SolvedNode
-    // component, not the ClubReveal turn that would otherwise have occupied
-    // that slot.
+    // GetRevealedTurnCount(2, true) = min(2,7) = 2 real clue turns. Bug fix
+    // (2026-08-03, user-tester report): the gold "solved" node is appended
+    // AFTER those 2 real turns, not swapped in over the 2nd one -- turn 2's
+    // real Juventus content must still be visible alongside the solved
+    // reveal, not silently deleted by it.
+    await expect(page.getByText('Juventus')).toBeVisible()
     await expect(page.locator('.path-timeline__solved-label')).toBeVisible()
     await expect(page.locator('.path-timeline__solved-label')).toContainText('Solved')
     await expect(page.getByText(seed.correctPlayerName)).toBeVisible()

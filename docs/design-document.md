@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.63"
+version: "0.64"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -54,8 +54,19 @@ distinctive move here isn't inventing a new color language — it's getting
 out of the way and letting those symbols do the work, on a clean light
 surface that doesn't compete with them.
 
-**Imagery note:** flags are rendered as standard flag emoji/Unicode — safe,
-universal, no licensing concern, shipped in v1. Club crests are **deferred
+**Imagery note:** flags are rendered as small bundled SVGs (simplified flat
+bands/crosses/a plain circle per country — no coats of arms, stars, or other
+fine detail), safe and license-free the same way the original Unicode-emoji
+approach was. **Changed 2026-08-03 (user-tester bug report)**: v1 originally
+shipped flags as literal Unicode flag emoji; that degrades badly on Windows,
+where Chrome/Edge render emoji through the host OS font and Windows dropped
+color flag glyphs from its system font, so a flag emoji fell back to its two
+bare Regional Indicator Symbol letters (e.g. "GB") with no flag graphic at
+all — Firefox alone avoided this because it bundles its own emoji font
+(Twemoji Mozilla) rather than asking the OS to render the glyph. The bundled-
+SVG approach needs no host font support, so it renders identically on every
+platform/browser. See `frontend/src/lib/countryFlags.tsx`'s own top-of-file
+comment for the full reasoning. Club crests are **deferred
 to Phase 2** — v1 ships with the placeholder circular initial-badges shown
 throughout this document as the actual design, not a temporary stand-in.
 Real crest sourcing via API-Football (`ClubCrest` caching, see
@@ -2165,8 +2176,10 @@ token system — no new color, typeface, or animation family introduced:
 - **Rejected guess:** reuses SCREEN-02's existing shake cue verbatim —
   this screen does not invent a third "try again" motion for what is
   the same underlying moment (a guess didn't match).
-- **Solved state:** the final node turns gold (`accent-gold`/
-  `accent-gold-text` per §2's "gold means settled/correct" rule) and
+- **Solved state:** a trailing gold node (`accent-gold`/`accent-gold-text`
+  per §2's "gold means settled/correct" rule) is appended AFTER every real
+  clue turn (**bug fix, 2026-08-03 — see status note below for why "the
+  final node turns gold," this bullet's original wording, is stale**) and
   shows the target player's name plus, when `Player.PhotoUrl` is set, their
   photo (REQ-214's existing infrastructure, reused as-is — not a new
   photo feature for this game) — falling back to the same initials-avatar
@@ -2185,6 +2198,22 @@ token system — no new color, typeface, or animation family introduced:
   bullet's literal text, not an oversight.
 - **Puzzle position:** "Puzzle N of M" (plain text, `text-muted`) in the
   header, mirroring SCREEN-01's round-timer header row placement.
+
+**Bug fix status note (2026-08-03, user-tester report): "the final node turns
+gold," in the bullet above, is stale.** As originally built, the solved (and
+locked-unsolved "Out of attempts") reveal REPLACED the last real clue turn's
+own node instead of appending after it — for a single-club turn that's a
+small cosmetic swap, but the same turn can carry several bundled clubs
+(`PathClueSequenceBuilder`'s 3-3-4 split for a long career) or the bundled
+year-range/position/nationality/age content, and replacing it wholesale
+silently deleted that entire turn's real content the instant the puzzle
+locked — directly contradicting this section's own "every past clue stays
+visible" rule above, and exactly what a tester reported as "the latest shown
+clue was removed upon correct answer." `PathTimeline.tsx`'s reveal (solved or
+failed) is now its own trailing node, appended after every real clue turn
+rather than displacing one — the bullet above is left as originally written
+(not rewritten) so the now-corrected assumption stays visible, same
+convention the S-086 status note below already follows.
 
 **S-086 status note (2026-08-01): the "initials-avatar" fallback text
 above is stale, not something the shipped code actually does, and never

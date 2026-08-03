@@ -1,37 +1,11 @@
-// design-document.md §2/§3: flags render as Unicode emoji (safe, no
-// licensing concern); club crests are deferred to Phase 2, so v1 uses a
-// circular initial-badge as the real v1 design, not a stub.
-//
-// Covers MVP-SCOPE.md's Tier 0 country list (~20 countries). A country not
-// in this table simply renders without a flag glyph — never blocks
-// rendering, and the visible text name is always shown regardless (§6:
-// flag/badge is never the sole identifier).
-const FLAG_EMOJI_BY_COUNTRY: Record<string, string> = {
-  Brazil: '🇧🇷',
-  Argentina: '🇦🇷',
-  France: '🇫🇷',
-  Germany: '🇩🇪',
-  Spain: '🇪🇸',
-  'United Kingdom': '🇬🇧',
-  Italy: '🇮🇹',
-  Netherlands: '🇳🇱',
-  Portugal: '🇵🇹',
-  Belgium: '🇧🇪',
-  Croatia: '🇭🇷',
-  Uruguay: '🇺🇾',
-  Colombia: '🇨🇴',
-  Nigeria: '🇳🇬',
-  Senegal: '🇸🇳',
-  'Ivory Coast': '🇨🇮',
-  Serbia: '🇷🇸',
-  Poland: '🇵🇱',
-  Sweden: '🇸🇪',
-  Denmark: '🇩🇰',
-};
-
-export function flagEmojiFor(countryName: string): string | null {
-  return FLAG_EMOJI_BY_COUNTRY[countryName] ?? null;
-}
+// Bug fix (2026-08-03, user-tester report): flags used to render as Unicode
+// emoji directly from this file (FLAG_EMOJI_BY_COUNTRY/flagEmojiFor) — moved
+// to lib/countryFlags.tsx as bundled SVGs instead, since the OS/browser font
+// dependency emoji rendering carries broke flags entirely on Windows Chrome/
+// Edge (see that file's own top-of-file comment for the full reasoning).
+// This file (categoryDisplay.ts) stays plain .ts/JSX-free, so the flag
+// lookup — which needs to return actual markup, not a string — lives in the
+// .tsx sibling instead.
 
 // First 1-2 letters of the club name, used inside the circular placeholder
 // badge (design-document.md §1's "Imagery note" — the real v1 design, not a

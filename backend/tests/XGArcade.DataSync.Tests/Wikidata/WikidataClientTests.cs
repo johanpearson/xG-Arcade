@@ -2316,6 +2316,43 @@ public class WikidataClientTests
         Assert.That(result.Select(r => r.WikidataQid), Is.EquivalentTo(new[] { "Q1519", "Q9617" }));
     }
 
+    // Bug fix (2026-08-03, user-tester report): a real report showed Michael
+    // Owen's (the footballer, actually born 1979) autocomplete suggestion
+    // carrying BirthYear 1976. wdt:P569 already collapses to one preferred-
+    // rank statement whenever Wikidata has one, so two rows for the same
+    // ?player disagreeing on birth year within one response (this query has
+    // no per-year window, unlike QueryPlayerPoolBirthYearAsync, so both of a
+    // player's conflicting P569 statements can land as separate rows here)
+    // means Wikidata itself has more than one non-deprecated, non-preferred
+    // statement with no stated preference between them. There is no
+    // principled way to pick between them from this response alone — see
+    // ParseNameIndexBindings' own doc comment for why the ambiguous value is
+    // nulled out instead of keeping whichever row WDQS happened to list
+    // first (an artifact of its own internal ordering, not a correctness
+    // signal).
+    [Test]
+    public async Task ParseNameIndexBindings_ConflictingBirthYearRowsForSameQid_NullsOutBirthYear_RatherThanKeepingWhicheverArrivedFirst()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q184895" }, "playerLabel": { "type": "literal", "value": "Michael Owen" }, "birthYear": { "type": "literal", "value": "1976" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q184895" }, "playerLabel": { "type": "literal", "value": "Michael Owen" }, "birthYear": { "type": "literal", "value": "1979" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPoolByNationalityAsync("Q145", useCountryForSportProperty: false);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0].FullName, Is.EqualTo("Michael Owen"));
+        Assert.That(result[0].BirthYear, Is.Null,
+            "neither conflicting value is trustworthy, so the ambiguous birth year is dropped rather than guessed");
+    }
+
     [Test]
     public void ADR0055_QueryPlayerPoolByNationalityAsync_HttpErrorStatus_ThrowsWikidataQueryException()
     {

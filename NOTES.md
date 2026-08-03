@@ -1280,3 +1280,50 @@ other club addition here has followed — this sandbox can't verify it), and
 career-stint fetch instead of depending on xG Grid's lookup history as a
 byproduct — the latter is a real scope decision (a new Wikidata query
 shape, ADR-worthy), not a one-line fix.
+
+## PlayerNameIndex.BirthYear can go ambiguous — Wikidata itself, not our bug (2026-08-03)
+
+A user-tester report: the autocomplete suggestion for "Michael Owen" (the
+England footballer, actually born 14 December 1979) showed birth year 1976.
+`wdt:P569` is a *truthy* predicate — it already collapses to a single
+preferred-rank statement whenever Wikidata has one, so this can only happen
+when the underlying Wikidata item genuinely carries more than one
+non-deprecated P569 (date of birth) statement with **neither** marked
+preferred — Wikidata's own data has no stated preference between them.
+This is a real, if uncommon, state of Wikidata's data (an old or
+erroneous secondary-sourced date nobody has cleaned up), not something our
+SPARQL can resolve with certainty.
+
+Before this fix, two independent code paths silently picked one of the
+conflicting values with no correctness signal behind the choice:
+`WikidataClient.ParseNameIndexBindings` kept whichever row happened to
+arrive first in a single SPARQL response's (unspecified, engine-internal)
+row order, and `PlayerNameIndexImporter.ImportAsync`'s per-birth-year-slice
+loop let whichever slice ran *last* (i.e. whichever value is numerically
+higher, since the loop runs ascending 1939 → current year) silently
+overwrite the other. For Michael Owen specifically the second mechanism
+would have landed on the *correct* value by coincidence (1979 > 1976) — the
+report only surfaced because whatever earlier data was actually
+persisted for his `PlayerNameIndex` row predates this reasoning, or the
+import run that would have corrected it to 1979 never completed. Either
+way, "later wins" was never a principled rule, just a happy accident when
+it worked.
+
+Fixed by treating a genuine cross-row/cross-slice birth-year conflict as
+unresolvable and nulling out `BirthYear` instead of guessing either way —
+same "omit rather than mislead" convention this codebase already uses for
+an unknown club appearance count. See `ParseNameIndexBindings`'s and
+`PlayerNameIndexImporter.ResolveCrossSliceBirthYearConflicts`'s own doc
+comments for the mechanics.
+
+**Sandbox limitation, flagged rather than silently worked around:** this
+session had no outbound network access to `wikidata.org` (the agent
+proxy's egress policy doesn't allow it) or to `dotnet.microsoft.com` (the
+.NET SDK isn't preinstalled here and couldn't be downloaded either), so
+neither the live Wikidata data behind the original report nor a real
+`dotnet build`/`dotnet test` run of these changes could be verified
+directly in this session — the fix and its tests were checked by careful
+manual review (hand-verified brace/paren balance, cross-checked against
+this file's other `record`/tuple `with`/mutation patterns that already
+compile elsewhere in this codebase) instead. Worth an actual CI run before
+merging.

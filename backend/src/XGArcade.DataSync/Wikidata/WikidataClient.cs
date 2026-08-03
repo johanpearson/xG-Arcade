@@ -685,6 +685,20 @@ public class WikidataClient(
             """;
     }
 
+    // Bug fix (2026-08-03, user-tester report): a real report showed the
+    // autocomplete suggestion for Michael Owen (the footballer, actually
+    // born 1979) carrying BirthYear 1976. wdt:P569 is a truthy predicate —
+    // it already collapses to a single preferred-rank statement whenever
+    // Wikidata has one, so this can only happen when an item genuinely
+    // carries more than one non-deprecated P569 statement with NEITHER
+    // marked preferred (a real, if uncommon, state of Wikidata's own data —
+    // e.g. an old/erroneous secondary-sourced date nobody has cleaned up).
+    // QueryPlayerPoolByNationalityAsync's query has no per-year window, so
+    // both statements land as separate rows for the same ?player in ONE
+    // response; before this fix, whichever row happened to come first in
+    // WDQS's own (unspecified, engine-internal) result order silently won,
+    // with no correctness signal behind that choice at all. See this
+    // method's own handling below for the fix.
     private static IReadOnlyList<WikidataNameIndexEntry> ParseNameIndexBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)
@@ -699,14 +713,31 @@ public class WikidataClient(
 
             var qid = playerValue.Value.Split('/').Last();
 
+            int? rowBirthYear = binding.TryGetValue("birthYear", out var birthYearValue)
+                && int.TryParse(birthYearValue.Value, out var parsedBirthYear)
+                    ? parsedBirthYear
+                    : null;
+
             if (!byQid.TryGetValue(qid, out var entry))
             {
                 var label = binding.TryGetValue("playerLabel", out var labelValue) ? labelValue.Value : qid;
-                int? birthYear = binding.TryGetValue("birthYear", out var birthYearValue)
-                    && int.TryParse(birthYearValue.Value, out var parsedBirthYear)
-                        ? parsedBirthYear
-                        : null;
-                entry = (label, birthYear, null);
+                entry = (label, rowBirthYear, null);
+            }
+            else if (entry.BirthYear is not null && rowBirthYear is not null && entry.BirthYear != rowBirthYear)
+            {
+                // Two rows for the same player disagree on birth year — a
+                // genuine ambiguity this query has no way to resolve (see
+                // this method's own doc comment above). Rather than keeping
+                // whichever value happened to arrive first — an artifact of
+                // WDQS's own internal row ordering, not a correctness signal
+                // — the birth year is nulled out. Same "omit rather than
+                // mislead" convention this codebase already applies
+                // elsewhere (e.g. an unknown club appearance count is
+                // omitted, never shown as a misleading "0 apps" —
+                // PathClubClue's own doc comment). The player's name still
+                // surfaces in autocomplete either way; only the (never
+                // load-bearing, REQ-207) birth-year hint is dropped.
+                entry.BirthYear = null;
             }
 
             // A player with more than one citizenship produces more than one
