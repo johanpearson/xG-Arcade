@@ -4577,3 +4577,24 @@ pool is a different, smaller cycle than one over the full structurally-
 eligible pool — needs an explicit decision, not an assumption). *Deps:*
 none blocking on other stories, but should not be built without the
 requirements pass above landing first.
+
+**S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
+(REQ-216) — queued, not yet scoped or built, 2026-08-03**
+Direct product-owner sign-off this session, reversing a deliberate prior
+decision (`CellState.tsx`'s states-2/3 comment) narrowly for the
+locked-incorrect case only (state 3, and state 4's incorrect branch) —
+state 2 (attempts remaining) is explicitly unaffected. **Not scoped or
+designed yet** — REQ-216 records the confirmed product scope and UI
+template (red border + REQ-214-style photo/name display, graceful
+fallback to today's behavior when the guess matched no real
+`PlayerNameIndex` candidate) but leaves one genuine architecture question
+open: how a wrong-but-real guessed player's photo is actually resolved,
+given `PlayerNameIndex` carries no photo of its own (ADR-0007). REQ-216
+recommends extending REQ-211's existing guess-time live-lookup trigger
+(ADR-0011's Wikidata-first/API-Football-fallback waterfall, same
+guard-rails) to also fire once at cell-lock time for this case, but that
+needs `architecture-reviewer` confirmation — and possibly its own ADR,
+since it's a new caller of an existing trigger condition — before this
+story can be sized or built. *Deps:* REQ-216's open architecture question
+resolved first; REQ-211/ADR-0011 (existing, for the recommended
+resolution mechanism); REQ-214 (existing, UI template).
