@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.38"
+version: "1.39"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -2393,33 +2393,24 @@ part of this requirement.
   photo at all — "the guessed player's name is shown" below is new
   acceptance criteria, not something carried over or previously satisfied
   in a narrower way.
-- **Open architecture question, flagged for `architecture-reviewer` (not a
-  product decision — the product owner has already decided the WHAT; this
-  is a HOW-does-the-data-get-there question the acceptance criteria below
-  depend on, in the same "flagged inline, not a §7 product question" style
-  REQ-215/509's build-order note used):** how is a wrong-but-real guessed
-  player's photo actually resolved, given `PlayerNameIndex` itself carries
-  no photo? Two candidate approaches:
-  1. **Recommended:** extend REQ-211's existing guess-time live-lookup
-     trigger (ADR-0011's Wikidata-first/API-Football-fallback waterfall,
-     `ExternalApiUsage` threshold check, fail-closed on the fallback path,
-     immediate same-request persistence, never batched) to also fire once,
-     at cell-lock time, for a wrong-but-real guessed player — reusing the
-     exact mechanism and every guard-rail REQ-211/ADR-0011 already
-     established, rather than inventing a second lookup path. This must
-     still never fire for a guess matching nothing in `PlayerNameIndex`,
-     per the CLAUDE.md "guess-time live lookups are narrow and never
-     deferred" rule.
-  2. **Alternative (no new lookup):** only show a photo when correctness
-     data for that wrong-but-real player already happens to exist from
-     resolving some other cell (i.e., whatever `PlayerAttribute`/`Player`
-     data is already cached) — a photo would then only be available
-     incidentally, not reliably, for a matched player.
-  This REQ's acceptance criteria below are written against approach (1).
-  `architecture-reviewer` should confirm that approach (and whether it
-  needs its own ADR, given it extends REQ-211/ADR-0011's trigger condition
-  to a new caller) before this is scoped into a backlog story — see
-  `docs/backlog.md` S-094.
+- **Architecture question resolved 2026-08-03, `architecture-reviewer` +
+  ADR-0057:** how a wrong-but-real guessed player's photo is resolved,
+  given `PlayerNameIndex` itself carries no photo. Decision: reuse
+  ADR-0011's `WikidataClient`, but as its own distinct, lower-priority
+  trigger, separate from REQ-211 — **Wikidata only, no API-Football
+  fallback** (cosmetic display value doesn't justify spending the shared,
+  scarce `ExternalApiUsage` budget correctness-critical REQ-211 lookups
+  depend on), firing once at cell-lock time only, and **failing silently**
+  (render no photo, REQ-214's existing graceful-fallback path) on timeout
+  or no-match — never fail-closed-as-incorrect, since there is no
+  correctness verdict left to compute for a guess already known to be
+  wrong. This still never fires for a guess matching nothing in
+  `PlayerNameIndex` at all, per the CLAUDE.md "guess-time live lookups are
+  narrow and never deferred" rule. The rejected alternative (only show a
+  photo when incidentally already cached, no new lookup) would have made
+  the confirmed ask unreliable by construction; see ADR-0057 for the full
+  reasoning and the other alternatives considered. This REQ's acceptance
+  criteria below are written against this resolved mechanism.
 - Given a cell is incorrect and at least one attempt remains (state 2)
 - Then no name and no photo are shown, unchanged from today — only the
   incorrect marker and remaining-attempts text (REQ-210); this REQ does
@@ -2430,16 +2421,19 @@ part of this requirement.
 - And that final guess string matched a real candidate in
   `PlayerNameIndex` (a real, known footballer — just not the one that
   correctly completes this cell)
-- And a photo for that matched player is resolvable (per the recommended
-  mechanism above)
+- And a Wikidata-only live lookup (ADR-0057) for that matched player
+  resolves a photo before its own timeout
 - Then the cell renders with a red border, and the guessed player's
   canonical name and photo are shown, following REQ-214's own
   no-layout-change/no-broken-image-icon/graceful-fallback constraints
 - Given the same locked-incorrect case, and the guess matched a real
-  `PlayerNameIndex` candidate, but no photo is resolvable for that player
+  `PlayerNameIndex` candidate, but ADR-0057's Wikidata-only lookup times
+  out, errors, or genuinely has no photo for that player
 - Then the cell renders with a red border and the guessed player's
-  canonical name, with no photo (graceful fallback, same as REQ-214's
-  no-photo case) — never a broken-image icon or visible error state
+  canonical name, with no photo — this is a silent, graceful fallback
+  (ADR-0057), never a fail-closed/incorrect outcome (there is no
+  correctness verdict left to compute here) and never a broken-image icon
+  or visible error state, same fallback shape as REQ-214's no-photo case
 - Given the same locked-incorrect case, and the guess string matched no
   candidate in `PlayerNameIndex` at all (a typo, gibberish, or a fictional
   name)
@@ -2459,10 +2453,13 @@ broken-image icon; locked-incorrect + no `PlayerNameIndex` match at all
 shows today's unchanged red-border-only-no-name-no-photo behavior;
 cell footprint is identical across every branch above, matching REQ-214's
 own regression-test approach against the cell's bounding box, not a visual
-snapshot alone). Once the architecture question above is resolved, the
-level covering the actual photo-resolution mechanism (Unit/API/Integration
-for the chosen lookup path) should be added here to match REQ-211's own
-Test level line.
+snapshot alone). Unit/API (ADR-0057's Wikidata-only lookup: fires exactly
+once at cell-lock time, never for a guess with no `PlayerNameIndex` match,
+never calls the API-Football client, persists a resolved photo
+immediately in the same request, and degrades to no-photo — not an
+incorrect/fail-closed outcome — on timeout, error, or genuine no-match,
+mirroring REQ-211/ADR-0046's own timeout-handling test shape without
+reusing its fail-closed assertion).
 
 ---
 

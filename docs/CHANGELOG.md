@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/requirements-document.md` (v1.37 → v1.39, new REQ-216),
+  `docs/backlog.md` (new S-094), `docs/decisions/0057-wrong-guess-photo-lookup-scope.md`
+  (new), `docs/architecture-document.md` (§10 table) — GitHub feature
+  request "show the guessed player's photo on an incorrect guess, with a
+  red border" (xG Grid) was flagged before any code, since it reverses a
+  deliberate prior decision (`CellState.tsx`'s states-2/3 "no name shown on
+  a wrong guess" comment) and has no existing data path (`PlayerNameIndex.PhotoUrl`
+  was removed 2026-07-18). Confirmed with the product owner via
+  `AskUserQuestion`: wanted, but only on the locked/final-incorrect case
+  (state 3/4), never an in-progress guess (state 2). Drafted as REQ-216.
+  `architecture-reviewer` then resolved the open "how is the photo
+  resolved" question via ADR-0057: reuse ADR-0011's `WikidataClient` as a
+  new, distinct, lower-priority trigger — Wikidata-only, no API-Football
+  fallback, fires once at cell-lock time, fails silently to no-photo
+  rather than fail-closed-as-incorrect, since a wrong guess has no
+  correctness verdict left to compute. Not yet implemented — S-094 is
+  ready to size/build in a future session.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.36 → v1.37, REQ-1203
   status note addendum) — a concurrent quality-gate pass on the same
   session's dedup fix (commit `a78e52d`) found and documented (in code

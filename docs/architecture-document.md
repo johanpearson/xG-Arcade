@@ -1643,6 +1643,7 @@ new ADR that references the old one.
 | ADR-0049 | `IScoringStrategy.ScoreCorrectGuess` takes the whole `Guess` plus a plain `int maxAttemptsForCell` (resolved once per cell by `ScoreLockingService` via ADR-0041's mechanism), never a direct `IGameModule` dependency — closes ADR-0040's own deferred parameter-shape follow-up | Accepted |
 | ADR-0050 | A new `ConfirmedLowMatchPair` table (COMP-06), not a column on `PlayerAttribute`/`PlayerData` or an in-memory-only signal, persists "checked, genuinely below `MinValidAnswers`" per Country×Club/Club×Club pair so `PlayerCacheWarmingService` stops re-querying it every run; invalidated by `StaleClubAttributeCleaner`/`purge-player-pool`, excluded from the prod/dev sync allowlist | Accepted |
 | ADR-0051 | Per-`GameKey` round scheduling: `IRoundSchedulingOptionsResolver` mirrors `IScoringStrategyResolver`'s pattern, `/internal/generate-round` stays one endpoint dispatching narrowly by `gameKey`, `generate-round.yml`'s existing cron is extended rather than duplicated, and `GridSize`/`PuzzleCount` move onto each game's own options class | Accepted |
+| ADR-0057 | REQ-216's wrong-but-real guess photo lookup reuses ADR-0011's `WikidataClient` as its own distinct, lower-priority trigger — Wikidata-only, no API-Football fallback, fires once at cell-lock time, fails silently (no photo) rather than fail-closed-as-incorrect | Accepted |
 
 ## 11. Glossary
 
