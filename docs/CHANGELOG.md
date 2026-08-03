@@ -13,6 +13,38 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
+  eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
+  longer loads the entire `PlayerCareerStint` table
+  (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`, now removed)
+  on every xG Path round generation — that table grew to ~608K rows via
+  ADR-0055's `prefetch-player-careers` job and kept growing, so a
+  full-table read on a live (non-admin) path no longer scaled. Replaced
+  with a two-pass narrowing: new `GetCareerStintCandidatePlayerIdsAsync`
+  reads only `(PlayerId, ClubName)` pairs and filters to a provable
+  superset of REQ-1201's real candidates (never excludes a player the
+  unchanged `IsEligible` would accept), then the pre-existing
+  `GetCareerStintsByPlayerIdsAsync` loads full data only for that
+  narrowed set. Pure internal performance fix — REQ-1201's eligibility
+  semantics are unchanged, no REQ/ADR needed; COMP-06/COMP-11 rows in
+  the architecture doc updated to match, since they named the removed
+  method specifically. See `NOTES.md`'s 2026-08-03 entry for the
+  original scale finding.
+
+- 2026-08-03 — `docs/backlog.md` (S-092 status) — ran `/orchestrate` on
+  S-092 ("xG Grid: widen player pool using xG Path's full-career data");
+  dropped before any code was written. `requirements-writer` and
+  `architecture-reviewer` independently found the story's own proposal —
+  `GridGameModule`'s correctness path reading `PlayerCareerStint` —
+  directly conflicts with ADR-0042 (2026-07-26), which explicitly forbids
+  exactly this read path and instructs agents to "stop and flag" rather
+  than implement it. Also found `PlayerCareerStint` has no nationality
+  field and no reliable QID join to `ClubDefinition`, so it couldn't fully
+  satisfy REQ-101/102 even absent the ADR conflict. Escalated to the user
+  via `AskUserQuestion`; decision was to drop the story rather than write
+  a superseding ADR or scope a narrower variant. No REQ or ADR changes.
+  See S-092's backlog entry for full detail. ADR-0042.
+
 - 2026-08-03 — `docs/design-document.md` (v0.63 → v0.64), `NOTES.md` —
   three user-tester bug fixes (xG Path clue reveal, country flags, a
   `PlayerNameIndex.BirthYear` data-quality bug). (1) `PathTimeline.tsx`'s

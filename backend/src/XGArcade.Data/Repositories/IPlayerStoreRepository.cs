@@ -282,17 +282,35 @@ public interface IPlayerStoreRepository
     Task AddCareerStintsAsync(
         Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default);
 
-    // REQ-1201 (S-081): xG Path's puzzle-generation eligibility check reads
-    // every player's full stint set in one bulk read, grouped by PlayerId —
-    // same "tolerate a full-table-scale read at Tier 0's player-pool size (a
-    // few thousand rows)" precedent GetPlayersMissingPhotoAsync's own doc
-    // comment already establishes, rather than a per-candidate query or a
-    // SQL-side eligibility filter. A playerId with no stint rows at all is
-    // simply absent from the result (not present with an empty list) — same
-    // "absent means none" shape as GetPlayerAliasesByPlayerIdsAsync/
-    // GetPlayerAttributesByPlayerIdsAsync above.
-    Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
-        CancellationToken cancellationToken = default);
+    // REQ-1201 perf fix (2026-08-03, NOTES.md "PlayerCareerStint's 'few
+    // thousand rows' full-table-read assumption is now stale"): the cheap
+    // first pass of xG Path's puzzle-generation eligibility check —
+    // narrows the full player pool down to real candidates using only a
+    // (PlayerId, ClubName) projection (skips StartYear/EndYear/
+    // SequenceOrder/AppearanceCount entirely), never the full 5-column
+    // PlayerCareerStint entity. Returns the PlayerIds whose stint-row
+    // group has at least minStintCount rows AND at least one row whose
+    // ClubName is in seededClubNames (exact ordinal/case-sensitive match —
+    // matches XGPathGameModule.IsEligible's own
+    // seededClubNames.Contains(s.ClubName) check exactly; deliberately NOT
+    // the case-insensitive comparison GetUnseededClubCandidatesAsync uses,
+    // since that was a diagnostic-only choice for a different method and
+    // copying it here would silently change REQ-1201's real eligibility
+    // semantics).
+    //
+    // This is a true SUPERSET of "possibly eligible" — both conditions
+    // checked here are necessary-but-not-sufficient for IsEligible's own
+    // three checks (a >=3-stint-row count, and "any stint at a seeded
+    // club" with the appearance-count sub-condition ignored, since that
+    // sub-condition can only narrow further, never widen). It never
+    // excludes a player IsEligible would have accepted; it can only
+    // include some players IsEligible later rejects on order-determinable
+    // stint dates or the appearance-count threshold — both of which need
+    // full stint rows to check and are handled by loading full data (via
+    // GetCareerStintsByPlayerIdsAsync) only for the narrowed set this
+    // method returns.
+    Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
+        IReadOnlySet<string> seededClubNames, int minStintCount, CancellationToken cancellationToken = default);
 
     // Bug-bundle fix (2026-07-27): bulk counterpart to GetCareerStintsAsync
     // — every existing stint for a batch of players in one query, used by
@@ -379,6 +397,17 @@ public interface IPlayerStoreRepository
         string firstAttributeType, string firstAttributeValue,
         string secondAttributeType, string secondAttributeValue,
         CancellationToken cancellationToken = default);
+
+    // One-off diagnostic (`dotnet run -- audit-club-gaps`,
+    // XGArcade.DataSync.ClubGapAuditService — see that class's own doc
+    // comment for the full "why"): every PlayerCareerStint.ClubName that
+    // doesn't match any already-seeded ClubDefinition.Name, ranked by
+    // distinct PlayerId count descending. Read-only, no side effects — never
+    // writes anything, never touches ReferenceDataSeeder. `top` bounds how
+    // many candidates are returned; the caller decides how deep a ranked
+    // list it wants, this method doesn't hardcode a count itself.
+    Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
+        int top, CancellationToken cancellationToken = default);
 }
 
 // Bug-bundle fix (2026-07-27): one match's worth of the data needed to
@@ -430,3 +459,11 @@ public enum PlayerDataRemovalFailureReason
     // existed) between selection and submission.
     NotFound,
 }
+
+// One-off diagnostic (audit-club-gaps): one candidate club — a
+// PlayerCareerStint.ClubName with no matching ClubDefinition.Name — and how
+// many distinct players already have a recorded stint there. Not itself a
+// claim that ClubName is a "real," canonical club name (it's whatever string
+// Wikidata's P54 qualifier label produced) — that's exactly why this is a
+// candidate for human review, not an automatic seed.
+public record UnseededClubCandidate(string ClubName, int PlayerCount);

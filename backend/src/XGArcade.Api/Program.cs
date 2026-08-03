@@ -24,6 +24,7 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
+using XGArcade.DataSync;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 using XGArcade.Games.XGPath;
@@ -379,6 +380,45 @@ if (args is ["verify-wikidata-player-data"])
         .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.Confidence, "verified"));
 
     Console.WriteLine($"verify-wikidata-player-data: marked {verifiedCount} PlayerData row(s) verified.");
+    return;
+}
+
+// `dotnet run -- audit-club-gaps` — a one-off, read-only diagnostic (no
+// REQ/ADR; see ClubGapAuditService's own doc comment for why) to help scope
+// a future seed-list widening decision, run via its own workflow
+// (audit-club-gaps.yml, workflow_dispatch only, no schedule). Same shape as
+// verify-wikidata-player-data above (builds its dependencies directly
+// rather than the full DI container, since it runs before
+// WebApplication.CreateBuilder ever runs) but needs an ILoggerFactory too,
+// since ClubGapAuditService logs its ranked candidate list via ILogger
+// rather than a single Console.WriteLine summary line — same
+// LoggerFactory.Create pattern warm-player-cache uses above. Read-only: no
+// SaveChangesAsync call anywhere on this path.
+if (args is ["audit-club-gaps"])
+{
+    var auditConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var auditConnectionString = auditConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var auditDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(auditConnectionString)
+        .Options;
+
+    using var auditLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var auditDbContext = new XGArcadeDbContext(auditDbContextOptions);
+    var auditPlayerStoreRepository = new PlayerStoreRepository(auditDbContext);
+
+    var auditService = new ClubGapAuditService(auditPlayerStoreRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
+
+    await auditService.RunAsync();
+
+    Console.WriteLine("audit-club-gaps: complete.");
     return;
 }
 

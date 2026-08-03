@@ -27,6 +27,36 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-03 — `PlayerCareerStint`'s "few thousand rows" full-table-read assumption is now stale (608K rows after ADR-0055)
+Several existing in-memory-read helpers (`GetAllCareerStintsByPlayerAsync`,
+`GetPlayersMissingPhotoAsync`, the new `GetUnseededClubCandidatesAsync`) are
+documented as safe because of a "tolerate a full-table read at Tier 0's
+player-pool scale (a few thousand rows)" precedent. That was true when
+written, but ADR-0055's `prefetch-player-careers` job has since populated
+`PlayerCareerStint` with 607,914 real rows (confirmed by its first clean
+run) — two orders of magnitude past "a few thousand." Still fine for a
+manual, occasional CLI job like `audit-club-gaps` (tens of MB, trivial for a
+CI runner), but `GetAllCareerStintsByPlayerAsync` is on a hot path —
+`XGPathGameModule`'s REQ-1201 eligibility check calls it on every round
+generation, not just manually. Not fixed here (out of scope for this
+session's work) — worth a dedicated look at whether that read still holds up
+at real scale before it becomes a real production latency problem, rather
+than waiting for a report the way ADR-0054's Celtic gap was.
+
+**Update (2026-08-03, later same day):** the hot-path method flagged above
+is fixed. `GetAllCareerStintsByPlayerAsync` is deleted; `XGPathGameModule.
+GetEligiblePlayerIdsAsync` now reads in two passes — a new
+`GetCareerStintCandidatePlayerIdsAsync` narrows the full player pool down to
+real candidates using only a cheap `(PlayerId, ClubName)` projection (the
+two necessary-but-not-sufficient conditions computable from that alone: >= 3
+stint rows, and any stint at a seeded club), then `GetCareerStintsByPlayerIdsAsync`
+(already existed) loads full stint data only for that narrowed set before
+`IsEligible`'s existing checks run unchanged. Zero eligibility-semantics
+change — the narrowing filter is a true superset, never excluding a player
+`IsEligible` would have accepted. `GetPlayersMissingPhotoAsync` and the
+general "few thousand rows" assumption elsewhere are still unaddressed —
+this fix only covered the one hot-path method called out above.
+
 ### 2026-08-02 — `prefetch-player-careers`'s first real run: huge success overall, 4 batches hit the same 15s-default-timeout mistake `import-player-name-index` already made once
 
 First-ever real run (ADR-0055, right after merging PR #140) processed

@@ -1540,14 +1540,14 @@ public class GridGameModuleTests
             Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default) =>
             inner.AddCareerStintsAsync(playerId, newStints, cancellationToken);
 
-        // REQ-1201 (S-081): xG Path's puzzle-generation eligibility read —
-        // same "delegated here only so this thin wrapper keeps compiling
-        // against the interface" reasoning as GetCareerStintsAsync/
-        // AddCareerStintsAsync above; xG Grid's correctness path never
-        // calls this either.
-        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetAllCareerStintsByPlayerAsync(
-            CancellationToken cancellationToken = default) =>
-            inner.GetAllCareerStintsByPlayerAsync(cancellationToken);
+        // REQ-1201 perf fix (2026-08-03): xG Path's puzzle-generation
+        // eligibility narrowing read — same "delegated here only so this
+        // thin wrapper keeps compiling against the interface" reasoning as
+        // GetCareerStintsAsync/AddCareerStintsAsync above; xG Grid's
+        // correctness path never calls this either.
+        public Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
+            IReadOnlySet<string> seededClubNames, int minStintCount, CancellationToken cancellationToken = default) =>
+            inner.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount, cancellationToken);
 
         public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetCareerStintsByPlayerIdsAsync(
             IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
@@ -1595,6 +1595,15 @@ public class GridGameModuleTests
             string secondAttributeType, string secondAttributeValue,
             CancellationToken cancellationToken = default) =>
             inner.ClearTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+
+        // audit-club-gaps diagnostic: xG Grid's correctness path never
+        // calls this (only the audit-club-gaps CLI verb does) — same
+        // "delegated here only so this thin wrapper keeps compiling
+        // against the interface" reasoning as the other unused-by-xG-Grid
+        // methods above.
+        public Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
+            int top, CancellationToken cancellationToken = default) =>
+            inner.GetUnseededClubCandidatesAsync(top, cancellationToken);
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]

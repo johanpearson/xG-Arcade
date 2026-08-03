@@ -1137,4 +1137,207 @@ public class PlayerStoreRepositoryTests
             [Guid.NewGuid()] = [],
         }));
     }
+
+    // ---- audit-club-gaps diagnostic (GetUnseededClubCandidatesAsync) -------
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_ExcludesClubsAlreadyInClubDefinition()
+    {
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" });
+        await _dbContext.SaveChangesAsync();
+
+        var seededClubPlayer = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        var unseededClubPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q999" };
+        await _repository.AddPlayerAsync(seededClubPlayer);
+        await _repository.AddPlayerAsync(unseededClubPlayer);
+        await _repository.AddCareerStintsAsync(seededClubPlayer.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = seededClubPlayer.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
+        await _repository.AddCareerStintsAsync(unseededClubPlayer.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = unseededClubPlayer.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2015 }]);
+
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(30);
+
+        Assert.That(candidates.Select(c => c.ClubName), Is.EquivalentTo(new[] { "Napoli" }),
+            "Arsenal already has a matching ClubDefinition and must not be surfaced as a gap");
+    }
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_CountsDistinctPlayers_NotStints()
+    {
+        var playerWithTwoStints = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(playerWithTwoStints);
+        // Two separate stints at the same unseeded club (e.g. a loan then a
+        // later permanent return) — must still count as ONE distinct player.
+        await _repository.AddCareerStintsAsync(playerWithTwoStints.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerWithTwoStints.Id, ClubName = "Napoli", StartYear = 2005, EndYear = 2007 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerWithTwoStints.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2012 },
+        ]);
+
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(30);
+
+        Assert.That(candidates, Has.Count.EqualTo(1));
+        Assert.That(candidates[0].ClubName, Is.EqualTo("Napoli"));
+        Assert.That(candidates[0].PlayerCount, Is.EqualTo(1), "two stints for the same player at the same club must count as one distinct player");
+    }
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_OrdersByDistinctPlayerCountDescending()
+    {
+        var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "Q1" };
+        var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "Q2" };
+        var playerC = new Player { Id = Guid.NewGuid(), FullName = "Player C", WikidataQid = "Q3" };
+        await _repository.AddPlayerAsync(playerA);
+        await _repository.AddPlayerAsync(playerB);
+        await _repository.AddPlayerAsync(playerC);
+
+        // "Popular Unseeded Club": 2 distinct players. "Rare Unseeded Club": 1.
+        await _repository.AddCareerStintsAsync(playerA.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Popular Unseeded Club", StartYear = 2000, EndYear = 2005 }]);
+        await _repository.AddCareerStintsAsync(playerB.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerB.Id, ClubName = "Popular Unseeded Club", StartYear = 2001, EndYear = 2006 }]);
+        await _repository.AddCareerStintsAsync(playerC.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerC.Id, ClubName = "Rare Unseeded Club", StartYear = 2002, EndYear = 2004 }]);
+
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(30);
+
+        Assert.That(candidates.Select(c => c.ClubName), Is.EqualTo(new[] { "Popular Unseeded Club", "Rare Unseeded Club" }));
+        Assert.That(candidates[0].PlayerCount, Is.EqualTo(2));
+        Assert.That(candidates[1].PlayerCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_RespectsTopLimit()
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            var player = new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" };
+            await _repository.AddPlayerAsync(player);
+            await _repository.AddCareerStintsAsync(player.Id,
+                [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = $"Unseeded Club {i}", StartYear = 2000, EndYear = 2005 }]);
+        }
+
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(3);
+
+        Assert.That(candidates, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_CaseInsensitiveMatch_ExcludesClubDespiteCaseDifference()
+    {
+        // Flagged assumption (see GetUnseededClubCandidatesAsync's own doc
+        // comment): a case-only difference between a Wikidata-sourced
+        // ClubName and a hand-seeded ClubDefinition.Name is treated as the
+        // same club, not a gap.
+        _dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" });
+        await _dbContext.SaveChangesAsync();
+
+        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
+        await _repository.AddPlayerAsync(player);
+        await _repository.AddCareerStintsAsync(player.Id,
+            [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "ARSENAL", StartYear = 1999, EndYear = 2007 }]);
+
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(30);
+
+        Assert.That(candidates, Is.Empty, "a case-only difference from a seeded ClubDefinition.Name must not be surfaced as a gap");
+    }
+
+    [Test]
+    public async Task GetUnseededClubCandidatesAsync_ReturnsEmpty_WhenNoCareerStintsExist()
+    {
+        var candidates = await _repository.GetUnseededClubCandidatesAsync(30);
+
+        Assert.That(candidates, Is.Empty);
+    }
+
+    // ---- REQ-1201 perf fix (GetCareerStintCandidatePlayerIdsAsync) --------
+    // Same "narrow read" testing shape as the GetUnseededClubCandidatesAsync
+    // tests above, but proving the narrower two-condition ("enough rows" AND
+    // "any stint at a seeded club") superset filter this hot path relies on,
+    // rather than the diagnostic method's own case-insensitive club-name
+    // grouping.
+
+    [Test]
+    public async Task GetCareerStintCandidatePlayerIdsAsync_ExcludesPlayersWithFewerThanMinStintCount()
+    {
+        var seededClubNames = new HashSet<string> { "Seeded FC" };
+        var tooFew = new Player { Id = Guid.NewGuid(), FullName = "Too Few", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(tooFew);
+        await _repository.AddCareerStintsAsync(tooFew.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = tooFew.Id, ClubName = "Seeded FC", StartYear = 2010, EndYear = 2013 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = tooFew.Id, ClubName = "Other FC", StartYear = 2013, EndYear = null },
+        ]);
+
+        var candidateIds = await _repository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
+
+        Assert.That(candidateIds, Does.Not.Contain(tooFew.Id));
+    }
+
+    [Test]
+    public async Task GetCareerStintCandidatePlayerIdsAsync_ExcludesPlayersWithNoStintAtSeededClub()
+    {
+        var seededClubNames = new HashSet<string> { "Seeded FC" };
+        var noSeededClub = new Player { Id = Guid.NewGuid(), FullName = "No Seeded Club", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(noSeededClub);
+        await _repository.AddCareerStintsAsync(noSeededClub.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = noSeededClub.Id, ClubName = "Unseeded A", StartYear = 2010, EndYear = 2013 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = noSeededClub.Id, ClubName = "Unseeded B", StartYear = 2013, EndYear = 2016 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = noSeededClub.Id, ClubName = "Unseeded C", StartYear = 2016, EndYear = null },
+        ]);
+
+        var candidateIds = await _repository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
+
+        Assert.That(candidateIds, Does.Not.Contain(noSeededClub.Id));
+    }
+
+    [Test]
+    public async Task GetCareerStintCandidatePlayerIdsAsync_IncludesPlayerMeetingBothConditions()
+    {
+        var seededClubNames = new HashSet<string> { "Seeded FC" };
+        var eligible = new Player { Id = Guid.NewGuid(), FullName = "Eligible", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(eligible);
+        await _repository.AddCareerStintsAsync(eligible.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = eligible.Id, ClubName = "Seeded FC", StartYear = 2010, EndYear = 2013 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = eligible.Id, ClubName = "Unseeded A", StartYear = 2013, EndYear = 2016 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = eligible.Id, ClubName = "Unseeded B", StartYear = 2016, EndYear = null },
+        ]);
+
+        var candidateIds = await _repository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
+
+        Assert.That(candidateIds, Does.Contain(eligible.Id));
+    }
+
+    [Test]
+    public async Task GetCareerStintCandidatePlayerIdsAsync_CaseSensitiveMatch_ExcludesPlayerWhoseOnlySeededClubStintDiffersOnlyInCase()
+    {
+        // Deliberately diverges from GetUnseededClubCandidatesAsync's own
+        // OrdinalIgnoreCase precedent: this method must match IsEligible's
+        // exact seededClubNames.Contains(s.ClubName) behavior, so a stint at
+        // a club differing only in case from a seeded name must NOT count.
+        var seededClubNames = new HashSet<string> { "Seeded FC" };
+        var caseMismatch = new Player { Id = Guid.NewGuid(), FullName = "Case Mismatch", WikidataQid = "Q1" };
+        await _repository.AddPlayerAsync(caseMismatch);
+        await _repository.AddCareerStintsAsync(caseMismatch.Id,
+        [
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = caseMismatch.Id, ClubName = "SEEDED FC", StartYear = 2010, EndYear = 2013 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = caseMismatch.Id, ClubName = "Unseeded A", StartYear = 2013, EndYear = 2016 },
+            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = caseMismatch.Id, ClubName = "Unseeded B", StartYear = 2016, EndYear = null },
+        ]);
+
+        var candidateIds = await _repository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
+
+        Assert.That(candidateIds, Does.Not.Contain(caseMismatch.Id),
+            "a club name differing only in case from a seeded name must NOT count, matching IsEligible's own exact-match behavior");
+    }
+
+    [Test]
+    public async Task GetCareerStintCandidatePlayerIdsAsync_EmptyTable_ReturnsEmpty()
+    {
+        var candidateIds = await _repository.GetCareerStintCandidatePlayerIdsAsync(new HashSet<string> { "Seeded FC" }, minStintCount: 3);
+
+        Assert.That(candidateIds, Is.Empty);
+    }
 }
