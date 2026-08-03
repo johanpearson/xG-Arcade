@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
+  eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
+  longer loads the entire `PlayerCareerStint` table
+  (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`, now removed)
+  on every xG Path round generation — that table grew to ~608K rows via
+  ADR-0055's `prefetch-player-careers` job and kept growing, so a
+  full-table read on a live (non-admin) path no longer scaled. Replaced
+  with a two-pass narrowing: new `GetCareerStintCandidatePlayerIdsAsync`
+  reads only `(PlayerId, ClubName)` pairs and filters to a provable
+  superset of REQ-1201's real candidates (never excludes a player the
+  unchanged `IsEligible` would accept), then the pre-existing
+  `GetCareerStintsByPlayerIdsAsync` loads full data only for that
+  narrowed set. Pure internal performance fix — REQ-1201's eligibility
+  semantics are unchanged, no REQ/ADR needed; COMP-06/COMP-11 rows in
+  the architecture doc updated to match, since they named the removed
+  method specifically. See `NOTES.md`'s 2026-08-03 entry for the
+  original scale finding.
+
 - 2026-08-03 — `docs/backlog.md` (S-092 status) — ran `/orchestrate` on
   S-092 ("xG Grid: widen player pool using xG Path's full-career data");
   dropped before any code was written. `requirements-writer` and
