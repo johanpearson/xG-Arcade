@@ -71,13 +71,15 @@ public class GridGameModuleTests
         TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
         IWikidataLookupService? wikidataLookupService = null,
         IPlayerStoreRepository? playerStoreRepository = null,
-        IPlayerNameIndexRepository? playerNameIndexRepository = null) =>
+        IPlayerNameIndexRepository? playerNameIndexRepository = null,
+        IWikidataClient? wikidataClient = null) =>
         new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
             playerNameIndexRepository ?? _playerNameIndexRepository,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
             random ?? new FixedChoiceRandom(0),
-            timeProvider);
+            timeProvider,
+            wikidataClient ?? new FakeWikidataClient());
 
     // REQ-211 (2026-07-27 fix): seeds a PlayerNameIndex row so
     // ExistsByNormalizedNameAsync's gate lets a test's guess through to the
@@ -2067,5 +2069,132 @@ public class GridGameModuleTests
 
         Assert.ThrowsAsync<GuessScoringException>(
             async () => await module.GetCellCategoryTypesAsync(Guid.NewGuid(), Guid.NewGuid()));
+    }
+
+    // ---- REQ-216/ADR-0057: ResolveWrongGuessPlayerAsync -------------------
+    // Called by GuessSubmissionService exactly once, only once it has
+    // already determined a cell just locked with its final guess still
+    // incorrect — these tests exercise GridGameModule's own implementation
+    // directly, independent of that caller-side trigger condition (which is
+    // GuessSubmissionServiceTests' own responsibility to pin down).
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_NoPlayerNameIndexMatch_ReturnsNull()
+    {
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Not A Real Player At All");
+
+        Assert.That(result, Is.Null,
+            "a guess string matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_PlayerNameIndexMatch_WithCachedPlayerRow_ReturnsCachedNameAndPhoto_WithoutCallingWikidata()
+    {
+        SeedNameIndexEntry("Clarence Seedorf");
+        var cached = new Player { Id = Guid.NewGuid(), FullName = "Clarence Seedorf", PhotoUrl = "https://example.org/seedorf.jpg" };
+        _dbContext.Players.Add(cached);
+        await _dbContext.SaveChangesAsync();
+        var fakeWikidataClient = new FakeWikidataClient();
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, wikidataClient: fakeWikidataClient);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Clarence Seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+        Assert.That(fakeWikidataClient.QueriedNames, Is.Empty,
+            "a wrong-but-real guess already cached from resolving some other cell must never pay for a live Wikidata round-trip");
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_PlayerNameIndexMatch_WithCachedPlayerRowViaAlias_ReturnsCachedNameAndPhoto()
+    {
+        SeedNameIndexEntry("Kaka");
+        var cached = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", PhotoUrl = "https://example.org/kaka.jpg" };
+        _dbContext.Players.Add(cached);
+        await _dbContext.SaveChangesAsync();
+        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = cached.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Kaka");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerName, Is.EqualTo("Ricardo Izecson dos Santos Leite"));
+        Assert.That(result.PhotoUrl, Is.EqualTo("https://example.org/kaka.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_NoCachedPlayerRow_ResolvesNameAndPhotoViaWikidataOnly()
+    {
+        SeedNameIndexEntry("Clarence Seedorf");
+        var fakeWikidataClient = new FakeWikidataClient();
+        fakeWikidataClient.SetResult("Clarence Seedorf", "Clarence Seedorf", "https://commons.example.org/seedorf.jpg");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, wikidataClient: fakeWikidataClient);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Clarence Seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.EqualTo("https://commons.example.org/seedorf.jpg"));
+        Assert.That(fakeWikidataClient.QueriedNames, Is.EqualTo(new[] { "Clarence Seedorf" }));
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_WikidataLookupThrows_FallsBackToPlayerNameIndexPrimaryName_WithNullPhoto()
+    {
+        SeedNameIndexEntry("Clarence Seedorf");
+        var fakeWikidataClient = new FakeWikidataClient();
+        fakeWikidataClient.FailNextCalls(1);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, wikidataClient: fakeWikidataClient);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Clarence Seedorf");
+
+        Assert.That(result, Is.Not.Null,
+            "ADR-0057: a failed live lookup must never remove the canonical name, only the photo — there is no " +
+            "correctness verdict left to compute for a guess already known to be wrong, so this must never behave " +
+            "like a fail-closed/incorrect outcome");
+        Assert.That(result!.PlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_WikidataLookupFindsNoMatch_FallsBackToPlayerNameIndexPrimaryName_WithNullPhoto()
+    {
+        SeedNameIndexEntry("Clarence Seedorf");
+        // FakeWikidataClient with no SetResult configured returns null,
+        // simulating a genuine "Wikidata answered, found nothing" outcome.
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, wikidataClient: new FakeWikidataClient());
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Clarence Seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_NullWikidataClient_FallsBackToPlayerNameIndexPrimaryName_WithoutThrowing()
+    {
+        // wikidataClient is nullable purely so tests/callers that don't wire
+        // one up don't crash — production DI always supplies the real
+        // client (Program.cs). Constructed directly here (bypassing
+        // BuildModule, which always substitutes a FakeWikidataClient
+        // default) so this genuinely exercises the null-wikidataClient
+        // branch in GridGameModule.ResolveWrongGuessPlayerAsync.
+        SeedNameIndexEntry("Clarence Seedorf");
+        var module = new GridGameModule(
+            _gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
+            _playerNameIndexRepository,
+            new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 5, MaxDuration = TimeSpan.FromMinutes(10) },
+            NullLogger<GridGameModule>.Instance,
+            wikidataClient: null);
+
+        var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Clarence Seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.PhotoUrl, Is.Null);
     }
 }

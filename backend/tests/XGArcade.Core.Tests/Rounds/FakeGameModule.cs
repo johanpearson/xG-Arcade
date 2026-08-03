@@ -76,4 +76,21 @@ internal class FakeGameModule(string gameKey) : IGameModule
 
     public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
         Task.FromResult(CellCategoryTypesResult(instanceId, cellId));
+
+    // REQ-216/ADR-0057: GuessSubmissionServiceTests asserts this fires
+    // exactly once (never for state 2/an unlocked incorrect guess, never
+    // more than once for the same locked-incorrect cell) by reading this
+    // count — defaults to null/never-called, same "not exercised unless a
+    // test explicitly configures it" pattern as ScoreSubmissionResult above.
+    public int ResolveWrongGuessPlayerAsyncCallCount { get; private set; }
+
+    public Func<Guid, string, WrongGuessPlayerInfo?> ResolveWrongGuessPlayerResult { get; set; } =
+        (_, _) => null;
+
+    public Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default)
+    {
+        ResolveWrongGuessPlayerAsyncCallCount++;
+        return Task.FromResult(ResolveWrongGuessPlayerResult(instanceId, submittedName));
+    }
 }

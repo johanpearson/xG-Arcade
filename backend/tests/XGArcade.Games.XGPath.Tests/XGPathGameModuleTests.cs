@@ -700,4 +700,16 @@ public class XGPathGameModuleTests
         Assert.ThrowsAsync<NotSupportedException>(
             async () => await _module.GetCellCategoryTypesAsync(instanceId, puzzleId));
     }
+
+    // ---- REQ-216/ADR-0057: xG Path is out of scope for this feature ------
+
+    [Test]
+    public async Task REQ216_ResolveWrongGuessPlayerAsync_ReturnsNull_XGPathIsOutOfScope()
+    {
+        // docs/backlog.md S-094 scopes REQ-216 to xG Grid only — xG Path's
+        // own incorrect-guess display must be completely unaffected.
+        var result = await _module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Some Wrong Guess");
+
+        Assert.That(result, Is.Null);
+    }
 }

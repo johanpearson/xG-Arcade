@@ -218,6 +218,113 @@ public class GuessSubmissionServiceTests
         Assert.That(result.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, same rule as ResolvedPlayerName");
     }
 
+    // ---- REQ-216/ADR-0057: wrong-guess photo lookup, fired at cell-lock
+    // time only -------------------------------------------------------------
+    // GridGameModule's own ResolveWrongGuessPlayerAsync implementation is
+    // GridGameModuleTests' responsibility (cache-first, then Wikidata-only,
+    // then PlayerNameIndex.PrimaryName fallback) — these tests pin down only
+    // GuessSubmissionService's own trigger condition: fires exactly once,
+    // only when a cell has just locked with its final guess still
+    // incorrect, and persists the result onto the same Guess row in the
+    // same write.
+
+    [Test]
+    public async Task REQ216_SubmitGuess_IncorrectWithAttemptsRemaining_NeverCallsResolveWrongGuessPlayer()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Wrong Guess");
+
+        Assert.That(result.Locked, Is.False, "state 2 (incorrect, attempts remaining) — this REQ never applies");
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0));
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_CorrectGuess_NeverCallsResolveWrongGuessPlayer()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Thierry Henry");
+
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0),
+            "REQ-214 owns the correct-guess case; this REQ never fires for it");
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_FinalAttemptStillIncorrect_CallsResolveWrongGuessPlayerExactlyOnce_AndReturnsItsResult()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        _gameModule.ResolveWrongGuessPlayerResult = (_, _) =>
+            new WrongGuessPlayerInfo("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "First Wrong Guess");
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(1),
+            "must fire exactly once — never per incorrect attempt while attempts remain (only the first attempt above must not have called it)");
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored!.MatchedPlayerName, Is.EqualTo("Clarence Seedorf"),
+            "persisted immediately in the same write, never batched — this is what makes state 4 (round closed, page reload) work");
+        Assert.That(stored.MatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_FinalAttemptStillIncorrect_NoPlayerNameIndexMatch_ReturnsNullFieldsAndPersistsNull()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 1;
+        _gameModule.ResolveWrongGuessPlayerResult = (_, _) => null;
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Not A Real Player");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(1));
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null,
+            "a guess matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored!.MatchedPlayerName, Is.Null);
+        Assert.That(stored.MatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_CorrectOnFirstAttempt_NeverCallsResolveWrongGuessPlayer_EvenThoughCellLocks()
+    {
+        // Distinguishes "locked" from "locked AND incorrect" — REQ-210 locks
+        // immediately on a correct answer too, but this REQ must still never
+        // fire for that case (REQ-214 owns it instead).
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Thierry Henry");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0));
+    }
+
     // ---- REQ-202: guess locking (allow_guess_change) -----------------------
 
     [Test]

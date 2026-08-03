@@ -192,6 +192,41 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(exists, Is.False, "a prefix match must never satisfy this exact-match gate");
     }
 
+    // ---- REQ-216/ADR-0057: FindByNormalizedNameAsync -----------------------
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_ExactNormalizedMatch_ReturnsTheMatchedEntry()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("clarence seedorf");
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.PrimaryName, Is.EqualTo("Clarence Seedorf"));
+    }
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_NoMatch_ReturnsNull()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("someone else entirely");
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_PartialPrefixOnly_ReturnsNull()
+    {
+        // Same exact-match-only contract as ExistsByNormalizedNameAsync — a
+        // prefix match must never satisfy this gate either.
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("clarence");
+
+        Assert.That(found, Is.Null, "a prefix match must never satisfy this exact-match gate");
+    }
+
     [Test]
     public async Task UpsertManyAsync_ExistingPlayerId_UpdatesInPlace_NotDuplicateInsert()
     {

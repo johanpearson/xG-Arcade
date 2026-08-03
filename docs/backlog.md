@@ -4579,7 +4579,7 @@ none blocking on other stories, but should not be built without the
 requirements pass above landing first.
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
-(REQ-216) — architecture resolved, ready to size/build, 2026-08-03**
+(REQ-216) — backend implemented 2026-08-03, frontend still queued**
 Direct product-owner sign-off this session, reversing a deliberate prior
 decision (`CellState.tsx`'s states-2/3 comment) narrowly for the
 locked-incorrect case only (state 3, and state 4's incorrect branch) —
@@ -4600,10 +4600,19 @@ real-match-no-photo case (with name) and the no-match-at-all case (no
 name); see REQ-216's 2026-08-03 status note for the full asymmetry-with-
 REQ-214 discussion. This introduces a new visual element with no token in
 `design-document.md` §2 yet — `ui-implementer` must add one before
-building the frontend half. **Not yet built** — this story still needs
-sizing/implementation: backend (the new Wikidata-only lookup trigger +
-persistence, and exposing the resolved photo on the incorrect-guess
-response) and frontend (`CellState.tsx`'s locked-incorrect branch gaining
-the red border + photo/name display). *Deps:* ADR-0057 (resolved this
+building the frontend half. **Backend implemented 2026-08-03** by
+`backend-implementer` — see REQ-216's own status note for the full shape
+(`IGameModule.ResolveWrongGuessPlayerAsync`,
+`WikidataClient.QueryPlayerPhotoByNameAsync`,
+`IPlayerNameIndexRepository.FindByNormalizedNameAsync`, the two new
+`Guess` columns, and the new response fields on both
+`POST .../guesses` and `GET /rounds/current`). Note the placeholder-avatar
+amendment above is a pure frontend/rendering decision — the backend only
+ever exposes the same two nullable name/photo fields regardless of
+whether the frontend renders "nothing" or a placeholder graphic for a
+null photo, so this amendment required no backend change. **Still
+queued:** frontend (`CellState.tsx`'s locked-incorrect branch gaining the
+red border + real-photo/placeholder-avatar/name display, blocked on the
+`design-document.md` §2 token above). *Deps:* ADR-0057 (resolved this
 session); REQ-211/ADR-0011 (existing, `WikidataClient` reused, budget/
 fallback tier NOT shared); REQ-214 (existing, UI template).

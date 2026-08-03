@@ -176,6 +176,34 @@ public class CurrentRoundEndpointTests
         await dbContext.SaveChangesAsync();
     }
 
+    // REQ-216/ADR-0057: seeds a locked, final-incorrect Guess row directly
+    // with MatchedPlayerName/MatchedPlayerPhotoUrl already persisted — same
+    // "bypass POST, seed the exact row shape GuessSubmissionService would
+    // have written" pattern as SeedCorrectGuessDirectlyAsync above. Proves
+    // GET /rounds/current reads these columns back without ever needing a
+    // new live Wikidata lookup — exactly what makes state 4 (round closed,
+    // page reload) work.
+    private async Task SeedLockedIncorrectGuessDirectlyAsync(
+        Guid roundId, Guid cellId, Guid userId, string? matchedPlayerName, string? matchedPlayerPhotoUrl, bool isCorrect = false)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.Guesses.Add(new Guess
+        {
+            Id = Guid.NewGuid(),
+            RoundId = roundId,
+            UserId = userId,
+            CellId = cellId,
+            SubmittedName = "Clarence Seedorf",
+            IsCorrect = isCorrect,
+            AttemptCount = 2,
+            CreatedAt = DateTime.UtcNow,
+            MatchedPlayerName = matchedPlayerName,
+            MatchedPlayerPhotoUrl = matchedPlayerPhotoUrl,
+        });
+        await dbContext.SaveChangesAsync();
+    }
+
     private HttpClient CreateAuthenticatedClient(Guid authProviderUserId)
     {
         var client = _factory.CreateClient();
@@ -430,6 +458,80 @@ public class CurrentRoundEndpointTests
         var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
         Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
         Assert.That(guessedCell.Guess.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, unchanged from REQ-212's rule for names");
+    }
+
+    // ---- REQ-216/ADR-0057: wrong-guess photo on a locked, final-incorrect
+    // cell --------------------------------------------------------------
+    // GuessSubmissionService only ever persists MatchedPlayerName/
+    // MatchedPlayerPhotoUrl at submission time (Core-level tests own that
+    // trigger condition) — this endpoint's own job is just to read those
+    // columns back without triggering a new live lookup, which is what
+    // makes state 4 (round closed, page reload) work. Seeded directly, same
+    // "bypass POST" pattern as the REQ-204 uniqueness tests below.
+
+    [Test]
+    public async Task REQ216_CurrentRound_Get_LockedIncorrectGuess_ReturnsPersistedMatchedPlayerNameAndPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        await SeedLockedIncorrectGuessDirectlyAsync(
+            roundId, firstCellId, userId, matchedPlayerName: "Clarence Seedorf", matchedPlayerPhotoUrl: "https://example.org/seedorf.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.False);
+        Assert.That(guessedCell.Guess.Locked, Is.True);
+        Assert.That(guessedCell.Guess.IncorrectGuessMatchedPlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(guessedCell.Guess.IncorrectGuessMatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_CurrentRound_Get_LockedIncorrectGuess_NoMatchedPlayer_ReturnsNullFields()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        await SeedLockedIncorrectGuessDirectlyAsync(
+            roundId, firstCellId, userId, matchedPlayerName: null, matchedPlayerPhotoUrl: null);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IncorrectGuessMatchedPlayerName, Is.Null,
+            "a guess matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+        Assert.That(guessedCell.Guess.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_CurrentRound_Get_CorrectGuess_NeverReturnsIncorrectGuessMatchedPlayerFields_EvenIfSomehowPersisted()
+    {
+        // Defensive: RoundEndpoints explicitly nulls these out whenever
+        // guess.IsCorrect is true, even though GuessSubmissionService's own
+        // write path never sets them for a correct guess in practice.
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        var (roundId, firstCellId, _) = await SeedRoundWithCellsAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        await SeedLockedIncorrectGuessDirectlyAsync(
+            roundId, firstCellId, userId, matchedPlayerName: "Should Never Show", matchedPlayerPhotoUrl: "https://example.org/should-never-show.jpg",
+            isCorrect: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.GetAsync("/rounds/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentRoundResponse>();
+        var guessedCell = body!.Cells.Single(c => c.CellId == firstCellId);
+        Assert.That(guessedCell.Guess!.IsCorrect, Is.True);
+        Assert.That(guessedCell.Guess.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(guessedCell.Guess.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
     }
 
     // ---- REQ-204: live unique_percent --------------------------------------

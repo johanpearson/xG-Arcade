@@ -13,6 +13,26 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/requirements-document.md` (v1.40 → v1.41),
+  `docs/backlog.md` (S-094 status) — `backend-implementer` shipped REQ-216's
+  backend half: `GuessSubmissionService` resolves
+  `IGameModule.ResolveWrongGuessPlayerAsync` exactly once, only when a cell
+  locks with its final guess still incorrect; `GridGameModule`'s
+  implementation is cache-first, then ADR-0057's Wikidata-only
+  `WikidataClient.QueryPlayerPhotoByNameAsync` for the photo (new
+  `IPlayerNameIndexRepository.FindByNormalizedNameAsync` supplies the
+  always-resolvable canonical-name fallback); persisted onto two new
+  nullable `Guess` columns (migration `AddGuessMatchedPlayerNameAndPhoto`)
+  in the same write, read back (never re-resolved) by `GET /rounds/current`
+  as `IncorrectGuessMatchedPlayerName`/`IncorrectGuessMatchedPlayerPhotoUrl`.
+  Also documents, retroactively, the same-day placeholder-avatar amendment
+  (both REQ-216 no-photo branches now show a placeholder graphic instead of
+  nothing, per direct product-owner sign-off) that had updated
+  `docs/requirements-document.md`/`docs/backlog.md` without a CHANGELOG
+  entry — confirmed to require no backend change, since it's a pure
+  frontend rendering decision against the same two nullable fields.
+  Frontend (`CellState.tsx`) is still queued. REQ-216/ADR-0057/S-094.
+
 - 2026-08-03 — `docs/requirements-document.md` (v1.37 → v1.39, new REQ-216),
   `docs/backlog.md` (new S-094), `docs/decisions/0057-wrong-guess-photo-lookup-scope.md`
   (new), `docs/architecture-document.md` (§10 table) — GitHub feature

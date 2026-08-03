@@ -201,6 +201,20 @@ public class XGPathGameModule(
         throw new NotSupportedException(
             "xG Path puzzles have no row/col category concept — REQ-215's PlayerSuggestion flow is not supported for xg-path.");
 
+    // REQ-216/ADR-0057: xG Path is out of scope for this feature
+    // (docs/backlog.md S-094 scopes it to xG Grid only) — returns null
+    // unconditionally rather than fabricating a value. Unlike
+    // GetCellCategoryTypesAsync above, this isn't "xG Path has no such
+    // concept" (a wrong-but-real guess against a PathPuzzle is just as real
+    // a case as against a GridCell) — it's simply not built for this game
+    // yet, and GuessSubmissionService's own null-means-no-identity contract
+    // already handles that correctly: returning null here leaves xG Path's
+    // existing incorrect-guess display completely unaffected, exactly as if
+    // this REQ didn't exist for this game at all.
+    public Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default) =>
+        Task.FromResult<WrongGuessPlayerInfo?>(null);
+
     // REQ-1201: candidate eligibility. Reads only PlayerCareerStint (via
     // IPlayerStoreRepository, boundary rule 1 — Games.XGPath never touches
     // XGArcadeDbContext directly) and ClubDefinition (via

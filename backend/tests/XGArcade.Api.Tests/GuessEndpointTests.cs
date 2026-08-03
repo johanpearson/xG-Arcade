@@ -459,6 +459,91 @@ public class GuessEndpointTests
         Assert.That(body.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, unchanged from REQ-212's rule for names");
     }
 
+    // ---- REQ-216/ADR-0057: wrong-guess photo on a locked, final-incorrect
+    // cell --------------------------------------------------------------
+    // Seeds a PlayerNameIndex entry PLUS an already-cached Player row for
+    // the wrong-but-real guess (distinct from the cell's own correct
+    // answer) — GridGameModule.ResolveWrongGuessPlayerAsync's cache-first
+    // branch then returns without ever calling the live Wikidata client, so
+    // these tests never depend on real network (docs/coding-guidelines.md).
+
+    private async Task SeedMatchablePlayerAsync(string name, string? photoUrl)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.PlayerNameIndexEntries.Add(new PlayerNameIndex
+        {
+            PlayerId = Guid.NewGuid(),
+            PrimaryName = name,
+            NormalizedName = PlayerNameNormalizer.Normalize(name),
+        });
+        dbContext.Players.Add(new Player { Id = Guid.NewGuid(), FullName = name, PhotoUrl = photoUrl });
+        await dbContext.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_IncorrectWithAttemptsRemaining_ReturnsNullIncorrectGuessMatchedPlayerFields()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        await SeedMatchablePlayerAsync("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Clarence Seedorf"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.False, "state 2 (incorrect, attempts remaining) — this REQ never applies");
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_FinalAttemptStillIncorrect_MatchesRealPlayer_ReturnsCanonicalNameAndPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        await SeedMatchablePlayerAsync("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("First Wrong Guess"));
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Clarence Seedorf"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.True);
+        Assert.That(body.IsCorrect, Is.False);
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_FinalAttemptStillIncorrect_NoPlayerNameIndexMatch_ReturnsNullFields()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("First Wrong Guess"));
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Totally Made Up Name"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.True);
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.Null,
+            "a guess matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
     // ---- REQ-210: two guesses per cell, locked immediately on correct -----
 
     [Test]

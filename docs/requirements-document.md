@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.40"
+version: "1.41"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -2339,8 +2339,34 @@ copy; a non-guest sees it enabled and can complete the form)
 > instead of a bare X — even though I never find out who the *correct*
 > answer was.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement.
+**Status: Backend implemented (2026-08-03), frontend not yet built.**
+`GuessSubmissionService.SubmitGuessAsync` (`XGArcade.Core.Scoring`) now
+resolves `IGameModule.ResolveWrongGuessPlayerAsync` exactly once — only on
+the submission that locks a cell with its final guess still incorrect,
+never for state 2. `GridGameModule`'s implementation
+(`XGArcade.Games.XGGrid`) is cache-first (an already-known `Player` row
+from resolving some other cell), then ADR-0057's Wikidata-only
+`WikidataClient.QueryPlayerPhotoByNameAsync` for the photo only — the
+canonical name itself always falls back to `PlayerNameIndex.PrimaryName`
+(via a new `IPlayerNameIndexRepository.FindByNormalizedNameAsync`) when
+resolvable no other way, since a resolved name never depends on the live
+lookup succeeding (only the photo does). Persisted immediately onto two new
+nullable `Guess` columns (`MatchedPlayerName`/`MatchedPlayerPhotoUrl`,
+migration `AddGuessMatchedPlayerNameAndPhoto`) in the same write as the
+locking guess itself — never a second write. `POST
+/rounds/{roundId}/cells/{cellId}/guesses` and `GET /rounds/current` both
+expose this as `IncorrectGuessMatchedPlayerName`/
+`IncorrectGuessMatchedPlayerPhotoUrl`; the round-close read path never
+triggers a new live lookup, only reads the persisted columns back — this
+is what makes state 4 (round closed, page reload) work. xG Path's
+`IGameModule` implementation returns `null` unconditionally (out of scope
+per `docs/backlog.md` S-094). The same-day placeholder-avatar amendment
+below (whether a null photo renders as nothing or a placeholder graphic)
+is a pure frontend rendering decision against these same two nullable
+fields — it required no backend change and none was made. **Not yet
+done:** `CellState.tsx`'s frontend red-border/real-photo/placeholder-
+avatar/name display (S-094's remaining half, blocked on a
+`design-document.md` §2 token per the amendment's own flagged note).
 
 - **Status note (2026-08-03, direct product-owner sign-off this session —
   supersedes, narrowly, `frontend/src/grid/CellState.tsx`'s states-2/3
