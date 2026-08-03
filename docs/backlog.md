@@ -4583,7 +4583,7 @@ address ADR-0042's boundary rather than reproduce this same conflict.
 No code, REQ, or ADR changes were made. *Deps:* none — closed, not queued.
 picked up whenever a session is available for the design pass.
 
-**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — queued, not yet built, 2026-08-03**
+**S-093 · xG Path: no-repeat target selection across rounds + admin cycle visibility — requirements + ADR landed 2026-08-03, implementation not yet started**
 Player feedback, 2026-08-02/03: as more familiar players get selected
 (ADR-0056), the same targets are starting to repeat noticeably across
 rounds. Today's `PickDistinct` (REQ-1202) only guarantees no repeat *within
@@ -4594,15 +4594,22 @@ used once (a full "cycle"); (2) once a full cycle completes, an admin
 should be able to see that in `AdminScreen.tsx` (the existing admin
 surface, REQ-503/509/510 — no new screen needed) so they can take action
 (e.g. widen the seeded club/country pool, revisit ADR-0056's familiarity
-threshold). **Not scoped or designed yet** — needs `requirements-writer`
-first: what persists "already used this cycle" (a new table? a flag on
-`Player`? scoped to the whole pool or per-something?), how a completed
-cycle is detected and surfaced, and whether this interacts with
-ADR-0056's familiarity filter shrinking the pool (a cycle over a filtered
-pool is a different, smaller cycle than one over the full structurally-
-eligible pool — needs an explicit decision, not an assumption). *Deps:*
-none blocking on other stories, but should not be built without the
-requirements pass above landing first.
+threshold). **Requirements pass run 2026-08-03** (`/orchestrate` via
+`requirements-writer`): added REQ-1208 (no-repeat-until-cycled behavior)
+and REQ-1209 (admin cycle-visibility panel), both `Status: Not yet
+implemented — drafted only`. **ADR-0058 (2026-08-03)** resolves the two
+open design questions: cycle-tracking state is xG Path's own data (new
+table(s) in `XGArcade.Data`, scoped to `Games.XGPath` — never a flag on
+the shared `Player` entity, per ADR-0042's precedent), and a cycle is
+scored against the live, ADR-0056-familiarity-filtered pool
+`GetEligiblePlayerIdsAsync`/`PickDistinct` already use (not the larger
+structurally-eligible-only pool), with a tolerant
+"remaining-unused-count-below-N" completion rule rather than requiring an
+exact zero, to tolerate that pool's documented live instability. *Deps:*
+none blocking on other stories. Next: backend implementation
+(`backend-implementer`) of REQ-1208's persistence + `PickDistinct`
+changes and a new admin-read endpoint, then `ui-implementer` for
+REQ-1209's `AdminScreen.tsx` panel, then `test-writer`.
 
 **S-094 · xG Grid: guessed player's photo on a locked, final-incorrect cell
 (REQ-216) — implemented 2026-08-03 (backend and frontend, same day)**

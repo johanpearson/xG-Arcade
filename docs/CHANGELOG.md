@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-03 — `docs/requirements-document.md` (v1.43 → v1.44),
+  `docs/decisions/0058-xg-path-target-cycle-tracking.md` (new),
+  `docs/architecture-document.md` (v0.78 → v0.79) — `/orchestrate` ran on
+  S-093 (xG Path: no-repeat target selection across rounds + admin cycle
+  visibility). Requirements pass: added REQ-1208 (targets don't repeat
+  until the eligible, ADR-0056-familiarity-filtered pool has cycled once)
+  and REQ-1209 (admin-visible cycle status on the existing
+  `AdminScreen.tsx`, REQ-503/509/510's surface). Both `Status: Not yet
+  implemented — drafted only`; code not yet written, tracked by S-093.
+  ADR-0058 records the two decisions the backlog entry explicitly flagged
+  as needing one rather than an assumption: cycle-tracking state is xG
+  Path's own data (never a field on the shared `Player` entity, per
+  ADR-0042's precedent), and a cycle is scored against the live,
+  ADR-0056-filtered pool `PickDistinct` actually samples from (not the
+  larger structurally-eligible-only pool), with a tolerant
+  "remaining-unused-below-N" completion rule rather than an exact-zero
+  check, to tolerate that pool's documented live instability. REQ-1201/1202.
+
 - 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
   eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
   longer loads the entire `PlayerCareerStint` table

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.43"
+version: "1.44"
 status: draft
 last_updated: 2026-08-03
 owner: Johan
@@ -6546,6 +6546,141 @@ BirthYear are set from the query response when a `Player` row is first
 created, and left completely untouched on a `Player` row that already
 exists on a later sync, whether or not its current value is null; both
 columns are correctly null when their source Wikidata data is absent)
+
+**REQ-1208 – xG Path target selection does not repeat until the eligible
+pool has cycled**
+> As a player, I want xG Path targets not to repeat noticeably across
+> rounds, so I don't keep seeing the same familiar players over and over
+> before the pool of eligible, recognizable players has actually been used
+> up once.
+
+**Status: Not yet implemented — drafted only.** No code exists for any
+part of this requirement. `docs/backlog.md` S-093 tracks the implementation
+story; queued behind this requirements pass, per that entry's own note.
+
+**Design note — which pool a cycle is scored against (explicit decision,
+not a default):** a cycle is scored against the same pool
+`GetEligiblePlayerIdsAsync` already computes and `PickDistinct` already
+samples from at generation time — REQ-1201's three structural checks
+**narrowed by ADR-0056's familiarity filter** — not the larger,
+structurally-eligible-only pool. This is deliberate, not an oversight:
+targets are only ever actually selected from the familiarity-filtered
+pool, so scoring a cycle against the larger structural pool would include
+players who can structurally never be picked at all (anyone permanently
+below ADR-0056's sitelink threshold) — a cycle scored that way could
+never complete, since it would always be waiting on players selection can
+never reach. ADR-0056 itself documents that this pool is live and
+somewhat unstable (re-queried every generation, can shrink or grow,
+fails open on a Wikidata outage) — this REQ's cycle-completion rule
+below (a cycle completes once the *remaining unused* portion of the
+current live pool drops below what a generation needs, not once it hits
+exactly zero) is deliberately tolerant of that instability: it does not
+require the pool to ever stabilize or hit an exact empty state, only
+that it run low relative to how many targets one generation needs.
+
+**Persistence boundary (explicit decision, not a default):** "already
+used this cycle," the cycle counter, and the pool/usage figures REQ-1209
+displays are xG Path-specific state, not shared game data. This must be
+persisted as xG Path's own data (`XGArcade.Data`, ADR-0014's existing
+"every game module's entities live in the shared `DbContext`, scoped to
+that module" precedent — the same pattern `PathInstance`/`PathPuzzle`/
+`PathTemplate` already follow) — **never** a new field on the shared
+`Player` entity (COMP-06), which xG Grid also reads. Adding xG Path's own
+cycling concern to a row xG Grid depends on would be the same kind of
+cross-game leakage ADR-0042 already rejected for a different reason
+(`PlayerCareerStint` kept separate from `PlayerAttribute` rather than
+widening a shared table for one consumer's needs) — see that ADR's own
+"For AI agents" note.
+
+- Given the live xG Path target-selection pool for a generation (REQ-1201's
+  structural checks narrowed by ADR-0056's familiarity filter — the exact
+  pool `GetEligiblePlayerIdsAsync` already returns today)
+- And a record of which players in that pool have already been selected as
+  a target since the current cycle began
+- When a new xG Path round instance is generated and needs N distinct
+  targets (REQ-1202)
+- Then targets are selected only from among eligible players not yet used
+  in the current cycle
+- And each selected target is recorded as used in the current cycle at the
+  same time it is persisted as a puzzle's target, so no later generation in
+  the same cycle can reselect them
+- Given the eligible players not yet used in the current cycle number fewer
+  than N (the count this generation needs)
+- When round generation runs
+- Then the current cycle is treated as complete: a new cycle begins (every
+  eligible player, including one used moments ago in the just-completed
+  cycle, becomes selectable again), the completion moment is recorded, and
+  this generation's N targets are then selected from the newly-available
+  full pool
+- And REQ-1202's existing "no two puzzles in the same round instance target
+  the same player" guarantee is unaffected — a cycle rollover changes which
+  players are eligible for selection, never the distinctness guarantee
+  within one instance
+- And a player who drops out of the live eligible pool between generations
+  (e.g., no longer meets ADR-0056's familiarity threshold, or a fail-open
+  event ends) is simply no longer considered — their earlier "used this
+  cycle" record is inert, never blocks anyone else's eligibility, and never
+  causes a generation failure
+- And this REQ does not change `GenerateInstanceAsync`'s existing
+  insufficient-total-pool abort (REQ-1202: fewer than N eligible players
+  overall) — that check is about total pool size and is independent of
+  cycle state
+
+**Test level:** Unit (a selected target is recorded as used in the current
+cycle; a player already used in the current cycle is excluded from
+selection on a later generation within the same cycle; a cycle rolls over
+when the unused-in-cycle count drops below N, making every eligible player
+selectable again; a player who leaves the live eligible pool between
+generations never blocks rollover detection or causes an error), API/
+Integration (round generation still produces exactly N distinct-target
+puzzles across a cycle-rollover boundary; the pre-existing insufficient-
+total-pool `PathGenerationException` still fires and is unaffected by
+cycle state).
+
+**REQ-1209 – Admin visibility into xG Path target cycling**
+> As an admin, I want to see xG Path's current target-selection cycle
+> status on the admin screen, so I can notice when the eligible pool is
+> running low and consider widening the seeded club/country pool or
+> revisiting ADR-0056's familiarity threshold.
+
+**Status: Not yet implemented — drafted only.** No code exists for any
+part of this requirement. Depends on REQ-1208's persisted cycle state
+existing first.
+
+- Given REQ-1208's persisted cycle state (the current cycle number, the
+  eligible pool size as most recently observed at generation time, how many
+  of that pool have been used so far in the current cycle, and when the
+  most recently completed cycle finished, if any)
+- When an admin opens the existing admin screen (`AdminScreen.tsx`,
+  REQ-503/509/510's surface — no new screen)
+- Then a new, self-contained section (same pattern as
+  `UnverifiedDataSection`/`RoundControlSection`/`AccountMetricsSection` —
+  its own fetch, gated on backend availability) displays: the current cycle
+  number, the eligible pool size as of the most recent xG Path round
+  generation, how many targets have been used so far in the current cycle
+  and how many remain, and the completion time of the most recently
+  completed cycle
+- And this section's fetch/render never blocks, and is never blocked by,
+  any other admin section's state
+- And opening this section reads only already-persisted cycle state — it
+  never itself triggers a new eligible-pool computation or a live Wikidata
+  familiarity check; ADR-0056's per-generation query stays scoped to round
+  generation only
+- Given no xG Path round has ever been generated yet (no cycle state exists)
+- When an admin opens the admin screen
+- Then this section shows a clear "no data yet" state, never an error and
+  never a blank section
+- Given a non-admin token
+- When the underlying endpoint for this section is called
+- Then it responds 403, the same policy-gating every other admin endpoint
+  in `AdminScreen.tsx` already enforces
+
+**Test level:** API (a new admin-authenticated read endpoint returns the
+persisted cycle state; 403s a non-admin token, mirroring every existing
+admin endpoint's own test coverage), UI (the section renders each field
+from a successful fetch, renders the pre-first-generation empty state,
+and follows the same 401-escalates/403-hides/other-error-shows-message
+pattern `AccountMetricsSection` already establishes).
 
 ---
 
