@@ -13,6 +13,41 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-04 — `docs/requirements-document.md` (v1.43 → v1.44),
+  `docs/architecture-document.md` (v0.78 → v0.79) — doc-sync for the
+  REQ-1203 follow-up fix (ADR-0058, commits `99c5818`/`d829a25`, branch
+  `claude/xg-duplicate-clubs-7ns69u`): xG Path could still show the same
+  real career stint as two separate club-reveal nodes even after the
+  2026-08-03 `NormalizeClubName` fix, because two independent writers of
+  `PlayerCareerStint.ClubName` used different naming conventions (the
+  seeded `ClubDefinition.Name` vs. Wikidata's raw `?clubLabel`) with no
+  QID-based cross-check — e.g. "Lyon" vs. "Olympique Lyonnais," same club,
+  more than a legal-suffix token apart. Fixed by selecting the underlying
+  Wikidata `?club` QID (`WikidataCareerStintEntry.ClubQid`) and having
+  `PlayerCareerStintRefreshService`/`PlayerCareerPrefetchService`
+  canonicalize each fetched stint's `ClubName` against `ClubDefinition.Name`
+  by QID, also fixing `GetCareerStintCandidatePlayerIdsAsync`'s (REQ-1201)
+  exact-string eligibility match for free. A new narrow, provable-only CLI
+  verb (`clean-duplicate-career-stints`/`DuplicateCareerStintCleaner`)
+  backfills already-persisted duplicates without a full purge-and-reseed of
+  the ~608K-row table — see ADR-0058 for the full reasoning. Requirements
+  doc: new 2026-08-04 status note on REQ-1203, alongside (not replacing)
+  the existing 2026-08-02/2026-08-03 notes, which cover different bugs.
+  Architecture doc: COMP-07 row updated to note `PlayerCareerStintRefreshService`'s
+  new `ICategoryValueRepository` dependency and the QID-canonicalization
+  data flow — confirmed this is a second call site for an existing
+  reference-data-read pattern (ADR-0012), not a new boundary; COMP-11/COMP-06
+  rows checked and left unchanged, since neither's documented responsibility
+  or data-flow shape actually changed. `docs/decisions/0058-*.md` already
+  existed (written alongside the code fix) and was not re-created or
+  edited. Both an `architecture-reviewer` and `quality-architect` pass
+  already ran on the diff before this doc-sync and returned PASS (two
+  low-severity, explicitly non-blocking test-coverage nits, not code
+  changes). No test suite was executed as part of this fix or this
+  doc-sync — the `dotnet` SDK was not available in this sandbox at any
+  point; all new/changed backend code was hand-traced against the actual
+  service/query code, not run. REQ-1203, ADR-0058.
+
 - 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
   eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
   longer loads the entire `PlayerCareerStint` table
