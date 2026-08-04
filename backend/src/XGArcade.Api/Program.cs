@@ -549,6 +549,40 @@ if (args is ["clear-pair-lookup-failures", ..])
     return;
 }
 
+// Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+// ADR-0059): `dotnet run -- clean-duplicate-career-stints` — see
+// DuplicateCareerStintCleaner's own doc comment for the full "why this
+// exists and why it's a narrow, provable-only cleanup rather than a full
+// purge-and-reseed." No required argument, same "reads its own scope from
+// the database" shape as clear-pair-lookup-failures above — an already-
+// canonical ClubDefinition-vs-PlayerCareerStint comparison, not an
+// operator-supplied club list.
+if (args is ["clean-duplicate-career-stints", ..])
+{
+    if (args.Length > 1)
+        throw new InvalidOperationException(
+            $"clean-duplicate-career-stints takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
+
+    var cleanDuplicateStintsConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var cleanDuplicateStintsConnectionString = cleanDuplicateStintsConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var cleanDuplicateStintsDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(cleanDuplicateStintsConnectionString)
+        .Options;
+
+    await using var cleanDuplicateStintsDbContext = new XGArcadeDbContext(cleanDuplicateStintsDbContextOptions);
+
+    var removedDuplicateStintCount = await DuplicateCareerStintCleaner.CleanAsync(cleanDuplicateStintsDbContext);
+
+    Console.WriteLine($"clean-duplicate-career-stints: removed {removedDuplicateStintCount} PlayerCareerStint row(s) " +
+        "provably duplicating an already-canonical row for the same player/stint.");
+    return;
+}
+
 // S-038 (ADR-0025): `dotnet run -- purge-player-pool "delete all player data"`
 // is a fourth CLI verb — deletes every Player row (and, via ON DELETE
 // CASCADE, every PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias row

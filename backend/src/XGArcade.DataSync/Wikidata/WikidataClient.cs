@@ -1048,11 +1048,22 @@ public class WikidataClient(
     // not just a direct P31 check, since a specific national team's P31 is
     // typically a narrower subclass (e.g. "men's national association
     // football team") rather than Q6979593 itself.
+    // ?club added to the SELECT (bug fix, 2026-08-04, xG Path duplicate-node
+    // bug, REQ-1203 follow-up): the 2026-08-03 NormalizeClubName fix above
+    // only strips a small, hand-picked set of legal-suffix tokens
+    // ("FC"/"AFC"/etc.) and does nothing for a genuine alternate-name
+    // variant (e.g. "Lyon" vs. "Olympique Lyonnais") — the underlying ?club
+    // QID is the only reliable way to recognize "this is the same real
+    // club" across such variants, since ClubDefinition.WikidataQid already
+    // exists specifically to canonicalize against (see
+    // ParseCareerStintBindings' own comment for where this QID is threaded
+    // to). ?club was already bound in the query body (?clubStatement ps:P54
+    // ?club) — it just wasn't projected.
     private static string BuildPlayerCareerStintsByQidsQuery(IReadOnlyList<string> qids)
     {
         var valuesClause = string.Join(" ", qids.Select(qid => $"wd:{qid}"));
         return $$"""
-            SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
+            SELECT ?player ?club ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
               VALUES ?player { {{valuesClause}} }
               ?player p:P54 ?clubStatement.
               ?clubStatement ps:P54 ?club.
@@ -1141,12 +1152,33 @@ public class WikidataClient(
             if (!stintsByQid.TryGetValue(qid, out var stints))
                 stintsByQid[qid] = stints = [];
 
+            // ?club (bug fix, 2026-08-04, REQ-1203 follow-up): same
+            // "trailing URI segment is the QID" extraction as ?player above.
+            // Defensively tolerated as absent (null), even though ?club is a
+            // mandatory, non-OPTIONAL match in the query body — a test
+            // fixture or an unexpected WDQS response shape omitting it must
+            // not drop an otherwise-usable row; the caller-side
+            // canonicalization step (PlayerCareerStintRefreshService/
+            // PlayerCareerPrefetchService) simply falls back to the
+            // normalized label when ClubQid is null, same as it does for a
+            // QID that doesn't match any seeded ClubDefinition.
+            var clubQid = binding.TryGetValue("club", out var clubValue) && !string.IsNullOrEmpty(clubValue.Value)
+                ? clubValue.Value.Split('/').Last()
+                : null;
+
             // Normalize BEFORE the HashSet sees it: this is the club name
             // that both dedup and every downstream persistence use — see
             // WikidataCareerStintEntry's own doc comment and this class's
             // NormalizeClubName for why the canonical (not raw) form is
-            // what gets stored.
-            stints.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount));
+            // what gets stored. NormalizeClubName's suffix-strip is still
+            // applied here as the best-effort fallback label (used when
+            // ClubQid doesn't resolve to a seeded ClubDefinition) — QID-based
+            // canonicalization happens one layer up, not in this client,
+            // per this class's own "no ClubDefinition dependency" layering
+            // convention within COMP-07 (not a documented cross-component
+            // boundary rule — see architecture-document.md's numbered
+            // boundary list, which has no entry for this).
+            stints.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
         }
 
         return stintsByQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)kv.Value.ToList());
