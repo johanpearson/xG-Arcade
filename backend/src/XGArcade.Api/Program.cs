@@ -1130,6 +1130,10 @@ app.MapAdminAccountsEndpoints();
 // S-026: REQ-505/506, non-Production only — see that file's own doc comment
 // for why these are kept separate from MapAdminEndpoints above.
 app.MapAdminManagementEndpoints();
+// REQ-1209/ADR-0058: xG Path's cycle-state admin read, registered
+// unconditionally (including Production) — see that file's own doc comment
+// for why it's kept separate from MapAdminManagementEndpoints above.
+app.MapAdminXGPathEndpoints();
 app.MapPlayerAutocompleteEndpoints();
 
 app.Run();

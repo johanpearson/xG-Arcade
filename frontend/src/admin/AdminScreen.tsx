@@ -9,12 +9,19 @@ import {
   describeError,
   fetchActiveAdminRound,
   fetchAdminAccountMetrics,
+  fetchAdminXGPathCycle,
   fetchGuestAccountCount,
   fetchUnverifiedPlayerData,
   removePlayerData,
   updateAdminRoundEndTime,
 } from '../lib/api';
-import type { AdminActiveRound, AdminAccountMetrics, ClearGuestAccountResult, UnverifiedPlayerData } from '../lib/types';
+import type {
+  AdminActiveRound,
+  AdminAccountMetrics,
+  AdminXGPathCycleState,
+  ClearGuestAccountResult,
+  UnverifiedPlayerData,
+} from '../lib/types';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 import './AdminScreen.css';
 
@@ -140,6 +147,13 @@ export function AdminScreen({ accessToken, onAuthError }: AdminScreenProps) {
           visible in every environment, including Production, so this section
           renders (and attempts its own fetch) unconditionally. */}
       <AccountMetricsSection accessToken={accessToken} onAuthError={onAuthError} />
+
+      {/* REQ-1209: same "own fetch, own gating, never blocks or is blocked by
+          any other admin section" pattern as AccountMetricsSection above —
+          rendered unconditionally (this endpoint is registered in every
+          environment, including Production, same as REQ-507/508's), not
+          gated by the Non-Production-only `activeRound` probe below. */}
+      <XGPathCycleSection accessToken={accessToken} onAuthError={onAuthError} />
 
       {activeRound !== null && (
         <>
@@ -958,4 +972,100 @@ function describeGuestClearOutcome(result: ClearGuestAccountResult): string {
     default:
       return 'Not cleared.';
   }
+}
+
+interface XGPathCycleSectionProps {
+  accessToken: string;
+  onAuthError: () => void;
+}
+
+// REQ-1209/ADR-0058: read-only visibility into xG Path's REQ-1208
+// target-selection cycle state, mirroring AccountMetricsSection's shape
+// exactly (its own fetch/state, independent of AdminScreen's top-level
+// PageState) — a 401 escalates via onAuthError like every other admin
+// action in this file, a 403 only hides this section, and any other error
+// shows inline rather than failing the whole page. Rendered unconditionally
+// by AdminScreen (see the render-site comment there), so its fetch/render
+// never blocks, and is never blocked by, any other admin section's state.
+function XGPathCycleSection({ accessToken, onAuthError }: XGPathCycleSectionProps) {
+  const [cycleState, setCycleState] = useState<AdminXGPathCycleState | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const result = await fetchAdminXGPathCycle(accessToken);
+        if (cancelled) return;
+        setCycleState(result);
+        setLoadError(null);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          onAuthError();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setHidden(true);
+          return;
+        }
+        setLoadError(describeError(err));
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, onAuthError]);
+
+  if (hidden) return null;
+
+  return (
+    <section className="admin-screen__section">
+      <h3 className="admin-screen__section-title">xG Path target cycle</h3>
+      {loadError && (
+        <p className="admin-screen__error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {!loadError && cycleState === null && (
+        <p className="admin-screen__empty">Loading xG Path cycle status…</p>
+      )}
+      {!loadError && cycleState !== null && !cycleState.hasData && (
+        // REQ-1209: "no xG Path round has ever generated yet" — a clear
+        // no-data state, never an error and never a blank section.
+        <p className="admin-screen__empty">No xG Path round has generated yet — no cycle data to show.</p>
+      )}
+      {!loadError && cycleState !== null && cycleState.hasData && (
+        <dl className="admin-screen__metrics">
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Current cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.cycleNumber}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Eligible pool size (as of last generation)</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.observedPoolSize}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Used this cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.usedInCycleCount}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Remaining this cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.remainingInCycleCount}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Last cycle completed</dt>
+            <dd className="admin-screen__metric-value">
+              {cycleState.lastCycleCompletedAt ?? 'No cycle has completed yet'}
+            </dd>
+          </div>
+        </dl>
+      )}
+    </section>
+  );
 }

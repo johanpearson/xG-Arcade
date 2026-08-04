@@ -360,6 +360,23 @@ export interface ClearGuestAccountsResponse {
   results: ClearGuestAccountResult[];
 }
 
+// REQ-1209/ADR-0058: GET /admin/xg-path/cycle's response shape
+// (XGArcade.Api.Admin.AdminXGPathCycleResponse) — a pure read of REQ-1208's
+// persisted `PathTargetCycle` state, never a trigger for a new eligible-pool
+// computation. `hasData: false` (every other field null) is the normal,
+// non-error "no xG Path round has ever generated yet" case — always a 200,
+// never a 404. `remainingInCycleCount` is derived server-side
+// (observedPoolSize - usedInCycleCount), not independently persisted, so it
+// can never drift out of sync with the two figures it's computed from.
+export interface AdminXGPathCycleState {
+  hasData: boolean;
+  cycleNumber: number | null;
+  observedPoolSize: number | null;
+  usedInCycleCount: number | null;
+  remainingInCycleCount: number | null;
+  lastCycleCompletedAt: string | null;
+}
+
 // REQ-215 (S-089): the persisted PlayerSuggestion row returned by
 // POST /rounds/{roundId}/cells/{cellId}/suggestions
 // (SuggestionEndpoints.SubmitSuggestionResponse). Always "Pending" at

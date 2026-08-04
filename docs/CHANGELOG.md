@@ -13,8 +13,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
-- 2026-08-04 — `docs/requirements-document.md` (v1.43 → v1.44),
-  `docs/architecture-document.md` (v0.78 → v0.79) — doc-sync for the
+- 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.48),
+  `docs/architecture-document.md` (v0.81 → v0.82) — doc-sync for the
   REQ-1203 follow-up fix (ADR-0059, commits `99c5818`/`d829a25`, branch
   `claude/xg-duplicate-clubs-7ns69u`): xG Path could still show the same
   real career stint as two separate club-reveal nodes even after the
@@ -38,7 +38,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   data flow — confirmed this is a second call site for an existing
   reference-data-read pattern (ADR-0012), not a new boundary; COMP-11/COMP-06
   rows checked and left unchanged, since neither's documented responsibility
-  or data-flow shape actually changed. `docs/decisions/0058-*.md` already
+  or data-flow shape actually changed. `docs/decisions/0059-*.md` already
   existed (written alongside the code fix) and was not re-created or
   edited. Both an `architecture-reviewer` and `quality-architect` pass
   already ran on the diff before this doc-sync and returned PASS (two
@@ -46,7 +46,108 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   changes). No test suite was executed as part of this fix or this
   doc-sync — the `dotnet` SDK was not available in this sandbox at any
   point; all new/changed backend code was hand-traced against the actual
-  service/query code, not run. REQ-1203, ADR-0059.
+  service/query code, not run. `docs/decisions/0058-career-stint-club-name-canonicalization.md`
+  was renumbered to `0059-*.md` (and every reference to it) after merging
+  latest `main`, since `main`'s own PR #147 (below) had independently
+  claimed ADR-0058 for S-093's cycle-tracking decision while this branch
+  was in progress. REQ-1203, ADR-0059.
+
+- 2026-08-03 — `docs/backlog.md` — closes a doc-sync gap left by the prior
+  two entries below: S-093's status line and body updated to reflect that
+  ADR-0058 was amended (2026-08-03, post quality-gate review) to confirm
+  `GET /admin/xg-path/cycle`'s `IGameModule` bypass as a deliberate
+  extension of ADR-0016/ADR-0048's direct-repository-read pattern to
+  cross-instance bookkeeping state (not literally covered by either ADR's
+  original per-instance-content scope), plus a note on
+  `AddInstanceWithCycleUsageAsync`'s bundled-write shape not being the
+  default way to write multiple entities; and a one-line comment typo fix
+  (`XGArcada` → `XGArcade`) in `frontend/src/lib/types.ts`. No REQ/ADR
+  content changed beyond ADR-0058's own amendment (already committed);
+  this entry only catches `docs/backlog.md` up to it. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.46 → v1.47),
+  `docs/architecture-document.md` (v0.80 → v0.81), `docs/backlog.md` —
+  full test coverage landed for REQ-1208/REQ-1209 (S-093): backend unit
+  tests (`XGPathGameModuleTests.cs`, new `ManualTimeProvider.cs`) covering
+  per-selection usage recording, in-cycle exclusion, rollover once
+  remaining-unused drops below N (including reselecting a just-used
+  player), a stale usage row from a dropped-out player never blocking
+  rollover, and the pre-existing REQ-1202 insufficient-pool abort left
+  untouched by cycle state; backend API tests (`RoundEndpointTests.cs`,
+  new `AdminXGPathEndpointTests.cs`) covering round generation across a
+  rollover boundary and `GET /admin/xg-path/cycle`'s persisted-state/
+  no-data-yet/403/401 cases plus its unconditional Production
+  registration; frontend Vitest coverage (`AdminScreen.test.tsx`) covering
+  full-field render, the no-data-yet empty state, and the
+  401/403/other-error handling pattern for `XGPathCycleSection` (459/459
+  frontend tests passing, verified in this sandbox). `dotnet` was
+  unavailable in the implementation sandbox, consistent with the prior two
+  implementation commits' own note — backend tests are written and
+  hand-traced against the actual implementation but not compiled or run;
+  still need a real `dotnet test` pass in CI before merge. Both REQs'
+  status notes and the architecture doc's COMP-11 status (which had been
+  left saying "frontend panel not yet built" after the frontend was
+  actually implemented in the prior entry) updated to match. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.44 → v1.45),
+  `docs/architecture-document.md` (v0.79 → v0.80), `docs/backlog.md` —
+  backend implementation of REQ-1208/REQ-1209 (S-093, xG Path no-repeat
+  target-selection cycle + admin visibility), following ADR-0058's binding
+  decisions exactly. New xG Path-scoped entities `PathTargetCycle`/
+  `PathCycleTargetUsage` (`XGArcade.Data`, migration
+  `20260803140000_AddPathTargetCycle`) — never a field on the shared
+  `Player` entity. Four new `IPathInstanceRepository` methods
+  (`GetCycleStateAsync`, `GetOrCreateCycleStateAsync`,
+  `GetUsedPlayerIdsInCycleAsync`, `AddInstanceWithCycleUsageAsync`);
+  `XGPathGameModule.GenerateInstanceAsync` now selects targets only from
+  eligible players not yet used in the current cycle, rolling the cycle
+  over (tolerant "remaining unused < N" rule) before selecting when
+  needed, writing the puzzle/instance and cycle-usage state in one unit of
+  work. New `GET /admin/xg-path/cycle` (`AdminXGPathEndpoints`,
+  `"Admin"`-policy-gated, registered unconditionally) is a pure read of
+  the persisted cycle state — never triggers round generation or a live
+  familiarity check. `dotnet` was unavailable in the implementation
+  sandbox; the migration's `Designer.cs`/`XGArcadeDbContextModelSnapshot.cs`
+  were hand-derived from the existing migration pattern rather than
+  machine-generated and still need a real `dotnet build`/`dotnet ef`
+  verification in CI. Frontend panel (REQ-1209) and tests (both REQs) not
+  yet built — tracked by S-093's own updated status note. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.45 → v1.46),
+  `docs/backlog.md` — frontend implementation of REQ-1209 (S-093's
+  remaining `ui-implementer` pass): new `XGPathCycleSection` in
+  `frontend/src/admin/AdminScreen.tsx`, rendered unconditionally alongside
+  `AccountMetricsSection` and reusing its exact fetch/gating pattern
+  (401 escalates via `onAuthError`, 403 hides the section, any other error
+  shows inline, "no data yet" renders via the existing
+  `admin-screen__empty` class rather than as an error or a blank section).
+  New `fetchAdminXGPathCycle` helper (`frontend/src/lib/api.ts`) and
+  `AdminXGPathCycleState` type (`frontend/src/lib/types.ts`) against
+  `GET /admin/xg-path/cycle`'s existing response shape. No new CSS/design
+  tokens — reuses `admin-screen__metrics`/`admin-screen__metric-label`/
+  `admin-screen__metric-value mono-figure`. `npx tsc -b`, `npm run build`,
+  `npm run lint`, and the full Vitest suite (453 passing, including the
+  pre-existing `AdminScreen.test.tsx` unchanged) all verified locally.
+  Tests for REQ-1209's UI coverage (and REQ-1208's backend coverage) still
+  tracked as S-093's next, separate `test-writer` pass. REQ-1209.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.43 → v1.44),
+  `docs/decisions/0058-xg-path-target-cycle-tracking.md` (new),
+  `docs/architecture-document.md` (v0.78 → v0.79) — `/orchestrate` ran on
+  S-093 (xG Path: no-repeat target selection across rounds + admin cycle
+  visibility). Requirements pass: added REQ-1208 (targets don't repeat
+  until the eligible, ADR-0056-familiarity-filtered pool has cycled once)
+  and REQ-1209 (admin-visible cycle status on the existing
+  `AdminScreen.tsx`, REQ-503/509/510's surface). Both `Status: Not yet
+  implemented — drafted only`; code not yet written, tracked by S-093.
+  ADR-0058 records the two decisions the backlog entry explicitly flagged
+  as needing one rather than an assumption: cycle-tracking state is xG
+  Path's own data (never a field on the shared `Player` entity, per
+  ADR-0042's precedent), and a cycle is scored against the live,
+  ADR-0056-filtered pool `PickDistinct` actually samples from (not the
+  larger structurally-eligible-only pool), with a tolerant
+  "remaining-unused-below-N" completion rule rather than an exact-zero
+  check, to tolerate that pool's documented live instability. REQ-1201/1202.
 
 - 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
   eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
