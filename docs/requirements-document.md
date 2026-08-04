@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.47"
+version: "1.48"
 status: draft
-last_updated: 2026-08-03
+last_updated: 2026-08-04
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1912,6 +1912,44 @@ reveals a name)
   plain `vh` bound rather than a `--space-4` subtraction), which hosts the
   SCREEN-02a disambiguation prompt and had the identical gap; no other
   modal/backdrop pattern exists elsewhere in `frontend/src`.
+- **Verification finding (2026-08-04), requested by a product owner
+  suspecting a gap despite this REQ's "Implemented" status:** driven with a
+  live headless-Chromium session against the real dev stack (Postgres +
+  dotnet API in local-e2e auth mode + Vite frontend), not just read from
+  code or tests. Two results:
+  - **Content confirmed complete and accurate.** The rendered
+    `ScoringExplainer.tsx` dialog text was captured live and checked
+    verbatim against all nine required content points above (the original
+    six plus the three 2026-07-21 ranking/fairness points) — every one is
+    present. No content gap. This REQ's status remains **Implemented**;
+    nothing below reverses that.
+  - **A discoverability defect found in the grid-screen entry point,
+    contradicting this REQ's own "next to the round/timer indicator"
+    acceptance criterion at a specific, common phone-width range.** The
+    `(ⓘ)` button (`GridScreen.tsx`'s `.grid-screen__info-toggle`, inside
+    `.grid-screen__title-row` alongside the "Current round" heading and the
+    REQ-303 `.grid-screen__end-time` "Ends in Xm" text) is a flex child of
+    that title row. Measured with Playwright bounding boxes against the
+    real running app across 14 viewport widths from 360px to 600px in a
+    single stable session (`page.setViewportSize`), then confirmed visually
+    with screenshots at 375/420/768px: at widths from **420px to 480px
+    inclusive** — a real, common phone-width range covering
+    iPhone 12/13/14/15 Pro Max-class devices (~428-430px CSS width) and
+    many larger Android phones — the row wraps such that the `(ⓘ)` button
+    lands alone on its own third line, disconnected from both the "Current
+    round" heading and the "Ends in Xm" text. Since the button carries no
+    visible label (only an `aria-label` — an intentional "deliberately
+    plain/quiet" design choice per the existing `GridScreen.css` comment,
+    not itself a bug), an orphaned button at these widths has no remaining
+    visual cue connecting it to the round header at all. At ≤414px
+    (iPhone SE/12/13/14 standard width, most Android phones) and at ≥600px
+    (tablet/desktop) the button correctly sits adjacent to the "Ends in
+    Xm" text as designed. This is a genuine flexbox wrap-order artifact in
+    `GridScreen.css`, not a screenshot fluke or a testing artifact
+    (jsdom-based unit tests do not perform real CSS layout and would not
+    have caught this). **Filed here as a refinement acceptance criterion
+    (below) for a follow-up story — not fixed in this pass**, per this
+    exercise's own scope (verification, not implementation).
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -1981,6 +2019,20 @@ reveals a name)
 - And the grid-screen entry point (above) is unaffected by this addition —
   both entry points open the same component with the same content; neither
   is a subset of the other
+- **(2026-08-04 addition, verification finding)** Given the grid screen
+  (SCREEN-01) is displayed at a viewport width between 420px and 480px
+  inclusive
+- When the header (`.grid-screen__title-row`) renders
+- Then the `(ⓘ)` explainer entry point remains visually adjacent to the
+  round end-time text (e.g. "Ends in Xm") — on the same line as that text,
+  not wrapped alone onto its own line with no adjacent heading or timer
+  text — matching the same adjacency this REQ already requires at other
+  widths
+- And this holds across the same width range on the leaderboard screen's
+  equivalent entry point (`.leaderboard-screen__info-toggle`, next to the
+  "Global leaderboard" heading), since both entry points share the same
+  requirement that the button stay adjacent to its labeling context,
+  regardless of screen
 
 **Test level:** UI (explainer opens from the grid-screen header entry point
 and closes without losing in-progress state; contains text covering all six
@@ -1989,7 +2041,13 @@ exact wording; **(2026-07-21 addition)** explainer also opens from the
 leaderboard screen's header entry point regardless of active scope tab, and
 its content additionally covers the three ranking/fairness points above;
 opening from either entry point renders the same content, verified by
-asserting on the same text regardless of which screen triggered it)
+asserting on the same text regardless of which screen triggered it;
+**(2026-08-04 addition)** at each width in the 420-480px range, the `(ⓘ)`
+entry point's bounding box remains on the same rendered line as its
+adjacent heading/timer text on both the grid and leaderboard screens — a
+real-layout check (Playwright bounding-box comparison against the running
+app), not a jsdom-based unit test, since jsdom does not perform real CSS
+flex-wrap layout)
 
 **REQ-214 – Photo reveal on a locked, correct cell**
 > As a player, I want to see the guessed player's photo, when one is
