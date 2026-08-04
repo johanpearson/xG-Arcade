@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.48"
+version: "1.49"
 status: draft
 last_updated: 2026-08-04
 owner: Johan
@@ -6345,6 +6345,34 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   club-reveal turns + 1 bundled year-range clue + 3 fixed clues) —
   unlike the earlier design, this is now a fixed constant for every xG
   Path puzzle regardless of `N`, not a value that varies by target player
+- **Status note (2026-08-04) — second consumer, no requirement change:**
+  a product owner asked whether SCREEN-10 had the same round-end-time
+  affordance SCREEN-01 has (REQ-303's 2026-07-21 addition); it didn't —
+  `PathScreen.tsx` never rendered `CurrentPathResponse.endTime`, even
+  though this endpoint has returned it since S-081/S-082, mirroring
+  `CurrentRoundResponse.endTime` exactly (see this REQ's own Status note
+  above on `GET /path/current` mirroring the grid read endpoint's shape).
+  `PathScreen.tsx` now renders that field using the exact same shared
+  formatter `GridScreen.tsx` already uses (`frontend/src/lib/roundTime.ts`'s
+  `formatRoundEndTime`/`formatRoundEndTimeAccessibleLabel`) — same
+  relative-duration bucket text and thresholds, same `"Ending soon"`
+  fallback, same "computed once at fetch time, never a live tick"
+  behavior, and the same accessible-name/keyboard-focus treatment, as a
+  new `.path-screen__end-time` element next to the "xG Path" heading. This
+  REQ's own acceptance criteria above (clue reveal order/content) are
+  unaffected, and `GET /path/current`'s response contract is unchanged
+  (`endTime` already present) — this is purely a second frontend consumer
+  of REQ-303's already-specified indicator, applied to SCREEN-10; the
+  bucket-format/threshold/accessible-name rules themselves are REQ-303's
+  and are not restated here. Verified with a live dev-stack session
+  (Postgres + dotnet API in local-e2e auth mode + Vite frontend), showing
+  "Ends in 59m" etc. rendered correctly. Covered by a new
+  `describe('REQ-303: round end-time indicator', ...)` block in
+  `PathScreen.test.tsx`, mirroring `GridScreen.test.tsx`'s own block for
+  the same three checks (bucketed relative text renders, accessible name
+  exposes the absolute end time, indicator is keyboard-focusable) — the
+  bucket-format logic itself remains exhaustively covered only by
+  `lib/roundTime.test.ts`, not duplicated here.
 
 **Test level:** Unit, API (Unit: the 3-way club-count split for `N` at the
 minimum (3), a non-multiple-of-3 value below 10, and a value at or above
@@ -6361,7 +6389,11 @@ fix): `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_
 SentQuery_ExcludesNationalTeams` covers the query-text assertion — a real
 national-team caps row is server-side excluded by WDQS itself, not
 something this codebase's own parsing can independently verify from a
-mocked response.)
+mocked response. UI: **(2026-08-04 addition)** the round end-time
+indicator's presence/wiring on SCREEN-10 is covered by
+`PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per
+the status note above — the underlying format/bucket logic remains
+`lib/roundTime.test.ts`'s alone.)
 
 **REQ-1204 – Guess correctness resolution**
 > As a player, I want my guess for an xG Path puzzle checked against that

@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.64"
+version: "0.65"
 status: draft
-last_updated: 2026-08-03
+last_updated: 2026-08-04
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2320,6 +2320,27 @@ tokens-only (no new color/typeface/animation):**
   frontend renders the "Out of attempts" label with no name/photo line
   (never a broken "it was null" line), and picks the name/photo up with no
   further frontend change once the backend field is populated.
+
+**2026-08-04 status note — round end-time indicator added, wireframe
+above now stale on this one point.** A product owner asked whether SCREEN-10
+had the same round-end-time affordance SCREEN-01 has (REQ-303's 2026-07-21
+addition); it didn't. `PathScreen.tsx`'s header now shows the same
+`"Ends in {D}d {H}h"`/`"Ends in {H}h {M}m"`/`"Ends in {M}m"`/`"Ending soon"`
+indicator SCREEN-01's header shows (`.grid-screen__end-time`'s exact
+counterpart, `.path-screen__end-time`) — same wording rules, same
+computed-once-at-fetch-time behavior (no live tick), same
+accessible-name/keyboard-focus treatment. See REQ-303's own acceptance
+criteria for the full format/threshold rules (not restated here) and
+REQ-1203's 2026-08-04 status note for the requirements-side record of this
+addition. Placed next to the "xG Path" heading, inside a new
+`.path-screen__title-row`, the same relative position SCREEN-01's own
+end-time indicator occupies in its header row — the ASCII wireframe at the
+top of this section still shows the pre-2026-08-04 header (`xG Path
+Puzzle 2 of 4` only) and is not redrawn here, same "leave the stale mock,
+add a correcting note" convention this document already uses for SCREEN-01's
+own 2026-07-21 correction above. No new color, typeface, or animation —
+reuses `--color-text-muted`/13px/`--touch-target-min`, the same values
+`GridScreen.css`'s `.grid-screen__end-time` already uses.
 
 ## 4. Responsive strategy
 
