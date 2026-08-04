@@ -379,4 +379,67 @@ describe('PathScreen', () => {
     expect(await screen.findByText('Puzzle 2 of 2')).toBeInTheDocument();
     expect(screen.getByText('Barcelona')).toBeInTheDocument();
   });
+
+  // REQ-303: mirrors GridScreen.test.tsx's own "round end-time indicator"
+  // describe block exactly — same indicator, same underlying
+  // lib/roundTime.ts formatter, just PathScreen's own header/class names.
+  // Wording/bucket logic itself is covered exhaustively by
+  // lib/roundTime.test.ts — these tests only check that PathScreen actually
+  // renders and wires up the indicator.
+  describe('REQ-303: round end-time indicator', () => {
+    function stubCurrentPath(endTime: string) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() => jsonResponse({ ...roundResponse(), endTime })),
+      );
+    }
+
+    it('REQ-303: renders a relative-duration end-time indicator in the header once the round has loaded', async () => {
+      // Comfortably in the "1-24h" bucket regardless of the moment the test
+      // actually runs — the exact wording is lib/roundTime.test.ts's job,
+      // not this test's.
+      const endTime = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
+      stubCurrentPath(endTime);
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await screen.findByText('Puzzle 1 of 1');
+
+      const indicator = document.querySelector('.path-screen__end-time');
+      expect(indicator).toBeInTheDocument();
+      expect(indicator).toHaveTextContent(/^Ends in \d/);
+    });
+
+    it('REQ-303: exposes the absolute end date/time via the accessible name, not just the relative text', async () => {
+      const endTime = '2026-08-01T09:30:00.000Z';
+      stubCurrentPath(endTime);
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await screen.findByText('Puzzle 1 of 1');
+
+      const expectedAbsoluteLabel = new Date(endTime).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      const indicator = screen.getByRole('generic', {
+        name: new RegExp(`Round ends ${expectedAbsoluteLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.$`),
+      });
+      expect(indicator).toBeInTheDocument();
+      expect(indicator).toHaveClass('path-screen__end-time');
+    });
+
+    it('REQ-303: the end-time indicator is keyboard-focusable (included in tab order)', async () => {
+      const endTime = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
+      stubCurrentPath(endTime);
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+      await screen.findByText('Puzzle 1 of 1');
+
+      const indicator = document.querySelector('.path-screen__end-time');
+      expect(indicator).toHaveAttribute('tabIndex', '0');
+    });
+  });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, describeError, fetchCurrentPath, submitGuess } from '../lib/api';
 import type { CurrentPathResponse } from '../lib/types';
+import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
 import { PathGuessInput } from './PathGuessInput';
 import { PathTimeline } from './PathTimeline';
 import './PathScreen.css';
@@ -21,7 +22,11 @@ type LoadState =
   | { phase: 'loading' }
   | { phase: 'empty' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; round: CurrentPathResponse };
+  // REQ-303: roundEndTime is computed exactly once, at fetch-success time —
+  // same GridScreen.tsx convention (see that file's own LoadState comment
+  // and lib/roundTime.ts's doc comment for the full rationale), not
+  // recomputed on a later render/timer.
+  | { phase: 'ready'; round: CurrentPathResponse; roundEndTime: RoundEndTimeDisplay };
 
 export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
@@ -46,7 +51,11 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
     fetchCurrentPath(accessToken)
       .then((round) => {
         if (cancelled) return;
-        setState(round ? { phase: 'ready', round } : { phase: 'empty' });
+        setState(
+          round
+            ? { phase: 'ready', round, roundEndTime: formatRoundEndTime(round.endTime, new Date()) }
+            : { phase: 'empty' },
+        );
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -102,7 +111,7 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
       }
 
       if (fresh) {
-        setState({ phase: 'ready', round: fresh });
+        setState({ phase: 'ready', round: fresh, roundEndTime: formatRoundEndTime(fresh.endTime, new Date()) });
       } else {
         // The round closed between the submit and this re-fetch — treat it
         // the same as any other "no active round" case rather than leaving
@@ -157,7 +166,24 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
   return (
     <div className="path-screen">
       <div className="path-screen__header">
-        <h2>xG Path</h2>
+        <div className="path-screen__title-row">
+          <h2>xG Path</h2>
+          {/* REQ-303: mirrors GridScreen.tsx's end-time indicator exactly —
+              a relative-duration signal computed once at fetch-success time
+              (state.roundEndTime above), never a live/ticking countdown.
+              tabIndex=0 + aria-label make the exact local end date/time
+              reachable by keyboard focus and screen readers, and `title`
+              additionally surfaces it as a native tooltip for a sighted
+              mouse user. Text-only signal (no color-only meaning). */}
+          <span
+            className="path-screen__end-time mono-figure"
+            tabIndex={0}
+            title={`Round ends ${state.roundEndTime.absoluteLabel}`}
+            aria-label={formatRoundEndTimeAccessibleLabel(state.roundEndTime)}
+          >
+            {state.roundEndTime.text}
+          </span>
+        </div>
         <p className="path-screen__puzzle-position mono-figure">
           Puzzle {clampedPuzzleIndex + 1} of {puzzles.length}
         </p>

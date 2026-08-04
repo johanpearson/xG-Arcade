@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.49),
+  `docs/design-document.md` (v0.64 → v0.65) — REQ-213 verification finding
+  (content confirmed complete; found the `(ⓘ)` explainer entry point
+  orphans onto its own line, disconnected from the round-timer text, at
+  420-480px viewport widths — new dated acceptance criterion filed for a
+  follow-up fix, REQ-213's status unchanged at Implemented) plus SCREEN-10
+  (`PathScreen.tsx`) now rendering the same round end-time indicator
+  SCREEN-01 has (REQ-303's 2026-07-21 addition), reusing
+  `CurrentPathResponse.endTime` (already present since S-081/S-082) and the
+  same shared `lib/roundTime.ts` formatter `GridScreen.tsx` uses — a
+  second-consumer status note under REQ-1203 (no acceptance-criteria
+  change; format/threshold rules stay owned by REQ-303) and a matching
+  status note on SCREEN-10 in the design doc, flagging its wireframe as
+  stale on this one point. No architecture change (no new endpoint field,
+  no boundary crossed). REQ-213, REQ-303, REQ-1203.
 - 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.48),
   `docs/architecture-document.md` (v0.81 → v0.82) — doc-sync for the
   REQ-1203 follow-up fix (ADR-0059, commits `99c5818`/`d829a25`, branch
