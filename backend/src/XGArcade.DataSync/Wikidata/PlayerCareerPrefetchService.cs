@@ -35,6 +35,14 @@ public class PlayerCareerPrefetchService(
     public async Task<PlayerCareerPrefetchResult> PrefetchAsync(CancellationToken cancellationToken = default)
     {
         var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
+        // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203
+        // follow-up, ADR-0058): built once for the whole run, not once per
+        // batch — ClubDefinition is small (~15 rows, hand-seeded,
+        // MVP-SCOPE.md) and doesn't change mid-run, so there's no reason to
+        // re-read it inside FetchAndPersistBatchAsync's per-batch loop. See
+        // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's own doc
+        // comment for what this map is used for.
+        var clubNameByClubQid = await PlayerCareerStintRefreshService.BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
         var countriesProcessed = 0;
         var countriesFailed = 0;
@@ -76,7 +84,7 @@ public class PlayerCareerPrefetchService(
 
             foreach (var batch in pool.Chunk(CareerBatchSize))
             {
-                var (touched, added, batchFailed) = await FetchAndPersistBatchAsync(batch, cancellationToken);
+                var (touched, added, batchFailed) = await FetchAndPersistBatchAsync(batch, clubNameByClubQid, cancellationToken);
                 playersTouched += touched;
                 stintsAdded += added;
                 if (batchFailed)
@@ -108,7 +116,9 @@ public class PlayerCareerPrefetchService(
     // method needing to throw and unwind the whole country's remaining
     // batches over one batch's failure.
     private async Task<(int PlayersTouched, int StintsAdded, bool BatchFailed)> FetchAndPersistBatchAsync(
-        IReadOnlyList<WikidataNameIndexEntry> batch, CancellationToken cancellationToken)
+        IReadOnlyList<WikidataNameIndexEntry> batch,
+        IReadOnlyDictionary<string, string> clubNameByClubQid,
+        CancellationToken cancellationToken)
     {
         // REQ-214/REQ-1207's existing "set only at creation, never
         // overwritten on a later lookup" contract applies here unchanged —
@@ -142,7 +152,7 @@ public class PlayerCareerPrefetchService(
         var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
         var newStintsByPlayerId = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
-            stintsByQid, qidToPlayerId, existingStintsByPlayerId);
+            stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
         if (newStintsByPlayerId.Count > 0)
             await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);

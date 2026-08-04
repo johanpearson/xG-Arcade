@@ -647,6 +647,52 @@ public class WikidataLookupServiceTests
         Assert.That(stints, Has.Count.EqualTo(1));
     }
 
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0058): the cross-writer half of the fix. LookupAndPersistAsync
+    // (xG Grid's country x club byproduct path, this test's first call)
+    // always writes ClubDefinition.Name directly and needed no change.
+    // PlayerCareerStintRefreshService (xG Path's full-career-fetch path,
+    // this test's second call) used to write Wikidata's own raw
+    // (suffix-normalized-only) ?clubLabel — which, for the SAME real club
+    // (same WikidataQid), can legitimately differ from the seeded name by
+    // more than a legal suffix (e.g. "Arsenal" vs. a hypothetical
+    // "Arsenal Football Club" alternate label). Once
+    // PlayerCareerStintRefreshService canonicalizes by QID, both writers
+    // converge on the exact same ClubName for the exact same real stint,
+    // so the second writer's dedup check (against what LookupAndPersistAsync
+    // already persisted) recognizes it as already-known rather than
+    // creating a second, differently-named row.
+    [Test]
+    public async Task REQ1203_TwoWriterPathsForSameRealStint_ConvergeOnIdenticalClubName_NoCrossWriterDuplicate()
+    {
+        var categoryValueRepository = new CategoryValueRepository(_dbContext);
+        await categoryValueRepository.AddClubAsync(Arsenal); // Name="Arsenal", WikidataQid="Q9617".
+
+        // Writer 1: xG Grid's own country x club byproduct lookup — always
+        // persists ClubDefinition.Name ("Arsenal") directly.
+        var lookupService = BuildService(SingleHenryMatchWithCareerStintJson);
+        await lookupService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+
+        // Writer 2: xG Path's full-career fetch — same real stint (same
+        // dates/appearance count), same underlying QID, but Wikidata's own
+        // raw label differs from the seeded name.
+        var fakeWikidataClient = new FakeWikidataClient();
+        fakeWikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Arsenal Football Club", 2010, 2015, 100, ClubQid: "Q9617"));
+        var refreshService = new PlayerCareerStintRefreshService(
+            fakeWikidataClient, _playerStore, categoryValueRepository,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PlayerCareerStintRefreshService>.Instance);
+
+        await refreshService.RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1),
+            "the two writer paths must converge on the exact same ClubName for the same real stint, not create a second row");
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+    }
+
     [Test]
     public async Task REQ103_LookupAndPersistAsync_PlayerGainsChronologicallyEarlierStintLater_ResequencesWholeSet()
     {

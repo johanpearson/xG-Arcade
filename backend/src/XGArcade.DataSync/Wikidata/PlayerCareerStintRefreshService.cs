@@ -17,9 +17,18 @@ namespace XGArcade.DataSync.Wikidata;
 // Grid lookup can become targets at all) is ADR-0055's job
 // (PlayerCareerPrefetchService, which shares this class's reconciliation
 // logic below — see BuildNewStintsByPlayerId's own doc comment).
+//
+// categoryValueRepository (bug fix, 2026-08-04, xG Path duplicate-node bug,
+// REQ-1203 follow-up, see ADR-0058): added purely to build the QID -> seeded
+// ClubDefinition.Name canonicalization map BuildNewStintsByPlayerId now
+// needs — see that method's own doc comment for the full "why." ClubDefinition
+// is a small, hand-seeded (~15 rows, MVP-SCOPE.md) reference table, so
+// re-reading it once per refresh call is not a perf concern the way
+// PlayerCareerStint's ~608K rows are.
 public class PlayerCareerStintRefreshService(
     IWikidataClient wikidataClient,
     IPlayerStoreRepository playerStore,
+    ICategoryValueRepository categoryValueRepository,
     ILogger<PlayerCareerStintRefreshService> logger) : IPlayerCareerStintRefreshService
 {
     public async Task RefreshCareerStintsAsync(IReadOnlyList<Guid> playerIds, CancellationToken cancellationToken = default)
@@ -65,11 +74,35 @@ public class PlayerCareerStintRefreshService(
 
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
         var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
+        var clubNameByClubQid = await BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
-        var newStintsByPlayerId = BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId);
+        var newStintsByPlayerId = BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
         if (newStintsByPlayerId.Count > 0)
             await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+    }
+
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0058): QID -> seeded ClubDefinition.Name, built once per call
+    // (this class's own RefreshCareerStintsAsync) or once per prefetch run
+    // (PlayerCareerPrefetchService.PrefetchAsync — see that class's own
+    // comment for why it's hoisted out of the per-batch loop there) rather
+    // than re-derived per stint. Static (takes ICategoryValueRepository as a
+    // parameter, not instance state) and internal, not private, for the
+    // same shared-assembly reason as BuildNewStintsByPlayerId below — both
+    // callers need this without instantiating PlayerCareerStintRefreshService
+    // itself. WikidataQid is nullable on ClubDefinition (not yet resolved
+    // for every seeded club) and is not guaranteed unique by a database
+    // constraint, so the last club wins on a QID collision — not expected
+    // in practice for a hand-seeded ~15-row table, and no worse than
+    // silently picking one arbitrarily.
+    internal static async Task<IReadOnlyDictionary<string, string>> BuildClubNameByClubQidAsync(
+        ICategoryValueRepository categoryValueRepository, CancellationToken cancellationToken)
+    {
+        var clubs = await categoryValueRepository.GetClubsAsync(cancellationToken);
+        return clubs
+            .Where(c => c.WikidataQid is not null)
+            .ToDictionary(c => c.WikidataQid!, c => c.Name);
     }
 
     // ADR-0055: extracted so PlayerCareerPrefetchService's bulk job can share
@@ -80,10 +113,31 @@ public class PlayerCareerStintRefreshService(
     // stint is not this method's concern (see ADR-0054's Consequences
     // section). Internal, not private: XGArcade.DataSync is a shared
     // assembly between the two callers.
+    //
+    // clubNameByClubQid (bug fix, 2026-08-04, xG Path duplicate-node bug,
+    // REQ-1203 follow-up, ADR-0058): canonicalizes each fetched stint's
+    // ClubName to the matching seeded ClubDefinition.Name whenever the
+    // stint's ClubQid resolves in this map — the same club, reached via
+    // xG Grid's byproduct persistence (WikidataLookupService.PersistCareerStintsAsync,
+    // which already writes ClubDefinition.Name directly and needs no change)
+    // vs. this class's own full-career fetch (raw ?clubLabel, only ever
+    // suffix-normalized), previously could and did diverge whenever
+    // Wikidata's own preferred label for a QID differs from this codebase's
+    // hand-picked seed name by more than a legal-suffix token (e.g. "Lyon"
+    // vs. "Olympique Lyonnais", both valid labels for the same QID) —
+    // producing two differently-named PlayerCareerStint rows for what is
+    // really one real stint, surfaced as two xG Path club-reveal nodes. A
+    // stint whose ClubQid is null (defensive-only case, see
+    // WikidataClient.ParseCareerStintBindings) or doesn't match any seeded
+    // club (a genuinely unseeded club) keeps its best-effort, suffix-
+    // normalized label unchanged — still useful for xG Path's own display
+    // and for ClubGapAuditService's gap-detection query, which this
+    // canonicalization does not touch.
     internal static Dictionary<Guid, IReadOnlyList<PlayerCareerStint>> BuildNewStintsByPlayerId(
         IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> stintsByQid,
         IReadOnlyDictionary<string, Guid> qidToPlayerId,
-        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> existingStintsByPlayerId)
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> existingStintsByPlayerId,
+        IReadOnlyDictionary<string, string> clubNameByClubQid)
     {
         var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
         foreach (var (qid, fetchedStints) in stintsByQid)
@@ -93,13 +147,21 @@ public class PlayerCareerStintRefreshService(
                 ? existingStints.Select(s => (s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)).ToHashSet()
                 : [];
 
-            var newStints = fetchedStints
-                .Where(s => seenTuples.Add((s.ClubName, s.StartYear, s.EndYear, s.AppearanceCount)))
-                .Select(s => new PlayerCareerStint
+            var newStints = new List<PlayerCareerStint>();
+            foreach (var s in fetchedStints)
+            {
+                var clubName = s.ClubQid is not null && clubNameByClubQid.TryGetValue(s.ClubQid, out var canonicalName)
+                    ? canonicalName
+                    : s.ClubName;
+
+                if (!seenTuples.Add((clubName, s.StartYear, s.EndYear, s.AppearanceCount)))
+                    continue;
+
+                newStints.Add(new PlayerCareerStint
                 {
                     Id = Guid.NewGuid(),
                     PlayerId = playerId,
-                    ClubName = s.ClubName,
+                    ClubName = clubName,
                     StartYear = s.StartYear,
                     EndYear = s.EndYear,
                     AppearanceCount = s.AppearanceCount,
@@ -107,8 +169,8 @@ public class PlayerCareerStintRefreshService(
                     // across the player's full stint set — this placeholder is
                     // always overwritten before SaveChangesAsync.
                     SequenceOrder = 0,
-                })
-                .ToList();
+                });
+            }
 
             if (newStints.Count > 0)
                 newStintsByPlayerId[playerId] = newStints;
