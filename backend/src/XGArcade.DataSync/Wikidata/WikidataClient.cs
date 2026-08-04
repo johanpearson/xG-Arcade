@@ -1174,8 +1174,10 @@ public class WikidataClient(
             // applied here as the best-effort fallback label (used when
             // ClubQid doesn't resolve to a seeded ClubDefinition) — QID-based
             // canonicalization happens one layer up, not in this client,
-            // per this client's existing "no ClubDefinition dependency"
-            // boundary (COMP-07).
+            // per this class's own "no ClubDefinition dependency" layering
+            // convention within COMP-07 (not a documented cross-component
+            // boundary rule — see architecture-document.md's numbered
+            // boundary list, which has no entry for this).
             stints.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
         }
 

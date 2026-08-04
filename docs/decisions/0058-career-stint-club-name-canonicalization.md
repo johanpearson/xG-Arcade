@@ -143,7 +143,9 @@ into `migrate-and-seed`.
 
 `WikidataClient` must stay free of any `ClubDefinition`/`ICategoryValueRepository`
 dependency — canonicalization lookups belong in the `PlayerCareerStintRefreshService`/
-`PlayerCareerPrefetchService` layer, per COMP-07's existing boundary. If a
+`PlayerCareerPrefetchService` layer, per this class's own layering convention
+within COMP-07 (an internal convention, not one of `architecture-document.md`'s
+numbered cross-component boundary rules). If a
 future change needs club canonicalization somewhere else (e.g. a new
 writer path), reuse `PlayerCareerStintRefreshService.BuildClubNameByClubQidAsync`/
 `BuildNewStintsByPlayerId` rather than re-deriving the lookup inline.
