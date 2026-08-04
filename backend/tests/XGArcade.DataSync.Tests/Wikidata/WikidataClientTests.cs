@@ -1987,7 +1987,7 @@ public class WikidataClientTests
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): ?club must be projected in the SELECT (it was already
+    // ADR-0059): ?club must be projected in the SELECT (it was already
     // bound in the query body via ?clubStatement ps:P54 ?club, just not
     // previously selected) — the underlying QID is what a caller with
     // access to ClubDefinition canonicalizes ClubName against. See
@@ -2086,7 +2086,7 @@ public class WikidataClientTests
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): a ?club binding must be extracted into ClubQid the same
+    // ADR-0059): a ?club binding must be extracted into ClubQid the same
     // way ?player is — the trailing URI segment. This is the QID a
     // canonicalization-capable caller (PlayerCareerStintRefreshService/
     // PlayerCareerPrefetchService) resolves against ClubDefinition.

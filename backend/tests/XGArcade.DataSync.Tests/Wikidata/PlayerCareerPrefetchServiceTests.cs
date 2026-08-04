@@ -71,7 +71,7 @@ public class PlayerCareerPrefetchServiceTests
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): PlayerCareerPrefetchService shares
+    // ADR-0059): PlayerCareerPrefetchService shares
     // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's
     // canonicalization — a fetched stint whose ClubQid matches a seeded
     // ClubDefinition must persist under that ClubDefinition.Name, not

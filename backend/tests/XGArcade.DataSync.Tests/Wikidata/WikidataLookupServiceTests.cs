@@ -648,7 +648,7 @@ public class WikidataLookupServiceTests
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): the cross-writer half of the fix. LookupAndPersistAsync
+    // ADR-0059): the cross-writer half of the fix. LookupAndPersistAsync
     // (xG Grid's country x club byproduct path, this test's first call)
     // always writes ClubDefinition.Name directly and needed no change.
     // PlayerCareerStintRefreshService (xG Path's full-career-fetch path,

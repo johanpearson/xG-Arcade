@@ -1,4 +1,4 @@
-# ADR-0058: Canonicalize PlayerCareerStint.ClubName by Wikidata QID, not by label
+# ADR-0059: Canonicalize PlayerCareerStint.ClubName by Wikidata QID, not by label
 
 - **Status:** Accepted
 - **Date:** 2026-08-04

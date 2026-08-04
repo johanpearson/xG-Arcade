@@ -550,7 +550,7 @@ if (args is ["clear-pair-lookup-failures", ..])
 }
 
 // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-// ADR-0058): `dotnet run -- clean-duplicate-career-stints` — see
+// ADR-0059): `dotnet run -- clean-duplicate-career-stints` — see
 // DuplicateCareerStintCleaner's own doc comment for the full "why this
 // exists and why it's a narrow, provable-only cleanup rather than a full
 // purge-and-reseed." No required argument, same "reads its own scope from

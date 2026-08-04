@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 namespace XGArcade.Data.Seeding;
 
 // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-// ADR-0058): manually-triggered, one-off maintenance tool (Program.cs's
+// ADR-0059): manually-triggered, one-off maintenance tool (Program.cs's
 // `clean-duplicate-career-stints` CLI verb) for the ~608K-row
 // PlayerCareerStint table's PRE-EXISTING cross-writer duplicates — rows
 // persisted before this fix's canonicalization landed, where the same real

@@ -36,7 +36,7 @@ public class PlayerCareerPrefetchService(
     {
         var countries = await categoryValueRepository.GetCountriesAsync(cancellationToken);
         // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203
-        // follow-up, ADR-0058): built once for the whole run, not once per
+        // follow-up, ADR-0059): built once for the whole run, not once per
         // batch — ClubDefinition is small (~15 rows, hand-seeded,
         // MVP-SCOPE.md) and doesn't change mid-run, so there's no reason to
         // re-read it inside FetchAndPersistBatchAsync's per-batch loop. See

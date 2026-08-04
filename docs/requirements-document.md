@@ -6249,7 +6249,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   is observed in practice it needs its own deliberate merge rule (and
   test), not a silent loosening of this tuple. Locked in by
   `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenAppearanceCountDiffers`.
-- **Status note (2026-08-04, bug fix, ADR-0058): duplicate club-reveal nodes
+- **Status note (2026-08-04, bug fix, ADR-0059): duplicate club-reveal nodes
   from a cross-writer label mismatch — fixed.** A second, distinct cause of
   the same duplicate-node symptom the 2026-08-03 fix above only partly
   addressed: two independent writers of `PlayerCareerStint.ClubName` used
@@ -6277,7 +6277,7 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   retroactively removes already-persisted duplicate rows where a
   canonical-named counterpart for the exact same stint already exists —
   deliberately not a full purge-and-reseed of the ~608K-row table; see
-  ADR-0058 for the full reasoning, including why that would be
+  ADR-0059 for the full reasoning, including why that would be
   disproportionate for what is presently a cosmetic-only bug (xG Grid never
   reads this table, so scoring is unaffected).
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose

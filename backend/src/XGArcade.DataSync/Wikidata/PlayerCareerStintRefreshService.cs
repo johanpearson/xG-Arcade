@@ -19,7 +19,7 @@ namespace XGArcade.DataSync.Wikidata;
 // logic below — see BuildNewStintsByPlayerId's own doc comment).
 //
 // categoryValueRepository (bug fix, 2026-08-04, xG Path duplicate-node bug,
-// REQ-1203 follow-up, see ADR-0058): added purely to build the QID -> seeded
+// REQ-1203 follow-up, see ADR-0059): added purely to build the QID -> seeded
 // ClubDefinition.Name canonicalization map BuildNewStintsByPlayerId now
 // needs — see that method's own doc comment for the full "why." ClubDefinition
 // is a small, hand-seeded (~15 rows, MVP-SCOPE.md) reference table, so
@@ -83,7 +83,7 @@ public class PlayerCareerStintRefreshService(
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): QID -> seeded ClubDefinition.Name, built once per call
+    // ADR-0059): QID -> seeded ClubDefinition.Name, built once per call
     // (this class's own RefreshCareerStintsAsync) or once per prefetch run
     // (PlayerCareerPrefetchService.PrefetchAsync — see that class's own
     // comment for why it's hoisted out of the per-batch loop there) rather
@@ -115,7 +115,7 @@ public class PlayerCareerStintRefreshService(
     // assembly between the two callers.
     //
     // clubNameByClubQid (bug fix, 2026-08-04, xG Path duplicate-node bug,
-    // REQ-1203 follow-up, ADR-0058): canonicalizes each fetched stint's
+    // REQ-1203 follow-up, ADR-0059): canonicalizes each fetched stint's
     // ClubName to the matching seeded ClubDefinition.Name whenever the
     // stint's ClubQid resolves in this map — the same club, reached via
     // xG Grid's byproduct persistence (WikidataLookupService.PersistCareerStintsAsync,

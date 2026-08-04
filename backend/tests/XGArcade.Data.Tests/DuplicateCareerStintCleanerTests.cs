@@ -5,7 +5,7 @@ using XGArcade.Data.Seeding;
 namespace XGArcade.Data.Tests;
 
 // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-// ADR-0058): DuplicateCareerStintCleaner's own narrow, provable-only
+// ADR-0059): DuplicateCareerStintCleaner's own narrow, provable-only
 // cleanup — see that class's own doc comment for the full reasoning on why
 // it's scoped this way rather than a full purge-and-reseed.
 public class DuplicateCareerStintCleanerTests

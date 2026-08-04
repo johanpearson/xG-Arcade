@@ -140,7 +140,7 @@ public class PlayerCareerStintRefreshServiceTests
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
-    // ADR-0058): the core of the fix — a fetched stint whose ClubQid
+    // ADR-0059): the core of the fix — a fetched stint whose ClubQid
     // matches a seeded ClubDefinition must be persisted under the seeded
     // ClubDefinition.Name, not Wikidata's own raw (suffix-normalized only)
     // label, even when that label differs from the seed by more than a

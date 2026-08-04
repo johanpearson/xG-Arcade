@@ -15,7 +15,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 - 2026-08-04 — `docs/requirements-document.md` (v1.43 → v1.44),
   `docs/architecture-document.md` (v0.78 → v0.79) — doc-sync for the
-  REQ-1203 follow-up fix (ADR-0058, commits `99c5818`/`d829a25`, branch
+  REQ-1203 follow-up fix (ADR-0059, commits `99c5818`/`d829a25`, branch
   `claude/xg-duplicate-clubs-7ns69u`): xG Path could still show the same
   real career stint as two separate club-reveal nodes even after the
   2026-08-03 `NormalizeClubName` fix, because two independent writers of
@@ -30,7 +30,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   exact-string eligibility match for free. A new narrow, provable-only CLI
   verb (`clean-duplicate-career-stints`/`DuplicateCareerStintCleaner`)
   backfills already-persisted duplicates without a full purge-and-reseed of
-  the ~608K-row table — see ADR-0058 for the full reasoning. Requirements
+  the ~608K-row table — see ADR-0059 for the full reasoning. Requirements
   doc: new 2026-08-04 status note on REQ-1203, alongside (not replacing)
   the existing 2026-08-02/2026-08-03 notes, which cover different bugs.
   Architecture doc: COMP-07 row updated to note `PlayerCareerStintRefreshService`'s
@@ -46,7 +46,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   changes). No test suite was executed as part of this fix or this
   doc-sync — the `dotnet` SDK was not available in this sandbox at any
   point; all new/changed backend code was hand-traced against the actual
-  service/query code, not run. REQ-1203, ADR-0058.
+  service/query code, not run. REQ-1203, ADR-0059.
 
 - 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
   eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
