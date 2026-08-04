@@ -1986,6 +1986,25 @@ public class WikidataClientTests
         Assert.That(sentQuery, Does.Contain("VALUES ?player { wd:Q1519 wd:Q9617 wd:Q7156 }"));
     }
 
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0059): ?club must be projected in the SELECT (it was already
+    // bound in the query body via ?clubStatement ps:P54 ?club, just not
+    // previously selected) — the underlying QID is what a caller with
+    // access to ClubDefinition canonicalizes ClubName against. See
+    // WikidataCareerStintEntry.ClubQid's own doc comment for the full
+    // "why."
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_SentQuery_SelectsClubQid()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("SELECT ?player ?club ?clubLabel"));
+    }
+
     // Full P54 statement path, not the truthy wdt:P54 shortcut — same
     // "must never silently drop to best-rank-only" reasoning as
     // BuildCountryClubIntersectionQuery's own test coverage. This is the one
@@ -2064,6 +2083,58 @@ public class WikidataClientTests
         Assert.That(result["Q1519"], Has.Count.EqualTo(2));
         Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Monaco", 1994, 1999, 105)));
         Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Arsenal", 1999, null, null)));
+    }
+
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0059): a ?club binding must be extracted into ClubQid the same
+    // way ?player is — the trailing URI segment. This is the QID a
+    // canonicalization-capable caller (PlayerCareerStintRefreshService/
+    // PlayerCareerPrefetchService) resolves against ClubDefinition.
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_ExtractsClubQidFromClubBinding()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q704" }, "clubLabel": { "type": "literal", "value": "Olympique Lyonnais" }, "startTime": { "type": "literal", "value": "2000-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2003-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "90" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Has.Count.EqualTo(1));
+        Assert.That(result["Q1519"][0].ClubQid, Is.EqualTo("Q704"));
+        Assert.That(result["Q1519"][0].ClubName, Is.EqualTo("Olympique Lyonnais"),
+            "the client itself never canonicalizes against ClubDefinition — see WikidataCareerStintEntry.ClubQid's own doc comment for why that boundary lives one layer up");
+    }
+
+    // A row missing the ?club binding entirely (defensive-only case —
+    // should not happen in production, ?club is a mandatory,
+    // non-OPTIONAL match) must not be dropped: it simply carries a null
+    // ClubQid, same "fall back to the best-effort label" contract as an
+    // unresolved QID.
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_RowWithNoClubBinding_HasNullClubQid_IsNotDropped()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "Some Club" }, "startTime": { "type": "literal", "value": "2000-01-01T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Has.Count.EqualTo(1));
+        Assert.That(result["Q1519"][0].ClubQid, Is.Null);
     }
 
     // Regression test for the exact bug reported with a screenshot: an xG

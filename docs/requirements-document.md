@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.49"
+version: "1.50"
 status: draft
 last_updated: 2026-08-04
 owner: Johan
@@ -6307,6 +6307,37 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   is observed in practice it needs its own deliberate merge rule (and
   test), not a silent loosening of this tuple. Locked in by
   `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenAppearanceCountDiffers`.
+- **Status note (2026-08-04, bug fix, ADR-0059): duplicate club-reveal nodes
+  from a cross-writer label mismatch — fixed.** A second, distinct cause of
+  the same duplicate-node symptom the 2026-08-03 fix above only partly
+  addressed: two independent writers of `PlayerCareerStint.ClubName` used
+  different naming conventions with no QID-based cross-check —
+  `WikidataLookupService.PersistCareerStintsAsync` wrote the canonical,
+  hand-seeded `ClubDefinition.Name`, while `PlayerCareerStintRefreshService`/
+  `PlayerCareerPrefetchService` wrote Wikidata's raw `?clubLabel` (only ever
+  suffix-normalized, per the 2026-08-03 fix), so a genuine alternate-name
+  variant more than a legal-suffix token apart (e.g. "Lyon" vs. "Olympique
+  Lyonnais," the same real club, same Wikidata QID `Q704`) still produced
+  two separate rows for one real stint — the 2026-08-03 fix's own
+  `NormalizeClubName` step never caught this, since it only strips
+  `FC`/`F.C.`/`AFC`/`A.F.C.`-style suffixes. Fixed by threading the
+  underlying Wikidata `?club` QID through `WikidataClient`'s career-stint
+  query (`WikidataCareerStintEntry.ClubQid`) and having
+  `PlayerCareerStintRefreshService`/`PlayerCareerPrefetchService`
+  canonicalize each fetched stint's `ClubName` to the matching seeded
+  `ClubDefinition.Name` when the QID resolves, falling back to the
+  suffix-normalized label otherwise. This also fixes, for free, a related
+  correctness gap in `GetCareerStintCandidatePlayerIdsAsync` (REQ-1201's
+  own eligibility check): a stint persisted under a non-canonical label
+  previously never counted toward a player's eligibility even when it was
+  genuinely at a seeded club. A narrow, provable-only cleanup CLI verb
+  (`dotnet run -- clean-duplicate-career-stints`, `DuplicateCareerStintCleaner`)
+  retroactively removes already-persisted duplicate rows where a
+  canonical-named counterpart for the exact same stint already exists —
+  deliberately not a full purge-and-reseed of the ~608K-row table; see
+  ADR-0059 for the full reasoning, including why that would be
+  disproportionate for what is presently a cosmetic-only bug (xG Grid never
+  reads this table, so scoring is unaffected).
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)

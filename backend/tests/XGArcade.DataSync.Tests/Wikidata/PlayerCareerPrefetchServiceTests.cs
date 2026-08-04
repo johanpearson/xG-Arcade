@@ -42,6 +42,13 @@ public class PlayerCareerPrefetchServiceTests
         return country;
     }
 
+    private async Task<ClubDefinition> SeedClubAsync(string name, string wikidataQid)
+    {
+        var club = new ClubDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid };
+        await _categoryValueRepository.AddClubAsync(club);
+        return club;
+    }
+
     [Test]
     public async Task PrefetchAsync_SeededCountryWithPool_CreatesPlayersAndPersistsCareers()
     {
@@ -61,6 +68,28 @@ public class PlayerCareerPrefetchServiceTests
 
         var stints = await _playerStoreRepository.GetCareerStintsAsync(player!.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Monaco", "Arsenal" }));
+    }
+
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0059): PlayerCareerPrefetchService shares
+    // PlayerCareerStintRefreshService.BuildNewStintsByPlayerId's
+    // canonicalization — a fetched stint whose ClubQid matches a seeded
+    // ClubDefinition must persist under that ClubDefinition.Name, not
+    // Wikidata's own raw label.
+    [Test]
+    public async Task REQ1203_PrefetchAsync_FetchedClubQidMatchesSeededClub_PersistsSeededClubDefinitionName()
+    {
+        await SeedCountryAsync("France", "Q142");
+        await SeedClubAsync("Lyon", "Q704");
+        _wikidataClient.SetPoolForNationality("Q142", [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
+        _wikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Olympique Lyonnais", 2000, 2003, 90, ClubQid: "Q704"));
+
+        await BuildService().PrefetchAsync();
+
+        var player = await _playerStoreRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var stints = await _playerStoreRepository.GetCareerStintsAsync(player!.Id);
+        Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Lyon" }));
     }
 
     [Test]
