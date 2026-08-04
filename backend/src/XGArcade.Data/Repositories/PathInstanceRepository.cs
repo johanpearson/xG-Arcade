@@ -93,11 +93,22 @@ public class PathInstanceRepository(XGArcadeDbContext dbContext) : IPathInstance
     {
         dbContext.PathInstances.Add(instance);
         // cycleState was loaded (or built) AsNoTracking by
-        // GetOrCreateCycleStateAsync — Update attaches it and marks every
-        // property modified, same "load-then-save, no ExecuteUpdateAsync"
-        // discipline coding-guidelines.md requires (the InMemory test
-        // provider can't translate ExecuteUpdateAsync).
-        dbContext.PathTargetCycles.Update(cycleState);
+        // GetOrCreateCycleStateAsync — normally Update would simply attach
+        // it and mark every property modified, same "load-then-save, no
+        // ExecuteUpdateAsync" discipline coding-guidelines.md requires (the
+        // InMemory test provider can't translate ExecuteUpdateAsync).
+        // But when this DbContext already generated an instance earlier in
+        // the same scope, the very first GetOrCreateCycleStateAsync call
+        // left its freshly-Added `initial` row tracked (SaveChangesAsync
+        // does not detach), while this later call's AsNoTracking() read
+        // produced a *different* PathTargetCycle object for the same
+        // singleton Id. Calling Update(cycleState) here would try to attach
+        // that second, distinct instance under a key EF's identity map
+        // already has a tracked entry for, throwing
+        // InvalidOperationException. Route through the tracked entry
+        // instead when one exists, copying this call's values onto it,
+        // rather than attaching a second instance for the same key.
+        UpsertCycleState(cycleState);
         dbContext.PathCycleTargetUsages.AddRange(targetPlayerIds.Select(playerId => new PathCycleTargetUsage
         {
             Id = Guid.NewGuid(),
@@ -110,5 +121,25 @@ public class PathInstanceRepository(XGArcadeDbContext dbContext) : IPathInstance
         // they can never diverge on a partial failure.
         await dbContext.SaveChangesAsync(cancellationToken);
         return instance;
+    }
+
+    // Attaches cycleState as the tracked PathTargetCycle for its Id, unless
+    // this DbContext already has a different tracked instance under that
+    // same Id (see the comment above the one call site) — in that case the
+    // already-tracked entry's current values are overwritten in place
+    // instead, so EF's identity map never sees two instances for one key.
+    private void UpsertCycleState(PathTargetCycle cycleState)
+    {
+        var trackedEntry = dbContext.ChangeTracker.Entries<PathTargetCycle>()
+            .FirstOrDefault(e => e.Entity.Id == cycleState.Id);
+
+        if (trackedEntry is not null && !ReferenceEquals(trackedEntry.Entity, cycleState))
+        {
+            trackedEntry.CurrentValues.SetValues(cycleState);
+        }
+        else
+        {
+            dbContext.PathTargetCycles.Update(cycleState);
+        }
     }
 }
