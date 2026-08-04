@@ -20,6 +20,29 @@
   gap: var(--space-3);
 }
 
+.path-screen__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* REQ-303: same quiet secondary-text treatment as
+   .path-screen__puzzle-position — mirrors GridScreen.css's
+   .grid-screen__end-time exactly (see that rule's own comment for the
+   full rationale: a plain inline span, not a button, but still focusable
+   so its aria-label carrying the absolute end date/time is reachable by
+   keyboard, not just mouse hover). */
+.path-screen__end-time {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 .path-screen__puzzle-position {
   color: var(--color-text-muted);
   font-size: 13px;
