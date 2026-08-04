@@ -23,7 +23,8 @@ public class XGPathGameModule(
     ICategoryValueRepository categoryValueRepository,
     IPlayerCareerStintRefreshService careerStintRefreshService,
     IPlayerFamiliarityService playerFamiliarityService,
-    Random? random = null) : IGameModule
+    Random? random = null,
+    TimeProvider? timeProvider = null) : IGameModule
 {
     public const string XGPathGameKey = "xg-path";
 
@@ -54,6 +55,12 @@ public class XGPathGameModule(
     // needing to register a Random.
     private readonly Random _random = random ?? Random.Shared;
 
+    // REQ-1208/ADR-0058: LastCycleCompletedAt's write on rollover — same
+    // injectable-clock precedent as GridGameModule's own _timeProvider
+    // field (falls back to the real clock in production, already
+    // registered as TimeProvider.System in Program.cs's DI container).
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
     public string GameKey => XGPathGameKey;
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
@@ -64,7 +71,9 @@ public class XGPathGameModule(
         var eligiblePlayerIds = await GetEligiblePlayerIdsAsync(cancellationToken);
 
         // REQ-1202: exactly N puzzles, never fewer — an insufficient pool
-        // is a hard abort, not a silently-smaller instance.
+        // is a hard abort, not a silently-smaller instance. Unaffected by
+        // REQ-1208's cycle tracking below: this checks the total live
+        // eligible pool, not the cycle-narrowed "not yet used" subset.
         if (eligiblePlayerIds.Count < template.PuzzleCount)
         {
             throw new PathGenerationException(
@@ -72,7 +81,48 @@ public class XGPathGameModule(
                 $"({eligiblePlayerIds.Count} eligible players available).");
         }
 
-        var targetPlayerIds = PickDistinct(eligiblePlayerIds, template.PuzzleCount);
+        // REQ-1208/ADR-0058: restrict selection to eligible players not yet
+        // used as a target in the current cycle, rolling the cycle over
+        // first if the live pool's remaining-unused count can't satisfy
+        // this generation. GetOrCreateCycleStateAsync creates the very
+        // first cycle row (CycleNumber 1) the first time this is ever
+        // called, mirroring ILeagueRepository.GetOrCreateGlobalLeagueAsync's
+        // idempotent-singleton shape.
+        var cycleState = await pathInstanceRepository.GetOrCreateCycleStateAsync(cancellationToken);
+        var usedPlayerIds = await pathInstanceRepository.GetUsedPlayerIdsInCycleAsync(cycleState.CycleNumber, cancellationToken);
+
+        // A player recorded as used in an earlier generation who has since
+        // dropped out of the live eligible pool (e.g. no longer meets
+        // ADR-0056's familiarity threshold) is simply absent from
+        // eligiblePlayerIds already — this Where-based subtraction quietly
+        // drops their now-irrelevant "used" record rather than erroring,
+        // exactly REQ-1208's "their earlier used-this-cycle record is
+        // inert" requirement. No special-casing needed.
+        var usedPlayerIdSet = usedPlayerIds.ToHashSet();
+        var availableThisCycle = eligiblePlayerIds.Where(id => !usedPlayerIdSet.Contains(id)).ToList();
+
+        if (availableThisCycle.Count < template.PuzzleCount)
+        {
+            // ADR-0058's tolerant rollover rule: the remaining-unused
+            // portion of the current live pool dropped below what this
+            // generation needs (not necessarily to exactly zero). A new
+            // cycle begins — every eligible player, including one used
+            // moments ago in the just-completed cycle, becomes selectable
+            // again — and this generation's targets are selected from the
+            // newly-available full pool.
+            cycleState.CycleNumber += 1;
+            cycleState.UsedInCycleCount = 0;
+            cycleState.LastCycleCompletedAt = _timeProvider.GetUtcNow().UtcDateTime;
+            availableThisCycle = eligiblePlayerIds.ToList();
+        }
+
+        // REQ-1209: the eligible pool size as observed at this generation —
+        // updated every generation, rollover or not.
+        cycleState.ObservedPoolSize = eligiblePlayerIds.Count;
+
+        var targetPlayerIds = PickDistinct(availableThisCycle, template.PuzzleCount);
+
+        cycleState.UsedInCycleCount += targetPlayerIds.Count;
 
         // ADR-0054: refresh exactly these N targets' PlayerCareerStint rows
         // from Wikidata's full career history, before anyone can view the
@@ -103,7 +153,11 @@ public class XGPathGameModule(
             }).ToList(),
         };
 
-        await pathInstanceRepository.AddInstanceAsync(instance, cancellationToken);
+        // REQ-1208: the PathInstance/PathPuzzle write and the cycle-usage
+        // write (cycleState + one PathCycleTargetUsage row per target) go
+        // through in the same unit of work — see
+        // AddInstanceWithCycleUsageAsync's own doc comment for why.
+        await pathInstanceRepository.AddInstanceWithCycleUsageAsync(instance, cycleState, targetPlayerIds, cancellationToken);
 
         return new GameInstance { Id = instance.Id };
     }

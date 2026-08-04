@@ -479,6 +479,107 @@ public class RoundEndpointTests
         Assert.That(instance.Puzzles.Select(p => p.TargetPlayerId).Distinct().Count(), Is.EqualTo(3));
     }
 
+    // ---- REQ-1208/ADR-0058: xG Path target cycle tracking, end-to-end -----
+    // through the real /internal/generate-round endpoint ------------------
+
+    [Test]
+    public async Task REQ1208_GenerateRound_Post_WithGameKeyXgPath_AcrossCycleRolloverBoundary_ProducesExactlyNDistinctTargetPuzzlesEachTime()
+    {
+        // Only 4 eligible players, PuzzleCount 3: round 1 uses 3 of the 4
+        // (leaving 1 unused-in-cycle, below PuzzleCount), so round 2 — the
+        // genuine "one round ahead" generation REQ301's own idempotency test
+        // already proves happens on a second call once round 1 has started —
+        // must roll the cycle over rather than aborting for lack of
+        // candidates, and must still produce exactly 3 distinct targets.
+        var xgPathFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<PathGenerationOptions>();
+                services.AddSingleton(new PathGenerationOptions { PuzzleCount = 3 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPathGameModule.XGPathGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        await SeedEligiblePathPlayersAsync(count: 4, factory: xgPathFactory);
+        var client = xgPathFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var firstResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+        var firstRound = await firstResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        // Round 1 starts ~now and is therefore already active by the time
+        // this second call runs a moment later — same "call 2 generates a
+        // real next round" mechanics as REQ301_GenerateRound_Post_
+        // IsIdempotent_WhenAnUpcomingRoundAlreadyExists above, just against
+        // xg-path.
+        var secondResponse = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+        var secondRound = await secondResponse.Content.ReadFromJsonAsync<GenerateRoundResponse>();
+
+        Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(secondRound!.RoundId, Is.Not.EqualTo(firstRound!.RoundId), "a genuine second round, not the idempotent no-op case");
+
+        using var scope = xgPathFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var firstRoundEntity = await dbContext.Rounds.SingleAsync(r => r.Id == firstRound.RoundId);
+        var secondRoundEntity = await dbContext.Rounds.SingleAsync(r => r.Id == secondRound.RoundId);
+        var firstTargets = (await dbContext.PathInstances.Include(pi => pi.Puzzles).SingleAsync(pi => pi.Id == firstRoundEntity.GameInstanceId))
+            .Puzzles.Select(p => p.TargetPlayerId).ToList();
+        var secondTargets = (await dbContext.PathInstances.Include(pi => pi.Puzzles).SingleAsync(pi => pi.Id == secondRoundEntity.GameInstanceId))
+            .Puzzles.Select(p => p.TargetPlayerId).ToList();
+
+        Assert.That(firstTargets, Has.Count.EqualTo(3));
+        Assert.That(firstTargets.Distinct().Count(), Is.EqualTo(3), "REQ-1202's own within-instance distinctness guarantee, unaffected by cycle tracking");
+        Assert.That(secondTargets, Has.Count.EqualTo(3));
+        Assert.That(secondTargets.Distinct().Count(), Is.EqualTo(3));
+
+        var cycleState = await dbContext.PathTargetCycles.SingleAsync();
+        Assert.That(cycleState.CycleNumber, Is.EqualTo(2), "the remaining-unused-in-cycle count (1) dropped below PuzzleCount(3), so round 2's generation must have rolled the cycle over");
+        Assert.That(cycleState.ObservedPoolSize, Is.EqualTo(4));
+        Assert.That(cycleState.UsedInCycleCount, Is.EqualTo(3));
+        Assert.That(cycleState.LastCycleCompletedAt, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ1208_GenerateRound_Post_WithGameKeyXgPath_InsufficientTotalEligiblePool_ReturnsProblemDetails_UnaffectedByCycleState()
+    {
+        var xgPathFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<PathGenerationOptions>();
+                services.AddSingleton(new PathGenerationOptions { PuzzleCount = 3 });
+
+                services.AddSingleton(new RoundSchedulingOptions
+                {
+                    GameKey = XGPathGameModule.XGPathGameKey,
+                    RoundDuration = TimeSpan.FromHours(30),
+                });
+            });
+        });
+        await SeedEligiblePathPlayersAsync(count: 2, factory: xgPathFactory); // fewer than PuzzleCount(3), total pool, regardless of cycle state
+        var client = xgPathFactory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ValidJobToken);
+
+        var response = await client.PostAsync("/internal/generate-round?gameKey=xg-path", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.InternalServerError));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Round generation failed"));
+        Assert.That(problem.Detail, Does.Contain("Not enough eligible target players"));
+
+        using var scope = xgPathFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Rounds.CountAsync(), Is.Zero, "an aborted generation must never create a round");
+        Assert.That(await dbContext.PathTargetCycles.CountAsync(), Is.Zero,
+            "REQ-1208's cycle state is only created/mutated once a generation actually succeeds — the pre-existing insufficient-total-pool abort runs first and is unaffected by (and creates no) cycle state");
+    }
+
     [Test]
     public async Task REQ1202_GenerateRound_Post_OmittingGameKey_StillDefaultsToXgGrid()
     {

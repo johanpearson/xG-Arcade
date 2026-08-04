@@ -52,6 +52,12 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PathTemplate> PathTemplates => Set<PathTemplate>();
     public DbSet<PathInstance> PathInstances => Set<PathInstance>();
     public DbSet<PathPuzzle> PathPuzzles => Set<PathPuzzle>();
+    // REQ-1208/ADR-0058: xG Path's own no-repeat-target-selection cycle
+    // state — see PathTargetCycle/PathCycleTargetUsage's own doc comments.
+    // Never read outside IPathInstanceRepository (Games.XGPath's own
+    // persistence boundary, same as the three DbSets above).
+    public DbSet<PathTargetCycle> PathTargetCycles => Set<PathTargetCycle>();
+    public DbSet<PathCycleTargetUsage> PathCycleTargetUsages => Set<PathCycleTargetUsage>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
@@ -266,6 +272,29 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<PathPuzzle>()
             .HasIndex(pp => new { pp.PathInstanceId, pp.TargetPlayerId })
             .IsUnique();
+
+        // REQ-1208/ADR-0058: PathCycleTargetUsage.PlayerId crosses into
+        // Player's table (COMP-06) — same "meaningful FK, not ADR-0003's
+        // Round/Core boundary concern" reasoning as PathPuzzle.
+        // TargetPlayerId above. Cascade mirrors every other Player-
+        // referencing FK; there is no player-row-deletion pathway today.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(u => u.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1208: a player is recorded at most once per cycle — guards
+        // AddInstanceWithCycleUsageAsync's insert the same way GridCell's
+        // unique index above guards its own generation-time insert.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasIndex(u => new { u.PlayerId, u.CycleNumber })
+            .IsUnique();
+
+        // GetUsedPlayerIdsInCycleAsync's hot-path read — every lookup is
+        // scoped to "this cycle number", never PlayerId alone.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasIndex(u => u.CycleNumber);
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.
