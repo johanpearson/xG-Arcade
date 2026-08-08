@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import './App.css';
 import { AdminScreen } from './admin/AdminScreen';
+import { SuggestionsScreen } from './admin/SuggestionsScreen';
 import { ApiError, fetchMe, logout, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
@@ -44,7 +45,21 @@ const REFRESH_TOKEN_STORAGE_KEY = 'xg-arcade-refresh-token';
 // way 'grid' is — GameSelectScreen's second tile or HeaderNav's "Games" →
 // "xG Path" entry. It renders only a placeholder today: the real
 // clue-reveal UI (SCREEN-10) is S-086's separate, not-yet-built work.
-type Screen = 'game-select' | 'grid' | 'path' | 'leaderboard' | 'leagues' | 'settings' | 'admin';
+// 'admin-suggestions' (REQ-509/REQ-510, S-090, ADR-0053) is
+// SuggestionsScreen's own destination — reachable only via a link inside
+// AdminScreen itself, one hop further than 'admin', mirroring how 'admin'
+// is in turn only reachable from 'settings'. Never a default destination
+// and never given its own top-level nav entry, per ADR-0053's "a new,
+// separate screen... reached the same gated way" framing.
+type Screen =
+  | 'game-select'
+  | 'grid'
+  | 'path'
+  | 'leaderboard'
+  | 'leagues'
+  | 'settings'
+  | 'admin'
+  | 'admin-suggestions';
 
 // REQ-721/ADR-0039: hash-based, hand-rolled URL-per-screen mapping — see
 // that ADR for why (hash not path, no router library, no popstate/
@@ -59,6 +74,7 @@ const SCREEN_HASHES: Record<Screen, string> = {
   leagues: '#/leagues',
   settings: '#/settings',
   admin: '#/admin',
+  'admin-suggestions': '#/admin/suggestions',
 };
 
 const HASH_TO_SCREEN: Partial<Record<string, Screen>> = Object.fromEntries(
@@ -468,7 +484,17 @@ function App() {
           ) : screen === 'leaderboard' ? (
             <LeaderboardScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : screen === 'admin' ? (
-            <AdminScreen accessToken={accessToken} onAuthError={handleLogout} />
+            <AdminScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              onOpenSuggestions={() => navigateTo('admin-suggestions')}
+            />
+          ) : screen === 'admin-suggestions' ? (
+            <SuggestionsScreen
+              accessToken={accessToken}
+              onAuthError={handleLogout}
+              onBackToAdmin={() => navigateTo('admin')}
+            />
           ) : screen === 'leagues' ? (
             <LeaguesScreen accessToken={accessToken} onAuthError={handleLogout} />
           ) : (

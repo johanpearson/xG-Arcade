@@ -478,6 +478,71 @@ export interface CurrentPathResponse {
   puzzles: CurrentPathPuzzle[];
 }
 
+// REQ-509/510 (S-090)/ADR-0053: a single pending PlayerSuggestion row, as
+// returned by GET /admin/suggestions — mirrors PendingSuggestionResponse
+// (backend/src/XGArcade.Api/Admin/AdminSuggestionEndpoints.cs) exactly.
+// Deliberately its own type, never merged with UnverifiedPlayerData above —
+// ADR-0053 is explicit that PlayerSuggestion never shares a row shape with
+// REQ-503's PlayerData queue. submittingUserDisplayName is null exactly when
+// the submitting user has since been deleted (REQ-710 anonymizes rather than
+// hard-deletes Guess rows, but SubmittingUserId here has no FK — see
+// PlayerSuggestion's own backend doc comment), never an error case.
+export interface PendingSuggestion {
+  id: string;
+  playerName: string;
+  assertedClubs: string[];
+  assertedNationality: string;
+  submittingUserId: string;
+  submittingUserDisplayName: string | null;
+  rowCategoryType: string;
+  colCategoryType: string;
+  createdAt: string;
+}
+
+// REQ-509/510: the shared lookup response shape for both
+// POST /admin/suggestions/{id}/lookup and POST /admin/player-search/lookup
+// (WikidataPlayerLookupResponse). `found: false` (every other field
+// null/empty) is a normal, valid "Wikidata has no matching footballer for
+// this name" outcome — never conflated with a 503 "lookup unavailable"
+// failure (ADR-0046's timeout-vs-no-match distinction); a 503 is left to
+// throw as an ApiError by lib/api.ts's lookup functions rather than ever
+// resolving to this shape.
+export interface WikidataPlayerLookupResult {
+  found: boolean;
+  wikidataQid: string | null;
+  fullName: string | null;
+  nationality: string | null;
+  clubs: string[];
+}
+
+// REQ-509/510: the admin's reviewed/confirmed values sent to both
+// POST /admin/suggestions/{id}/commit and POST /admin/player-search/commit
+// (CommitPlayerDataRequest) — typically pre-filled from a prior lookup
+// response and then hand-edited before submitting; the admin's own review is
+// the point, never a blind rubber-stamp of whatever Wikidata returned.
+// `nationality: null`/blank means "don't touch this player's nationality
+// override," `clubs: []` means "don't add any new club attributes" — the
+// backend 400s if both end up empty, so the UI should avoid submitting that
+// combination in the first place (defense in depth, not a substitute for
+// the server's own validation).
+export interface CommitPlayerDataPayload {
+  wikidataQid: string;
+  fullName: string;
+  nationality: string | null;
+  clubs: string[];
+  reason: string;
+}
+
+// REQ-509/510: both commit endpoints' shared response shape
+// (CommitPlayerDataResponse) — exactly what ended up confirmed after the
+// write (deduped/trimmed), not a per-club new-vs-already-effective
+// breakdown.
+export interface CommitPlayerDataResult {
+  playerId: string;
+  nationality: string | null;
+  clubs: string[];
+}
+
 // REQ-402/403: a custom league, as returned by POST /leagues,
 // POST /leagues/join, and GET /leagues/mine (XGArcade.Api.Leagues.LeagueResponse)
 // — this story's minimal "create/join/list my leagues" scope only, no

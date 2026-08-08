@@ -28,6 +28,11 @@ import './AdminScreen.css';
 export interface AdminScreenProps {
   accessToken: string;
   onAuthError: () => void;
+  // REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
+  // SuggestionsScreen — App.tsx wires this to navigateTo('admin-suggestions'),
+  // mirroring how SettingsScreen's own onOpenAdmin link is this screen's own
+  // entry point. Never a standalone top-level nav entry (ADR-0053).
+  onOpenSuggestions: () => void;
 }
 
 type PageState =
@@ -42,7 +47,7 @@ type PageState =
 // endpoint 403s a non-admin token directly, and the unverified-data fetch's
 // own 403 is what flips this whole page to an access-denied message,
 // independent of the nav-hiding.
-export function AdminScreen({ accessToken, onAuthError }: AdminScreenProps) {
+export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: AdminScreenProps) {
   const [pageState, setPageState] = useState<PageState>({ phase: 'loading' });
   const [unverifiedRows, setUnverifiedRows] = useState<UnverifiedPlayerData[]>([]);
   // null both while the round-control/user-deletion feature is genuinely
@@ -131,6 +136,16 @@ export function AdminScreen({ accessToken, onAuthError }: AdminScreenProps) {
   return (
     <div className="admin-screen">
       <h2 className="admin-screen__title">Admin</h2>
+
+      {/* REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
+          SuggestionsScreen — a separate screen/file per that ADR, never
+          folded into this one's sections below. Mirrors SettingsScreen's own
+          "onOpenAdmin" link-out pattern, one level deeper. */}
+      <section className="admin-screen__section">
+        <button type="button" onClick={onOpenSuggestions}>
+          Player suggestions
+        </button>
+      </section>
 
       <UnverifiedDataSection
         accessToken={accessToken}

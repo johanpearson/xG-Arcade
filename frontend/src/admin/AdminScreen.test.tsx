@@ -80,7 +80,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Unverified data (1)')).toBeInTheDocument();
     expect(screen.getByText('Henry · nationality · France · live_lookup')).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
   });
@@ -121,7 +121,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     await user.click(screen.getByRole('button', { name: 'Correct' }));
@@ -145,7 +145,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     await user.click(screen.getByRole('button', { name: 'Correct' }));
@@ -164,7 +164,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     expect(screen.getByRole('button', { name: 'Approve selected' })).toBeDisabled();
@@ -177,7 +177,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     // Selecting a row for bulk approve, without ever opening "Correct",
@@ -211,7 +211,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -248,7 +248,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -281,7 +281,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -300,7 +300,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
 
     expect(screen.getByRole('button', { name: 'Remove selected' })).toBeDisabled();
@@ -328,7 +328,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -365,7 +365,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -398,7 +398,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Henry · nationality · France · live_lookup');
     await screen.findByText('Mbappe · club · PSG · wikidata');
 
@@ -417,7 +417,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('No unverified data to review.');
 
     expect(screen.queryByText(/Round control/)).not.toBeInTheDocument();
@@ -430,7 +430,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': () => jsonResponse(activeRound),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Round control — xg-grid')).toBeInTheDocument();
     expect(screen.getByText('Round round-1 · ends 2026-07-20T00:00:00Z')).toBeInTheDocument();
@@ -448,7 +448,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Round control — xg-grid');
 
     await user.click(screen.getByRole('button', { name: 'End round now' }));
@@ -477,7 +477,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Delete a user');
 
     await user.type(screen.getByLabelText('Email'), 'test@example.com');
@@ -501,7 +501,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Delete a user');
 
     await user.type(screen.getByLabelText('Email'), 'nobody@example.com');
@@ -519,7 +519,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(onAuthError).not.toHaveBeenCalled();
@@ -534,7 +534,7 @@ describe('AdminScreen', () => {
       '/admin/rounds/xg-grid/active': bareNotFound,
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -547,7 +547,7 @@ describe('AdminScreen', () => {
         jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(onAuthError).not.toHaveBeenCalled();
@@ -562,7 +562,7 @@ describe('AdminScreen', () => {
         jsonResponse({ totalUserCount: 42, currentGuestCount: 7, claimedGuestCount: 3 }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Accounts')).toBeInTheDocument();
     // "Accounts" renders unconditionally on mount, before the
@@ -586,7 +586,7 @@ describe('AdminScreen', () => {
       '/admin/accounts/metrics': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('Accounts')).not.toBeInTheDocument());
@@ -602,7 +602,7 @@ describe('AdminScreen', () => {
       '/admin/accounts/metrics': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -626,7 +626,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Guest accounts');
 
     await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
@@ -661,7 +661,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Guest accounts');
 
     await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
@@ -685,7 +685,7 @@ describe('AdminScreen', () => {
     });
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Guest accounts');
 
     await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
@@ -717,7 +717,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('Guest accounts');
 
     await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
@@ -753,7 +753,7 @@ describe('AdminScreen', () => {
     vi.stubGlobal('fetch', fetchMock);
     const user = userEvent.setup();
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
     await screen.findByText('5');
 
     await user.click(screen.getByRole('button', { name: 'Force clear guests' }));
@@ -780,7 +780,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(await screen.findByText('Current cycle')).toBeInTheDocument();
@@ -810,7 +810,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(
@@ -834,7 +834,7 @@ describe('AdminScreen', () => {
         }),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No cycle has completed yet')).toBeInTheDocument();
   });
@@ -847,7 +847,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
   });
@@ -860,7 +860,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={onAuthError} />);
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('xG Path target cycle')).not.toBeInTheDocument());
@@ -874,7 +874,7 @@ describe('AdminScreen', () => {
       '/admin/xg-path/cycle': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
     });
 
-    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} />);
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('xG Path target cycle')).toBeInTheDocument();
     expect(await screen.findByText('Something broke.')).toBeInTheDocument();
