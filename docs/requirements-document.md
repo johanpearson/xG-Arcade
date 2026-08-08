@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.54"
+version: "1.55"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -1950,6 +1950,79 @@ reveals a name)
     have caught this). **Filed here as a refinement acceptance criterion
     (below) for a follow-up story — not fixed in this pass**, per this
     exercise's own scope (verification, not implementation).
+- **Status note (2026-08-08) — second consumer, distinct content, no
+  requirement change.** A player directly reported "no scoring information
+  in the game" for xG Path (SCREEN-10) — clarified on follow-up to mean
+  this REQ's `(ⓘ)` "How scoring works" explainer pattern specifically, not
+  the per-puzzle point value REQ-1206 added earlier the same day (that
+  stays as-is). `PathScreen.tsx` had no `(ⓘ)` button or explainer of any
+  kind before this. Unlike REQ-303's second-consumer precedent (SCREEN-10
+  reusing the grid's *exact same* end-time formatter/component, since that
+  content is genuinely identical for both games) and unlike this REQ's own
+  2026-07-21 leaderboard extension (SCREEN-03 reusing `ScoringExplainer`
+  verbatim, since its content is also identical regardless of entry
+  point), xG Path's actual scoring rules share almost nothing with xG
+  Grid's: no uniqueness concept at all (`FinalUniquenessScore` is always
+  null for this game, REQ-1206), no live/locked distinction (a locked xG
+  Path score is final immediately, never a provisional value that changes
+  before round close, unlike a live grid cell), a different fixed
+  attempt-cap/clue model (7 clues per puzzle: 3 club-reveal turns, then
+  one bundled year-range turn, then position/nationality/age, one clue
+  revealed per wrong guess — REQ-1203/1205), and no player-pool or
+  leaderboard-ranking content belongs here either. Reusing
+  `ScoringExplainer.tsx` verbatim would therefore misdescribe xG Path's
+  actual rules (stating a live/locked distinction and a uniqueness
+  mechanic that don't exist for this game), and branching its content on a
+  `gameKey` prop was judged worse than a second small component (every
+  paragraph wrapped in a per-game branch, with real risk of one game's
+  edit bleeding into the other's copy) — so this is built as a **new
+  sibling component**, `frontend/src/path/PathScoringExplainer.tsx`, with
+  its own content but the same modal/accessibility shell
+  (`role="dialog"`, `aria-modal="true"`, Escape-to-close, focus moves to
+  the close button on open and returns to the `(ⓘ)` trigger on close) —
+  see that component's own doc comment for the full reasoning. Opened via
+  a new `(ⓘ)` button (`path-screen__info-toggle`) in `PathScreen.tsx`'s
+  header, same visual position as `GridScreen.tsx`'s entry point (inside
+  `.path-screen__title-row`, next to the REQ-303 round end-time
+  indicator). Content, verified against the actual implementation (not
+  assumed from this REQ's Grid-oriented text): each round has a handful of
+  puzzles (`PathGenerationOptions.PuzzleCount`, default 4); a fixed 7-turn
+  clue sequence and 7-attempt cap
+  (`PathClueSequenceBuilder.TotalTurns`/`XGPathGameModule.
+  MaxAttemptsPerPuzzle`, both 7, mirrored by the existing frontend constant
+  `MAX_CLUES_PER_PUZZLE` in `frontend/src/lib/pathRules.ts` — reused here
+  rather than a second frontend constant, since the two backend values are
+  identical by design and this codebase already treats them as one shared
+  frontend value for "Clue N of M" in `PathGuessInput.tsx`); a puzzle
+  locking unsolved reveals the answer; scoring is
+  `round(cluesUsed / 7 * MaxPointsPerCell)` for a correct guess
+  (`ClueEfficiencyScoringStrategy`), stated explicitly as golf-style
+  (lower is better) rather than assuming the player already knows that
+  convention from xG Grid; an unsolved puzzle scores the worst case,
+  `MaxPointsPerCell`; and once a puzzle locks its score is final
+  immediately, never live/provisional. `MAX_POINTS_PER_CELL` (`frontend/
+  src/lib/scoringRules.ts`) is confirmed genuinely shared, not a
+  Grid-only value — it mirrors `ScoringRules.MaxPointsPerCell`
+  (`backend/src/XGArcade.Core/Scoring/ScoringRules.cs`), which
+  `ClueEfficiencyScoringStrategy` (xG Path) calls directly, the same
+  constant `UniquenessScoringStrategy` (xG Grid) uses via
+  `PointsFromUniqueScore`. No uniqueness/other-players'-answers language
+  appears anywhere in this component's copy — deliberately, since that
+  mechanic doesn't exist for this game and stating it would be actively
+  wrong. Covered by three new tests in `PathScreen.test.tsx`
+  (`describe('REQ-213: scoring explainer', ...)`, mirroring
+  `GridScreen.test.tsx`'s own REQ-213 coverage): the dialog opens with
+  xG Path's own content and never mentions uniqueness; opening it does not
+  discard an in-progress, typed-but-not-yet-submitted guess; Escape closes
+  it and returns focus to the `(ⓘ)` trigger.
+  - **Known, pre-existing, out-of-scope gap flagged (not fixed in this
+    pass):** `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point still opens
+    xG Grid's `ScoringExplainer` verbatim — including its uniqueness/
+    live-locked/median-ranking content — even when the leaderboard's xG
+    Path tab is the one currently active, which doesn't describe xG
+    Path's actual rules. This predates this change, is unrelated to
+    `PathScreen.tsx`, and is out of this story's scope — filed here as a
+    candidate for a future story, not addressed now.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -2033,6 +2106,30 @@ reveals a name)
   "Global leaderboard" heading), since both entry points share the same
   requirement that the button stay adjacent to its labeling context,
   regardless of screen
+- **(2026-08-08 addition, second consumer)** Given the xG Path puzzle screen
+  (SCREEN-10) is displayed with an active round
+- When the player activates the explainer entry point in that screen's
+  header, next to the round end-time indicator
+- Then a **distinct** explainer opens — `PathScoringExplainer.tsx`, not the
+  grid/leaderboard `ScoringExplainer.tsx` — describing xG Path's own rules
+  (the fixed 7-clue/7-attempt sequence and its order; that a wrong guess
+  reveals the next clue and a correct one halts the sequence immediately;
+  that an attempt-cap-exhausted puzzle locks unsolved and reveals the
+  answer; the clue-efficiency scoring formula stated in golf terms, lower
+  is better, explicitly rather than assuming the player already knows this
+  from xG Grid; that an unsolved puzzle scores the same worst case as a
+  correct guess using every clue; and that a locked score is final
+  immediately, never a live/provisional value) — and can be dismissed the
+  same way, returning the player to the puzzle screen without discarding
+  any in-progress state (e.g. a typed-but-not-yet-submitted guess)
+- And this explainer's content never mentions uniqueness or other players'
+  answers — that mechanic does not exist for xG Path (REQ-1206's
+  `FinalUniquenessScore` is always null for this game) — and never mentions
+  a live-then-locked distinction, since an xG Path score is final the
+  instant its puzzle locks
+- And the grid-screen and leaderboard-screen entry points (above) are
+  unaffected by this addition — they continue to open the same
+  `ScoringExplainer.tsx` with the same content as before
 
 **Test level:** UI (explainer opens from the grid-screen header entry point
 and closes without losing in-progress state; contains text covering all six
@@ -2047,7 +2144,12 @@ entry point's bounding box remains on the same rendered line as its
 adjacent heading/timer text on both the grid and leaderboard screens — a
 real-layout check (Playwright bounding-box comparison against the running
 app), not a jsdom-based unit test, since jsdom does not perform real CSS
-flex-wrap layout)
+flex-wrap layout; **(2026-08-08 addition)** `PathScreen.test.tsx`'s
+`describe('REQ-213: scoring explainer', ...)` block covers SCREEN-10's own,
+distinct `PathScoringExplainer` entry point: opens with xG Path-specific
+content and never mentions uniqueness; does not discard an in-progress,
+typed-but-not-yet-submitted guess when opened; closes on Escape and returns
+focus to the `(ⓘ)` trigger)
 
 **REQ-214 – Photo reveal on a locked, correct cell**
 > As a player, I want to see the guessed player's photo, when one is

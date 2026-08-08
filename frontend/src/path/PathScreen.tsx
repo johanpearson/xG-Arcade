@@ -3,6 +3,7 @@ import { ApiError, describeError, fetchCurrentPath, submitGuess } from '../lib/a
 import type { CurrentPathResponse } from '../lib/types';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
 import { PathGuessInput } from './PathGuessInput';
+import { PathScoringExplainer } from './PathScoringExplainer';
 import { PathTimeline } from './PathTimeline';
 import './PathScreen.css';
 
@@ -36,6 +37,11 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
   // puzzle in the round at once (no per-puzzle fetch), so this is just an
   // index into that same array, never re-derived from the server.
   const [puzzleIndex, setPuzzleIndex] = useState(0);
+  // REQ-213 (second consumer, 2026-08-08): independent of puzzleIndex/the
+  // guess flow on purpose — same reasoning as GridScreen.tsx's own
+  // explainerOpen state, so opening this never discards an in-progress
+  // typed-but-not-yet-submitted guess.
+  const [explainerOpen, setExplainerOpen] = useState(false);
   // Quality-gate fix (S-086 follow-up): distinct from PathGuessInput's own
   // `error` state. That one means "the guess submission itself failed" (the
   // POST never landed) and is shown *instead of* a scored outcome. This one
@@ -183,6 +189,23 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
           >
             {state.roundEndTime.text}
           </span>
+          {/* REQ-213 (second consumer, 2026-08-08): opens SCREEN-10's own
+              scoring explainer — mirrors GridScreen.tsx's
+              `grid-screen__info-toggle` entry point exactly (same position
+              in the title row, next to the end-time indicator, same plain/
+              quiet unlabeled-button treatment), but opens PathScoringExplainer
+              (xG Path's own rules), not xG Grid's ScoringExplainer — see
+              that component's own doc comment for why. Reachable at any
+              time an active round is shown, not gated behind attempting any
+              particular puzzle. */}
+          <button
+            type="button"
+            className="path-screen__info-toggle"
+            onClick={() => setExplainerOpen(true)}
+            aria-label="How scoring works"
+          >
+            ⓘ
+          </button>
         </div>
         <p className="path-screen__puzzle-position mono-figure">
           Puzzle {clampedPuzzleIndex + 1} of {puzzles.length}
@@ -247,6 +270,7 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
             Next puzzle
           </button>
         ))}
+      {explainerOpen && <PathScoringExplainer onClose={() => setExplainerOpen(false)} />}
     </div>
   );
 }

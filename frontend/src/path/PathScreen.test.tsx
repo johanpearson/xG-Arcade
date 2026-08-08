@@ -479,6 +479,107 @@ describe('PathScreen', () => {
     expect(screen.getByText('Barcelona')).toBeInTheDocument();
   });
 
+  // REQ-213 (second consumer, 2026-08-08): mirrors GridScreen.test.tsx's own
+  // REQ-213 coverage — a header (ⓘ) button opens a "How scoring works"
+  // dialog with xG Path's own content (not xG Grid's), without discarding
+  // in-progress puzzle state, and with the same focus-management/
+  // Escape-to-close behavior as PathScoringExplainer.tsx duplicates from
+  // ScoringExplainer.tsx.
+  describe('REQ-213: scoring explainer', () => {
+    it('opens a "How scoring works" dialog from the header (ⓘ) button, containing xG Path\'s own rules', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/path/current')) {
+            return jsonResponse(roundResponse());
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Puzzle 1 of 1');
+
+      await user.click(screen.getByRole('button', { name: 'How scoring works' }));
+      const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+
+      // xG Path's own clue/attempt-cap model.
+      expect(dialog.textContent).toMatch(/handful of puzzles/i);
+      expect(dialog.textContent).toMatch(/7 clues/i);
+      expect(dialog.textContent).toMatch(/3 turns/i);
+      expect(dialog.textContent).toMatch(/position, nationality, and age/i);
+      expect(dialog.textContent).toMatch(/7 attempts per puzzle/i);
+      expect(dialog.textContent).toMatch(/locks unsolved/i);
+
+      // Golf-style scoring, explicitly stated (not assumed known from Grid).
+      expect(dialog.textContent).toMatch(/scored like golf/i);
+      expect(dialog.textContent).toMatch(/lower is better/i);
+      expect(dialog.textContent).toMatch(/14 pts/i);
+      expect(dialog.textContent).toMatch(/100 pts/i);
+
+      // Final-immediately, never live/provisional — the deliberate
+      // distinction from xG Grid's live-then-locked cell.
+      expect(dialog.textContent).toMatch(/final right away/i);
+      expect(dialog.textContent).toMatch(/never changes afterwards/i);
+
+      // Never mentions uniqueness — that's an xG Grid-only mechanic and
+      // would be actively wrong to state here (REQ-1206's FinalUniquenessScore
+      // is always null for this game).
+      expect(dialog.textContent).not.toMatch(/unique/i);
+    });
+
+    it('does not discard an in-progress, typed-but-not-yet-submitted guess when opened', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/path/current')) {
+            return jsonResponse(roundResponse());
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+      await user.type(await screen.findByLabelText('Player name'), 'thierry henry');
+
+      await user.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
+
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('dialog', { name: 'How scoring works' })).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Player name')).toHaveValue('thierry henry');
+    });
+
+    it('closes on Escape and returns focus to the (ⓘ) button', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (String(url).endsWith('/path/current')) {
+            return jsonResponse(roundResponse());
+          }
+          throw new Error(`Unexpected fetch: ${url}`);
+        }),
+      );
+
+      render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+      await screen.findByText('Puzzle 1 of 1');
+
+      const infoButton = screen.getByRole('button', { name: 'How scoring works' });
+      await user.click(infoButton);
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByRole('dialog', { name: 'How scoring works' })).not.toBeInTheDocument();
+      expect(infoButton).toHaveFocus();
+    });
+  });
+
   // REQ-303: mirrors GridScreen.test.tsx's own "round end-time indicator"
   // describe block exactly — same indicator, same underlying
   // lib/roundTime.ts formatter, just PathScreen's own header/class names.

@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.66"
+version: "0.67"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -2381,6 +2381,68 @@ decided:
 No new color, typeface, or animation family was introduced — this reuses
 `accent-gold-text`/`accent-red`/`--font-mono`/`.mono-figure` exactly as
 SCREEN-01a and this section's own existing reveal nodes already do.
+
+**2026-08-08 status note (REQ-213 gap closed — a scoring explainer was not
+anticipated anywhere in this section before now).** A player who tested xG
+Path directly reported "no scoring information in the game" — clarified on
+follow-up to mean this screen had no `(ⓘ)` "How scoring works" entry point
+or explainer of any kind, not the per-puzzle point value the same-day
+REQ-1206 status note above already added. This section previously said
+nothing about a scoring explainer for SCREEN-10 at all; the wireframe at
+the top of this section is not redrawn (same "leave the stale mock, add a
+correcting note" convention already used twice above for this same
+screen). Resolved as a second entry point/component pattern, not a literal
+extension of REQ-213's existing content:
+- **Entry point:** a new `(ⓘ)` button (`.path-screen__info-toggle`) inside
+  `.path-screen__title-row`, immediately after the round end-time
+  indicator — the exact same relative position `GridScreen.tsx`'s
+  `.grid-screen__info-toggle` occupies next to its own end-time indicator,
+  same size/quiet/no-accent-color treatment (`--touch-target-min`,
+  `--color-text-muted`, no new token).
+- **Component: a new sibling, not a reuse of `ScoringExplainer.tsx` and
+  not a `gameKey`-branched version of it.** REQ-213's 2026-07-21
+  leaderboard extension reused `ScoringExplainer.tsx` verbatim precisely
+  because its content is identical regardless of which screen opened it
+  (both consumers describe the same grid/uniqueness/median mechanics).
+  That reasoning doesn't transfer here: xG Path has no uniqueness concept,
+  no live/locked point distinction (its locked score is final
+  immediately, unlike a grid cell's live-then-locked value), and a wholly
+  different clue/attempt-cap model, so reusing that component's content
+  verbatim would state things about xG Path that are actively false, and
+  branching every paragraph on a `gameKey` prop was judged to read worse
+  and risk cross-game content bleed for a two-consumer case (this
+  repo's own "duplication over premature abstraction for exactly two call
+  sites" convention, CLAUDE.md). Built as `frontend/src/path/
+  PathScoringExplainer.tsx` — its own content, but the same modal/
+  accessibility shell as `ScoringExplainer.tsx` (`role="dialog"`,
+  `aria-modal="true"`, Escape-to-close, focus moves to the close button on
+  open and returns to the `(ⓘ)` trigger on close) duplicated rather than
+  extracted into a shared hook/component, same two-call-sites reasoning.
+- **Content**, verified against the actual backend implementation, not
+  assumed: the fixed 7-clue sequence and its order (3 club-reveal turns,
+  one bundled year-range turn, then position/nationality/age — one clue
+  per wrong guess, halting immediately on a correct one); the fixed
+  7-attempt cap, and that exhausting it locks the puzzle unsolved and
+  reveals the answer; the golf-style scoring formula
+  (`round(cluesUsed / 7 × MaxPointsPerCell)`), stated explicitly as
+  "scored like golf, lower is better" rather than assuming the player
+  already knows this convention from xG Grid; that an unsolved puzzle
+  scores the same worst case as a correct guess that used every clue; and
+  that a locked score is final immediately, with no live/provisional value
+  to watch update — the deliberate opposite of SCREEN-01a's live-then-
+  locked cell. No uniqueness or other-players'-answers language appears
+  anywhere in this copy.
+- **Tokens only** — `--color-surface-card`, `--color-border-hairline`,
+  `--color-text-primary`/`--color-text-muted`, existing spacing scale, no
+  new color/typeface/animation. `PathScoringExplainer.css` duplicates
+  `ScoringExplainer.css`'s values rather than sharing the stylesheet, same
+  two-call-sites reasoning as the component split above.
+- **Known, pre-existing, out-of-scope gap flagged (not fixed here):**
+  `LeaderboardScreen.tsx`'s `(ⓘ)` entry point still opens xG Grid's
+  `ScoringExplainer` verbatim even when the leaderboard's xG Path tab is
+  active, showing Grid-specific content that doesn't describe xG Path's
+  rules. Pre-existing, unrelated to this screen, and out of this change's
+  scope — noted here as a candidate for a follow-up, not addressed now.
 
 ## 4. Responsive strategy
 

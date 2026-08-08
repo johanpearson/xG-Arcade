@@ -13,6 +13,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/requirements-document.md` (v1.54 → v1.55),
+  `docs/design-document.md` (v0.66 → v0.67) — closed a real player-reported
+  gap on xG Path (SCREEN-10): "no scoring information in the game" turned
+  out to mean the `(ⓘ)` "How scoring works" explainer specifically (not the
+  same-day REQ-1206 per-puzzle points value, which stays untouched).
+  `PathScreen.tsx` had no explainer entry point at all before this. Added a
+  new `(ⓘ)` button (`.path-screen__info-toggle`) in the header, next to the
+  round end-time indicator, opening a new sibling component
+  (`frontend/src/path/PathScoringExplainer.tsx`) rather than reusing or
+  `gameKey`-branching xG Grid's `ScoringExplainer.tsx` — xG Path's rules
+  share almost nothing with xG Grid's (no uniqueness, no live/locked point
+  distinction, a different 7-clue/7-attempt model), so reuse would have
+  misdescribed the game; the modal/accessibility shell (focus management,
+  Escape-to-close) is duplicated from `ScoringExplainer.tsx`, not
+  extracted, per this repo's two-call-sites duplication preference.
+  Content verified against `XGPathGameModule.cs`,
+  `PathClueSequenceBuilder.cs`, `ClueEfficiencyScoringStrategy.cs`, and
+  `PathGenerationOptions.cs` rather than assumed. `docs/requirements-
+  document.md` REQ-213 gained a 2026-08-08 second-consumer status note
+  (mirroring REQ-303's earlier second-consumer precedent) plus new
+  acceptance-criteria/Test-level coverage for SCREEN-10's distinct entry
+  point; `docs/design-document.md`'s SCREEN-10 section gained a matching
+  status note. Both docs flag the same known, pre-existing,
+  out-of-scope gap: `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point still
+  shows xG Grid's `ScoringExplainer` content even when the leaderboard's
+  xG Path tab is active — not fixed here, filed as a follow-up candidate.
+  3 new Vitest tests added to `PathScreen.test.tsx`
+  (`describe('REQ-213: scoring explainer', ...)`); full frontend suite run
+  (472 tests passing, up from 469), `npx tsc -b` clean, `npm run lint`
+  clean. No backend changes, no ADR (UI content/composition, not a
+  structural/boundary decision). REQ-213.
 - 2026-08-08 — `docs/architecture-document.md` (v0.82 → v0.83),
   `docs/implementation-document.md` (v0.90 → v0.91) — doc-sync closing an
   `architecture-reviewer` gate finding on today's two xG Path bug fixes
