@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.50"
+version: "1.51"
 status: draft
-last_updated: 2026-08-04
+last_updated: 2026-08-08
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -6550,10 +6550,80 @@ count of 2)
   how `Core.Scoring` supports this second, different scoring model
   per-game without special-casing xG Path inline
 
+**Status note (2026-08-08 — gap identified via code review, not yet
+implemented): score is never shown to the player.** The acceptance
+criteria above specify when and how a puzzle's score is *computed and
+locked* at round close, but never that it is ever *shown*. Verified
+against the current implementation: `GET /path/current`'s response DTOs
+(`CurrentPathGuessResponse` in `XGArcade.Api.Path.PathEndpoints`) carry
+`IsCorrect`/`AttemptCount`/`Locked`/`SubmittedName`/`ResolvedPlayerName`/
+`ResolvedPlayerPhotoUrl` but no points field of any kind, and
+`PathScreen.tsx` (SCREEN-10) renders no score anywhere — a solved or
+locked-unsolved puzzle shows only "Next puzzle" or the round-complete
+message. This is the same live/provisional-estimate gap REQ-204's "S-018
+addition" already closed for xG Grid's `LivePoints`, applied here to xG
+Path's own scoring strategy (`ClueEfficiencyScoringStrategy`) — exposing
+an existing formula, not adding a new scoring rule, so no new ADR is
+needed (ADR-0040/ADR-0049 already cover the formula and its inputs). This
+status note and the criteria below do **not** touch, duplicate, or change
+the xG-Path-scoped leaderboard tab (REQ-410/S-087), which already works
+once rounds close and enough qualifying rounds accumulate — the gap here
+is specifically the absence of any per-puzzle score on the play screen
+itself, live or locked.
+
+**Important asymmetry from REQ-204's `LivePoints` — deliberately not the
+same wording.** xG Grid's `LivePoints` is genuinely provisional: it
+depends on `UniquenessCalculator`'s denominator (how many *other* players
+have also correctly guessed the cell so far), which can keep growing
+until the round closes, so the same cell's live estimate really can
+change between two page loads. `ClueEfficiencyScoringStrategy`'s formula
+has no such dependency — both `cluesUsed` (`Guess.AttemptCount` at the
+moment the puzzle locked) and `maxCluesForThisPuzzle` (the fixed 7,
+REQ-1205) are fully determined the instant a puzzle locks, and never
+change afterward. A value shown for a locked xG Path puzzle before round
+close is therefore not an estimate that can still change — it is
+arithmetically identical to what `ScoreLockingService` will persist as
+`FinalPoints` once the round closes, just not yet written to that column.
+The criteria below deliberately avoid REQ-204's "~N pts estimated"/
+"provisional" framing for this reason: applying that wording here would
+be inaccurate, and a criterion asserting "this value can change before
+close" would be untestable in the sense that it would always fail — it
+can't.
+
+- Given a locked xG Path puzzle (solved correctly, or its 7-attempt cap
+  exhausted unsolved — REQ-1205)
+- When the player views that puzzle via `GET /path/current`, at any point
+  before or after the round closes
+- Then the response includes the point value `ClueEfficiencyScoringStrategy`
+  computes for that puzzle (this REQ's formula above) — the same value
+  `ScoreLockingService` will persist as `FinalPoints` once the round
+  closes, computed and returned live rather than withheld until then
+- And no point value is returned for a puzzle that is not yet locked
+  (still guessable) — the formula has no meaning until the puzzle's
+  outcome (solved, and with how many clues; or exhausted unsolved) is
+  fixed
+- And the value shown before round close and the value shown after round
+  close (once `FinalPoints` exists) are always numerically identical for
+  a given puzzle — unlike REQ-204's `LivePoints`, this is never an
+  estimate that can change, and the frontend must not use wording implying
+  otherwise ("~", "estimated", "provisional") for it
+- And this governs only the xG Path play screen's (SCREEN-10) per-puzzle
+  display — it does not add, change, or duplicate any leaderboard
+  behavior; REQ-410's existing xG-Path-scoped leaderboard tab is
+  unaffected and remains the only place aggregate/total xG Path standings
+  are shown
+
 **Test level:** Unit (points formula across a range of `cluesUsed`/
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
 never solved; no uniqueness score of any kind is computed by this game's
-scoring strategy)
+scoring strategy). **Not yet covered (2026-08-08 addition above):** once
+implemented, Unit (the value returned for a locked puzzle matches
+`ClueEfficiencyScoringStrategy`'s own formula for the same `cluesUsed`/
+`maxCluesForThisPuzzle`; no value for an unlocked puzzle), API (`GET
+/path/current` includes the value for a locked puzzle, omits it for an
+unlocked one, and the value is unchanged across repeated requests before
+round close), UI (SCREEN-10 renders the value once a puzzle locks, without
+"estimated"/provisional wording).
 
 **REQ-1207 – Player position and birth year sourced from Wikidata**
 > As a player, I want the position, nationality, and age clues at the end
@@ -7056,3 +7126,50 @@ ADR should record that choice (REQ-509's own status note) — **resolved
 recorded in ADR-0053 (`docs/decisions/0053-player-suggestions-separate-admin-view.md`),
 which also reconfirms ADR-0007's autocomplete/correctness boundary applies
 to the new commit path.
+
+**New (2026-08-08), unresolved:** a tester reported xG Path targets are
+"too hard to identify from the clues" and suggested arbitrary-sounding
+fixes (e.g. requiring a birth year after 1970, or a stint at a "top-4 club
+in a top-5 league"). Investigation (not implementation) found this is
+plausibly not primarily a target-familiarity problem — ADR-0056's
+Wikipedia-sitelink filter already screens the *target player* for
+recognizability, and there is only one data point (this report, plus the
+original "Austrian guy" complaint that motivated ADR-0056 itself) — too
+little evidence to justify retuning `PlayerFamiliarityService
+.MinSitelinkCount` in either direction; ADR-0056's own Follow-up note
+already anticipates revisiting that constant once more play data exists,
+and doing so needs no new ADR (see that ADR's "For AI agents" note) when
+it happens. A more structurally plausible cause was identified instead:
+REQ-1203 reveals club stints in strict chronological (earliest-first)
+order, and REQ-1201/ADR-0047 only require *one* stint anywhere in a
+target's career to be at a seeded club (`MVP-SCOPE.md`'s hand-curated
+~15-club list) above the appearance threshold — nothing about eligibility
+or the familiarity filter requires that stint, or any recognizable club,
+to appear early. So even a genuinely familiar, familiarity-filter-passing
+target can have their *first* revealed clue turn be an obscure youth-team
+or lower-league stint from early in their career, before any seeded/
+recognizable club ever appears — making the opening clues feel
+unfairly obscure independent of how famous the target ultimately is or
+how permissive `MinSitelinkCount` is set. This is a genuine open product
+question, not a technical default: **should xG Path's clue-reveal order
+(REQ-1203) continue to be strictly chronological, or should it weight
+toward showing a recognizable (e.g. seeded-club) stint earlier, and if so,
+does that trade away the "genuine progressive challenge" intent REQ-1203's
+own user story states (chronological order was the deliberate "least-
+narrowing-first" choice, not an oversight — see REQ-1203's user story and
+its `N`-way club-split acceptance criteria) for a different kind of
+fairness?** This needs a product decision, not a default, because
+reordering clues by recognizability rather than chronology changes what
+"a genuine progressive challenge" means for this game and could make
+puzzles trivially easy for a well-known target instead of appropriately
+hard — the opposite failure mode from the one reported. No REQ or ADR
+changed for this yet; recorded here pending that decision. See the
+`requirements-writer` review of 2026-08-08 (this entry) for the full
+investigation, including why the tester's own two suggested fixes were
+not adopted as-is: a fixed birth-year cutoff is an arbitrary, undocumented
+proxy with no basis (would also exclude many genuinely famous
+pre-1970-born targets) and a "top-4 club/top-5 league" requirement would
+need a real league-tier data model — explicitly out of scope for the
+problem actually diagnosed here, and already rejected on the same
+"disproportionate to the problem" grounds by ADR-0047's own alternatives
+table for a closely related eligibility question.
