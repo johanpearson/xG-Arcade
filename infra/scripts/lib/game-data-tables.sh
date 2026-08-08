@@ -29,6 +29,7 @@ GAME_DATA_TABLES=(
   "public.\"PlayerNameIndexEntries\""
   "public.\"PlayerNameIndexWords\""
   "public.\"PlayerAliases\""
+  "public.\"PlayerCareerStints\""
   "public.\"TrophyDefinitions\""
   "public.\"ClubCrest\""
   "public.\"GridTemplates\""
@@ -47,3 +48,14 @@ GAME_DATA_TABLES=(
 # — same bulk-imported reference-data character as PlayerNameIndexEntries
 # itself, and must travel with it so a synced environment never ends up with
 # entries but no matching word rows (or vice versa).
+#
+# "PlayerCareerStints" added 2026-08-08 (gap found during an architecture
+# review of a proposed shared-DB alternative to this allowlist): ADR-0042's
+# PlayerCareerStint table postdates this file's most recent addition before
+# today and was simply never added — a real gap, not a deliberate exclusion.
+# It's exactly the kind of fetched/grown game-reference data (Wikidata career
+# history, per ADR-0042/0054/0055) this allowlist exists to carry; unlike
+# ClubDefinition/CountryDefinition (hand-curated, seeded identically in every
+# environment from committed source via ReferenceDataSeeder, never needing a
+# sync path at all), PlayerCareerStint genuinely accumulates independently
+# per environment over time and drifts without this entry.

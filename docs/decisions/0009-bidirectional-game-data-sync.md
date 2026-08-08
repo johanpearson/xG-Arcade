@@ -82,3 +82,16 @@ need it for. If a task seems to require syncing any of these, stop and
 flag it — that's exactly the case this ADR (and ADR-0006 before it) exists
 to prevent. The two scripts must always source the same shared allowlist
 file — never let one define its own inline copy.
+
+## Addendum, 2026-08-08: `PlayerCareerStint` was missing from the allowlist
+
+Found by an `architecture-reviewer` pass evaluating a proposed alternative
+(a genuinely shared dev/prod database for reference data — see the
+in-progress ADR on that topic for the full evaluation, which recommended
+against sharing `Player`-family tables specifically). `PlayerCareerStint`
+(ADR-0042, populated by ADR-0054/ADR-0055's fetch/prefetch services)
+postdated this allowlist's most recent addition and was simply never added
+— a real gap, not a deliberate exclusion: dev and prod have had no sync
+path for this table at all since it was introduced. Added to
+`lib/game-data-tables.sh` as `"public.\"PlayerCareerStints\""`, same
+allowlist, same two scripts, no other change to this ADR's decision.
