@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/requirements-document.md` (v1.52 → v1.53) — backend
+  half of REQ-1206's 2026-08-08 "score is never shown" gap: `GET
+  /path/current`'s `CurrentPathGuessResponse` (`XGArcade.Api.Path.
+  PathEndpoints`) gains a `Points` field (`int?`), non-null only when
+  `Locked` is true. Computed by resolving `IScoringStrategyResolver`
+  (already DI-registered for `ScoreLockingService`) and calling
+  `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly for a solved
+  puzzle — never a reimplemented copy of its rounding formula — or the
+  same `ScoringRules.MaxPointsPerCell` worst case `ScoreLockingService`
+  assigns for a puzzle locked via exhausted attempts (unsolved), since
+  that strategy is only ever invoked for a correct guess. Named `Points`,
+  not `LivePoints`/anything implying "estimated," matching REQ-1206's
+  explicit "this is never provisional, unlike xG Grid's `LivePoints`"
+  distinction. No change to `ClueEfficiencyScoringStrategy`,
+  `IScoringStrategyResolver`, or `ScoreLockingService` themselves — this
+  is a new call site for an existing formula, not a formula change, so no
+  new ADR. New coverage: `PathEndpointTests`
+  (`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
+  `REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
+  `REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`,
+  `XGArcade.Api.Tests`). `dotnet` is unavailable in this sandbox — tests
+  were hand-traced against the existing `PathEndpointTests` patterns but
+  not run; will only run in CI. Frontend (`PathScreen.tsx`, SCREEN-10)
+  deliberately untouched — left to a follow-up `ui-implementer` task, per
+  REQ-1206's still-open UI "Not yet covered" note. REQ-1206.
 - 2026-08-08 — `docs/requirements-document.md` (v1.51 → v1.52),
   `docs/implementation-document.md` (v0.89 → v0.90) — bug fix:
   leftover pre-2026-08-02 youth/age-grade national-team `PlayerCareerStint`

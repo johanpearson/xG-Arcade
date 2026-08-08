@@ -471,4 +471,80 @@ public class PathEndpointTests
         Assert.That(puzzle.Guess!.AttemptCount, Is.EqualTo(7));
         Assert.That(puzzle.Guess.Locked, Is.True, "the 7-attempt cap still locks the puzzle exactly as it would with real clubs");
     }
+
+    // ---- REQ-1206 (2026-08-08 addition): GET /path/current surfaces the -----
+    // locked (never provisional) points value ---------------------------------
+
+    [Test]
+    public async Task REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula()
+    {
+        // 2 wrong guesses then a correct one on attempt 3 — cluesUsed = 3,
+        // maxAttemptsForCell = 7 (REQ-1205's fixed cap), so the expected
+        // points are ClueEfficiencyScoringStrategy's own formula,
+        // round(cluesUsed / maxCluesForThisPuzzle * MaxPointsPerCell) =
+        // round(3 / 7 * 100) = 43 — computed here the same way the real
+        // strategy computes it, not a separately-derived expectation.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest("Nobody Real 1"));
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest("Nobody Real 2"));
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest("Kylian Mbappe"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Guess!.IsCorrect, Is.True);
+        Assert.That(puzzle.Guess.AttemptCount, Is.EqualTo(3));
+        Assert.That(puzzle.Guess.Locked, Is.True);
+        var expectedPoints = (int)Math.Round(3.0 / 7 * 100);
+        Assert.That(puzzle.Guess.Points, Is.EqualTo(expectedPoints),
+            "must equal ClueEfficiencyScoringStrategy's own formula for cluesUsed=3, maxAttemptsForCell=7 — the same value ScoreLockingService will persist as FinalPoints, not a separate estimate");
+    }
+
+    [Test]
+    public async Task REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints()
+    {
+        // ClueEfficiencyScoringStrategy is only ever invoked for a correct
+        // guess (its own doc comment) — a puzzle locked unsolved (7-attempt
+        // cap exhausted, REQ-1205) must score the same worst-case
+        // MaxPointsPerCell ScoreLockingService's own !guess.IsCorrect branch
+        // (ADR-0021) would assign at round close.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        for (var attempt = 0; attempt < 7; attempt++)
+            await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Guess!.IsCorrect, Is.False);
+        Assert.That(puzzle.Guess.Locked, Is.True);
+        Assert.That(puzzle.Guess.Points, Is.EqualTo(100), "an exhausted-unsolved puzzle scores the worst case (MaxPointsPerCell), same as ScoreLockingService's unanswered/incorrect branch");
+    }
+
+    [Test]
+    public async Task REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints()
+    {
+        // One wrong guess out of seven does not lock the puzzle — the
+        // formula has no meaning until the puzzle's outcome is fixed, so
+        // Points must be null/absent even though a Guess row already exists.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1));
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest("Nobody Real"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Guess!.Locked, Is.False);
+        Assert.That(puzzle.Guess.Points, Is.Null, "still-guessable puzzles must never carry a points value, correct or not");
+    }
 }

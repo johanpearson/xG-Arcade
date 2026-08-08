@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.52"
+version: "1.53"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -6701,17 +6701,39 @@ can't.
   unaffected and remains the only place aggregate/total xG Path standings
   are shown
 
+**Status note (2026-08-08, backend piece implemented — same-day follow-up to
+the gap above):** `GET /path/current`'s `CurrentPathGuessResponse` now
+carries a `Points` field (`int?`, `XGArcade.Api.Path.PathEndpoints`),
+non-null only when `Locked` is true. It is computed by resolving
+`IScoringStrategyResolver` (already DI-registered) and calling
+`ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly for a correct
+guess (`correctGuessesForCell` passed empty, since that strategy ignores
+it) — never a reimplementation of its rounding formula — and, for a puzzle
+locked via exhausted attempts (never solved), the same
+`ScoringRules.MaxPointsPerCell` worst case `ScoreLockingService`'s own
+`!guess.IsCorrect` branch assigns, since `ClueEfficiencyScoringStrategy`
+itself is only ever invoked for a correct guess. Named `Points`, not
+`LivePoints`/`EstimatedPoints`, and documented on the DTO as never
+provisional, per this REQ's own "Important asymmetry from REQ-204's
+`LivePoints`" note above. `PathScreen.tsx` (SCREEN-10) does not yet render
+this value — that is the remaining, frontend-only piece of this gap,
+tracked separately.
+
 **Test level:** Unit (points formula across a range of `cluesUsed`/
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
 never solved; no uniqueness score of any kind is computed by this game's
-scoring strategy). **Not yet covered (2026-08-08 addition above):** once
-implemented, Unit (the value returned for a locked puzzle matches
-`ClueEfficiencyScoringStrategy`'s own formula for the same `cluesUsed`/
-`maxCluesForThisPuzzle`; no value for an unlocked puzzle), API (`GET
-/path/current` includes the value for a locked puzzle, omits it for an
-unlocked one, and the value is unchanged across repeated requests before
-round close), UI (SCREEN-10 renders the value once a puzzle locks, without
-"estimated"/provisional wording).
+scoring strategy) — covered by `ClueEfficiencyScoringStrategyTests`/
+`ScoringStrategyResolverTests`/`PathScoreLockingServiceTests`. API (`GET
+/path/current` includes the points value for a locked puzzle — solved via
+`ClueEfficiencyScoringStrategy`'s own formula, or exhausted-unsolved via
+the worst-case value — and omits it for a still-guessable, unlocked
+puzzle) — covered by `PathEndpointTests`
+(`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
+`REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
+`REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`).
+**Not yet covered:** UI (SCREEN-10 renders the value once a puzzle locks,
+without "estimated"/provisional wording) — the frontend half of this gap,
+deliberately left to a follow-up `ui-implementer` task.
 
 **REQ-1207 – Player position and birth year sourced from Wikidata**
 > As a player, I want the position, nationality, and age clues at the end
