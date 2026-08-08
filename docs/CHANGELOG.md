@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/backlog.md` — doc-hygiene fix: the "Tier 1 backlog
+  (unordered)" quick-reference list still showed `T-104 disambiguation UI
+  (REQ-209)` without a strikethrough, even though S-067 fully built it
+  (backend/API + frontend, same day) — the list just wasn't updated when
+  S-067 shipped. Struck through and cross-referenced to S-067, matching
+  the convention every other completed T-10x entry in that list already
+  uses. No behavior/requirement change. REQ-209.
+
 - 2026-08-08 — `docs/requirements-document.md` (v1.55 → v1.56) — fixed the
   gap flagged (not fixed) in the same-day xG Path `PathScoringExplainer`
   entry: `LeaderboardScreen.tsx`'s `(ⓘ)` "How scoring works" button always
