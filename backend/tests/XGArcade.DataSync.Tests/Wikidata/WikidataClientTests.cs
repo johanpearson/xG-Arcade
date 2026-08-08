@@ -2694,12 +2694,49 @@ public class WikidataClientTests
         Assert.That(result!.WikidataQid, Is.EqualTo("Q188207"));
         Assert.That(result.FullName, Is.EqualTo("Clarence Seedorf"));
         Assert.That(result.Nationality, Is.EqualTo("Netherlands"));
-        Assert.That(result.Clubs, Has.Count.EqualTo(2), "the duplicated AC Milan row (same qualifiers) must dedupe to one stint, same HashSet-of-tuples shape as QueryPlayerCareerStintsByQidsAsync");
-        Assert.That(result.Clubs.Select(c => c.ClubName), Is.EquivalentTo(new[] { "AC Milan", "Real Madrid" }));
-        var acMilan = result.Clubs.Single(c => c.ClubName == "AC Milan");
-        Assert.That(acMilan.StartYear, Is.EqualTo(2002));
-        Assert.That(acMilan.EndYear, Is.EqualTo(2009));
-        Assert.That(acMilan.ClubQid, Is.EqualTo("Q1543"));
+        Assert.That(result.Clubs, Has.Count.EqualTo(2), "the duplicated AC Milan row (same clubLabel) must dedupe to one club name, HashSet<string> shape");
+        Assert.That(result.Clubs, Is.EquivalentTo(new[] { "AC Milan", "Real Madrid" }));
+    }
+
+    // Bug fix (2026-08-08, REQ-509/510, found in hand-review before this
+    // story's frontend/test work started): not every real P54
+    // club-membership statement carries a P580 start-time qualifier —
+    // plenty of lesser-known clubs (exactly the data-completeness gap this
+    // admin feature exists to help fill, per MVP-SCOPE.md) have the
+    // membership fact recorded with no start/end date at all. Club
+    // detection must never be gated on ?startTime also being bound — see
+    // WikidataPlayerCareerLookupResult's own doc comment for the full
+    // "why" this method's Clubs is a plain club-name list rather than
+    // WikidataCareerStintEntry.
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_IncludesClub_WhenStartTimeNeverBound()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1543" },
+                    "clubLabel": { "type": "literal", "value": "AC Milan" },
+                    "startTime": { "type": "literal", "value": "2002-01-01T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2009-01-01T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "clubLabel": { "type": "literal", "value": "Some Lesser-Known Club" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Clubs, Is.EquivalentTo(new[] { "AC Milan", "Some Lesser-Known Club" }),
+            "a club with no bound startTime qualifier must still be recorded, not silently dropped");
     }
 
     [Test]

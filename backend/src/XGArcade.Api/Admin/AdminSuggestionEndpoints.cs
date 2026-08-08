@@ -317,7 +317,7 @@ public static class AdminSuggestionEndpoints
             result.WikidataQid,
             result.FullName,
             result.Nationality,
-            result.Clubs.Select(c => c.ClubName).Distinct().ToList());
+            result.Clubs.ToList());
     }
 
     // Shared by both /commit endpoints above — REQ-509/510's identical write

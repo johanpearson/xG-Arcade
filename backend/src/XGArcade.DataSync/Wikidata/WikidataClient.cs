@@ -1554,13 +1554,16 @@ public class WikidataClient(
     // player's own OPTIONAL P54 club rows still multiply rows the same way
     // ParseCareerStintBindings' own comment describes. WikidataQid/FullName/
     // Nationality are read from the first row that binds each (they're
-    // constant across every row for a single matched player); Clubs is
-    // deduped via the same HashSet-of-tuples shape ParseCareerStintBindings
-    // uses, for the same reason (SPARQL's OPTIONAL semantics can otherwise
-    // multiply rows for what is really one stint). Returns null only when no
-    // row at all was returned — a genuine "no footballer matches this name,"
-    // never a swallowed failure (see this method's own doc comment on
-    // IWikidataClient for the full error-contract reasoning).
+    // constant across every row for a single matched player); Clubs is a
+    // HashSet<string> of distinct club-name labels — simpler than
+    // ParseCareerStintBindings' HashSet-of-tuples dedup since this method's
+    // Clubs is a plain name list (see WikidataPlayerCareerLookupResult's own
+    // doc comment for why), so any two rows sharing a ?clubLabel are simply
+    // the same club regardless of what else differs between the rows.
+    // Returns null only when no row at all was returned — a genuine "no
+    // footballer matches this name," never a swallowed failure (see this
+    // method's own doc comment on IWikidataClient for the full
+    // error-contract reasoning).
     private static WikidataPlayerCareerLookupResult? ParsePlayerCareerAndNationalityByNameBindings(SparqlResponse? response)
     {
         var bindings = response?.Results?.Bindings;
@@ -1570,7 +1573,7 @@ public class WikidataClient(
         string? wikidataQid = null;
         string? fullName = null;
         string? nationality = null;
-        var clubStints = new HashSet<WikidataCareerStintEntry>();
+        var clubNames = new HashSet<string>();
 
         foreach (var binding in bindings)
         {
@@ -1583,30 +1586,20 @@ public class WikidataClient(
             if (nationality is null && binding.TryGetValue("nationalityLabel", out var nationalityValue) && !string.IsNullOrWhiteSpace(nationalityValue.Value))
                 nationality = nationalityValue.Value;
 
-            // A row where startTime never bound carries zero information for
-            // Clubs (WikidataCareerStintEntry.StartYear is non-nullable) —
-            // same skip-if-unbound shape as ParseCareerStintBindings. A row
-            // with a bound startTime but no clubLabel (should not happen —
-            // ?club is a mandatory, non-OPTIONAL match once the P54 branch
-            // binds at all) is also skipped defensively rather than
-            // persisting a stint with a blank club name.
-            if (binding.TryGetValue("startTime", out var startTimeValue) && TryParseXsdDateTimeYear(startTimeValue.Value, out var startYear))
-            {
-                if (!binding.TryGetValue("clubLabel", out var clubLabelValue) || string.IsNullOrWhiteSpace(clubLabelValue.Value))
-                    continue;
-
-                int? endYear = binding.TryGetValue("endTime", out var endTimeValue) && TryParseXsdDateTimeYear(endTimeValue.Value, out var parsedEndYear)
-                    ? parsedEndYear
-                    : null;
-                int? appearanceCount = binding.TryGetValue("numberOfMatches", out var numberOfMatchesValue) && int.TryParse(numberOfMatchesValue.Value, out var parsedAppearanceCount)
-                    ? parsedAppearanceCount
-                    : null;
-                var clubQid = binding.TryGetValue("club", out var clubValue) && !string.IsNullOrEmpty(clubValue.Value)
-                    ? clubValue.Value.Split('/').Last()
-                    : null;
-
-                clubStints.Add(new WikidataCareerStintEntry(clubLabelValue.Value, startYear, endYear, appearanceCount, clubQid));
-            }
+            // Bug fix (2026-08-08, REQ-509/510): a club is recorded whenever
+            // ?clubLabel is bound AT ALL — deliberately NOT gated on
+            // ?startTime also being bound (the original bug: not every real
+            // P54 statement carries a P580 start-time qualifier, and gating
+            // on it silently dropped those clubs — see
+            // WikidataPlayerCareerLookupResult's own doc comment for the
+            // full "why"). ?startTime/?endTime/?numberOfMatches are still
+            // OPTIONAL-fetched by the query for parity with
+            // QueryPlayerCareerStintsByQidsAsync's shape, but this method's
+            // Clubs never needed them (only ClubName is ever read by
+            // AdminSuggestionEndpoints/CommitPlayerDataRequest.Clubs), so
+            // they're intentionally left unparsed here.
+            if (binding.TryGetValue("clubLabel", out var clubLabelValue) && !string.IsNullOrWhiteSpace(clubLabelValue.Value))
+                clubNames.Add(clubLabelValue.Value);
         }
 
         // wikidataQid/fullName absent means the name-match subquery itself
@@ -1614,7 +1607,7 @@ public class WikidataClient(
         if (wikidataQid is null || fullName is null)
             return null;
 
-        return new WikidataPlayerCareerLookupResult(wikidataQid, fullName, nationality, clubStints.ToList());
+        return new WikidataPlayerCareerLookupResult(wikidataQid, fullName, nationality, clubNames.ToList());
     }
 
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)

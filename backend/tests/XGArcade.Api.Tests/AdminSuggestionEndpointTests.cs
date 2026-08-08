@@ -180,7 +180,7 @@ public class AdminSuggestionEndpointTests
         var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
         _fakeWikidataClient.SetCareerLookup("Clarence Seedorf", new WikidataPlayerCareerLookupResult(
             "Q188207", "Clarence Seedorf", "Netherlands",
-            [new WikidataCareerStintEntry("AC Milan", 2002, 2009, null)]));
+            ["AC Milan"]));
         var client = CreateAdminClient();
 
         var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
@@ -314,7 +314,7 @@ public class AdminSuggestionEndpointTests
     public async Task REQ510_StandaloneLookup_ReturnsFetchedData_WithNoSuggestionInvolved()
     {
         _fakeWikidataClient.SetCareerLookup("Robert Pires", new WikidataPlayerCareerLookupResult(
-            "Qpires", "Robert Pires", "France", [new WikidataCareerStintEntry("Arsenal", 2000, 2006, null)]));
+            "Qpires", "Robert Pires", "France", ["Arsenal"]));
         var client = CreateAdminClient();
 
         var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
