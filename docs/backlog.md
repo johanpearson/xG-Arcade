@@ -3286,7 +3286,7 @@ remove) are now all built.
 T-101 API-Football fallback + full waterfall (ADR-0011, `ExternalApiUsage`) ·
 ~~T-102 guess-time live verification~~ (built, S-011 follow-up/ADR-0018) ·
 ~~T-103 autocomplete + `PlayerNameIndex`~~ (pulled forward, see S-032) ·
-T-104 disambiguation UI (REQ-209) ·
+~~T-104 disambiguation UI~~ (built, see S-067) ·
 ~~T-105 Trophy category~~ (pulled forward as individual-awards-only v1, see
 S-031 — automated ID resolution for team-competition trophies is T-105's
 unclaimed remainder) ·

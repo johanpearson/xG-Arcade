@@ -2323,6 +2323,15 @@ split and sync approach.
 - **`promote-dev-to-prod.yml`**: manual-only, the recommended game-data
   promotion direction
 - **`sync-prod-to-dev.yml`**: manual-only, the fallback game-data sync direction
+- **`promote-dev-to-prod-dry-run.yml`** (2026-08-08, ADR-0009's addendum):
+  weekly-scheduled (plus `workflow_dispatch`), runs
+  `promote-dev-to-prod.sh --dry-run` and writes the per-table dev/prod
+  row-count diff to the job summary. Read-only — never writes to prod and
+  adds no non-interactive flag to the real (writing) promote path, which
+  still requires a human to run the script directly and type the
+  confirmation phrase. Exits cleanly (not a failing run) when
+  `PROD_DATABASE_CONNECTION_STRING` isn't set, since prod doesn't exist
+  yet (Tier 1, `MVP-SCOPE.md`)
 - **`backup-database.yml`**: scheduled daily — Supabase's free tier includes
   no automated backups at all (confirmed directly against their docs,
   2026-07-05), so this is not optional. Runs `pg_dump` against production

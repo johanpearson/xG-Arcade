@@ -13,6 +13,12 @@
 # direction — the confirmation phrase is deliberately more explicit about
 # what's about to happen.
 #
+# The truncate+restore step below never runs a bare `TRUNCATE ... CASCADE`
+# — see lib/game-data-tables.sh's "FK-safety helpers" comment (2026-08-08
+# bug fix) for the full reasoning, verified directly against
+# XGArcadeDbContext.cs's FK graph and a real Postgres 16 instance, not just
+# assumed.
+#
 # Requires: PROD_DATABASE_URL and DEV_DATABASE_URL environment variables
 # (Supabase connection strings), pg_dump/pg_restore available on PATH.
 #
@@ -44,11 +50,8 @@ echo "This writes to PRODUCTION. Anyone playing right now sees the result immedi
 
 if [[ "$DRY_RUN" == true ]]; then
   echo ""
-  echo "--dry-run: showing row counts that would be promoted, touching nothing else."
-  for t in "${GAME_DATA_TABLES[@]}"; do
-    echo -n "  $t: "
-    psql "$DEV_DATABASE_URL" -t -c "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo "(unable to query — check connection)"
-  done
+  echo "--dry-run: showing row counts on both sides, touching nothing else."
+  print_dry_run_row_counts "$DEV_DATABASE_URL" "dev (source)" "$PROD_DATABASE_URL" "prod (target)"
   echo ""
   echo "Dry run complete. No data was copied. Run without --dry-run to actually promote."
   exit 0
@@ -73,9 +76,10 @@ pg_dump --format=custom --data-only "${TABLE_ARGS[@]}" \
   --dbname="$DEV_DATABASE_URL" --file="$DUMP_FILE"
 
 echo "Restoring into production (data only, existing rows truncated first)..."
-for t in "${GAME_DATA_TABLES[@]}"; do
-  psql "$PROD_DATABASE_URL" -c "TRUNCATE TABLE $t CASCADE;"
-done
+FK_RESTORE_FILE="$(mktemp /tmp/xg-arcade-promote-fks-XXXXXX.sql)"
+trap 'rm -f "$DUMP_FILE" "$FK_RESTORE_FILE"' EXIT
+truncate_game_data_tables_safely "$PROD_DATABASE_URL" "$FK_RESTORE_FILE"
 pg_restore --data-only --disable-triggers --dbname="$PROD_DATABASE_URL" "$DUMP_FILE"
+restore_external_foreign_keys "$PROD_DATABASE_URL" "$FK_RESTORE_FILE"
 
 echo "Promotion complete. Synced tables: ${GAME_DATA_TABLES[*]}"
