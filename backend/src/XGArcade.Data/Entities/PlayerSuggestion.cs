@@ -4,19 +4,20 @@ namespace XGArcade.Data.Entities;
 // player genuinely satisfies a cell, submitted after their own guess for it
 // was scored incorrect or a REQ-211 live lookup timed out
 // (GuessSubmissionOutcome.LiveLookupUnavailable). A human claim to be
-// reviewed later against a fresh Wikidata lookup (REQ-509, S-090 — not
-// built yet), not a fetch result — see ADR-0052's "claim vs. fetch" framing
-// for why this is its own table rather than a new row shape inside
-// REQ-503's PlayerData/Confidence="unverified" queue.
+// reviewed later against a fresh Wikidata lookup (REQ-509/510, S-090 —
+// AdminSuggestionEndpoints.cs), not a fetch result — see ADR-0052's "claim
+// vs. fetch" framing for why this is its own table rather than a new row
+// shape inside REQ-503's PlayerData/Confidence="unverified" queue.
 //
 // COMP-06 boundary (ADR-0052, reconfirmed): this entity is never read by
 // any correctness-checking path (IPlayerStoreRepository.
 // HasEffectiveAttributeAsync and friends) or by PlayerNameIndex/COMP-10's
 // autocomplete path. Submitting one never writes PlayerAttribute,
-// PlayerOverride, or PlayerNameIndex — see SuggestionEndpoints.cs. Only a
-// future admin commit action (REQ-509) may turn an approved suggestion into
-// a PlayerOverride/PlayerAttribute write, and even then only through
-// IPlayerStoreRepository's existing write path, never this table directly.
+// PlayerOverride, or PlayerNameIndex — see SuggestionEndpoints.cs. Only the
+// admin commit action (REQ-509, AdminSuggestionEndpoints.cs) turns a
+// committed suggestion into a PlayerOverride/PlayerAttribute write, and even
+// then only through IPlayerStoreRepository's existing write path, never this
+// table directly.
 public class PlayerSuggestion
 {
     public Guid Id { get; set; }
@@ -71,6 +72,23 @@ public class PlayerSuggestion
     public PlayerSuggestionStatus Status { get; set; } = PlayerSuggestionStatus.Pending;
 
     public DateTime CreatedAt { get; set; }
+
+    // REQ-509 (S-090): "the action is logged with admin_id and a timestamp,"
+    // for BOTH a commit and a reject — set exactly once, by
+    // IPlayerSuggestionRepository.ResolveAsync, at the same moment Status
+    // moves off Pending. Both null until then. Deliberately on this row
+    // itself rather than a separate audit-log table: PlayerAttribute (the
+    // club write path — see this entity's own COMP-06 boundary comment
+    // above) has no audit columns of its own, so recording admin/when here
+    // covers the club write, the nationality write (PlayerOverride's own
+    // LockedByAdminId/LockedAt separately covers that one), AND the reject
+    // path (which writes nothing else at all) under one mechanism, matching
+    // REQ-503's existing "who and when, on the row itself" precedent
+    // (PlayerData.ApprovedByAdminId/ApprovedAt) rather than introducing a
+    // general-purpose audit-log table this codebase has deliberately avoided
+    // so far.
+    public Guid? ResolvedByAdminId { get; set; }
+    public DateTime? ResolvedAt { get; set; }
 
     // REQ-215: "at least one club" — a separate child table (one row per
     // asserted club), not a delimited/JSON column. Mirrors the owned-

@@ -7,8 +7,9 @@ using XGArcade.Data.Repositories;
 namespace XGArcade.Api.Suggestions;
 
 // REQ-215/ADR-0052 (S-089): submission-only half of the player-suggestion
-// pipeline — REQ-509's admin list/review/commit/reject endpoints are S-090,
-// a separate future story, not built here. Mirrors XGArcade.Api.Guesses.
+// pipeline — REQ-509/510's admin list/review/commit/reject endpoints are
+// S-090, in the sibling XGArcade.Api.Admin.AdminSuggestionEndpoints, not
+// this file. Mirrors XGArcade.Api.Guesses.
 // GuessEndpoints's route shape (same {roundId}/{cellId} pair) and minimal-
 // API conventions (ClaimsPrincipal + IUserRepository.
 // GetByAuthProviderUserIdAsync to resolve the caller, Results.Problem for
