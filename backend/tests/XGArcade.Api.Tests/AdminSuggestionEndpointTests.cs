@@ -249,6 +249,137 @@ public class AdminSuggestionEndpointTests
         Assert.That(suggestion.Status, Is.EqualTo(PlayerSuggestionStatus.Committed), "REQ-509: never left pending after a commit");
         Assert.That(suggestion.ResolvedByAdminId, Is.EqualTo(AdminAuthProviderUserId));
         Assert.That(suggestion.ResolvedAt, Is.Not.Null);
+
+        // ADR-0053's core non-negotiable guarantee: a commit changes
+        // correctness-checking data only, and must NEVER be implemented as a
+        // write to the name index (ADR-0007's autocomplete/correctness
+        // boundary). Asserted explicitly, not just left as an implicit
+        // absence, since a regression here is a real correctness leak.
+        Assert.That(await dbContext.PlayerNameIndexEntries.AnyAsync(), Is.False,
+            "ADR-0053: committing a suggestion must never write PlayerNameIndex");
+    }
+
+    // ADR-0053/ADR-0007: a dedicated, standalone test for the same
+    // guarantee as the assertion above, covering the multi-club commit
+    // shape too (a future refactor that only checked the single-club path
+    // above could otherwise miss a per-club PlayerNameIndex write creeping
+    // in alongside the additive PlayerAttribute loop).
+    [Test]
+    public async Task REQ509_Commit_NeverWritesPlayerNameIndex_EvenWithMultipleClubs()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{suggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan", "Real Madrid", "Inter Milan"], "Confirmed via live Wikidata lookup"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.PlayerNameIndexEntries.AnyAsync(), Is.False,
+            "ADR-0053: committing a suggestion must never write PlayerNameIndex, regardless of how many clubs are confirmed");
+    }
+
+    // REQ-509: multi-club commit writes each confirmed club as its own
+    // additive PlayerAttribute row, and a second commit for a club already
+    // effective for the player doesn't duplicate it
+    // (HasEffectiveAttributeAsync skip path in CommitPlayerDataAsync).
+    [Test]
+    public async Task REQ509_Commit_WritesEachConfirmedClubAsSeparateAttribute_AndSkipsAlreadyEffectiveClubOnASecondCommit()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var firstResponse = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{suggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan", "Real Madrid"], "Confirmed via live Wikidata lookup"));
+        Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+            var clubAttributes = await dbContext.PlayerAttributes
+                .Where(a => a.PlayerId == player.Id && a.AttributeType == "club")
+                .Select(a => a.AttributeValue)
+                .ToListAsync();
+            Assert.That(clubAttributes, Is.EquivalentTo(new[] { "AC Milan", "Real Madrid" }),
+                "each confirmed club must be its own additive PlayerAttribute row");
+        }
+
+        // A second suggestion for the SAME player (same WikidataQid), one
+        // club overlapping (AC Milan, already effective) and one new
+        // (Inter Milan) — the standalone REQ-510 path exercises the same
+        // shared CommitPlayerDataAsync helper, so either entry point proves
+        // the skip-duplicate behavior; this uses REQ-510's path since it
+        // needs no second suggestion row.
+        var secondResponse = await client.PostAsJsonAsync(
+            "/admin/player-search/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", null, ["AC Milan", "Inter Milan"], "Adding one more confirmed club"));
+        Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+            var clubAttributes = await dbContext.PlayerAttributes
+                .Where(a => a.PlayerId == player.Id && a.AttributeType == "club")
+                .Select(a => a.AttributeValue)
+                .ToListAsync();
+            Assert.That(clubAttributes, Is.EquivalentTo(new[] { "AC Milan", "Real Madrid", "Inter Milan" }),
+                "AC Milan must not be duplicated — HasEffectiveAttributeAsync's skip path — while the genuinely new Inter Milan is added");
+        }
+    }
+
+    // REQ-509: nationality commit upserts PlayerOverride — this covers the
+    // "existing override gets updated" branch (the "no existing override"
+    // branch is already covered by REQ509_Commit_
+    // WritesNationalityOverrideAndClubAttribute_AndResolvesSuggestionAsCommitted
+    // above).
+    [Test]
+    public async Task REQ509_Commit_UpdatesExistingNationalityOverride_RatherThanCreatingADuplicate()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var firstSuggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var firstResponse = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{firstSuggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", [], "First confirmation"));
+        Assert.That(firstResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        Guid overrideId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+            var existingOverride = await dbContext.PlayerOverrides.SingleAsync(o => o.PlayerId == player.Id && o.Field == "nationality");
+            Assert.That(existingOverride.Value, Is.EqualTo("Netherlands"));
+            overrideId = existingOverride.Id;
+        }
+
+        // A second, independent suggestion for the same player corrects the
+        // nationality (e.g. an earlier admin mistake) — REQ-510's standalone
+        // path shares the identical CommitPlayerDataAsync write step.
+        var secondResponse = await client.PostAsJsonAsync(
+            "/admin/player-search/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Suriname", [], "Corrected nationality"));
+        Assert.That(secondResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+            var overrides = await dbContext.PlayerOverrides.Where(o => o.PlayerId == player.Id && o.Field == "nationality").ToListAsync();
+            Assert.That(overrides, Has.Count.EqualTo(1), "must update the existing override in place, never create a second row for the same field");
+            Assert.That(overrides.Single().Id, Is.EqualTo(overrideId), "the same override row is updated, not replaced");
+            Assert.That(overrides.Single().Value, Is.EqualTo("Suriname"));
+            Assert.That(overrides.Single().Reason, Is.EqualTo("Corrected nationality"), "Reason/audit fields are refreshed on update too");
+        }
     }
 
     [Test]
@@ -301,11 +432,131 @@ public class AdminSuggestionEndpointTests
         Assert.That(await dbContext.PlayerOverrides.AnyAsync(), Is.False);
         Assert.That(await dbContext.PlayerAttributes.AnyAsync(), Is.False);
         Assert.That(await dbContext.Players.AnyAsync(), Is.False, "a reject must never create a Player row either");
+        Assert.That(await dbContext.PlayerNameIndexEntries.AnyAsync(), Is.False,
+            "REQ-509: rejecting a suggestion must write no PlayerAttribute/PlayerOverride/PlayerNameIndex row at all");
 
         var suggestion = await dbContext.PlayerSuggestions.SingleAsync(s => s.Id == suggestionId);
         Assert.That(suggestion.Status, Is.EqualTo(PlayerSuggestionStatus.Rejected));
         Assert.That(suggestion.ResolvedByAdminId, Is.EqualTo(AdminAuthProviderUserId));
         Assert.That(suggestion.ResolvedAt, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ509_Reject_ReturnsConflict_WhenSuggestionAlreadyResolved()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+        var firstReject = await client.PostAsync($"/admin/suggestions/{suggestionId}/reject", null);
+        Assert.That(firstReject.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var secondReject = await client.PostAsync($"/admin/suggestions/{suggestionId}/reject", null);
+
+        Assert.That(secondReject.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
+    }
+
+    [Test]
+    public async Task REQ509_Reject_ReturnsConflict_WhenSuggestionAlreadyCommitted()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+        var commit = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{suggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan"], "Confirmed"));
+        Assert.That(commit.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+        var reject = await client.PostAsync($"/admin/suggestions/{suggestionId}/reject", null);
+
+        Assert.That(reject.StatusCode, Is.EqualTo(HttpStatusCode.Conflict), "a committed suggestion must not also be rejectable");
+    }
+
+    [Test]
+    public async Task REQ509_Lookup_ReturnsConflict_WhenSuggestionAlreadyResolved()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+        var reject = await client.PostAsync($"/admin/suggestions/{suggestionId}/reject", null);
+        Assert.That(reject.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var lookup = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
+
+        Assert.That(lookup.StatusCode, Is.EqualTo(HttpStatusCode.Conflict), "a resolved suggestion must not still allow a live re-lookup");
+    }
+
+    // ---- REQ-509: Admin policy guardrail, commit/reject specifically ------
+    // (the existing AdminSuggestionEndpoint_ReturnsForbidden_
+    // ForAuthenticatedNonAdminUser test above only covers GET
+    // /admin/suggestions — commit and reject are independently
+    // `.RequireAuthorization("Admin")`-gated route registrations, so each
+    // needs its own guardrail assertion, same as AdminEndpointTests.cs's own
+    // per-endpoint REQ503_*_ReturnsForbidden_ForAuthenticatedNonAdminUser
+    // pattern.)
+
+    [Test]
+    public async Task REQ509_Commit_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(Guid.NewGuid()));
+
+        var response = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{suggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", "Netherlands", ["AC Milan"], "Confirmed"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.PlayerOverrides.AnyAsync(), Is.False, "a forbidden request must never reach the write path");
+    }
+
+    [Test]
+    public async Task REQ509_Reject_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(Guid.NewGuid()));
+
+        var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/reject", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var suggestion = await dbContext.PlayerSuggestions.SingleAsync(s => s.Id == suggestionId);
+        Assert.That(suggestion.Status, Is.EqualTo(PlayerSuggestionStatus.Pending), "a forbidden request must never resolve the suggestion");
+    }
+
+    [Test]
+    public async Task REQ510_StandaloneLookup_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(Guid.NewGuid()));
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    }
+
+    [Test]
+    public async Task REQ510_StandaloneCommit_ReturnsForbidden_ForAuthenticatedNonAdminUser()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(Guid.NewGuid()));
+
+        var response = await client.PostAsJsonAsync(
+            "/admin/player-search/commit",
+            new CommitPlayerDataRequest("Qpires", "Robert Pires", "France", ["Arsenal"], "Manually added via admin search"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Players.AnyAsync(), Is.False, "a forbidden request must never reach the write path");
     }
 
     // ---- REQ-510: standalone search-and-add ---------------------------------
@@ -328,6 +579,19 @@ public class AdminSuggestionEndpointTests
     [Test]
     public async Task REQ510_StandaloneCommit_WritesPlayerData_WithNoSuggestionRowCreatedOrTouched()
     {
+        // A wholly unrelated, still-pending suggestion exists throughout —
+        // proves this path doesn't just avoid ITS OWN suggestion (there
+        // isn't one), but genuinely never creates or touches
+        // ANY PlayerSuggestion row: the count before and after must be
+        // identical, and the pre-existing one must stay untouched/Pending.
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var unrelatedSuggestionId = await SeedPendingSuggestionAsync(submittingUserId, "Someone Else Entirely");
+        int suggestionCountBefore;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            suggestionCountBefore = await dbContext.PlayerSuggestions.CountAsync();
+        }
         var client = CreateAdminClient();
 
         var response = await client.PostAsJsonAsync(
@@ -339,10 +603,17 @@ public class AdminSuggestionEndpointTests
         Assert.That(body, Is.Not.Null);
         Assert.That(body!.Nationality, Is.EqualTo("France"));
 
-        using var scope = _factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
-        Assert.That(await dbContext.Players.AnyAsync(p => p.WikidataQid == "Qpires"), Is.True);
-        Assert.That(await dbContext.PlayerSuggestions.AnyAsync(), Is.False, "REQ-510: no suggestion record required or created");
+        using var scope2 = _factory.Services.CreateScope();
+        var dbContext2 = scope2.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext2.Players.AnyAsync(p => p.WikidataQid == "Qpires"), Is.True);
+        Assert.That(await dbContext2.PlayerNameIndexEntries.AnyAsync(), Is.False,
+            "ADR-0053: REQ-510's standalone commit must never write PlayerNameIndex either");
+
+        var suggestionCountAfter = await dbContext2.PlayerSuggestions.CountAsync();
+        Assert.That(suggestionCountAfter, Is.EqualTo(suggestionCountBefore),
+            "REQ-510: no suggestion record created as a side effect — count before and after must match exactly");
+        var unrelatedSuggestion = await dbContext2.PlayerSuggestions.SingleAsync(s => s.Id == unrelatedSuggestionId);
+        Assert.That(unrelatedSuggestion.Status, Is.EqualTo(PlayerSuggestionStatus.Pending), "the pre-existing suggestion must remain untouched");
     }
 
     // ---- Test double for IWikidataClient -----------------------------------
