@@ -332,6 +332,105 @@ describe('PathScreen', () => {
     expect(screen.queryByText('Solved')).not.toBeInTheDocument();
   });
 
+  // REQ-1206 (2026-08-08 addition): PathScreen wires `puzzle.guess.points`
+  // straight through to PathTimeline (PathTimeline.test.tsx covers the
+  // rendering/wording rules in full) — this just proves the plumbing.
+  it('REQ-1206: shows the locked point value once a puzzle is solved', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/path/current')) {
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: true,
+                  attemptCount: 3,
+                  locked: true,
+                  submittedName: 'Zlatan Ibrahimović',
+                  resolvedPlayerName: 'Zlatan Ibrahimović',
+                  resolvedPlayerPhotoUrl: null,
+                  points: 43,
+                },
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('Solved')).toBeInTheDocument();
+    expect(screen.getByText('43 pts')).toBeInTheDocument();
+  });
+
+  it('REQ-1206: shows the locked point value on a puzzle that locked unsolved (attempt cap exhausted) too', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/path/current')) {
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: false,
+                  attemptCount: 7,
+                  locked: true,
+                  submittedName: 'Wrong Guess',
+                  resolvedPlayerName: 'Zlatan Ibrahimović',
+                  resolvedPlayerPhotoUrl: null,
+                  points: 100,
+                },
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    expect(await screen.findByText('Out of attempts')).toBeInTheDocument();
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
+  });
+
+  it('REQ-1206: shows no points for a puzzle that is not yet locked (still guessable)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).endsWith('/path/current')) {
+          return jsonResponse(
+            roundResponse([
+              {
+                ...basePuzzle,
+                guess: {
+                  isCorrect: false,
+                  attemptCount: 2,
+                  locked: false,
+                  submittedName: 'Wrong Guess',
+                  resolvedPlayerName: null,
+                  resolvedPlayerPhotoUrl: null,
+                  points: null,
+                },
+              },
+            ]),
+          );
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(<PathScreen accessToken="token" onAuthError={vi.fn()} />);
+
+    await screen.findByText('Puzzle 1 of 1');
+    expect(screen.queryByText(/pts/)).not.toBeInTheDocument();
+  });
+
   it('"Next puzzle" is an explicit action, never automatic, and advances to the next puzzle in the round', async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockImplementation((url: string) => {

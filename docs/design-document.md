@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.65"
+version: "0.66"
 status: draft
-last_updated: 2026-08-04
+last_updated: 2026-08-08
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -2341,6 +2341,46 @@ add a correcting note" convention this document already uses for SCREEN-01's
 own 2026-07-21 correction above. No new color, typeface, or animation —
 reuses `--color-text-muted`/13px/`--touch-target-min`, the same values
 `GridScreen.css`'s `.grid-screen__end-time` already uses.
+
+**2026-08-08 status note (REQ-1206 gap closed — the puzzle's locked point
+value is now shown, a genuinely new SCREEN-10 element, not one this
+section previously spec'd or anticipated).** A code-review pass
+(`requirements-document.md`'s REQ-1206 "Status note (2026-08-08 — gap
+identified via code review...)") found the clue-efficiency score
+(REQ-1206) was computed and locked at round close but never shown to the
+player anywhere on this screen. Resolved by adding one line to the
+existing trailing solved (gold)/failed (red, "Out of attempts") reveal
+nodes described above — `PathTimeline.tsx`'s `SolvedNode`/
+`FailedRevealNode` — directly under the resolved player's name, the same
+place `CellState.tsx` shows a locked cell's points on SCREEN-01a. This is
+a judgment call, not literal spec text (flagged per this repo's own
+"flag a judgment call rather than treating it as a minor implementation
+detail" convention), for two things this document hadn't previously
+decided:
+- **Where it lives:** on the timeline's reveal node (`PathTimeline.tsx`),
+  not `PathScreen.tsx`'s own header/status area — it's rendered in the
+  same place, and gated by the same `locked` condition, as the resolved
+  player name/photo it sits beside, rather than a separate element
+  elsewhere on the screen.
+- **Wording and color:** plain `"N pts"` (`mono-figure`, tokens-only, no
+  new typeface) — deliberately never `"~N pts estimated"` (xG Grid's
+  `LivePoints` wording, SCREEN-01a): unlike a grid cell's live estimate,
+  `ClueEfficiencyScoringStrategy`'s formula has no dependency that can
+  still change once a puzzle locks, so REQ-1206's own acceptance criteria
+  forbid "~"/"estimated"/"provisional" wording here (see that REQ's
+  "Important asymmetry from REQ-204's `LivePoints`" note). Colored to
+  match the reveal node's own outcome accent — `accent-gold-text` on the
+  solved node, `accent-red` on the failed one — mirroring
+  `CellState.css`'s existing `.cell-state--correct .cell-state__meta`/
+  `.cell-state--incorrect .cell-state__meta` convention for a locked
+  cell's own points text, not a new muted tone invented for this screen.
+  Per ADR-0021's golf-scoring convention (lower is better, same as every
+  other score in this app), the number itself carries no celebratory
+  styling implying a high value is good — the accent color signals
+  solved-vs-not, never "good score vs. bad score."
+No new color, typeface, or animation family was introduced — this reuses
+`accent-gold-text`/`accent-red`/`--font-mono`/`.mono-figure` exactly as
+SCREEN-01a and this section's own existing reveal nodes already do.
 
 ## 4. Responsive strategy
 

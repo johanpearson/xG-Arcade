@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.53"
+version: "1.54"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -6715,9 +6715,20 @@ locked via exhausted attempts (never solved), the same
 itself is only ever invoked for a correct guess. Named `Points`, not
 `LivePoints`/`EstimatedPoints`, and documented on the DTO as never
 provisional, per this REQ's own "Important asymmetry from REQ-204's
-`LivePoints`" note above. `PathScreen.tsx` (SCREEN-10) does not yet render
-this value — that is the remaining, frontend-only piece of this gap,
-tracked separately.
+`LivePoints`" note above.
+
+**Status note (2026-08-08, frontend piece implemented — closes the gap
+above):** `PathTimeline.tsx`'s `SolvedNode`/`FailedRevealNode` (wired from
+`PathScreen.tsx`, alongside the resolved player name/photo they already
+render once a puzzle is `locked`) now render this value as plain "N pts"
+text — `mono-figure`, matching every other numeric score/count in this
+app — never "~"/"estimated"/"provisional" wording, and never shown for a
+still-unlocked puzzle. `lib/types.ts`'s `CurrentPathGuess.points` mirrors
+`CurrentPathGuessResponse.Points` exactly. No new SCREEN-10 element beyond
+what this REQ's own acceptance criteria already called for (the timeline's
+solved/failed reveal nodes already existed for the resolved player name/
+photo; this only adds a line to each) — `docs/design-document.md`'s
+SCREEN-10 section is updated with a matching status note.
 
 **Test level:** Unit (points formula across a range of `cluesUsed`/
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
@@ -6731,9 +6742,19 @@ puzzle) — covered by `PathEndpointTests`
 (`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
 `REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
 `REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`).
-**Not yet covered:** UI (SCREEN-10 renders the value once a puzzle locks,
-without "estimated"/provisional wording) — the frontend half of this gap,
-deliberately left to a follow-up `ui-implementer` task.
+**UI (2026-08-08, now covered):** SCREEN-10 (`PathTimeline.tsx`'s
+`SolvedNode`/`FailedRevealNode`, wired from `PathScreen.tsx`) renders the
+locked point value with plain "N pts" wording — never "~"/"estimated"/
+"provisional" — for both the solved and the exhausted-unsolved case, and
+renders nothing for a still-unlocked puzzle. Covered by
+`PathTimeline.test.tsx`'s `describe('REQ-1206: locked point value', ...)`
+block (solved reveal shows the value with no provisional wording;
+locked-but-unsolved reveal shows the value too; a still-unlocked puzzle
+shows no points even if one were somehow passed; a null `points` on an
+otherwise-locked reveal renders no points line rather than "null pts") and
+`PathScreen.test.tsx`'s three `REQ-1206:` tests (end-to-end plumbing from
+`GET /path/current`'s `points` field through to the rendered text, for the
+solved, exhausted-unsolved, and still-unlocked cases).
 
 **REQ-1207 – Player position and birth year sourced from Wikidata**
 > As a player, I want the position, nationality, and age clues at the end

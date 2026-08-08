@@ -38,6 +38,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   not run; will only run in CI. Frontend (`PathScreen.tsx`, SCREEN-10)
   deliberately untouched — left to a follow-up `ui-implementer` task, per
   REQ-1206's still-open UI "Not yet covered" note. REQ-1206.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.53 → v1.54),
+  `docs/design-document.md` (v0.65 → v0.66) — frontend half of REQ-1206's
+  "score is never shown" gap, closing it: `lib/types.ts`'s
+  `CurrentPathGuess` gains a `points: number | null` field mirroring
+  `CurrentPathGuessResponse.Points` exactly, and `PathTimeline.tsx`'s
+  `SolvedNode`/`FailedRevealNode` (wired from `PathScreen.tsx`, gated on
+  the same `locked` boolean already used for the resolved player name/
+  photo) render it as plain `"N pts"` text (`mono-figure`, colored to
+  match the reveal node's own outcome accent —
+  `accent-gold-text`/`accent-red` — mirroring `CellState.css`'s existing
+  points-color convention) — deliberately never `"~N pts estimated"` or
+  any other provisional wording, per REQ-1206's explicit "not the same as
+  xG Grid's `LivePoints`" acceptance criteria. Judgment call flagged in
+  `design-document.md`'s new SCREEN-10 status note (placement on the
+  timeline's reveal node, not a separate screen element; wording/color
+  choice) since this section hadn't previously spec'd a score display slot
+  at all. New coverage: `PathTimeline.test.tsx`'s
+  `describe('REQ-1206: locked point value', ...)` (solved reveal, no
+  provisional wording; locked-but-unsolved reveal; still-unlocked shows
+  no points; null `points` on an otherwise-locked reveal shows no points
+  line) and three `PathScreen.test.tsx` `REQ-1206:` tests (end-to-end
+  plumbing for the solved, exhausted-unsolved, and still-unlocked cases).
+  `npm run test` (Vitest): 469/469 passed across 26 files, including the
+  9 new ones. `tsc -b` and `npm run lint` (oxlint) both clean. REQ-1206.
 - 2026-08-08 — `docs/requirements-document.md` (v1.51 → v1.52),
   `docs/implementation-document.md` (v0.89 → v0.90) — bug fix:
   leftover pre-2026-08-02 youth/age-grade national-team `PlayerCareerStint`

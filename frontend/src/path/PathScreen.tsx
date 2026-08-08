@@ -211,6 +211,12 @@ export function PathScreen({ accessToken, onAuthError }: PathScreenProps) {
         locked={locked}
         resolvedPlayerName={puzzle.guess?.resolvedPlayerName}
         resolvedPlayerPhotoUrl={puzzle.guess?.resolvedPlayerPhotoUrl}
+        // REQ-1206 (2026-08-08 addition): same locked-only gating as
+        // resolvedPlayerName/resolvedPlayerPhotoUrl above — `puzzle.guess`
+        // itself is only non-null once a guess exists, and `points` on it is
+        // only non-null once that guess's puzzle is locked (see
+        // CurrentPathGuess.points's own doc comment).
+        points={puzzle.guess?.points}
       />
 
       <PathGuessInput

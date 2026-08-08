@@ -238,6 +238,16 @@ test.describe('REQ-1201/1202/1203/1204/1205/1206/410/408: play a full xG Path ro
     await expect(page.locator('.path-timeline__solved-label')).toBeVisible()
     await expect(page.locator('.path-timeline__solved-label')).toContainText('Solved')
     await expect(page.getByText(seed.correctPlayerName)).toBeVisible()
+    // REQ-1206 (2026-08-08 frontend addition): the locked point value is
+    // shown right away, before round close, on the same reveal node — plain
+    // "N pts" wording, never "~N pts estimated" (that's xG Grid's own
+    // genuinely-provisional LivePoints wording; this value can't change
+    // once the puzzle locks). Same round(cluesUsed / maxAttemptsForCell *
+    // MaxPointsPerCell) = round(2 / 7 * 100) = 29 asserted again below for
+    // the post-round-close leaderboard value — checked here too, before the
+    // round closes, to directly cover REQ-1206's "the value shown before
+    // and after round close are always numerically identical" criterion.
+    await expect(page.locator('.path-timeline__points')).toHaveText('29 pts')
     // PathGuessInput.tsx: isCorrect -> disabled=true, plus its own explicit
     // "Solved — nothing left to guess here." copy (never color/icon-only,
     // per §6).

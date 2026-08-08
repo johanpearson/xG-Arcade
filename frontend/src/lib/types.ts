@@ -440,6 +440,21 @@ export interface CurrentPathGuess {
   submittedName: string;
   resolvedPlayerName: string | null;
   resolvedPlayerPhotoUrl: string | null;
+  // REQ-1206 (2026-08-08 frontend addition): non-null only when `locked` is
+  // true (solved, or the 7-attempt cap exhausted unsolved — REQ-1205).
+  // Mirrors `CurrentPathGuessResponse.Points` exactly. Deliberately NOT the
+  // same shape/wording as CurrentRoundGuess.livePoints above: livePoints is
+  // genuinely provisional (it depends on how many other players have also
+  // solved the same cell, which can keep growing until round close).
+  // ClueEfficiencyScoringStrategy's formula has no such dependency — both
+  // inputs (cluesUsed, the fixed 7-clue cap) are fully determined the
+  // instant a puzzle locks and never change afterward — so this value is
+  // arithmetically identical to what the leaderboard will eventually show
+  // as FinalPoints, not an estimate. Render it with plain "N pts" wording
+  // (PathTimeline.tsx), never "~"/"estimated"/"provisional" — see
+  // REQ-1206's "Important asymmetry from REQ-204's LivePoints" note in
+  // requirements-document.md.
+  points: number | null;
 }
 
 // REQ-1203 (S-086): mirrors `CurrentPathPuzzleResponse` exactly. `clues` is
