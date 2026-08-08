@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
+  `docs/decisions/0009-bidirectional-game-data-sync.md` — fixed a real gap
+  found during an architecture review of a proposed shared dev/prod
+  database: `PlayerCareerStint` (ADR-0042) was never added to the
+  prod↔dev sync allowlist, so the two environments have had no sync path
+  for it since it was introduced. Added `"public.\"PlayerCareerStints\""`
+  to the allowlist both `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh`
+  share; ADR-0009 gained a dated addendum recording the gap and fix. No
+  behavior change beyond making this table syncable going forward — no
+  sync actually run as part of this fix. ADR-0009.
+
 - 2026-08-08 — `docs/backlog.md` — doc-hygiene fix: the "Tier 1 backlog
   (unordered)" quick-reference list still showed `T-104 disambiguation UI
   (REQ-209)` without a strikethrough, even though S-067 fully built it
