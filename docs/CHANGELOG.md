@@ -13,6 +13,31 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/requirements-document.md` (v1.55 → v1.56) — fixed the
+  gap flagged (not fixed) in the same-day xG Path `PathScoringExplainer`
+  entry: `LeaderboardScreen.tsx`'s `(ⓘ)` "How scoring works" button always
+  opened xG Grid's `ScoringExplainer`, even when the leaderboard's xG Path
+  tab was active, showing Grid-specific content (uniqueness, live/locked
+  points, median ranking) that doesn't describe xG Path's rules — reported
+  directly by a player after the gap was flagged. Made the entry point's
+  modal `gameKey`-aware: `gameKey === XG_GRID_GAME_KEY` renders
+  `ScoringExplainer`, `gameKey === XG_PATH_GAME_KEY` renders
+  `PathScoringExplainer` (imported from `../path/PathScoringExplainer`,
+  the same cross-feature-folder import pattern this file already used for
+  `../grid/ScoringExplainer` — no component relocation needed). Judgement
+  call: switching the game tab while the explainer is open now closes it
+  rather than swapping its content live or leaving the old game's
+  mismatched content on screen — follows the same "back out on a game
+  switch" precedent this file's `selectedRound`/`pastDetailState` reset
+  effect already established (REQ-410/S-087), rather than inventing a new
+  behavior. 4 new Vitest tests in `LeaderboardScreen.test.tsx`
+  (`describe('game-aware scoring explainer', ...)`): Grid tab opens the
+  Grid explainer, Path tab opens the Path explainer, switching games while
+  open closes it (and a re-open shows the new game's content), switching
+  games while closed has no effect. Full frontend suite run (476 tests
+  passing, up from 472), `npx tsc -b` clean, `npm run lint` clean. No
+  backend changes, no ADR (UI composition only — same reasoning as the
+  original PathScoringExplainer change this follows up on). REQ-213.
 - 2026-08-08 — `docs/requirements-document.md` (v1.54 → v1.55),
   `docs/design-document.md` (v0.66 → v0.67) — closed a real player-reported
   gap on xG Path (SCREEN-10): "no scoring information in the game" turned

@@ -1412,6 +1412,108 @@ describe('LeaderboardScreen', () => {
     });
   });
 
+  // REQ-213 (2026-08-08, second-consumer follow-up): the `(ⓘ)` entry
+  // point's modal is now game-aware — xG Grid's `ScoringExplainer` vs. xG
+  // Path's `PathScoringExplainer`, chosen by `gameKey` — closing the gap
+  // flagged (not fixed) in `PathScoringExplainer.tsx`'s own 2026-08-08
+  // doc comment and `docs/requirements-document.md`'s matching REQ-213
+  // note. Distinguishes the two explainers by content unique to each
+  // (Grid's "attempts per cell"/"median" ranking language vs. Path's
+  // "attempts per puzzle" clue-sequence language) rather than by DOM
+  // structure, since both render the same `role="dialog"`/
+  // `aria-label="How scoring works"` shell.
+  describe('game-aware scoring explainer', () => {
+    it('REQ-213: xG Grid tab (the default) + (ⓘ) opens the Grid ScoringExplainer, not the Path one', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+      expect(screen.getByRole('tab', { name: 'xG Grid' })).toHaveAttribute('aria-selected', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+      const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+      expect(dialog.textContent).toMatch(/2 attempts per cell/i);
+      expect(dialog.textContent).toMatch(/median/i);
+      expect(dialog.textContent).not.toMatch(/attempts per puzzle/i);
+      expect(dialog.textContent).not.toMatch(/clue/i);
+    });
+
+    it('REQ-213: switching to the xG Path tab + (ⓘ) opens PathScoringExplainer, not the Grid one', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+
+      const dialog = screen.getByRole('dialog', { name: 'How scoring works' });
+      expect(dialog.textContent).toMatch(/attempts per puzzle/i);
+      expect(dialog.textContent).toMatch(/golf/i);
+      expect(dialog.textContent).not.toMatch(/median/i);
+      expect(dialog.textContent).not.toMatch(/2 attempts per cell/i);
+      expect(dialog.textContent).not.toMatch(/uniqueness|unique/i);
+    });
+
+    it('REQ-213: switching games while the explainer is open closes it (does not silently swap its content under the player)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      expect(screen.getByRole('dialog', { name: 'How scoring works' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+
+      // The modal is gone — not left open with Grid's now-stale content,
+      // and not silently swapped to Path's content while still open.
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      // The game switch itself still took effect normally.
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+
+      // Re-opening it now shows the newly selected game's explainer.
+      fireEvent.click(screen.getByRole('button', { name: 'How scoring works' }));
+      const reopenedDialog = screen.getByRole('dialog', { name: 'How scoring works' });
+      expect(reopenedDialog.textContent).toMatch(/attempts per puzzle/i);
+    });
+
+    it('REQ-213: switching games while the explainer is closed has no effect on it (it stays closed)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(() =>
+          jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
+        ),
+      );
+
+      render(<LeaderboardScreen accessToken="token" onAuthError={vi.fn()} />);
+      await waitFor(() => expect(screen.getByText('No scores yet — be the first to play a round.')).toBeInTheDocument());
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: 'xG Path' }));
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'xG Path' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
   // REQ-410/ADR-0043 (S-087): the game switcher tab row above the scope
   // tabs — selecting a game re-fetches whichever scope is currently active
   // with the new `gameKey`, and never resets the selected scope tab.

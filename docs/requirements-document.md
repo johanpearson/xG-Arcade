@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.55"
+version: "1.56"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -2015,14 +2015,44 @@ reveals a name)
   xG Path's own content and never mentions uniqueness; opening it does not
   discard an in-progress, typed-but-not-yet-submitted guess; Escape closes
   it and returns focus to the `(ⓘ)` trigger.
-  - **Known, pre-existing, out-of-scope gap flagged (not fixed in this
-    pass):** `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point still opens
-    xG Grid's `ScoringExplainer` verbatim — including its uniqueness/
+  - **Gap fixed same-day (2026-08-08, follow-up), no longer open:**
+    `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point previously opened xG
+    Grid's `ScoringExplainer` verbatim — including its uniqueness/
     live-locked/median-ranking content — even when the leaderboard's xG
-    Path tab is the one currently active, which doesn't describe xG
-    Path's actual rules. This predates this change, is unrelated to
-    `PathScreen.tsx`, and is out of this story's scope — filed here as a
-    candidate for a future story, not addressed now.
+    Path tab was the one currently active, which didn't describe xG
+    Path's actual rules. Reported directly by a player after the gap
+    above was flagged. Fixed by making the entry point's modal
+    `gameKey`-aware: `gameKey === XG_GRID_GAME_KEY` opens
+    `ScoringExplainer`, `gameKey === XG_PATH_GAME_KEY` opens
+    `PathScoringExplainer` — both already had the identical `{ onClose }`
+    modal-shell shape, so this is a small conditional in
+    `LeaderboardScreen.tsx`'s render, not a new component or prop.
+    Imported `PathScoringExplainer` directly from `../path/
+    PathScoringExplainer`, the same cross-feature-folder import pattern
+    this file already used for `ScoringExplainer` from `../grid/
+    ScoringExplainer` — no need to relocate either component to a shared
+    folder first. **Judgement call on switching games while the modal is
+    open:** unlike a scope change (REQ-213's own 2026-07-21 addition
+    established that `explainerOpen` is independent of `scope`, since the
+    explainer's content didn't vary by scope), a game switch changes
+    *which explainer component is even correct*, so the two states can no
+    longer be fully independent. Rather than swapping the open modal's
+    content live under the player mid-read, or inventing a new behavior
+    for this one case, this follows the same "back out rather than leave
+    a stale, now-mismatched view on screen" precedent this file's
+    `selectedRound`/`pastDetailState` reset effect already established
+    for a game switch (REQ-410/S-087): switching the game tab while the
+    explainer is open closes it; re-opening it via `(ⓘ)` shows the newly
+    selected game's correct content. Covered by four new tests in
+    `LeaderboardScreen.test.tsx` (`describe('game-aware scoring
+    explainer', ...)`): Grid tab + `(ⓘ)` opens `ScoringExplainer`
+    (content-distinguished, not DOM-distinguished, since both render the
+    same `role="dialog"`/`aria-label="How scoring works"` shell); Path tab
+    + `(ⓘ)` opens `PathScoringExplainer`; switching games while the modal
+    is open closes it and a re-open shows the new game's content;
+    switching games while it's closed has no effect. `PathScreen.tsx`,
+    `PathScoringExplainer.tsx`, and `ScoringExplainer.tsx` themselves were
+    not touched.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -2127,9 +2157,19 @@ reveals a name)
   `FinalUniquenessScore` is always null for this game) — and never mentions
   a live-then-locked distinction, since an xG Path score is final the
   instant its puzzle locks
-- And the grid-screen and leaderboard-screen entry points (above) are
-  unaffected by this addition — they continue to open the same
-  `ScoringExplainer.tsx` with the same content as before
+- And the grid-screen entry point (above) is unaffected by this addition —
+  it continues to open the same `ScoringExplainer.tsx` with the same
+  content as before
+- **(2026-08-08 addition, same-day follow-up)** The leaderboard-screen entry
+  point (above) is, by contrast, directly affected: it now opens whichever
+  explainer matches the leaderboard's currently selected game tab —
+  `ScoringExplainer.tsx` when xG Grid is selected (unchanged content),
+  `PathScoringExplainer.tsx` when xG Path is selected — rather than always
+  opening `ScoringExplainer.tsx` regardless of the active tab. If the
+  player switches the game tab while the explainer is open, it closes
+  (rather than swapping its content live, or leaving the previous game's
+  now-mismatched content on screen) — re-opening it via `(ⓘ)` shows the
+  newly selected game's explainer
 
 **Test level:** UI (explainer opens from the grid-screen header entry point
 and closes without losing in-progress state; contains text covering all six
@@ -2149,7 +2189,15 @@ flex-wrap layout; **(2026-08-08 addition)** `PathScreen.test.tsx`'s
 distinct `PathScoringExplainer` entry point: opens with xG Path-specific
 content and never mentions uniqueness; does not discard an in-progress,
 typed-but-not-yet-submitted guess when opened; closes on Escape and returns
-focus to the `(ⓘ)` trigger)
+focus to the `(ⓘ)` trigger; **(2026-08-08 addition, same-day follow-up)**
+`LeaderboardScreen.test.tsx`'s `describe('game-aware scoring explainer',
+...)` block covers the leaderboard entry point's `gameKey` branch: the xG
+Grid tab's `(ⓘ)` opens `ScoringExplainer` (content-distinguished from
+Path's, not DOM-distinguished, since both share the same dialog shell); the
+xG Path tab's `(ⓘ)` opens `PathScoringExplainer`; switching games while the
+explainer is open closes it, and re-opening it afterward shows the newly
+selected game's content; switching games while it's closed leaves it
+closed)
 
 **REQ-214 – Photo reveal on a locked, correct cell**
 > As a player, I want to see the guessed player's photo, when one is
