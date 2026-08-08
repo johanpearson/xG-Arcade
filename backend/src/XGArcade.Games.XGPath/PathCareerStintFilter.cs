@@ -57,13 +57,23 @@ public static class PathCareerStintFilter
     // valid senior-team case ("Italy men's national association football
     // team" has no "under-N" marker at all).
     //
+    // The leading \b before "national" is required: without it, the pattern
+    // matches "national" as a bare substring anywhere it occurs, including
+    // at the tail of a longer word — e.g. "International Under-20 Select
+    // XI", "FC International Milan Under-20", and "Multinational
+    // Development Squad Under-19" all contain "...national" via
+    // "Inter"+"national"/"Multi"+"national" followed later by an
+    // "under-N" marker, and would be wrongly excluded despite not being
+    // national teams at all. The leading \b anchors the match to a real
+    // word boundary so "national" must start its own word.
+    //
     // NOT verified against a live Wikidata query from this sandbox (no
     // wikidata.org access here) — this pattern is inferred from the
     // reported label text only. Flagged for manual confirmation against
     // real production PlayerCareerStint rows if this is found to under- or
     // over-match in practice.
     private static readonly Regex YouthNationalTeamPattern =
-        new(@"national\s.*\bunder-\d+\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"\bnational\s.*\bunder-\d+\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static bool IsYouthNationalTeam(string clubName) =>
         YouthNationalTeamPattern.IsMatch(clubName);

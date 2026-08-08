@@ -73,6 +73,19 @@ public class PathCareerStintFilterTests
         Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.False);
     }
 
+    // ---- Regression: without a leading \b before "national", the pattern --
+    // would match "national" as a bare substring inside a longer word ------
+    // (e.g. "Inter" + "national", "Multi" + "national"), wrongly excluding --
+    // these even though none of them is an actual national team ------------
+
+    [TestCase("International Under-20 Select XI")]
+    [TestCase("FC International Milan Under-20")]
+    [TestCase("Multinational Development Squad Under-19")]
+    public void REQ1203_IsYouthNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.False);
+    }
+
     // ---- ExcludeYouthNationalTeams: filters a mixed stint list -------------
 
     [Test]
