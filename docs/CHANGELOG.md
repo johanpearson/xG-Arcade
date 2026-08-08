@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — no doc changes — same-day quality-gate fix-up (not a new
+  requirement) to `XGArcade.Games.XGPath.PathCareerStintFilter`'s
+  `YouthNationalTeamPattern` regex: added a missing leading `\b` before
+  `national` so the pattern anchors to a real word, not a bare substring
+  match inside a longer word (e.g. "Inter"+"national",
+  "Multi"+"national") — was wrongly flagging club/team names like
+  "International Under-20 Select XI" and "Multinational Development
+  Squad Under-19" as youth national teams. New negative test cases added
+  to `PathCareerStintFilterTests`
+  (`REQ1203_IsYouthNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse`).
+  Also corrected an inaccurate precedent claim in `PathEndpoints.cs`'s
+  comment introducing `scoringStrategyResolver.Resolve(round.GameKey)` —
+  it mirrors the `IGameModuleResolver` Api-layer-resolver pattern, not an
+  existing `RoundEndpoints`/`ScoreLockingService` call to this specific
+  resolver (that resolver's only prior caller was `ScoreLockingService`
+  inside `XGArcade.Core.Scoring`). `dotnet` unavailable in this sandbox;
+  regex fix hand-traced against all positive/negative cases in both test
+  files, not run. REQ-1203.
+
 - 2026-08-08 — `docs/requirements-document.md` (v1.52 → v1.53) — backend
   half of REQ-1206's 2026-08-08 "score is never shown" gap: `GET
   /path/current`'s `CurrentPathGuessResponse` (`XGArcade.Api.Path.

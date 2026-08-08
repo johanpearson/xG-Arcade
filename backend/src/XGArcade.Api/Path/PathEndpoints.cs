@@ -76,15 +76,24 @@ public static class PathEndpoints
             var gameModule = gameModuleResolver.Resolve(round.GameKey);
 
             // REQ-1206 (2026-08-08 addition): resolved once for the request,
-            // same ADR-0040 resolver ScoreLockingService uses at round
-            // close — round.GameKey is always "xg-path" here (this endpoint
-            // only ever serves the round fetched by
+            // using the same ADR-0040 IScoringStrategyResolver that
+            // ScoreLockingService uses at round close inside
+            // XGArcade.Core.Scoring — round.GameKey is always "xg-path"
+            // here (this endpoint only ever serves the round fetched by
             // GetActiveByGameKeyAsync(XGPathGameModule.XGPathGameKey, ...)
             // above), so this always resolves ClueEfficiencyScoringStrategy.
             // Calling the real strategy (never re-deriving its rounding
             // formula inline) is what guarantees the value returned below is
             // arithmetically identical to what ScoreLockingService will
-            // later persist as FinalPoints for the same puzzle.
+            // later persist as FinalPoints for the same puzzle. This is the
+            // first Api-layer call site for IScoringStrategyResolver
+            // specifically (its only prior caller was ScoreLockingService
+            // itself) — it mirrors the shape of the gameModuleResolver call
+            // just above, not an existing Api-layer call to this particular
+            // resolver: both are a per-GameKey Core resolver invoked
+            // directly from the Api layer for a display-only read, the same
+            // pattern IGameModuleResolver already follows in both
+            // RoundEndpoints.cs and this file.
             var scoringStrategy = scoringStrategyResolver.Resolve(round.GameKey);
 
             // Reads PathInstance/PathPuzzle directly, bypassing IGameModule
