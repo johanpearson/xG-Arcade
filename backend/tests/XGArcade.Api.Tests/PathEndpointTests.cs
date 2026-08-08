@@ -93,9 +93,17 @@ public class PathEndpointTests
     // enough to exercise the full 7-turn reveal sequence deterministically.
     // position/nationality/birthYear default to null ("not available",
     // REQ-1207) unless a test opts in via the optional params.
+    // Bug fix (2026-08-08, REQ-1203): optional `stints` override, appended
+    // as the final param so every existing call site (positional or named,
+    // none of them pass this many args positionally) is unaffected. null
+    // (the default) keeps the original 3-stint fixture; a caller that wants
+    // to exercise PathCareerStintFilter's read-time exclusion (a mix of
+    // real clubs + leftover youth-national-team junk rows, or junk rows
+    // only) passes its own list instead.
     private async Task<(Guid RoundId, Guid PuzzleId, Guid TargetPlayerId)> SeedPathRoundAsync(
         DateTime startTime, DateTime endTime, bool allowGuessChange = true,
-        string? position = null, string? nationality = null, int? birthYear = null)
+        string? position = null, string? nationality = null, int? birthYear = null,
+        IReadOnlyList<(string ClubName, int StartYear, int? EndYear, int? AppearanceCount)>? stints = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
@@ -116,10 +124,27 @@ public class PathEndpointTests
                 PlayerId = targetPlayer.Id, AttributeType = "nationality", AttributeValue = nationality,
             });
         }
-        dbContext.PlayerCareerStints.AddRange(
-            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = targetPlayer.Id, ClubName = "AS Monaco", StartYear = 2015, EndYear = 2017, SequenceOrder = 0, AppearanceCount = 60 },
-            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = targetPlayer.Id, ClubName = "Paris Saint-Germain", StartYear = 2017, EndYear = 2024, SequenceOrder = 1, AppearanceCount = null },
-            new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = targetPlayer.Id, ClubName = "Real Madrid", StartYear = 2024, EndYear = null, SequenceOrder = 2, AppearanceCount = 10 });
+
+        var stintsToSeed = stints ?? new (string ClubName, int StartYear, int? EndYear, int? AppearanceCount)[]
+        {
+            ("AS Monaco", 2015, 2017, 60),
+            ("Paris Saint-Germain", 2017, 2024, null),
+            ("Real Madrid", 2024, null, 10),
+        };
+        var sequenceOrder = 0;
+        foreach (var (clubName, startYear, endYear, appearanceCount) in stintsToSeed)
+        {
+            dbContext.PlayerCareerStints.Add(new PlayerCareerStint
+            {
+                Id = Guid.NewGuid(),
+                PlayerId = targetPlayer.Id,
+                ClubName = clubName,
+                StartYear = startYear,
+                EndYear = endYear,
+                SequenceOrder = sequenceOrder++,
+                AppearanceCount = appearanceCount,
+            });
+        }
 
         var instanceId = Guid.NewGuid();
         var puzzleId = Guid.NewGuid();
@@ -344,5 +369,106 @@ public class PathEndpointTests
         var secondPuzzle = secondBody!.Puzzles.Single(p => p.PuzzleId == puzzleId);
         Assert.That(secondPuzzle.Guess, Is.Null, "REQ-1203: a response must never reveal another player's guess");
         Assert.That(secondPuzzle.Clues, Has.Count.EqualTo(1), "another player's correct guess must not accelerate my own reveal sequence");
+    }
+
+    // ---- Bug fix (2026-08-08, REQ-1203): leftover pre-2026-08-02 -----------
+    // youth/age-grade national-team rows must never surface as club-reveal ---
+    // clues -------------------------------------------------------------------
+
+    [Test]
+    public async Task REQ1203_PathCurrent_Get_MixOfRealClubsAndYouthNationalTeamJunkRows_OnlyRealClubsRevealedAsClues()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        // Interspersed on purpose (junk rows before/between/after real
+        // clubs, in SequenceOrder) — the fix must filter by content, not by
+        // position in the list. Real club data matches the default fixture
+        // exactly, so the assertions below can reuse the same expectations
+        // the un-junked "SevenWrongGuesses" test already proves for a clean
+        // 3-real-stint career.
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1),
+            position: "Forward", nationality: "France", birthYear: 1998,
+            stints:
+            [
+                ("Spain national under-16 association football team", 2010, 2011, null),
+                ("AS Monaco", 2015, 2017, 60),
+                ("Italy national under-21 football team", 2017, 2017, null),
+                ("Paris Saint-Germain", 2017, 2024, null),
+                ("Real Madrid", 2024, null, 10),
+            ]);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        for (var attempt = 0; attempt < 7; attempt++)
+            await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+
+        var response = await client.GetAsync("/path/current");
+
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "the fixed 7-turn sequence is unaffected by how many junk rows were filtered out");
+
+        var clubNamesRevealed = puzzle.Clues
+            .Where(c => c.Kind == "ClubReveal")
+            .SelectMany(c => c.Clubs!)
+            .Select(c => c.ClubName)
+            .ToList();
+        Assert.That(clubNamesRevealed, Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }),
+            "only the 3 real club stints are revealed, in chronological order, none of the youth-national-team junk rows");
+        Assert.That(clubNamesRevealed.Any(name => name.Contains("national", StringComparison.OrdinalIgnoreCase)), Is.False,
+            "no club-reveal clue text should ever contain a national-team row, junk or otherwise");
+
+        var yearRangeTurn = puzzle.Clues.Single(c => c.Kind == "YearRange");
+        Assert.That(yearRangeTurn.YearRanges, Is.EqualTo(new[] { "2015-17", "2017-24", "2024-present" }),
+            "the bundled year-range clue only covers the real, filtered clubs — the junk rows' own years must not appear");
+    }
+
+    [Test]
+    public async Task REQ1203_PathCurrent_Get_OnlyYouthNationalTeamJunkRows_NoRealClubStints_HandledSensibly_NeverCrashes()
+    {
+        // A puzzle whose target's ENTIRE persisted PlayerCareerStint history
+        // is leftover youth-national-team junk (no real club ever
+        // documented) — an edge case that can only exist for an
+        // already-generated puzzle from before this fix, since
+        // XGPathGameModule.GetEligiblePlayerIdsAsync's own REQ-1201 filter
+        // (also fixed by this change) would never select such a player as a
+        // NEW target going forward. The read path must still degrade
+        // gracefully rather than throwing.
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, puzzleId, _) = await SeedPathRoundAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1),
+            position: "Forward", nationality: "France", birthYear: 1998,
+            stints:
+            [
+                ("Spain national under-16 association football team", 2010, 2011, null),
+                ("Italy national under-20 football team", 2011, 2012, null),
+            ]);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        for (var attempt = 0; attempt < 7; attempt++)
+        {
+            var guessResponse = await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{puzzleId}/guesses", new SubmitGuessRequest($"Nobody Real {attempt}"));
+            Assert.That(guessResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK), $"attempt {attempt + 1} of 7 must still be accepted even with zero real clubs after filtering");
+        }
+
+        var response = await client.GetAsync("/path/current");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "the read path must never throw just because filtering leaves zero real club stints");
+        var body = await response.Content.ReadFromJsonAsync<CurrentPathResponse>();
+        var puzzle = body!.Puzzles.Single(p => p.PuzzleId == puzzleId);
+        Assert.That(puzzle.Clues, Has.Count.EqualTo(7), "the fixed 7-turn sequence still holds — SplitIntoTurns(0) degrades to three empty club-reveal turns, not a shorter sequence");
+
+        var clubTurns = puzzle.Clues.Where(c => c.Kind == "ClubReveal").ToList();
+        Assert.That(clubTurns, Has.Count.EqualTo(3));
+        Assert.That(clubTurns, Has.All.Matches<PathClueTurnResponse>(t => t.Clubs!.Count == 0),
+            "every club-reveal turn is empty (not omitted, not null) once every documented stint has been filtered out as junk");
+
+        var yearRangeTurn = puzzle.Clues.Single(c => c.Kind == "YearRange");
+        Assert.That(yearRangeTurn.YearRanges, Is.Empty);
+
+        Assert.That(puzzle.Clues.Single(c => c.Kind == "Position").TextValue, Is.EqualTo("Forward"),
+            "the fixed position/nationality/age clues are entirely unaffected by career-stint filtering");
+        Assert.That(puzzle.Guess!.AttemptCount, Is.EqualTo(7));
+        Assert.That(puzzle.Guess.Locked, Is.True, "the 7-attempt cap still locks the puzzle exactly as it would with real clubs");
     }
 }

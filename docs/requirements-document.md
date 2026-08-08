@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.51"
+version: "1.52"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -6123,6 +6123,20 @@ not a claim about current behavior.
   of the structural checks below, before target selection — see ADR-0056 for
   the full decision, the alternatives considered (total appearances, trophy
   won), and the fail-open contract on a Wikidata failure or data gap.
+- **Status note (2026-08-08, bug fix, see REQ-1203's own dated status note
+  for the full write-up): the "3 distinct documented career club stints"
+  check below now excludes leftover pre-2026-08-02 youth/age-grade
+  national-team `PlayerCareerStint` rows before counting.** Without this,
+  a candidate with fewer than 3 REAL club stints could still pass this
+  check purely because leftover junk rows (e.g. "Spain national under-16
+  association football team") padded the row count past 3.
+  `XGPathGameModule.GetEligiblePlayerIdsAsync` now filters via the new
+  `PathCareerStintFilter.ExcludeYouthNationalTeams` immediately before
+  `IsEligible` runs. This REQ's own acceptance criteria below are
+  unchanged in wording — "3 distinct documented career club stints" always
+  meant real ones; this closes a gap where already-persisted junk data
+  could make that check pass incorrectly, the same class of gap REQ-1203's
+  2026-08-02 status note closed for the club-reveal display path.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -6163,7 +6177,13 @@ implementation directly — threshold boundary, unresolved-QID exclusion,
 fail-open on a Wikidata failure, fail-open when nobody in the pool can be
 checked, and batching above `PlayerFamiliarityService.BatchSize`.
 `WikidataClientTests` covers `QuerySitelinkCountsByQidsAsync`'s own query
-shape and error contract.)
+shape and error contract. Youth-national-team junk-row exclusion
+(2026-08-08 bug fix): `XGPathGameModuleTests.
+REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+and its positive-control sibling
+`REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+cover this eligibility-check-level fix directly; `PathCareerStintFilterTests`
+covers the shared filter itself in isolation.)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number
@@ -6338,6 +6358,53 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   ADR-0059 for the full reasoning, including why that would be
   disproportionate for what is presently a cosmetic-only bug (xG Grid never
   reads this table, so scoring is unaffected).
+- **Status note (2026-08-08, bug fix): leftover pre-2026-08-02 youth/
+  age-grade national-team rows were still leaking into club-reveal clues —
+  fixed with a read-time filter.** Reported directly by a player in user
+  testing (screenshots): clue nodes like "Spain national under-16
+  association football team," "Spain national under-17 association
+  football team," "Italy national under-20 football team," and "Italy
+  national under-21 football team" appeared before the target's real club
+  career, violating this REQ's own "national team caps/appearances are
+  never revealed as a clue" acceptance criterion below — the same
+  criterion the 2026-08-02 fix above already exists to protect. Root
+  cause: that 2026-08-02 fix changed `WikidataClient.
+  QueryPlayerCareerStintsByQidsAsync`'s query so no NEW national-team row
+  (senior or youth) is ever fetched again, but it could not retroactively
+  remove rows already sitting in the ~608K-row `PlayerCareerStint` table —
+  `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId` is documented
+  "additive only, never a wipe-and-replace" (its own doc comment), so any
+  national-team row fetched before that date is still there today, and
+  nothing deletes it. Fixed with a new `PathCareerStintFilter`
+  (`XGArcade.Games.XGPath`), a pure, read-time filter applied at both
+  places `PlayerCareerStint` rows are read for xG Path: `GET /path/current`
+  (`PathEndpoints.cs`, immediately before the stint list reaches
+  `PathClueSequenceBuilder.BuildSequence`) and `XGPathGameModule.
+  GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check (immediately
+  before `IsEligible` counts a candidate's stints) — without the latter, a
+  player with fewer than 3 REAL documented club stints could still pass
+  REQ-1201's `MinStintCount` check purely on the strength of leftover junk
+  rows padding the row count. Deliberately a read-time filter, not a
+  DELETE/cleanup script in the style of ADR-0059's
+  `DuplicateCareerStintCleaner`: unlike that cleanup, there is no QID
+  stored on an already-persisted row to prove a match against, so a
+  name-based DELETE against 608K rows would not be "provable" the way
+  ADR-0059's canonical-name-exists check was — a name-based filter is safe
+  for read-time exclusion (a false positive only skips a clue) but not for
+  an irreversible row deletion. Scoped narrowly to match only what was
+  actually reported: `PathCareerStintFilter.IsYouthNationalTeam` matches
+  "national" followed by an age-grade "under-`\d+`" marker
+  (`national\s.*\bunder-\d+\b`, case-insensitive) — deliberately NOT
+  "national ... team" alone, which would also have wrongly stripped the
+  valid senior-team clue ("Italy men's national association football
+  team") the same reviewed screenshots showed rendering correctly in the
+  same timeline. A "Basque Country regional football team" stint present
+  in one screenshot was not flagged as a problem and is deliberately left
+  alone — this fix does not extend to non-FIFA regional representative
+  teams. The regex was not verified against a live Wikidata query from
+  this sandbox (no `wikidata.org` access here); flagged for manual
+  confirmation against real production rows if it's found to under- or
+  over-match in practice.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -6420,7 +6487,28 @@ fix): `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_
 SentQuery_ExcludesNationalTeams` covers the query-text assertion — a real
 national-team caps row is server-side excluded by WDQS itself, not
 something this codebase's own parsing can independently verify from a
-mocked response. UI: **(2026-08-04 addition)** the round end-time
+mocked response. Leftover-junk-row filtering (2026-08-08 bug fix):
+`PathCareerStintFilterTests` covers `PathCareerStintFilter` directly and
+purely (reported youth-national-team labels excluded; the senior team and
+a non-FIFA regional side NOT excluded; a mixed real+junk stint list
+filtered correctly; an all-junk list returns empty). `XGPathGameModuleTests`
+adds `REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+(a candidate with only 2 real stints must not become eligible just because
+junk rows pad the row count past `MinStintCount`) and
+`REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+(a genuinely eligible candidate must not be wrongly rejected just because
+junk rows are also present). `PathEndpointTests` adds
+`REQ1203_PathCurrent_Get_MixOfRealClubsAndYouthNationalTeamJunkRows_OnlyRealClubsRevealedAsClues`
+(interspersed junk rows are filtered from both the club-reveal clues and
+the bundled year-range clue, real clubs still shown in chronological
+order) and `REQ1203_PathCurrent_Get_OnlyYouthNationalTeamJunkRows_
+NoRealClubStints_HandledSensibly_NeverCrashes` (an already-generated
+puzzle whose target has zero real stints after filtering still returns
+the fixed 7-turn sequence with empty club-reveal/year-range turns, rather
+than erroring — proving `PathClueSequenceBuilder`'s `SplitIntoTurns(0)`
+degrades gracefully and this scenario can't arise for a NEWLY generated
+puzzle now that the same filter also guards REQ-1201's eligibility check).
+UI: **(2026-08-04 addition)** the round end-time
 indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per
 the status note above — the underlying format/bucket logic remains

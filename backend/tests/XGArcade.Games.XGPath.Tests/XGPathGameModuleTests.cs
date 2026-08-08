@@ -189,6 +189,62 @@ public class XGPathGameModuleTests
             async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
+    // Bug fix (2026-08-08, REQ-1203): a player with fewer than 3 REAL
+    // documented club stints must never become eligible purely because
+    // leftover pre-2026-08-02 youth-national-team junk rows pad the row
+    // count past MinStintCount — see PathCareerStintFilter's own doc
+    // comment. Same "baseline + 1" rejection-test technique as the
+    // CandidateWithFewerThanThreeStints test above: 2 real stints (one at
+    // the seeded club) + 2 youth-national junk rows = 4 raw rows (would
+    // wrongly pass MinStintCount unfiltered), but only 2 real ones.
+    [Test]
+    public void REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var paddedByJunk = SeedPlayer("PaddedByJunk");
+        SeedStints(paddedByJunk.Id,
+            (2010, 2013, "Seeded FC"),
+            (2013, null, "Other FC"),
+            (2005, 2007, "Spain national under-16 association football team"),
+            (2007, 2009, "Italy national under-21 football team"));
+
+        var template = SeedTemplate(3);
+
+        Assert.ThrowsAsync<PathGenerationException>(
+            async () => await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
+    }
+
+    // Positive control for the fix above: a candidate with a genuinely
+    // eligible 3-real-stint career must still be selected even when
+    // leftover youth-national-team junk rows are ALSO present — the filter
+    // must not accidentally reject a real candidate just because junk rows
+    // exist alongside their real career data.
+    [Test]
+    public async Task REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows()
+    {
+        SeedClub("Seeded FC");
+        SeedEligiblePlayer("Eligible1", "Seeded FC");
+        SeedEligiblePlayer("Eligible2", "Seeded FC");
+
+        var withJunk = SeedPlayer("RealCareerPlusJunk");
+        SeedStints(withJunk.Id,
+            (2010, 2013, "Seeded FC"),
+            (2013, 2016, "Unseeded Club A"),
+            (2016, null, "Unseeded Club B"),
+            (2005, 2007, "Spain national under-17 association football team"));
+
+        var template = SeedTemplate(3);
+
+        var instance = await _module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+        var targets = await GetTargetPlayerIdsAsync(instance.Id);
+
+        Assert.That(targets, Has.Count.EqualTo(3));
+        Assert.That(targets, Does.Contain(withJunk.Id));
+    }
+
     [Test]
     public void REQ1201_GenerateInstanceAsync_CandidateWithUndeterminableStintOrder_NeverSelected()
     {

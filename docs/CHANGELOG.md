@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/requirements-document.md` (v1.51 → v1.52),
+  `docs/implementation-document.md` (v0.89 → v0.90) — bug fix:
+  leftover pre-2026-08-02 youth/age-grade national-team `PlayerCareerStint`
+  rows (e.g. "Spain national under-16 association football team," "Italy
+  national under-20/under-21 football team") were still leaking into xG
+  Path's club-reveal clues, reported directly via user testing. The
+  2026-08-02 SPARQL fix only stops NEW rows from being fetched — it can't
+  retroactively remove rows already sitting in the ~608K-row
+  `PlayerCareerStint` table, since `PlayerCareerStintRefreshService` is
+  additive-only. Fixed with a new, pure `PathCareerStintFilter`
+  (`XGArcade.Games.XGPath`), a read-time filter (not a DELETE/cleanup
+  script — no QID exists on already-persisted rows to prove a match
+  against, unlike ADR-0059's cleanup) applied at both `GET /path/current`
+  (`PathEndpoints.cs`) and `XGPathGameModule.GetEligiblePlayerIdsAsync`'s
+  REQ-1201 eligibility check, so a player's eligibility count can no
+  longer be inflated by leftover junk rows either. Scoped narrowly
+  (`national` + an age-grade `under-\d+` marker) to match only what was
+  reported — the valid senior national-team clue and a non-FIFA regional
+  side are both deliberately left alone. New coverage:
+  `PathCareerStintFilterTests`, `XGPathGameModuleTests`, `PathEndpointTests`
+  (all `XGArcade.Games.XGPath.Tests`/`XGArcade.Api.Tests`). `dotnet` is
+  unavailable in this sandbox — tests were hand-traced against the
+  existing test patterns but not run; will only run in CI. REQ-1203.
 - 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.49),
   `docs/design-document.md` (v0.64 → v0.65) — REQ-213 verification finding
   (content confirmed complete; found the `(ⓘ)` explainer entry point

@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.89"
+version: "0.90"
 status: draft
-last_updated: 2026-08-02
+last_updated: 2026-08-08
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -238,7 +238,14 @@ misconfigured per-endpoint. See ADR-0006.
                                    GridGenerationOptions.GridSize, feeding the
                                    new PathTemplateResolver
                                    (XGArcade.Api.Path) used by
-                                   POST /internal/generate-round?gameKey=xg-path
+                                   POST /internal/generate-round?gameKey=xg-path.
+                                   Bug fix (2026-08-08, REQ-1203) added
+                                   PathCareerStintFilter — a read-time-only
+                                   filter excluding leftover pre-2026-08-02
+                                   youth/age-grade national-team
+                                   PlayerCareerStint rows, applied at both
+                                   PathEndpoints.cs's GET /path/current and
+                                   GetEligiblePlayerIdsAsync's REQ-1201 check
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -258,7 +265,11 @@ misconfigured per-endpoint. See ADR-0006.
                                    S-082 added PathClueSequenceBuilderTests
                                    (REQ-1203) and REQ1204-/REQ1205-named
                                    XGPathGameModuleTests coverage; GameKey
-                                   tests are unchanged
+                                   tests are unchanged. Bug fix (2026-08-08)
+                                   added PathCareerStintFilterTests and
+                                   REQ1203-named XGPathGameModuleTests
+                                   coverage for the youth-national-team
+                                   junk-row exclusion
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
