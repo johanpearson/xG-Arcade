@@ -13,6 +13,52 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
+  `infra/scripts/promote-dev-to-prod.sh`, `infra/scripts/sync-prod-to-dev.sh`,
+  `.github/workflows/promote-dev-to-prod-dry-run.yml` (new),
+  `docs/decisions/0009-bidirectional-game-data-sync.md`,
+  `infra/README.md`, `docs/implementation-document.md` — fixed a real
+  data-loss bug found during an architecture review: both sync scripts ran
+  `TRUNCATE TABLE $t CASCADE;` per allowlisted table before restoring, and
+  Postgres's `TRUNCATE ... CASCADE` truncates every OTHER table with a
+  foreign key into the truncated table too, not just rows — truncating
+  `Player` was silently wiping xG Path's `PathPuzzle`/`PathCycleTargetUsage`
+  tables (verified against `XGArcadeDbContext.cs`'s FK graph), neither of
+  which is or should be on the sync allowlist per this ADR. Fixed by
+  finding and temporarily dropping only the specific external FK
+  constraints at runtime (`pg_constraint`), truncating the whole allowlist
+  together with no `CASCADE` keyword at all, then re-adding the
+  constraints after restore — verified end-to-end against a real local
+  Postgres 16 instance (including reproducing the original bug for
+  contrast), not just reasoned about; `SET session_replication_role =
+  replica` was tried first and confirmed NOT to solve this specific
+  problem. Also extended both scripts' `--dry-run` output to show both
+  sides' row counts per table (previously only the source side's), and
+  added `promote-dev-to-prod-dry-run.yml`, a weekly-scheduled workflow that
+  surfaces the diff on the job summary without ever writing to prod or
+  adding a non-interactive flag to the real promote path; it exits cleanly
+  when prod isn't configured yet (Tier 1). No new ADR — addendum to
+  ADR-0009. REQ-804/REQ-805, ADR-0009.
+
+- 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
+  `docs/decisions/0009-bidirectional-game-data-sync.md` — fixed a real gap
+  found during an architecture review of a proposed shared dev/prod
+  database: `PlayerCareerStint` (ADR-0042) was never added to the
+  prod↔dev sync allowlist, so the two environments have had no sync path
+  for it since it was introduced. Added `"public.\"PlayerCareerStints\""`
+  to the allowlist both `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh`
+  share; ADR-0009 gained a dated addendum recording the gap and fix. No
+  behavior change beyond making this table syncable going forward — no
+  sync actually run as part of this fix. ADR-0009.
+
+- 2026-08-08 — `docs/backlog.md` — doc-hygiene fix: the "Tier 1 backlog
+  (unordered)" quick-reference list still showed `T-104 disambiguation UI
+  (REQ-209)` without a strikethrough, even though S-067 fully built it
+  (backend/API + frontend, same day) — the list just wasn't updated when
+  S-067 shipped. Struck through and cross-referenced to S-067, matching
+  the convention every other completed T-10x entry in that list already
+  uses. No behavior/requirement change. REQ-209.
+
 - 2026-08-08 — `docs/requirements-document.md` (v1.55 → v1.56) — fixed the
   gap flagged (not fixed) in the same-day xG Path `PathScoringExplainer`
   entry: `LeaderboardScreen.tsx`'s `(ⓘ)` "How scoring works" button always

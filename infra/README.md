@@ -86,10 +86,28 @@ data (players, clubs, trophies, grid templates), never results (`Guess`,
   needs to catch up, run `infra/scripts/sync-prod-to-dev.sh` (or the
   `sync-prod-to-dev` workflow) instead.
 
-Both are manual-only by design and both support `--dry-run`. The
-prod-writing direction (`promote-dev-to-prod.sh`) requires typing
-`promote to prod` to confirm rather than just `sync`, as deliberate extra
-friction given it writes to what real users are actively playing against.
+Both are manual-only by design and both support `--dry-run`, which now
+shows row counts on **both** sides (source and target) per table, not just
+the source's, so a dry run is an actual diff to review. The prod-writing
+direction (`promote-dev-to-prod.sh`) requires typing `promote to prod` to
+confirm rather than just `sync`, as deliberate extra friction given it
+writes to what real users are actively playing against.
+
+The truncate+restore step in both scripts drops and re-adds only the FK
+constraints that cross from a table outside `GAME_DATA_TABLES` into one
+inside it (found at runtime via `pg_constraint`, not hardcoded) — it never
+runs a bare `TRUNCATE ... CASCADE`, which used to silently wipe xG Path's
+`PathPuzzle`/`PathCycleTargetUsage` tables as an undocumented side effect
+of truncating `Player`. See ADR-0009's 2026-08-08 addendum for the full
+bug/fix writeup.
+
+**`promote-dev-to-prod-dry-run.yml`** runs `promote-dev-to-prod.sh
+--dry-run` on a weekly schedule and writes the row-count diff to the
+workflow run's job summary, so drift is visible without a human
+remembering to check. It never writes to prod and never bypasses the
+manual confirmation on the real promote path — it exits cleanly (not a
+failing run) when `PROD_DATABASE_CONNECTION_STRING` isn't set, since prod
+doesn't exist yet.
 
 ## Backups (REQ-901 — Supabase free tier has none)
 
