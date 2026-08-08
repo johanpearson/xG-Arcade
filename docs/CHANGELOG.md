@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/architecture-document.md` (v0.82 → v0.83),
+  `docs/implementation-document.md` (v0.90 → v0.91) — doc-sync closing an
+  `architecture-reviewer` gate finding on today's two xG Path bug fixes
+  (no boundary violation, no new ADR needed either time; purely a
+  documentation gap). Architecture doc: COMP-11's status note gained a
+  2026-08-08 continuation of its own 2026-08-02 national-team-exclusion
+  note, documenting the new `PathCareerStintFilter` read-time filter (same
+  read-time-filter-over-destructive-cleanup reasoning as ADR-0059) at both
+  its call sites; a new COMP-04/COMP-11 status note documents `GET
+  /path/current` (`PathEndpoints.cs`) now also resolving
+  `IScoringStrategyResolver` to compute REQ-1206's `Points` field, the
+  first Api-layer caller of that resolver besides `ScoreLockingService`,
+  via the already-established `IGameModuleResolver`-from-Api-layer shape;
+  §6.2b's data-flow diagram extended with both the new `Core.Scoring`
+  step and the `PathCareerStintFilter` step, which it previously omitted
+  entirely. Implementation doc: one additional line noting
+  `PathEndpoints.cs`'s new `IScoringStrategyResolver` dependency and how
+  `Points` is computed, alongside the existing `PathCareerStintFilter`
+  note from earlier today. `docs/requirements-document.md` and
+  `docs/design-document.md` untouched — already correctly updated earlier
+  this session. REQ-1203, REQ-1206.
 - 2026-08-08 — no doc changes — same-day quality-gate fix-up (not a new
   requirement) to `XGArcade.Games.XGPath.PathCareerStintFilter`'s
   `YouthNationalTeamPattern` regex: added a missing leading `\b` before

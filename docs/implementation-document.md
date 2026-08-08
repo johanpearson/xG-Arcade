@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.90"
+version: "0.91"
 status: draft
 last_updated: 2026-08-08
 owner: Johan
@@ -1724,6 +1724,19 @@ REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
 MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
 in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
 on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
+
+**2026-08-08 addition (REQ-1206):** `PathEndpoints.cs`'s `GET /path/current`
+handler (`XGArcade.Api.Path`) now also resolves `IScoringStrategyResolver`
+directly — the first Api-layer caller of this resolver besides
+`ScoreLockingService` itself, same per-`GameKey` resolve-from-the-Api-layer
+shape `IGameModuleResolver` already has in this same handler — to compute a
+new `CurrentPathGuessResponse.Points` field (`int?`, non-null only when
+`Locked` is true): `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` called
+directly on a correct guess, or `ScoringRules.MaxPointsPerCell` read
+directly for a locked-but-unsolved puzzle — never a reimplemented copy of
+the formula, so the value is arithmetically identical to what
+`ScoreLockingService` separately persists as `FinalPoints`. See
+`docs/architecture-document.md` §6.2b for the full data-flow diagram.
 
 **Leaderboard pagination (REQ-607)**
 
