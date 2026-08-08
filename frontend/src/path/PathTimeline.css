@@ -152,6 +152,30 @@
   border: 2px solid var(--color-accent-gold-text);
 }
 
+/* REQ-1206: plain, final point value shown on the trailing solved/failed
+   reveal node — mirrors CellState.css's own `.cell-state__meta` convention
+   for a locked cell's points text: colored to match the node's own outcome
+   accent (gold-text for solved, red for failed — see
+   `.cell-state--correct .cell-state__meta`/
+   `.cell-state--incorrect .cell-state__meta` in CellState.css), not a
+   separate muted tone. `--color-text-muted` here is only the pre-state
+   fallback (never actually shown unmodified, since every render of this
+   element sits inside either `.path-timeline__node--solved` or
+   `.path-timeline__node--failed`). */
+.path-timeline__points {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.path-timeline__node--solved .path-timeline__points {
+  color: var(--color-accent-gold-text);
+}
+
+.path-timeline__node--failed .path-timeline__points {
+  color: var(--color-accent-red);
+}
+
 /* User-testing fix (2026-08-02): FailedRevealNode's own styling — same
    structure as .path-timeline__solved-label/-name/-photo above (deliberate
    reuse, see PathTimeline.tsx's own comment on why), red instead of gold so

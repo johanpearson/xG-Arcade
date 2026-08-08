@@ -13,6 +13,175 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-08 — `docs/requirements-document.md` (v1.55 → v1.56) — fixed the
+  gap flagged (not fixed) in the same-day xG Path `PathScoringExplainer`
+  entry: `LeaderboardScreen.tsx`'s `(ⓘ)` "How scoring works" button always
+  opened xG Grid's `ScoringExplainer`, even when the leaderboard's xG Path
+  tab was active, showing Grid-specific content (uniqueness, live/locked
+  points, median ranking) that doesn't describe xG Path's rules — reported
+  directly by a player after the gap was flagged. Made the entry point's
+  modal `gameKey`-aware: `gameKey === XG_GRID_GAME_KEY` renders
+  `ScoringExplainer`, `gameKey === XG_PATH_GAME_KEY` renders
+  `PathScoringExplainer` (imported from `../path/PathScoringExplainer`,
+  the same cross-feature-folder import pattern this file already used for
+  `../grid/ScoringExplainer` — no component relocation needed). Judgement
+  call: switching the game tab while the explainer is open now closes it
+  rather than swapping its content live or leaving the old game's
+  mismatched content on screen — follows the same "back out on a game
+  switch" precedent this file's `selectedRound`/`pastDetailState` reset
+  effect already established (REQ-410/S-087), rather than inventing a new
+  behavior. 4 new Vitest tests in `LeaderboardScreen.test.tsx`
+  (`describe('game-aware scoring explainer', ...)`): Grid tab opens the
+  Grid explainer, Path tab opens the Path explainer, switching games while
+  open closes it (and a re-open shows the new game's content), switching
+  games while closed has no effect. Full frontend suite run (476 tests
+  passing, up from 472), `npx tsc -b` clean, `npm run lint` clean. No
+  backend changes, no ADR (UI composition only — same reasoning as the
+  original PathScoringExplainer change this follows up on). REQ-213.
+- 2026-08-08 — `docs/requirements-document.md` (v1.54 → v1.55),
+  `docs/design-document.md` (v0.66 → v0.67) — closed a real player-reported
+  gap on xG Path (SCREEN-10): "no scoring information in the game" turned
+  out to mean the `(ⓘ)` "How scoring works" explainer specifically (not the
+  same-day REQ-1206 per-puzzle points value, which stays untouched).
+  `PathScreen.tsx` had no explainer entry point at all before this. Added a
+  new `(ⓘ)` button (`.path-screen__info-toggle`) in the header, next to the
+  round end-time indicator, opening a new sibling component
+  (`frontend/src/path/PathScoringExplainer.tsx`) rather than reusing or
+  `gameKey`-branching xG Grid's `ScoringExplainer.tsx` — xG Path's rules
+  share almost nothing with xG Grid's (no uniqueness, no live/locked point
+  distinction, a different 7-clue/7-attempt model), so reuse would have
+  misdescribed the game; the modal/accessibility shell (focus management,
+  Escape-to-close) is duplicated from `ScoringExplainer.tsx`, not
+  extracted, per this repo's two-call-sites duplication preference.
+  Content verified against `XGPathGameModule.cs`,
+  `PathClueSequenceBuilder.cs`, `ClueEfficiencyScoringStrategy.cs`, and
+  `PathGenerationOptions.cs` rather than assumed. `docs/requirements-
+  document.md` REQ-213 gained a 2026-08-08 second-consumer status note
+  (mirroring REQ-303's earlier second-consumer precedent) plus new
+  acceptance-criteria/Test-level coverage for SCREEN-10's distinct entry
+  point; `docs/design-document.md`'s SCREEN-10 section gained a matching
+  status note. Both docs flag the same known, pre-existing,
+  out-of-scope gap: `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point still
+  shows xG Grid's `ScoringExplainer` content even when the leaderboard's
+  xG Path tab is active — not fixed here, filed as a follow-up candidate.
+  3 new Vitest tests added to `PathScreen.test.tsx`
+  (`describe('REQ-213: scoring explainer', ...)`); full frontend suite run
+  (472 tests passing, up from 469), `npx tsc -b` clean, `npm run lint`
+  clean. No backend changes, no ADR (UI content/composition, not a
+  structural/boundary decision). REQ-213.
+- 2026-08-08 — `docs/architecture-document.md` (v0.82 → v0.83),
+  `docs/implementation-document.md` (v0.90 → v0.91) — doc-sync closing an
+  `architecture-reviewer` gate finding on today's two xG Path bug fixes
+  (no boundary violation, no new ADR needed either time; purely a
+  documentation gap). Architecture doc: COMP-11's status note gained a
+  2026-08-08 continuation of its own 2026-08-02 national-team-exclusion
+  note, documenting the new `PathCareerStintFilter` read-time filter (same
+  read-time-filter-over-destructive-cleanup reasoning as ADR-0059) at both
+  its call sites; a new COMP-04/COMP-11 status note documents `GET
+  /path/current` (`PathEndpoints.cs`) now also resolving
+  `IScoringStrategyResolver` to compute REQ-1206's `Points` field, the
+  first Api-layer caller of that resolver besides `ScoreLockingService`,
+  via the already-established `IGameModuleResolver`-from-Api-layer shape;
+  §6.2b's data-flow diagram extended with both the new `Core.Scoring`
+  step and the `PathCareerStintFilter` step, which it previously omitted
+  entirely. Implementation doc: one additional line noting
+  `PathEndpoints.cs`'s new `IScoringStrategyResolver` dependency and how
+  `Points` is computed, alongside the existing `PathCareerStintFilter`
+  note from earlier today. `docs/requirements-document.md` and
+  `docs/design-document.md` untouched — already correctly updated earlier
+  this session. REQ-1203, REQ-1206.
+- 2026-08-08 — no doc changes — same-day quality-gate fix-up (not a new
+  requirement) to `XGArcade.Games.XGPath.PathCareerStintFilter`'s
+  `YouthNationalTeamPattern` regex: added a missing leading `\b` before
+  `national` so the pattern anchors to a real word, not a bare substring
+  match inside a longer word (e.g. "Inter"+"national",
+  "Multi"+"national") — was wrongly flagging club/team names like
+  "International Under-20 Select XI" and "Multinational Development
+  Squad Under-19" as youth national teams. New negative test cases added
+  to `PathCareerStintFilterTests`
+  (`REQ1203_IsYouthNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse`).
+  Also corrected an inaccurate precedent claim in `PathEndpoints.cs`'s
+  comment introducing `scoringStrategyResolver.Resolve(round.GameKey)` —
+  it mirrors the `IGameModuleResolver` Api-layer-resolver pattern, not an
+  existing `RoundEndpoints`/`ScoreLockingService` call to this specific
+  resolver (that resolver's only prior caller was `ScoreLockingService`
+  inside `XGArcade.Core.Scoring`). `dotnet` unavailable in this sandbox;
+  regex fix hand-traced against all positive/negative cases in both test
+  files, not run. REQ-1203.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.52 → v1.53) — backend
+  half of REQ-1206's 2026-08-08 "score is never shown" gap: `GET
+  /path/current`'s `CurrentPathGuessResponse` (`XGArcade.Api.Path.
+  PathEndpoints`) gains a `Points` field (`int?`), non-null only when
+  `Locked` is true. Computed by resolving `IScoringStrategyResolver`
+  (already DI-registered for `ScoreLockingService`) and calling
+  `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly for a solved
+  puzzle — never a reimplemented copy of its rounding formula — or the
+  same `ScoringRules.MaxPointsPerCell` worst case `ScoreLockingService`
+  assigns for a puzzle locked via exhausted attempts (unsolved), since
+  that strategy is only ever invoked for a correct guess. Named `Points`,
+  not `LivePoints`/anything implying "estimated," matching REQ-1206's
+  explicit "this is never provisional, unlike xG Grid's `LivePoints`"
+  distinction. No change to `ClueEfficiencyScoringStrategy`,
+  `IScoringStrategyResolver`, or `ScoreLockingService` themselves — this
+  is a new call site for an existing formula, not a formula change, so no
+  new ADR. New coverage: `PathEndpointTests`
+  (`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
+  `REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
+  `REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`,
+  `XGArcade.Api.Tests`). `dotnet` is unavailable in this sandbox — tests
+  were hand-traced against the existing `PathEndpointTests` patterns but
+  not run; will only run in CI. Frontend (`PathScreen.tsx`, SCREEN-10)
+  deliberately untouched — left to a follow-up `ui-implementer` task, per
+  REQ-1206's still-open UI "Not yet covered" note. REQ-1206.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.53 → v1.54),
+  `docs/design-document.md` (v0.65 → v0.66) — frontend half of REQ-1206's
+  "score is never shown" gap, closing it: `lib/types.ts`'s
+  `CurrentPathGuess` gains a `points: number | null` field mirroring
+  `CurrentPathGuessResponse.Points` exactly, and `PathTimeline.tsx`'s
+  `SolvedNode`/`FailedRevealNode` (wired from `PathScreen.tsx`, gated on
+  the same `locked` boolean already used for the resolved player name/
+  photo) render it as plain `"N pts"` text (`mono-figure`, colored to
+  match the reveal node's own outcome accent —
+  `accent-gold-text`/`accent-red` — mirroring `CellState.css`'s existing
+  points-color convention) — deliberately never `"~N pts estimated"` or
+  any other provisional wording, per REQ-1206's explicit "not the same as
+  xG Grid's `LivePoints`" acceptance criteria. Judgment call flagged in
+  `design-document.md`'s new SCREEN-10 status note (placement on the
+  timeline's reveal node, not a separate screen element; wording/color
+  choice) since this section hadn't previously spec'd a score display slot
+  at all. New coverage: `PathTimeline.test.tsx`'s
+  `describe('REQ-1206: locked point value', ...)` (solved reveal, no
+  provisional wording; locked-but-unsolved reveal; still-unlocked shows
+  no points; null `points` on an otherwise-locked reveal shows no points
+  line) and three `PathScreen.test.tsx` `REQ-1206:` tests (end-to-end
+  plumbing for the solved, exhausted-unsolved, and still-unlocked cases).
+  `npm run test` (Vitest): 469/469 passed across 26 files, including the
+  9 new ones. `tsc -b` and `npm run lint` (oxlint) both clean. REQ-1206.
+- 2026-08-08 — `docs/requirements-document.md` (v1.51 → v1.52),
+  `docs/implementation-document.md` (v0.89 → v0.90) — bug fix:
+  leftover pre-2026-08-02 youth/age-grade national-team `PlayerCareerStint`
+  rows (e.g. "Spain national under-16 association football team," "Italy
+  national under-20/under-21 football team") were still leaking into xG
+  Path's club-reveal clues, reported directly via user testing. The
+  2026-08-02 SPARQL fix only stops NEW rows from being fetched — it can't
+  retroactively remove rows already sitting in the ~608K-row
+  `PlayerCareerStint` table, since `PlayerCareerStintRefreshService` is
+  additive-only. Fixed with a new, pure `PathCareerStintFilter`
+  (`XGArcade.Games.XGPath`), a read-time filter (not a DELETE/cleanup
+  script — no QID exists on already-persisted rows to prove a match
+  against, unlike ADR-0059's cleanup) applied at both `GET /path/current`
+  (`PathEndpoints.cs`) and `XGPathGameModule.GetEligiblePlayerIdsAsync`'s
+  REQ-1201 eligibility check, so a player's eligibility count can no
+  longer be inflated by leftover junk rows either. Scoped narrowly
+  (`national` + an age-grade `under-\d+` marker) to match only what was
+  reported — the valid senior national-team clue and a non-FIFA regional
+  side are both deliberately left alone. New coverage:
+  `PathCareerStintFilterTests`, `XGPathGameModuleTests`, `PathEndpointTests`
+  (all `XGArcade.Games.XGPath.Tests`/`XGArcade.Api.Tests`). `dotnet` is
+  unavailable in this sandbox — tests were hand-traced against the
+  existing test patterns but not run; will only run in CI. REQ-1203.
 - 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.49),
   `docs/design-document.md` (v0.64 → v0.65) — REQ-213 verification finding
   (content confirmed complete; found the `(ⓘ)` explainer entry point

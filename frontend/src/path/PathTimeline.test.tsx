@@ -181,6 +181,80 @@ describe('PathTimeline', () => {
     expect(node.className).toContain('path-timeline__node--animate-in');
   });
 
+  // REQ-1206 (2026-08-08 addition): the locked point value, shown alongside
+  // the resolved player name/photo — plain "N pts" wording, never "~"/
+  // "estimated"/"provisional" (unlike xG Grid's livePoints — see
+  // CurrentPathGuess.points's own doc comment in lib/types.ts for why).
+  describe('REQ-1206: locked point value', () => {
+    it('shows the plain, final point value on the solved (gold) reveal node', () => {
+      const clues: PathClueTurn[] = [clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }])];
+
+      render(
+        <PathTimeline
+          clues={clues}
+          solved
+          locked
+          resolvedPlayerName="Zlatan Ibrahimović"
+          resolvedPlayerPhotoUrl={null}
+          points={43}
+        />,
+      );
+
+      expect(screen.getByText('43 pts')).toBeInTheDocument();
+      // Never REQ-204's provisional wording — this value can't change once
+      // the puzzle locks.
+      expect(screen.queryByText(/~/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/estimated/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/provisional/i)).not.toBeInTheDocument();
+    });
+
+    it('shows the plain, final point value on the locked-but-unsolved ("Out of attempts") reveal node too — the backend always returns a points value once locked, solved or not', () => {
+      const clues: PathClueTurn[] = [clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }])];
+
+      render(
+        <PathTimeline
+          clues={clues}
+          solved={false}
+          locked
+          resolvedPlayerName="Zlatan Ibrahimović"
+          resolvedPlayerPhotoUrl={null}
+          points={100}
+        />,
+      );
+
+      expect(screen.getByText('Out of attempts')).toBeInTheDocument();
+      expect(screen.getByText('100 pts')).toBeInTheDocument();
+      expect(screen.queryByText(/~/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/estimated/i)).not.toBeInTheDocument();
+    });
+
+    it('shows no points at all for a puzzle that is still unlocked, even if a points value were somehow passed', () => {
+      const clues: PathClueTurn[] = [clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }])];
+
+      render(<PathTimeline clues={clues} solved={false} locked={false} points={null} />);
+
+      expect(screen.queryByText(/pts/)).not.toBeInTheDocument();
+    });
+
+    it('renders no points line (rather than a broken "null pts") when points is null on an otherwise-locked reveal', () => {
+      const clues: PathClueTurn[] = [clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }])];
+
+      render(
+        <PathTimeline
+          clues={clues}
+          solved
+          locked
+          resolvedPlayerName="Zlatan Ibrahimović"
+          resolvedPlayerPhotoUrl={null}
+          points={null}
+        />,
+      );
+
+      expect(screen.getByText('Solved')).toBeInTheDocument();
+      expect(screen.queryByText(/pts/)).not.toBeInTheDocument();
+    });
+  });
+
   it('REQ-214-equivalent (quality-gate fix, S-086 follow-up): a resolved player photo that fails to load falls back to the text-only solved treatment, never a broken-image icon', () => {
     const clues: PathClueTurn[] = [clubTurn(1, [{ clubName: 'Ajax', appearanceCount: 74 }])];
 

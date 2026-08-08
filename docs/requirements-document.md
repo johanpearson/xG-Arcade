@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.50"
+version: "1.56"
 status: draft
-last_updated: 2026-08-04
+last_updated: 2026-08-08
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -1950,6 +1950,109 @@ reveals a name)
     have caught this). **Filed here as a refinement acceptance criterion
     (below) for a follow-up story — not fixed in this pass**, per this
     exercise's own scope (verification, not implementation).
+- **Status note (2026-08-08) — second consumer, distinct content, no
+  requirement change.** A player directly reported "no scoring information
+  in the game" for xG Path (SCREEN-10) — clarified on follow-up to mean
+  this REQ's `(ⓘ)` "How scoring works" explainer pattern specifically, not
+  the per-puzzle point value REQ-1206 added earlier the same day (that
+  stays as-is). `PathScreen.tsx` had no `(ⓘ)` button or explainer of any
+  kind before this. Unlike REQ-303's second-consumer precedent (SCREEN-10
+  reusing the grid's *exact same* end-time formatter/component, since that
+  content is genuinely identical for both games) and unlike this REQ's own
+  2026-07-21 leaderboard extension (SCREEN-03 reusing `ScoringExplainer`
+  verbatim, since its content is also identical regardless of entry
+  point), xG Path's actual scoring rules share almost nothing with xG
+  Grid's: no uniqueness concept at all (`FinalUniquenessScore` is always
+  null for this game, REQ-1206), no live/locked distinction (a locked xG
+  Path score is final immediately, never a provisional value that changes
+  before round close, unlike a live grid cell), a different fixed
+  attempt-cap/clue model (7 clues per puzzle: 3 club-reveal turns, then
+  one bundled year-range turn, then position/nationality/age, one clue
+  revealed per wrong guess — REQ-1203/1205), and no player-pool or
+  leaderboard-ranking content belongs here either. Reusing
+  `ScoringExplainer.tsx` verbatim would therefore misdescribe xG Path's
+  actual rules (stating a live/locked distinction and a uniqueness
+  mechanic that don't exist for this game), and branching its content on a
+  `gameKey` prop was judged worse than a second small component (every
+  paragraph wrapped in a per-game branch, with real risk of one game's
+  edit bleeding into the other's copy) — so this is built as a **new
+  sibling component**, `frontend/src/path/PathScoringExplainer.tsx`, with
+  its own content but the same modal/accessibility shell
+  (`role="dialog"`, `aria-modal="true"`, Escape-to-close, focus moves to
+  the close button on open and returns to the `(ⓘ)` trigger on close) —
+  see that component's own doc comment for the full reasoning. Opened via
+  a new `(ⓘ)` button (`path-screen__info-toggle`) in `PathScreen.tsx`'s
+  header, same visual position as `GridScreen.tsx`'s entry point (inside
+  `.path-screen__title-row`, next to the REQ-303 round end-time
+  indicator). Content, verified against the actual implementation (not
+  assumed from this REQ's Grid-oriented text): each round has a handful of
+  puzzles (`PathGenerationOptions.PuzzleCount`, default 4); a fixed 7-turn
+  clue sequence and 7-attempt cap
+  (`PathClueSequenceBuilder.TotalTurns`/`XGPathGameModule.
+  MaxAttemptsPerPuzzle`, both 7, mirrored by the existing frontend constant
+  `MAX_CLUES_PER_PUZZLE` in `frontend/src/lib/pathRules.ts` — reused here
+  rather than a second frontend constant, since the two backend values are
+  identical by design and this codebase already treats them as one shared
+  frontend value for "Clue N of M" in `PathGuessInput.tsx`); a puzzle
+  locking unsolved reveals the answer; scoring is
+  `round(cluesUsed / 7 * MaxPointsPerCell)` for a correct guess
+  (`ClueEfficiencyScoringStrategy`), stated explicitly as golf-style
+  (lower is better) rather than assuming the player already knows that
+  convention from xG Grid; an unsolved puzzle scores the worst case,
+  `MaxPointsPerCell`; and once a puzzle locks its score is final
+  immediately, never live/provisional. `MAX_POINTS_PER_CELL` (`frontend/
+  src/lib/scoringRules.ts`) is confirmed genuinely shared, not a
+  Grid-only value — it mirrors `ScoringRules.MaxPointsPerCell`
+  (`backend/src/XGArcade.Core/Scoring/ScoringRules.cs`), which
+  `ClueEfficiencyScoringStrategy` (xG Path) calls directly, the same
+  constant `UniquenessScoringStrategy` (xG Grid) uses via
+  `PointsFromUniqueScore`. No uniqueness/other-players'-answers language
+  appears anywhere in this component's copy — deliberately, since that
+  mechanic doesn't exist for this game and stating it would be actively
+  wrong. Covered by three new tests in `PathScreen.test.tsx`
+  (`describe('REQ-213: scoring explainer', ...)`, mirroring
+  `GridScreen.test.tsx`'s own REQ-213 coverage): the dialog opens with
+  xG Path's own content and never mentions uniqueness; opening it does not
+  discard an in-progress, typed-but-not-yet-submitted guess; Escape closes
+  it and returns focus to the `(ⓘ)` trigger.
+  - **Gap fixed same-day (2026-08-08, follow-up), no longer open:**
+    `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point previously opened xG
+    Grid's `ScoringExplainer` verbatim — including its uniqueness/
+    live-locked/median-ranking content — even when the leaderboard's xG
+    Path tab was the one currently active, which didn't describe xG
+    Path's actual rules. Reported directly by a player after the gap
+    above was flagged. Fixed by making the entry point's modal
+    `gameKey`-aware: `gameKey === XG_GRID_GAME_KEY` opens
+    `ScoringExplainer`, `gameKey === XG_PATH_GAME_KEY` opens
+    `PathScoringExplainer` — both already had the identical `{ onClose }`
+    modal-shell shape, so this is a small conditional in
+    `LeaderboardScreen.tsx`'s render, not a new component or prop.
+    Imported `PathScoringExplainer` directly from `../path/
+    PathScoringExplainer`, the same cross-feature-folder import pattern
+    this file already used for `ScoringExplainer` from `../grid/
+    ScoringExplainer` — no need to relocate either component to a shared
+    folder first. **Judgement call on switching games while the modal is
+    open:** unlike a scope change (REQ-213's own 2026-07-21 addition
+    established that `explainerOpen` is independent of `scope`, since the
+    explainer's content didn't vary by scope), a game switch changes
+    *which explainer component is even correct*, so the two states can no
+    longer be fully independent. Rather than swapping the open modal's
+    content live under the player mid-read, or inventing a new behavior
+    for this one case, this follows the same "back out rather than leave
+    a stale, now-mismatched view on screen" precedent this file's
+    `selectedRound`/`pastDetailState` reset effect already established
+    for a game switch (REQ-410/S-087): switching the game tab while the
+    explainer is open closes it; re-opening it via `(ⓘ)` shows the newly
+    selected game's correct content. Covered by four new tests in
+    `LeaderboardScreen.test.tsx` (`describe('game-aware scoring
+    explainer', ...)`): Grid tab + `(ⓘ)` opens `ScoringExplainer`
+    (content-distinguished, not DOM-distinguished, since both render the
+    same `role="dialog"`/`aria-label="How scoring works"` shell); Path tab
+    + `(ⓘ)` opens `PathScoringExplainer`; switching games while the modal
+    is open closes it and a re-open shows the new game's content;
+    switching games while it's closed has no effect. `PathScreen.tsx`,
+    `PathScoringExplainer.tsx`, and `ScoringExplainer.tsx` themselves were
+    not touched.
 - Given the grid screen (SCREEN-01) is displayed with an active round
 - When the player activates the explainer entry point in the screen's
   header, next to the round/timer indicator (e.g. "Round #14 ⏱ 1d 4h")
@@ -2033,6 +2136,40 @@ reveals a name)
   "Global leaderboard" heading), since both entry points share the same
   requirement that the button stay adjacent to its labeling context,
   regardless of screen
+- **(2026-08-08 addition, second consumer)** Given the xG Path puzzle screen
+  (SCREEN-10) is displayed with an active round
+- When the player activates the explainer entry point in that screen's
+  header, next to the round end-time indicator
+- Then a **distinct** explainer opens — `PathScoringExplainer.tsx`, not the
+  grid/leaderboard `ScoringExplainer.tsx` — describing xG Path's own rules
+  (the fixed 7-clue/7-attempt sequence and its order; that a wrong guess
+  reveals the next clue and a correct one halts the sequence immediately;
+  that an attempt-cap-exhausted puzzle locks unsolved and reveals the
+  answer; the clue-efficiency scoring formula stated in golf terms, lower
+  is better, explicitly rather than assuming the player already knows this
+  from xG Grid; that an unsolved puzzle scores the same worst case as a
+  correct guess using every clue; and that a locked score is final
+  immediately, never a live/provisional value) — and can be dismissed the
+  same way, returning the player to the puzzle screen without discarding
+  any in-progress state (e.g. a typed-but-not-yet-submitted guess)
+- And this explainer's content never mentions uniqueness or other players'
+  answers — that mechanic does not exist for xG Path (REQ-1206's
+  `FinalUniquenessScore` is always null for this game) — and never mentions
+  a live-then-locked distinction, since an xG Path score is final the
+  instant its puzzle locks
+- And the grid-screen entry point (above) is unaffected by this addition —
+  it continues to open the same `ScoringExplainer.tsx` with the same
+  content as before
+- **(2026-08-08 addition, same-day follow-up)** The leaderboard-screen entry
+  point (above) is, by contrast, directly affected: it now opens whichever
+  explainer matches the leaderboard's currently selected game tab —
+  `ScoringExplainer.tsx` when xG Grid is selected (unchanged content),
+  `PathScoringExplainer.tsx` when xG Path is selected — rather than always
+  opening `ScoringExplainer.tsx` regardless of the active tab. If the
+  player switches the game tab while the explainer is open, it closes
+  (rather than swapping its content live, or leaving the previous game's
+  now-mismatched content on screen) — re-opening it via `(ⓘ)` shows the
+  newly selected game's explainer
 
 **Test level:** UI (explainer opens from the grid-screen header entry point
 and closes without losing in-progress state; contains text covering all six
@@ -2047,7 +2184,20 @@ entry point's bounding box remains on the same rendered line as its
 adjacent heading/timer text on both the grid and leaderboard screens — a
 real-layout check (Playwright bounding-box comparison against the running
 app), not a jsdom-based unit test, since jsdom does not perform real CSS
-flex-wrap layout)
+flex-wrap layout; **(2026-08-08 addition)** `PathScreen.test.tsx`'s
+`describe('REQ-213: scoring explainer', ...)` block covers SCREEN-10's own,
+distinct `PathScoringExplainer` entry point: opens with xG Path-specific
+content and never mentions uniqueness; does not discard an in-progress,
+typed-but-not-yet-submitted guess when opened; closes on Escape and returns
+focus to the `(ⓘ)` trigger; **(2026-08-08 addition, same-day follow-up)**
+`LeaderboardScreen.test.tsx`'s `describe('game-aware scoring explainer',
+...)` block covers the leaderboard entry point's `gameKey` branch: the xG
+Grid tab's `(ⓘ)` opens `ScoringExplainer` (content-distinguished from
+Path's, not DOM-distinguished, since both share the same dialog shell); the
+xG Path tab's `(ⓘ)` opens `PathScoringExplainer`; switching games while the
+explainer is open closes it, and re-opening it afterward shows the newly
+selected game's content; switching games while it's closed leaves it
+closed)
 
 **REQ-214 – Photo reveal on a locked, correct cell**
 > As a player, I want to see the guessed player's photo, when one is
@@ -6123,6 +6273,20 @@ not a claim about current behavior.
   of the structural checks below, before target selection — see ADR-0056 for
   the full decision, the alternatives considered (total appearances, trophy
   won), and the fail-open contract on a Wikidata failure or data gap.
+- **Status note (2026-08-08, bug fix, see REQ-1203's own dated status note
+  for the full write-up): the "3 distinct documented career club stints"
+  check below now excludes leftover pre-2026-08-02 youth/age-grade
+  national-team `PlayerCareerStint` rows before counting.** Without this,
+  a candidate with fewer than 3 REAL club stints could still pass this
+  check purely because leftover junk rows (e.g. "Spain national under-16
+  association football team") padded the row count past 3.
+  `XGPathGameModule.GetEligiblePlayerIdsAsync` now filters via the new
+  `PathCareerStintFilter.ExcludeYouthNationalTeams` immediately before
+  `IsEligible` runs. This REQ's own acceptance criteria below are
+  unchanged in wording — "3 distinct documented career club stints" always
+  meant real ones; this closes a gap where already-persisted junk data
+  could make that check pass incorrectly, the same class of gap REQ-1203's
+  2026-08-02 status note closed for the club-reveal display path.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -6163,7 +6327,13 @@ implementation directly — threshold boundary, unresolved-QID exclusion,
 fail-open on a Wikidata failure, fail-open when nobody in the pool can be
 checked, and batching above `PlayerFamiliarityService.BatchSize`.
 `WikidataClientTests` covers `QuerySitelinkCountsByQidsAsync`'s own query
-shape and error contract.)
+shape and error contract. Youth-national-team junk-row exclusion
+(2026-08-08 bug fix): `XGPathGameModuleTests.
+REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+and its positive-control sibling
+`REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+cover this eligibility-check-level fix directly; `PathCareerStintFilterTests`
+covers the shared filter itself in isolation.)
 
 **REQ-1202 – Round structure: a small, fixed set of puzzles**
 > As a player, I want each xG Path round to contain a small, fixed number
@@ -6338,6 +6508,53 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   ADR-0059 for the full reasoning, including why that would be
   disproportionate for what is presently a cosmetic-only bug (xG Grid never
   reads this table, so scoring is unaffected).
+- **Status note (2026-08-08, bug fix): leftover pre-2026-08-02 youth/
+  age-grade national-team rows were still leaking into club-reveal clues —
+  fixed with a read-time filter.** Reported directly by a player in user
+  testing (screenshots): clue nodes like "Spain national under-16
+  association football team," "Spain national under-17 association
+  football team," "Italy national under-20 football team," and "Italy
+  national under-21 football team" appeared before the target's real club
+  career, violating this REQ's own "national team caps/appearances are
+  never revealed as a clue" acceptance criterion below — the same
+  criterion the 2026-08-02 fix above already exists to protect. Root
+  cause: that 2026-08-02 fix changed `WikidataClient.
+  QueryPlayerCareerStintsByQidsAsync`'s query so no NEW national-team row
+  (senior or youth) is ever fetched again, but it could not retroactively
+  remove rows already sitting in the ~608K-row `PlayerCareerStint` table —
+  `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId` is documented
+  "additive only, never a wipe-and-replace" (its own doc comment), so any
+  national-team row fetched before that date is still there today, and
+  nothing deletes it. Fixed with a new `PathCareerStintFilter`
+  (`XGArcade.Games.XGPath`), a pure, read-time filter applied at both
+  places `PlayerCareerStint` rows are read for xG Path: `GET /path/current`
+  (`PathEndpoints.cs`, immediately before the stint list reaches
+  `PathClueSequenceBuilder.BuildSequence`) and `XGPathGameModule.
+  GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check (immediately
+  before `IsEligible` counts a candidate's stints) — without the latter, a
+  player with fewer than 3 REAL documented club stints could still pass
+  REQ-1201's `MinStintCount` check purely on the strength of leftover junk
+  rows padding the row count. Deliberately a read-time filter, not a
+  DELETE/cleanup script in the style of ADR-0059's
+  `DuplicateCareerStintCleaner`: unlike that cleanup, there is no QID
+  stored on an already-persisted row to prove a match against, so a
+  name-based DELETE against 608K rows would not be "provable" the way
+  ADR-0059's canonical-name-exists check was — a name-based filter is safe
+  for read-time exclusion (a false positive only skips a clue) but not for
+  an irreversible row deletion. Scoped narrowly to match only what was
+  actually reported: `PathCareerStintFilter.IsYouthNationalTeam` matches
+  "national" followed by an age-grade "under-`\d+`" marker
+  (`national\s.*\bunder-\d+\b`, case-insensitive) — deliberately NOT
+  "national ... team" alone, which would also have wrongly stripped the
+  valid senior-team clue ("Italy men's national association football
+  team") the same reviewed screenshots showed rendering correctly in the
+  same timeline. A "Basque Country regional football team" stint present
+  in one screenshot was not flagged as a problem and is deliberately left
+  alone — this fix does not extend to non-FIFA regional representative
+  teams. The regex was not verified against a live Wikidata query from
+  this sandbox (no `wikidata.org` access here); flagged for manual
+  confirmation against real production rows if it's found to under- or
+  over-match in practice.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -6420,7 +6637,28 @@ fix): `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_
 SentQuery_ExcludesNationalTeams` covers the query-text assertion — a real
 national-team caps row is server-side excluded by WDQS itself, not
 something this codebase's own parsing can independently verify from a
-mocked response. UI: **(2026-08-04 addition)** the round end-time
+mocked response. Leftover-junk-row filtering (2026-08-08 bug fix):
+`PathCareerStintFilterTests` covers `PathCareerStintFilter` directly and
+purely (reported youth-national-team labels excluded; the senior team and
+a non-FIFA regional side NOT excluded; a mixed real+junk stint list
+filtered correctly; an all-junk list returns empty). `XGPathGameModuleTests`
+adds `REQ1203_GenerateInstanceAsync_CandidateWithTwoRealStintsPaddedByYouthNationalTeamJunkRows_NeverSelected`
+(a candidate with only 2 real stints must not become eligible just because
+junk rows pad the row count past `MinStintCount`) and
+`REQ1203_GenerateInstanceAsync_CandidateWithThreeRealStints_StillEligible_DespiteYouthNationalTeamJunkRows`
+(a genuinely eligible candidate must not be wrongly rejected just because
+junk rows are also present). `PathEndpointTests` adds
+`REQ1203_PathCurrent_Get_MixOfRealClubsAndYouthNationalTeamJunkRows_OnlyRealClubsRevealedAsClues`
+(interspersed junk rows are filtered from both the club-reveal clues and
+the bundled year-range clue, real clubs still shown in chronological
+order) and `REQ1203_PathCurrent_Get_OnlyYouthNationalTeamJunkRows_
+NoRealClubStints_HandledSensibly_NeverCrashes` (an already-generated
+puzzle whose target has zero real stints after filtering still returns
+the fixed 7-turn sequence with empty club-reveal/year-range turns, rather
+than erroring — proving `PathClueSequenceBuilder`'s `SplitIntoTurns(0)`
+degrades gracefully and this scenario can't arise for a NEWLY generated
+puzzle now that the same filter also guards REQ-1201's eligibility check).
+UI: **(2026-08-04 addition)** the round end-time
 indicator's presence/wiring on SCREEN-10 is covered by
 `PathScreen.test.tsx`'s `REQ-303: round end-time indicator` block, per
 the status note above — the underlying format/bucket logic remains
@@ -6550,10 +6788,123 @@ count of 2)
   how `Core.Scoring` supports this second, different scoring model
   per-game without special-casing xG Path inline
 
+**Status note (2026-08-08 — gap identified via code review, not yet
+implemented): score is never shown to the player.** The acceptance
+criteria above specify when and how a puzzle's score is *computed and
+locked* at round close, but never that it is ever *shown*. Verified
+against the current implementation: `GET /path/current`'s response DTOs
+(`CurrentPathGuessResponse` in `XGArcade.Api.Path.PathEndpoints`) carry
+`IsCorrect`/`AttemptCount`/`Locked`/`SubmittedName`/`ResolvedPlayerName`/
+`ResolvedPlayerPhotoUrl` but no points field of any kind, and
+`PathScreen.tsx` (SCREEN-10) renders no score anywhere — a solved or
+locked-unsolved puzzle shows only "Next puzzle" or the round-complete
+message. This is the same live/provisional-estimate gap REQ-204's "S-018
+addition" already closed for xG Grid's `LivePoints`, applied here to xG
+Path's own scoring strategy (`ClueEfficiencyScoringStrategy`) — exposing
+an existing formula, not adding a new scoring rule, so no new ADR is
+needed (ADR-0040/ADR-0049 already cover the formula and its inputs). This
+status note and the criteria below do **not** touch, duplicate, or change
+the xG-Path-scoped leaderboard tab (REQ-410/S-087), which already works
+once rounds close and enough qualifying rounds accumulate — the gap here
+is specifically the absence of any per-puzzle score on the play screen
+itself, live or locked.
+
+**Important asymmetry from REQ-204's `LivePoints` — deliberately not the
+same wording.** xG Grid's `LivePoints` is genuinely provisional: it
+depends on `UniquenessCalculator`'s denominator (how many *other* players
+have also correctly guessed the cell so far), which can keep growing
+until the round closes, so the same cell's live estimate really can
+change between two page loads. `ClueEfficiencyScoringStrategy`'s formula
+has no such dependency — both `cluesUsed` (`Guess.AttemptCount` at the
+moment the puzzle locked) and `maxCluesForThisPuzzle` (the fixed 7,
+REQ-1205) are fully determined the instant a puzzle locks, and never
+change afterward. A value shown for a locked xG Path puzzle before round
+close is therefore not an estimate that can still change — it is
+arithmetically identical to what `ScoreLockingService` will persist as
+`FinalPoints` once the round closes, just not yet written to that column.
+The criteria below deliberately avoid REQ-204's "~N pts estimated"/
+"provisional" framing for this reason: applying that wording here would
+be inaccurate, and a criterion asserting "this value can change before
+close" would be untestable in the sense that it would always fail — it
+can't.
+
+- Given a locked xG Path puzzle (solved correctly, or its 7-attempt cap
+  exhausted unsolved — REQ-1205)
+- When the player views that puzzle via `GET /path/current`, at any point
+  before or after the round closes
+- Then the response includes the point value `ClueEfficiencyScoringStrategy`
+  computes for that puzzle (this REQ's formula above) — the same value
+  `ScoreLockingService` will persist as `FinalPoints` once the round
+  closes, computed and returned live rather than withheld until then
+- And no point value is returned for a puzzle that is not yet locked
+  (still guessable) — the formula has no meaning until the puzzle's
+  outcome (solved, and with how many clues; or exhausted unsolved) is
+  fixed
+- And the value shown before round close and the value shown after round
+  close (once `FinalPoints` exists) are always numerically identical for
+  a given puzzle — unlike REQ-204's `LivePoints`, this is never an
+  estimate that can change, and the frontend must not use wording implying
+  otherwise ("~", "estimated", "provisional") for it
+- And this governs only the xG Path play screen's (SCREEN-10) per-puzzle
+  display — it does not add, change, or duplicate any leaderboard
+  behavior; REQ-410's existing xG-Path-scoped leaderboard tab is
+  unaffected and remains the only place aggregate/total xG Path standings
+  are shown
+
+**Status note (2026-08-08, backend piece implemented — same-day follow-up to
+the gap above):** `GET /path/current`'s `CurrentPathGuessResponse` now
+carries a `Points` field (`int?`, `XGArcade.Api.Path.PathEndpoints`),
+non-null only when `Locked` is true. It is computed by resolving
+`IScoringStrategyResolver` (already DI-registered) and calling
+`ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly for a correct
+guess (`correctGuessesForCell` passed empty, since that strategy ignores
+it) — never a reimplementation of its rounding formula — and, for a puzzle
+locked via exhausted attempts (never solved), the same
+`ScoringRules.MaxPointsPerCell` worst case `ScoreLockingService`'s own
+`!guess.IsCorrect` branch assigns, since `ClueEfficiencyScoringStrategy`
+itself is only ever invoked for a correct guess. Named `Points`, not
+`LivePoints`/`EstimatedPoints`, and documented on the DTO as never
+provisional, per this REQ's own "Important asymmetry from REQ-204's
+`LivePoints`" note above.
+
+**Status note (2026-08-08, frontend piece implemented — closes the gap
+above):** `PathTimeline.tsx`'s `SolvedNode`/`FailedRevealNode` (wired from
+`PathScreen.tsx`, alongside the resolved player name/photo they already
+render once a puzzle is `locked`) now render this value as plain "N pts"
+text — `mono-figure`, matching every other numeric score/count in this
+app — never "~"/"estimated"/"provisional" wording, and never shown for a
+still-unlocked puzzle. `lib/types.ts`'s `CurrentPathGuess.points` mirrors
+`CurrentPathGuessResponse.Points` exactly. No new SCREEN-10 element beyond
+what this REQ's own acceptance criteria already called for (the timeline's
+solved/failed reveal nodes already existed for the resolved player name/
+photo; this only adds a line to each) — `docs/design-document.md`'s
+SCREEN-10 section is updated with a matching status note.
+
 **Test level:** Unit (points formula across a range of `cluesUsed`/
 `maxCluesForThisPuzzle` combinations; worst-case score when the puzzle is
 never solved; no uniqueness score of any kind is computed by this game's
-scoring strategy)
+scoring strategy) — covered by `ClueEfficiencyScoringStrategyTests`/
+`ScoringStrategyResolverTests`/`PathScoreLockingServiceTests`. API (`GET
+/path/current` includes the points value for a locked puzzle — solved via
+`ClueEfficiencyScoringStrategy`'s own formula, or exhausted-unsolved via
+the worst-case value — and omits it for a still-guessable, unlocked
+puzzle) — covered by `PathEndpointTests`
+(`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
+`REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
+`REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`).
+**UI (2026-08-08, now covered):** SCREEN-10 (`PathTimeline.tsx`'s
+`SolvedNode`/`FailedRevealNode`, wired from `PathScreen.tsx`) renders the
+locked point value with plain "N pts" wording — never "~"/"estimated"/
+"provisional" — for both the solved and the exhausted-unsolved case, and
+renders nothing for a still-unlocked puzzle. Covered by
+`PathTimeline.test.tsx`'s `describe('REQ-1206: locked point value', ...)`
+block (solved reveal shows the value with no provisional wording;
+locked-but-unsolved reveal shows the value too; a still-unlocked puzzle
+shows no points even if one were somehow passed; a null `points` on an
+otherwise-locked reveal renders no points line rather than "null pts") and
+`PathScreen.test.tsx`'s three `REQ-1206:` tests (end-to-end plumbing from
+`GET /path/current`'s `points` field through to the rendered text, for the
+solved, exhausted-unsolved, and still-unlocked cases).
 
 **REQ-1207 – Player position and birth year sourced from Wikidata**
 > As a player, I want the position, nationality, and age clues at the end
@@ -7056,3 +7407,50 @@ ADR should record that choice (REQ-509's own status note) — **resolved
 recorded in ADR-0053 (`docs/decisions/0053-player-suggestions-separate-admin-view.md`),
 which also reconfirms ADR-0007's autocomplete/correctness boundary applies
 to the new commit path.
+
+**New (2026-08-08), unresolved:** a tester reported xG Path targets are
+"too hard to identify from the clues" and suggested arbitrary-sounding
+fixes (e.g. requiring a birth year after 1970, or a stint at a "top-4 club
+in a top-5 league"). Investigation (not implementation) found this is
+plausibly not primarily a target-familiarity problem — ADR-0056's
+Wikipedia-sitelink filter already screens the *target player* for
+recognizability, and there is only one data point (this report, plus the
+original "Austrian guy" complaint that motivated ADR-0056 itself) — too
+little evidence to justify retuning `PlayerFamiliarityService
+.MinSitelinkCount` in either direction; ADR-0056's own Follow-up note
+already anticipates revisiting that constant once more play data exists,
+and doing so needs no new ADR (see that ADR's "For AI agents" note) when
+it happens. A more structurally plausible cause was identified instead:
+REQ-1203 reveals club stints in strict chronological (earliest-first)
+order, and REQ-1201/ADR-0047 only require *one* stint anywhere in a
+target's career to be at a seeded club (`MVP-SCOPE.md`'s hand-curated
+~15-club list) above the appearance threshold — nothing about eligibility
+or the familiarity filter requires that stint, or any recognizable club,
+to appear early. So even a genuinely familiar, familiarity-filter-passing
+target can have their *first* revealed clue turn be an obscure youth-team
+or lower-league stint from early in their career, before any seeded/
+recognizable club ever appears — making the opening clues feel
+unfairly obscure independent of how famous the target ultimately is or
+how permissive `MinSitelinkCount` is set. This is a genuine open product
+question, not a technical default: **should xG Path's clue-reveal order
+(REQ-1203) continue to be strictly chronological, or should it weight
+toward showing a recognizable (e.g. seeded-club) stint earlier, and if so,
+does that trade away the "genuine progressive challenge" intent REQ-1203's
+own user story states (chronological order was the deliberate "least-
+narrowing-first" choice, not an oversight — see REQ-1203's user story and
+its `N`-way club-split acceptance criteria) for a different kind of
+fairness?** This needs a product decision, not a default, because
+reordering clues by recognizability rather than chronology changes what
+"a genuine progressive challenge" means for this game and could make
+puzzles trivially easy for a well-known target instead of appropriately
+hard — the opposite failure mode from the one reported. No REQ or ADR
+changed for this yet; recorded here pending that decision. See the
+`requirements-writer` review of 2026-08-08 (this entry) for the full
+investigation, including why the tester's own two suggested fixes were
+not adopted as-is: a fixed birth-year cutoff is an arbitrary, undocumented
+proxy with no basis (would also exclude many genuinely famous
+pre-1970-born targets) and a "top-4 club/top-5 league" requirement would
+need a real league-tier data model — explicitly out of scope for the
+problem actually diagnosed here, and already rejected on the same
+"disproportionate to the problem" grounds by ADR-0047's own alternatives
+table for a closely related eligibility question.

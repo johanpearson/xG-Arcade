@@ -324,8 +324,22 @@ public class XGPathGameModule(
             seededClubNames, MinStintCount, cancellationToken);
         var stintsByPlayer = await playerStoreRepository.GetCareerStintsByPlayerIdsAsync(candidateIds, cancellationToken);
 
+        // Bug fix (2026-08-08, REQ-1203): leftover pre-2026-08-02
+        // youth-national-team rows (see PathCareerStintFilter's own doc
+        // comment) are excluded here too, not just at the display path —
+        // otherwise a player whose real documented career is fewer than
+        // MinStintCount (3) club stints could still pass IsEligible's own
+        // `stints.Count < MinStintCount` check purely on the strength of
+        // leftover junk rows padding the count. GetCareerStintCandidatePlayerIdsAsync's
+        // own raw-row narrowing pass above is deliberately left unfiltered
+        // — it's documented as a true, over-inclusive SUPERSET of
+        // IsEligible's real candidates (a candidate it lets through but
+        // IsEligible then rejects is exactly the intended, safe shape of
+        // that narrowing pass; it would only be a bug if it excluded a
+        // genuinely eligible candidate, which not filtering here never
+        // does).
         var structurallyEligibleIds = stintsByPlayer
-            .Where(kvp => IsEligible(kvp.Value, seededClubNames))
+            .Where(kvp => IsEligible(PathCareerStintFilter.ExcludeYouthNationalTeams(kvp.Value), seededClubNames))
             .Select(kvp => kvp.Key)
             .ToList();
 

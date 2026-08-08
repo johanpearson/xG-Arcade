@@ -43,6 +43,21 @@
   white-space: nowrap;
 }
 
+/* REQ-213 (second consumer, 2026-08-08): the entry point for SCREEN-10's
+   own scoring explainer — exact counterpart of GridScreen.css's
+   `.grid-screen__info-toggle` (same size/color/quiet treatment, no accent
+   color, so it doesn't compete with the puzzle content). */
+.path-screen__info-toggle {
+  min-width: var(--touch-target-min);
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .path-screen__puzzle-position {
   color: var(--color-text-muted);
   font-size: 13px;

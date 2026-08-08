@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.89"
+version: "0.91"
 status: draft
-last_updated: 2026-08-02
+last_updated: 2026-08-08
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -238,7 +238,14 @@ misconfigured per-endpoint. See ADR-0006.
                                    GridGenerationOptions.GridSize, feeding the
                                    new PathTemplateResolver
                                    (XGArcade.Api.Path) used by
-                                   POST /internal/generate-round?gameKey=xg-path
+                                   POST /internal/generate-round?gameKey=xg-path.
+                                   Bug fix (2026-08-08, REQ-1203) added
+                                   PathCareerStintFilter — a read-time-only
+                                   filter excluding leftover pre-2026-08-02
+                                   youth/age-grade national-team
+                                   PlayerCareerStint rows, applied at both
+                                   PathEndpoints.cs's GET /path/current and
+                                   GetEligiblePlayerIdsAsync's REQ-1201 check
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -258,7 +265,11 @@ misconfigured per-endpoint. See ADR-0006.
                                    S-082 added PathClueSequenceBuilderTests
                                    (REQ-1203) and REQ1204-/REQ1205-named
                                    XGPathGameModuleTests coverage; GameKey
-                                   tests are unchanged
+                                   tests are unchanged. Bug fix (2026-08-08)
+                                   added PathCareerStintFilterTests and
+                                   REQ1203-named XGPathGameModuleTests
+                                   coverage for the youth-national-team
+                                   junk-row exclusion
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
     /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
                                    S-082 extended WikidataClientTests/
@@ -1713,6 +1724,19 @@ REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
 MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
 in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
 on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
+
+**2026-08-08 addition (REQ-1206):** `PathEndpoints.cs`'s `GET /path/current`
+handler (`XGArcade.Api.Path`) now also resolves `IScoringStrategyResolver`
+directly — the first Api-layer caller of this resolver besides
+`ScoreLockingService` itself, same per-`GameKey` resolve-from-the-Api-layer
+shape `IGameModuleResolver` already has in this same handler — to compute a
+new `CurrentPathGuessResponse.Points` field (`int?`, non-null only when
+`Locked` is true): `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` called
+directly on a correct guess, or `ScoringRules.MaxPointsPerCell` read
+directly for a locked-but-unsolved puzzle — never a reimplemented copy of
+the formula, so the value is arithmetically identical to what
+`ScoreLockingService` separately persists as `FinalPoints`. See
+`docs/architecture-document.md` §6.2b for the full data-flow diagram.
 
 **Leaderboard pagination (REQ-607)**
 

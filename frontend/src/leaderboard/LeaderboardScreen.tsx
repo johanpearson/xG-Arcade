@@ -10,11 +10,26 @@ import {
 } from '../lib/api';
 import type { WindowResolution } from '../lib/api';
 import type { ClosedRoundSummary, LeaderboardRow } from '../lib/types';
-// REQ-213 (S-068): the leaderboard's own `(ⓘ)` entry point opens this exact
-// same explainer GridScreen.tsx already uses — no new component, no new
-// props, no leaderboard-specific content (see ScoringExplainer.tsx's own
-// 2026-07-21 doc comment and REQ-213's matching acceptance criteria).
+// REQ-213 (S-068, made game-aware 2026-08-08): the leaderboard's own `(ⓘ)`
+// entry point opens this exact same explainer GridScreen.tsx already uses
+// when the xG Grid tab is active — no new component, no new props, no
+// leaderboard-specific content (see ScoringExplainer.tsx's own 2026-07-21
+// doc comment and REQ-213's matching acceptance criteria). When the xG Path
+// tab is active, `PathScoringExplainer` (below) opens instead — see the
+// render call near the bottom of this file for the `gameKey` branch and its
+// rationale.
 import { ScoringExplainer } from '../grid/ScoringExplainer';
+// REQ-213 (2026-08-08, second consumer): xG Path's own scoring rules share
+// almost nothing with xG Grid's (no uniqueness, no live/locked distinction,
+// a different attempt-cap/clue model — see that component's own doc
+// comment), so it gets its own explainer component rather than a `gameKey`
+// branch inside `ScoringExplainer.tsx`. Importing directly from
+// `../path/PathScoringExplainer` mirrors the existing `../grid/
+// ScoringExplainer` import immediately above — this file already imports
+// across feature folders for exactly this "which explainer does the active
+// game need" reason, so this is the same established pattern, not a new
+// one.
+import { PathScoringExplainer } from '../path/PathScoringExplainer';
 // REQ-410/ADR-0043 (S-087): the same client-side `GameKey` constants
 // GameSelectScreen/HeaderNav already use — no new/duplicate string literal
 // per this repo's own established convention (see GameSelectScreen.tsx's
@@ -257,7 +272,33 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
   // independent of `activeCell` (SCREEN-06's "doesn't discard in-progress
   // state" requirement). Opening/closing this never touches which scope tab
   // is selected, a loaded "Load more" page, or any scope's fetch state.
+  // REQ-213 (2026-08-08): NOT independent of `gameKey`, unlike scope — see
+  // the effect immediately below for why a game switch while this is open
+  // closes it rather than leaving it open.
   const [explainerOpen, setExplainerOpen] = useState(false);
+
+  // REQ-213 (2026-08-08): unlike a scope change (which never touches
+  // `explainerOpen` — the explainer's content was, until today, identical
+  // regardless of scope), a game switch changes *which explainer component
+  // is even correct to show* — xG Grid's `ScoringExplainer` and xG Path's
+  // `PathScoringExplainer` describe genuinely different rules (no shared
+  // uniqueness/live-locked concepts). Rather than swapping the open modal's
+  // content live under the player mid-read, or leaving the old game's
+  // now-wrong content on screen, this follows the same "back out rather
+  // than leave a stale, now-mismatched view up" precedent
+  // `selectedRound`/`pastDetailState`'s own reset effect below already
+  // establishes for a game switch (see that effect's comment) — close the
+  // modal; re-opening it via `(ⓘ)` shows the newly selected game's correct
+  // content. Guarded by a ref (not a bare `gameKey` dependency that also
+  // calls `setState` unconditionally) so it only fires on a genuine change,
+  // never on mount, and only actually closes the modal if it was open.
+  const prevGameKeyForExplainerRef = useRef<GameKey>(gameKey);
+  useEffect(() => {
+    if (prevGameKeyForExplainerRef.current !== gameKey) {
+      setExplainerOpen(false);
+    }
+    prevGameKeyForExplainerRef.current = gameKey;
+  }, [gameKey]);
 
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [liveState, setLiveState] = useState<LiveState>({ phase: 'idle' });
@@ -981,11 +1022,13 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
       <div className="leaderboard-screen__header">
         <div className="leaderboard-screen__title-row">
           <h2>Global leaderboard</h2>
-          {/* REQ-213 (S-068): opens SCREEN-06's general scoring/live-updates
-              explainer — same component/content as GridScreen.tsx's entry
-              point, reachable regardless of which scope tab is active or
-              whether that scope's data is loading, empty, or errored (it
-              reads no scope/round state at all). */}
+          {/* REQ-213 (S-068, game-aware since 2026-08-08): opens
+              SCREEN-06's general scoring/live-updates explainer for xG
+              Grid, or SCREEN-10's xG Path explainer, whichever game's tab
+              is currently selected (see the render call near the bottom of
+              this component) — reachable regardless of which scope tab is
+              active or whether that scope's data is loading, empty, or
+              errored (it reads no scope/round state at all). */}
           <button
             type="button"
             className="leaderboard-screen__info-toggle"
@@ -1067,7 +1110,21 @@ export function LeaderboardScreen({ accessToken, onAuthError }: LeaderboardScree
       {scope === 'live' && renderLive()}
       {scope === 'past' && renderPast()}
       {scope === 'window' && renderWindow()}
-      {explainerOpen && <ScoringExplainer onClose={() => setExplainerOpen(false)} />}
+      {/* REQ-213 (2026-08-08): game-aware — xG Grid's explainer describes
+          uniqueness/live-locked points and median ranking, none of which
+          apply to xG Path (no uniqueness, no live/locked distinction, a
+          different clue/attempt model), so each game gets its own
+          component rather than one explainer branching its copy on
+          `gameKey` internally (see PathScoringExplainer.tsx's own doc
+          comment for why). The effect above closes this modal on a game
+          switch, so by the time either branch below renders, `gameKey`
+          always matches the content the player asked to see. */}
+      {explainerOpen &&
+        (gameKey === XG_GRID_GAME_KEY ? (
+          <ScoringExplainer onClose={() => setExplainerOpen(false)} />
+        ) : (
+          <PathScoringExplainer onClose={() => setExplainerOpen(false)} />
+        ))}
     </div>
   );
 }

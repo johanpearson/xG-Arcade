@@ -20,6 +20,13 @@ export interface PathTimelineProps {
   locked: boolean;
   resolvedPlayerName?: string | null;
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-1206 (2026-08-08 addition): the puzzle's locked point value —
+  // present alongside resolvedPlayerName/resolvedPlayerPhotoUrl the moment
+  // the puzzle locks (solved, or the 7-attempt cap exhausted unsolved),
+  // never before. See CurrentPathGuess.points (lib/types.ts) for why this is
+  // never rendered with "~"/"estimated" wording, unlike xG Grid's
+  // livePoints.
+  points?: number | null;
 }
 
 // REQ-1203/SCREEN-10 (S-086): plain-language label for each of the three
@@ -62,7 +69,14 @@ const TEXT_CLUE_LABELS: Record<'Position' | 'Nationality' | 'Age', string> = {
 // what the tester reported as "the latest shown clue was removed upon
 // correct answer." The reveal is now its own trailing node, appended after
 // every real clue turn rather than displacing one.
-export function PathTimeline({ clues, solved, locked, resolvedPlayerName, resolvedPlayerPhotoUrl }: PathTimelineProps) {
+export function PathTimeline({
+  clues,
+  solved,
+  locked,
+  resolvedPlayerName,
+  resolvedPlayerPhotoUrl,
+  points,
+}: PathTimelineProps) {
   // REQ-1203: the bundled year-range turn's own payload is just a list of
   // strings, in the same order every club was revealed across the 3
   // preceding ClubReveal turns combined (PathClueTurn's own backend doc
@@ -112,9 +126,9 @@ export function PathTimeline({ clues, solved, locked, resolvedPlayerName, resolv
           <span className="path-timeline__dot" aria-hidden="true" />
           <div className="path-timeline__content">
             {isSolvedReveal ? (
-              <SolvedNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
+              <SolvedNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} points={points} />
             ) : (
-              <FailedRevealNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} />
+              <FailedRevealNode name={resolvedPlayerName} photoUrl={resolvedPlayerPhotoUrl} points={points} />
             )}
           </div>
         </li>
@@ -200,7 +214,15 @@ function renderClueContent(turn: PathClueTurn, revealedClubNames: string[]) {
 // than inventing a new avatar component this story was never asked to
 // design — flagged back to design-document.md's SCREEN-10 section as a
 // stale reference, not silently resolved.
-function SolvedNode({ name, photoUrl }: { name?: string | null; photoUrl?: string | null }) {
+function SolvedNode({
+  name,
+  photoUrl,
+  points,
+}: {
+  name?: string | null;
+  photoUrl?: string | null;
+  points?: number | null;
+}) {
   // Quality-gate fix (S-086 follow-up): same same-session image-load-failure
   // fallback as CellState.tsx's `CellPhoto`/`photoFailed` — a photo URL that
   // 404s or otherwise fails to load falls back to the text-only treatment
@@ -223,6 +245,16 @@ function SolvedNode({ name, photoUrl }: { name?: string | null; photoUrl?: strin
         />
       )}
       <p className="path-timeline__solved-name">{name ?? 'Puzzle solved'}</p>
+      {/* REQ-1206: plain, final wording ("N pts") — never "~N pts
+          estimated" (that's xG Grid's genuinely-provisional livePoints
+          convention; this value can't change once the puzzle locks). Same
+          `mono-figure` numerals-use-mono-face treatment every other
+          score/count in this app already uses (e.g.
+          `cell-state__meta mono-figure` in CellState.tsx). Defensive
+          `points != null` guard, same pattern as every other optional field
+          on this node — an older cached response predating REQ-1206 simply
+          shows no points line, not a broken "null pts". */}
+      {points != null && <p className="path-timeline__points mono-figure">{points} pts</p>}
     </div>
   );
 }
@@ -247,7 +279,15 @@ function SolvedNode({ name, photoUrl }: { name?: string | null; photoUrl?: strin
 // own plain-name treatment exactly, since the red "Out of attempts" label
 // immediately above it already supplies the "this is the answer, and you
 // didn't get it" framing without needing to repeat it in the name line too.
-function FailedRevealNode({ name, photoUrl }: { name?: string | null; photoUrl?: string | null }) {
+function FailedRevealNode({
+  name,
+  photoUrl,
+  points,
+}: {
+  name?: string | null;
+  photoUrl?: string | null;
+  points?: number | null;
+}) {
   const [photoFailed, setPhotoFailed] = useState(false);
   const hasPhoto = Boolean(photoUrl) && !photoFailed;
 
@@ -274,6 +314,14 @@ function FailedRevealNode({ name, photoUrl }: { name?: string | null; photoUrl?:
           "Out of attempts" node with no dangling "It was null" text rather
           than trusting the backend contract blindly. */}
       {name && <p className="path-timeline__failed-name">{name}</p>}
+      {/* REQ-1206: an exhausted-unsolved puzzle still returns a real Points
+          value (the worst-case ScoringRules.MaxPointsPerCell, per
+          PathEndpoints.cs) — shown here with the same plain "N pts" wording
+          and mono-figure treatment as SolvedNode's own points line, no
+          "final"/celebratory framing either way (lower is better,
+          ADR-0021's golf-scoring convention — this is a plain fact, not an
+          achievement). */}
+      {points != null && <p className="path-timeline__points mono-figure">{points} pts</p>}
     </div>
   );
 }

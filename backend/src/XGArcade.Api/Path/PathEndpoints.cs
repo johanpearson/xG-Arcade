@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
 using XGArcade.Core.Games;
+using XGArcade.Core.Scoring;
+using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGPath;
 
@@ -47,6 +49,7 @@ public static class PathEndpoints
             IGuessRepository guessRepository,
             IPlayerStoreRepository playerStoreRepository,
             IGameModuleResolver gameModuleResolver,
+            IScoringStrategyResolver scoringStrategyResolver,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -71,6 +74,27 @@ public static class PathEndpoints
             // ADR-0041: resolved so GetMaxAttemptsForCellAsync can be called
             // per puzzle, same precedent as RoundEndpoints.
             var gameModule = gameModuleResolver.Resolve(round.GameKey);
+
+            // REQ-1206 (2026-08-08 addition): resolved once for the request,
+            // using the same ADR-0040 IScoringStrategyResolver that
+            // ScoreLockingService uses at round close inside
+            // XGArcade.Core.Scoring — round.GameKey is always "xg-path"
+            // here (this endpoint only ever serves the round fetched by
+            // GetActiveByGameKeyAsync(XGPathGameModule.XGPathGameKey, ...)
+            // above), so this always resolves ClueEfficiencyScoringStrategy.
+            // Calling the real strategy (never re-deriving its rounding
+            // formula inline) is what guarantees the value returned below is
+            // arithmetically identical to what ScoreLockingService will
+            // later persist as FinalPoints for the same puzzle. This is the
+            // first Api-layer call site for IScoringStrategyResolver
+            // specifically (its only prior caller was ScoreLockingService
+            // itself) — it mirrors the shape of the gameModuleResolver call
+            // just above, not an existing Api-layer call to this particular
+            // resolver: both are a per-GameKey Core resolver invoked
+            // directly from the Api layer for a display-only read, the same
+            // pattern IGameModuleResolver already follows in both
+            // RoundEndpoints.cs and this file.
+            var scoringStrategy = scoringStrategyResolver.Resolve(round.GameKey);
 
             // Reads PathInstance/PathPuzzle directly, bypassing IGameModule
             // — see this file's own ADR-0016 scope note above.
@@ -104,8 +128,13 @@ public static class PathEndpoints
 
                 var revealedTurnCount = PathClueSequenceBuilder.GetRevealedTurnCount(attemptCount, isCorrect);
 
+                // Bug fix (2026-08-08, REQ-1203): filter out any leftover
+                // pre-2026-08-02 youth/age-grade national-team row before
+                // this player's stints ever reach PathClueSequenceBuilder —
+                // see PathCareerStintFilter's own doc comment for the full
+                // "why a read-time filter, not a cleanup script" reasoning.
                 var stints = stintsByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var playerStints)
-                    ? playerStints.OrderBy(s => s.SequenceOrder).ToList()
+                    ? PathCareerStintFilter.ExcludeYouthNationalTeams(playerStints).OrderBy(s => s.SequenceOrder).ToList()
                     : [];
                 playersById.TryGetValue(puzzle.TargetPlayerId, out var targetPlayer);
                 var nationality = attributesByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var attributes)
@@ -145,8 +174,45 @@ public static class PathEndpoints
                     var resolvedName = locked ? targetPlayer?.FullName : null;
                     var resolvedPhotoUrl = locked ? targetPlayer?.PhotoUrl : null;
 
+                    // REQ-1206 (2026-08-08 addition): gated on `locked`, same
+                    // pattern as resolvedName/resolvedPhotoUrl above — the
+                    // formula has no meaning until the puzzle's outcome is
+                    // fixed. Two branches, mirroring ScoreLockingService.
+                    // LockRoundScoresAsync's own guess.IsCorrect branch
+                    // exactly:
+                    //   - correct: ClueEfficiencyScoringStrategy.
+                    //     ScoreCorrectGuess (the real formula, never
+                    //     reimplemented here) — correctGuessesForCell is
+                    //     passed empty since ClueEfficiencyScoringStrategy
+                    //     ignores it (xG Path has no uniqueness concept, see
+                    //     that strategy's own doc comment); this endpoint
+                    //     only ever has the requesting player's own guess
+                    //     available anyway, never the round's full
+                    //     correct-guess population RoundEndpoints/
+                    //     ScoreLockingService build for xG Grid's formula.
+                    //   - locked-but-unsolved (attempt cap exhausted):
+                    //     ClueEfficiencyScoringStrategy is "only ever invoked
+                    //     for a correct guess" (its own doc comment) —
+                    //     ScoreLockingService's matching case never calls it
+                    //     either, scoring ScoringRules.MaxPointsPerCell
+                    //     directly via its own !guess.IsCorrect branch
+                    //     (ADR-0021). Mirrored here rather than calling the
+                    //     strategy with a guess it doesn't support.
+                    // Either way, the value returned is exactly what
+                    // ScoreLockingService will persist as FinalPoints once
+                    // the round closes — not a separate/simplified estimate
+                    // (see REQ-1206's "Important asymmetry from REQ-204's
+                    // LivePoints" note: this is never provisional).
+                    int? points = null;
+                    if (locked)
+                    {
+                        points = isCorrect
+                            ? scoringStrategy.ScoreCorrectGuess(guess, Array.Empty<Guess>(), maxAttemptsForPuzzle).FinalPoints
+                            : ScoringRules.MaxPointsPerCell;
+                    }
+
                     guessResponse = new CurrentPathGuessResponse(
-                        isCorrect, attemptCount, locked, guess.SubmittedName, resolvedName, resolvedPhotoUrl);
+                        isCorrect, attemptCount, locked, guess.SubmittedName, resolvedName, resolvedPhotoUrl, points);
                 }
 
                 puzzles.Add(new CurrentPathPuzzleResponse(puzzle.Id, revealedTurns, guessResponse));
@@ -202,6 +268,22 @@ public record PathClubClueResponse(string ClubName, int? AppearanceCount);
 // Same only-when-IsCorrect rule for ResolvedPlayerName/ResolvedPlayerPhotoUrl
 // as RoundEndpoints.CurrentRoundGuessResponse — never a substitute for
 // SubmittedName, which is unchanged and still the raw as-typed text.
+//
+// Points (REQ-1206, 2026-08-08 addition): non-null only when Locked is true
+// — same gating as ResolvedPlayerName/ResolvedPlayerPhotoUrl above, and for
+// the same reason (the formula has no meaning until the puzzle's outcome is
+// fixed). Deliberately NOT named/documented like RoundEndpoints.
+// CurrentRoundGuessResponse.LivePoints: LivePoints is genuinely provisional
+// (it depends on how many other players have also solved the cell so far,
+// which can keep growing until the round closes). Points has no such
+// dependency — both cluesUsed (AttemptCount at the moment the puzzle
+// locked) and maxCluesForThisPuzzle (the fixed 7, REQ-1205) are fully
+// determined the instant a puzzle locks and never change afterward, so this
+// value is arithmetically identical to what ScoreLockingService will
+// persist as FinalPoints once the round closes — never "~N pts",
+// "estimated," or "provisional." Never call this a live/provisional value
+// anywhere it's surfaced (API or UI) — see REQ-1206's "Important asymmetry
+// from REQ-204's LivePoints" note.
 public record CurrentPathGuessResponse(
     bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName,
-    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl);
+    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl, int? Points);
