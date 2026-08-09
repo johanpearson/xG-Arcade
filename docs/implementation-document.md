@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.91"
+version: "0.92"
 status: draft
-last_updated: 2026-08-08
+last_updated: 2026-08-09
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -645,14 +645,21 @@ public class PairLookupFailure
 
 // v1 category types are Country, Club, Trophy (REQ-108). Trophy is
 // reference data, not hardcoded — adding a new recognized trophy is a row
-// insert, not a code change.
+// insert, not a code change. Shipped for individual awards in S-031 and
+// extended to team competitions in ADR-0061 (2026-08-09).
 public class TrophyDefinition
 {
     public Guid Id { get; set; }
     public string Name { get; set; }          // e.g. "FIFA World Cup", "Ballon d'Or"
     public bool IsTeamTrophy { get; set; }    // team competition vs. individual award —
-                                                // informs display copy, not matching logic
-    public string WikidataQid { get; set; }   // nullable; resolved manually, small table (ADR-0012)
+                                                // ADR-0061: DRIVES query dispatch (P166
+                                                // individual-award vs. P1344/P3450/P1346
+                                                // team-competition join), not just display copy
+    public string WikidataQid { get; set; }   // nullable; resolved manually, small table
+                                                // (ADR-0012). Dual meaning per ADR-0061: the
+                                                // award item itself when IsTeamTrophy = false,
+                                                // the competition SERIES item (never a specific
+                                                // edition) when IsTeamTrophy = true
 }
 
 // Category value reference tables (ADR-0012, REQ-109) — the source of
@@ -1152,13 +1159,14 @@ Country (rows) × Club (columns), Club × Club (S-030), Country × Trophy,
 Club × Trophy, or Trophy × Trophy (S-031, REQ-108, Trophy always kept
 second in a mixed pairing) — never a mixed axis *within* one grid, so the
 "whichever category types this GridTemplate allows" line above still
-doesn't vary within a single grid, only across grids. In production,
-Trophy pairings are mechanically wired up but structurally never chosen —
-`ReferenceDataSeeder` seeds only one trophy (Ballon d'Or), and
-`trophyCount(1)` can never clear `size` for any realistic grid (see
-`SelectPairing`'s own comment and REQ-108's status note) — proven as a
-mechanism via a larger faked trophy pool in `GridGameModuleTests`, not by
-anything production data triggers yet.
+doesn't vary within a single grid, only across grids. **Updated (2026-08-09,
+ADR-0061):** `ReferenceDataSeeder` now seeds three trophies (Ballon d'Or,
+FIFA World Cup, UEFA Champions League), so `trophyCount(3)` clears `size`
+for the default `GridSize = 3` — Country × Trophy and Club × Trophy are now
+REACHABLE and actually chosen in production, not just mechanically wired
+up (see `SelectPairing`'s own comment and REQ-108's status note). Trophy ×
+Trophy still needs `trophyCount >= size * 2 = 6` and remains structurally
+infeasible for now.
 
 **REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
 iterates every Country × Club and Club × Club pair the reference tables can
