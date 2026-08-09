@@ -2865,7 +2865,9 @@ public class WikidataClientTests
         Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
         Assert.That(sentQuery, Does.Contain("SERVICE wikibase:mwapi"));
         Assert.That(sentQuery, Does.Contain("wikibase:api \"EntitySearch\""));
+        Assert.That(sentQuery, Does.Contain("wikibase:endpoint \"www.wikidata.org\""));
         Assert.That(sentQuery, Does.Contain("mwapi:search \"Clarence Seedorf\""));
+        Assert.That(sentQuery, Does.Contain("mwapi:language \"en\""));
         Assert.That(sentQuery, Does.Contain("mwapi:limit \"10\""));
         Assert.That(sentQuery, Does.Contain("?player wikibase:apiOutputItem mwapi:item"));
         Assert.That(sentQuery, Does.Contain("LIMIT 1"));

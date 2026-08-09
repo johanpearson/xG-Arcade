@@ -117,12 +117,21 @@ public class WikidataClient(
     // for why that was wrong. This is a fourth, admin-lookup-only budget,
     // same overridable-for-tests shape as the three above.
     //
-    // 45s, same evidence band as _cacheWarmingQueryTimeout's: this method's
-    // query shape is the same kind of broad, unindexed population-wide
-    // rdfs:label/skos:altLabel scan across every Wikidata footballer that
-    // cache warming's own reference-pair sweep runs into, not the narrow
+    // 45s, same evidence band as _cacheWarmingQueryTimeout's: at the time
+    // this budget was set, this method's query shape was the same kind of
+    // broad, unindexed population-wide rdfs:label/skos:altLabel scan across
+    // every Wikidata footballer that cache warming's own reference-pair
+    // sweep runs into — ADR-0062 (2026-08-09, same day, separate change)
+    // has since replaced that scan with an indexed `wikibase:mwapi`
+    // EntitySearch call (see BuildPlayerCareerAndNationalityByNameQuery's
+    // own comment), but this 45s budget itself is untouched: it's still the
+    // right margin for a live, admin-synchronous Wikidata round trip
+    // regardless of which mechanism selects the candidate player
+    // underneath it, and none of the reasoning below (WDQS's observed
+    // latency range, the ~60s server-side cap, the "someone is waiting"
+    // framing) depended on the old query shape specifically. Not the narrow
     // per-cell intersection shape ADR-0011's original 15s/28s budgets were
-    // tuned for. ADR-0011's own evidence (WDQS queries observed 9-27s under
+    // tuned for either way. ADR-0011's own evidence (WDQS queries observed 9-27s under
     // load) is the same evidence both _guessTimeFallbackQueryTimeout's 28s
     // and _cacheWarmingQueryTimeout's 45s already lean on; 45s gives this
     // broad shape the same comfortably wider margin above that 9-27s range
