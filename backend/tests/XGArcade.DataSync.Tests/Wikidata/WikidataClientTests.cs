@@ -2993,11 +2993,42 @@ public class WikidataClientTests
     [Test]
     public void REQ509_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ThrowsWikidataQueryException()
     {
+        // adminLookupQueryTimeout, not queryTimeout — must be set here too,
+        // or this test would wait out the real (45s default) budget. See
+        // the test just below for proof the two budgets are genuinely
+        // independent, not just that a timeout eventually throws.
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
-            queryTimeout: TimeSpan.FromMilliseconds(50));
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(50));
 
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
+
+    // Bug fix (2026-08-09, REQ-509/REQ-510 tuning): this method used to
+    // reuse _queryTimeout (15s), which was too tight for its broad,
+    // population-wide by-name scan and caused production "Lookup
+    // unavailable" failures. Proves the fix: a short queryTimeout must NOT
+    // cut this call off before the wider adminLookupQueryTimeout elapses —
+    // same shape as
+    // QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_UsesGuessTimeFallbackBudget_NotQueryTimeout
+    // above.
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_UsesAdminLookupBudget_NotQueryTimeout()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(400));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short queryTimeout (50ms) must not cut this call off before the wider adminLookupQueryTimeout (400ms) elapses");
+        Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (adminLookup) budget used, not queryTimeout");
     }
 
     [Test]

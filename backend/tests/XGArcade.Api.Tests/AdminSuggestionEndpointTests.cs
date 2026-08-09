@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using XGArcade.Api.Admin;
 using XGArcade.Api.Auth;
 using XGArcade.Data;
@@ -136,6 +137,22 @@ public class AdminSuggestionEndpointTests
         return client;
     }
 
+    // Same "swap in a capturing provider, create a client off that factory"
+    // shape as GridEndpointTests.GenerateGrid_Post_ReturnsProblem_AndLogsError_WhenGenerationAborts
+    // — used by the bug-fix regression tests below (2026-08-09) that assert
+    // a Wikidata lookup failure is logged server-side, not just turned into
+    // a 503 response.
+    private HttpClient CreateAdminClientWithLogging(out CapturingLoggerProvider loggerProvider)
+    {
+        var provider = new CapturingLoggerProvider();
+        loggerProvider = provider;
+        var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureLogging(logging => logging.AddProvider(provider)));
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(AdminAuthProviderUserId));
+        return client;
+    }
+
     // ---- Admin policy guardrail --------------------------------------------
 
     [Test]
@@ -205,6 +222,30 @@ public class AdminSuggestionEndpointTests
         var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable), "ADR-0046: a failed/timed-out lookup must never be silently treated as no-match");
+    }
+
+    // Bug fix (2026-08-09): before this fix, a Wikidata failure on either
+    // admin lookup endpoint returned the same 503 with nothing logged
+    // server-side, making a production "Lookup unavailable" report
+    // undiagnosable and indistinguishable from the other endpoint's own
+    // failures. Proves the exception is now logged at Warning, with enough
+    // context (the suggestion id) to tell it apart from a later failure —
+    // in addition to (not instead of) the existing 503-response assertion
+    // above.
+    [Test]
+    public async Task REQ509_Lookup_LogsWarning_WhenWikidataQueryFails()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        _fakeWikidataClient.FailNextCareerLookups(1);
+        var client = CreateAdminClientWithLogging(out var loggerProvider);
+
+        var response = await client.PostAsync($"/admin/suggestions/{suggestionId}/lookup", null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(loggerProvider.Entries, Has.Some.Matches<(LogLevel Level, string Message)>(
+            e => e.Level == LogLevel.Warning && e.Message.Contains(suggestionId.ToString())),
+            "the exception must be logged at Warning server-side, with the suggestion id for later diagnosis");
     }
 
     [Test]
@@ -577,6 +618,34 @@ public class AdminSuggestionEndpointTests
     }
 
     [Test]
+    public async Task REQ510_StandaloneLookup_ReturnsServiceUnavailable_NeverSilentNoMatch_WhenWikidataQueryFails()
+    {
+        _fakeWikidataClient.FailNextCareerLookups(1);
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable), "ADR-0046: a failed/timed-out lookup must never be silently treated as no-match");
+    }
+
+    // Bug fix (2026-08-09) — see REQ509_Lookup_LogsWarning_WhenWikidataQueryFails's
+    // own comment for the full "why." This endpoint has no suggestion id to
+    // log, so the player name is the distinguishing context instead.
+    [Test]
+    public async Task REQ510_StandaloneLookup_LogsWarning_WhenWikidataQueryFails()
+    {
+        _fakeWikidataClient.FailNextCareerLookups(1);
+        var client = CreateAdminClientWithLogging(out var loggerProvider);
+
+        var response = await client.PostAsJsonAsync("/admin/player-search/lookup", new PlayerSearchLookupRequest("Robert Pires"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(loggerProvider.Entries, Has.Some.Matches<(LogLevel Level, string Message)>(
+            e => e.Level == LogLevel.Warning && e.Message.Contains("Robert Pires")),
+            "the exception must be logged at Warning server-side, with the player name for later diagnosis");
+    }
+
+    [Test]
     public async Task REQ510_StandaloneCommit_WritesPlayerData_WithNoSuggestionRowCreatedOrTouched()
     {
         // A wholly unrelated, still-pending suggestion exists throughout —
@@ -724,5 +793,29 @@ public class AdminSuggestionEndpointTests
         public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
             string playerName, CancellationToken cancellationToken = default) =>
             Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+    }
+
+    // Same "capture every ILogger<T> entry written during a request" shape
+    // as GridEndpointTests.CapturingLoggerProvider — duplicated locally
+    // rather than shared, matching that file's own precedent (no shared
+    // test-infrastructure project exists yet for this).
+    private class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
+
+        public void Dispose() { }
+
+        private class CapturingLogger(CapturingLoggerProvider owner) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+                owner.Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 }
