@@ -1,7 +1,7 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.85"
+version: "0.86"
 status: draft
 last_updated: 2026-08-09
 owner: Johan
@@ -1732,6 +1732,7 @@ new ADR that references the old one.
 | ADR-0057 | REQ-216's wrong-but-real guess photo lookup reuses ADR-0011's `WikidataClient` as its own distinct, lower-priority trigger — Wikidata-only, no API-Football fallback, fires once at cell-lock time, fails silently (no photo) rather than fail-closed-as-incorrect | Accepted |
 | ADR-0058 | xG Path target cycle tracking (REQ-1208/1209): cycle state is xG Path's own data (never a field on shared `Player`), scored against the live ADR-0056 familiarity-filtered pool with a tolerant "remaining < N" completion rule, not the larger structural pool or an exact-zero rule | Accepted |
 | ADR-0060 | REQ-509/510's admin-suggestion-commit action splits its write path by field cardinality — single-valued nationality via `PlayerOverride` (ADR-0015's existing full-type-replacement semantics), multi-valued club(s) via additive `PlayerAttribute` rows instead, so confirming one club can never mask another | Accepted |
+| ADR-0062 | REQ-509/510's admin by-name Wikidata lookup resolves its candidate player via a federated `wikibase:mwapi` `EntitySearch` call instead of a raw, unindexed label/alias scan — the scan was cheap-looking but expensive enough in production to trigger an HTTP 502 from a gateway in front of WDQS, not just a client-side timeout | Accepted |
 
 ## 11. Glossary
 

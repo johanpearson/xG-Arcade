@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-09 — `docs/architecture-document.md` (v0.85 → v0.86), new
+  `docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md` — a
+  production log showed REQ-509/510's admin by-name Wikidata lookup
+  running ~39s and then failing with HTTP 502 Bad Gateway (not a
+  timeout — the 45s budget added earlier the same day wasn't the
+  bottleneck; something in front of WDQS rejects the query under its
+  own cost/duration). Root cause: `QueryPlayerCareerAndNationalityByNameAsync`
+  resolves a name to a candidate player via an unindexed, population-wide
+  `rdfs:label`/`skos:altLabel` scan. ADR-0062 records the decision to
+  replace that scan with a federated `wikibase:mwapi` `EntitySearch` call
+  (Wikidata's own indexed search) instead, and the two alternatives
+  rejected (backfilling `PlayerNameIndex` with a real `WikidataQid`;
+  calling Wikidata's REST `wbsearchentities` API as a new external
+  dependency). Flagged in the ADR's own Consequences: unverified against
+  the real Wikidata endpoint from this sandbox (no live network access),
+  needs a human check before being trusted in production. `docs/architecture-document.md`
+  §10's ADR table gained the new row. REQ-509, REQ-510, ADR-0062.
+
 - 2026-08-09 — `docs/requirements-document.md` (v1.57 → v1.58),
   `docs/architecture-document.md` (v0.84 → v0.85),
   `docs/implementation-document.md` (v0.91 → v0.92), `docs/backlog.md`
