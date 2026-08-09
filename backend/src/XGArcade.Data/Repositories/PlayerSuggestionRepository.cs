@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using XGArcade.Data.Entities;
 
 namespace XGArcade.Data.Repositories;
@@ -16,5 +17,36 @@ public class PlayerSuggestionRepository(XGArcadeDbContext dbContext) : IPlayerSu
         dbContext.PlayerSuggestions.Add(suggestion);
         await dbContext.SaveChangesAsync(cancellationToken);
         return suggestion;
+    }
+
+    public async Task<IReadOnlyList<PlayerSuggestion>> GetPendingAsync(CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerSuggestions
+            .AsNoTracking()
+            .Include(s => s.AssertedClubs)
+            .Where(s => s.Status == PlayerSuggestionStatus.Pending)
+            .OrderBy(s => s.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public async Task<PlayerSuggestion?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await dbContext.PlayerSuggestions
+            .AsNoTracking()
+            .Include(s => s.AssertedClubs)
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+
+    public async Task<bool> ResolveAsync(
+        Guid id, PlayerSuggestionStatus status, Guid adminId, DateTime resolvedAt, CancellationToken cancellationToken = default)
+    {
+        var suggestion = await dbContext.PlayerSuggestions.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        if (suggestion is null || suggestion.Status != PlayerSuggestionStatus.Pending)
+            return false;
+
+        suggestion.Status = status;
+        suggestion.ResolvedByAdminId = adminId;
+        suggestion.ResolvedAt = resolvedAt;
+
+        // Load-then-SaveChangesAsync (docs/coding-guidelines.md), never
+        // ExecuteUpdateAsync — the InMemory test provider can't translate it.
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 }

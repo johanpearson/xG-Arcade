@@ -1117,12 +1117,17 @@ app.MapRoundEndpoints();
 // PathEndpoints.cs's own doc comment).
 app.MapPathEndpoints();
 app.MapGuessEndpoints();
-// REQ-215 (S-089): submission-only — see SuggestionEndpoints.cs's own doc
-// comment for why REQ-509's admin endpoints aren't registered here yet.
+// REQ-215 (S-089): the submission-only half — REQ-509/510's admin review/
+// commit/reject half is MapAdminSuggestionEndpoints below.
 app.MapSuggestionEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapLeagueEndpoints();
 app.MapAdminEndpoints();
+// REQ-509/REQ-510 (S-090): suggestion review/commit/reject + the standalone
+// manual search-and-add path — its own file/registration, never folded into
+// MapAdminEndpoints above (ADR-0053, see AdminSuggestionEndpoints.cs's own
+// doc comment).
+app.MapAdminSuggestionEndpoints();
 // REQ-507/508: guest/user metrics + bulk guest force-clear, registered
 // unconditionally (including Production) — see that file's own doc comment
 // for why these are kept separate from MapAdminManagementEndpoints below.

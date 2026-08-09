@@ -277,4 +277,35 @@ internal sealed class FakeWikidataClient : IWikidataClient
     public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
         string playerName, CancellationToken cancellationToken = default) =>
         Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+
+    // REQ-509/REQ-510 (S-090): QueryPlayerCareerAndNationalityByNameAsync
+    // support — same "configured per-name, plus one shared fail-next-N-calls
+    // counter" shape as every other batch/name-based method above. An
+    // unconfigured name returns null (a real "no footballer matches this
+    // name"), matching the real method's own contract; FailNext scripts a
+    // WikidataQueryException instead, mirroring FailNextPhotoBatches et al.
+    private readonly Dictionary<string, WikidataPlayerCareerLookupResult> _careerLookupByName = new();
+    private int _remainingCareerLookupFailures;
+
+    public List<string> QueriedCareerLookupNames { get; } = [];
+
+    public void SetCareerLookup(string playerName, WikidataPlayerCareerLookupResult result) =>
+        _careerLookupByName[playerName] = result;
+
+    public void FailNextCareerLookups(int calls) => _remainingCareerLookupFailures = calls;
+
+    public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
+        string playerName, CancellationToken cancellationToken = default)
+    {
+        QueriedCareerLookupNames.Add(playerName);
+
+        if (_remainingCareerLookupFailures > 0)
+        {
+            _remainingCareerLookupFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for admin career/nationality lookup of '{playerName}'");
+        }
+
+        var result = _careerLookupByName.TryGetValue(playerName, out var configured) ? configured : null;
+        return Task.FromResult(result);
+    }
 }

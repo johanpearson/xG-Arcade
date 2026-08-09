@@ -918,4 +918,47 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument();
   });
+
+  // Quality-architect (2026-08-08) flagged that 'admin-suggestions'
+  // (REQ-509/REQ-510, S-090, ADR-0053) — added to Screen/SCREEN_HASHES as
+  // a seventh value after the six tests above closed the original gap for
+  // the first six — reopened the same gap with no matching test. This one
+  // mirrors the 'admin navigating' test above, one hop further via
+  // AdminScreen's "Player suggestions" link (SuggestionsScreen's only
+  // entry point, per ADR-0053), matching this describe block's existing
+  // pattern rather than adding a separate reload-restore test (no
+  // reload-restore counterpart exists for 'admin' either, immediately
+  // above, since ADR-0053 gives this screen no independent top-level nav
+  // entry to remount straight back into).
+  it('REQ-721: navigating to the admin suggestions screen updates location.hash to #/admin/suggestions', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const adminMeResponse = { ...meResponse, isAdmin: true };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(adminMeResponse);
+      if (url.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (url.includes('/admin/rounds/xg-grid/active')) return jsonResponse(null);
+      if (url.includes('/admin/suggestions')) return jsonResponse([]);
+      // /admin/accounts/metrics is fetched by AdminScreen's own
+      // AccountMetricsSection on mount but isn't needed to reach the
+      // "Player suggestions" link below — left unmocked deliberately, the
+      // same way the 'admin' navigation test above does.
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await user.click(screen.getByRole('button', { name: 'Admin' }));
+    await screen.findByRole('heading', { name: 'Admin' });
+    await user.click(screen.getByRole('button', { name: 'Player suggestions' }));
+
+    expect(await screen.findByRole('heading', { name: 'Player suggestions' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/admin/suggestions');
+  });
 });

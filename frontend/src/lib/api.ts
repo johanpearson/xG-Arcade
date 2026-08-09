@@ -6,6 +6,8 @@ import type {
   ApprovePlayerDataResponse,
   ClearGuestAccountsResponse,
   ClosedRoundListResponse,
+  CommitPlayerDataPayload,
+  CommitPlayerDataResult,
   CurrentPathResponse,
   CurrentRoundResponse,
   CurrentUser,
@@ -13,6 +15,7 @@ import type {
   GuestAccountCountResponse,
   LeaderboardResponse,
   LoginResponse,
+  PendingSuggestion,
   PlayerAutocompleteSuggestion,
   PlayerOverride,
   RemovePlayerDataResponse,
@@ -21,6 +24,7 @@ import type {
   SubmitSuggestionResponse,
   UnverifiedPlayerData,
   UpdateDisplayNameResponse,
+  WikidataPlayerLookupResult,
 } from './types';
 
 // Reuses the exact pattern established in App.tsx by S-002.
@@ -789,6 +793,120 @@ export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminX
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as AdminXGPathCycleState;
+}
+
+// REQ-509 (S-090)/ADR-0053: the pending-suggestion queue for
+// SuggestionsScreen — its own endpoint, deliberately never merged with
+// fetchUnverifiedPlayerData above (see that ADR's "never a shared row shape"
+// rule). Always registered, same as every other admin call in this file; a
+// 403 (non-admin token) is left to throw like every other admin endpoint.
+export async function fetchPendingSuggestions(accessToken: string): Promise<PendingSuggestion[]> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as PendingSuggestion[];
+}
+
+// REQ-509: triggers a fresh, admin-initiated Wikidata lookup for one pending
+// suggestion's own player name (the suggestion, not any caller-supplied
+// name, is the source of truth for which name gets looked up — this call
+// takes no name parameter). A 409 (another admin already resolved this
+// suggestion) and a 503 (ADR-0046's "lookup unavailable, try again" —
+// distinct from a normal `found: false` no-match result) are both left to
+// throw as an ApiError so the caller (SuggestionsScreen's review panel) can
+// branch on `error.status` and render each as its own distinct state, never
+// conflated with one another or with a generic failure.
+export async function lookupSuggestionPlayer(
+  accessToken: string,
+  suggestionId: string,
+): Promise<WikidataPlayerLookupResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/lookup`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as WikidataPlayerLookupResult;
+}
+
+// REQ-509: commits the admin's reviewed/confirmed values for one pending
+// suggestion — writes only through PlayerAttribute/PlayerOverride
+// (ADR-0007/ADR-0053: never PlayerNameIndex) and moves the suggestion's own
+// state to Committed server-side. A 400 (missing wikidataQid/fullName/reason,
+// or neither nationality nor clubs provided) and a 409 (already resolved) are
+// both left to throw so the caller shows the server's own detail text
+// inline, same convention as createPlayerOverride above.
+export async function commitSuggestion(
+  accessToken: string,
+  suggestionId: string,
+  payload: CommitPlayerDataPayload,
+): Promise<CommitPlayerDataResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/commit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CommitPlayerDataResult;
+}
+
+// REQ-509: rejects one pending suggestion — no request body (mirrors
+// approvePlayerData/removePlayerData's own "no reason field" precedent for
+// a non-Correct admin action), no PlayerAttribute/PlayerOverride/
+// PlayerNameIndex write of any kind. Success is 204 No Content. A 409
+// (already resolved by another admin) is left to throw, same as every other
+// suggestion-review call above.
+export async function rejectSuggestion(accessToken: string, suggestionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+// REQ-510/ADR-0053: the standalone variant of lookupSuggestionPlayer above —
+// identical live-fetch mechanism, but keyed on a name the admin types
+// directly rather than an existing suggestion's own PlayerName, and touches
+// no PlayerSuggestion row at all. A 400 (blank playerName) is left to throw;
+// the caller (ManualSearchSection) also disables the search action
+// client-side on an empty/whitespace-only name, so this is defense in depth,
+// not the primary guard.
+export async function lookupPlayerByName(
+  accessToken: string,
+  playerName: string,
+): Promise<WikidataPlayerLookupResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-search/lookup`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerName }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as WikidataPlayerLookupResult;
+}
+
+// REQ-510/ADR-0053: the standalone variant of commitSuggestion above —
+// identical write path (PlayerAttribute/PlayerOverride only, same 400/omit
+// validation), but never reads, creates, or touches a PlayerSuggestion row.
+export async function commitPlayerSearch(
+  accessToken: string,
+  payload: CommitPlayerDataPayload,
+): Promise<CommitPlayerDataResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-search/commit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CommitPlayerDataResult;
 }
 
 // This story's "simple list" of the caller's own custom leagues

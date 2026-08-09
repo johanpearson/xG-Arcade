@@ -2603,4 +2603,199 @@ public class WikidataClientTests
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519", "Arsenal"]));
     }
+
+    // ---- QueryPlayerCareerAndNationalityByNameAsync (REQ-509/REQ-510,
+    // S-090, admin review live lookup) ---------------------------------------
+    // Combines QueryPlayerPhotoByNameAsync's name-match shape with P27
+    // citizenship and P54's full statement-path club history — see
+    // IWikidataClient's own doc comment for the full error-contract
+    // reasoning (always throws, no throwOnTimeout param, unlike the five
+    // intersection queries).
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_MatchesFootballerByCaseInsensitiveLabelOrAlias_AndLimitsSubqueryToOne()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
+        Assert.That(sentQuery, Does.Contain("rdfs:label ?matchedLabel"));
+        Assert.That(sentQuery, Does.Contain("skos:altLabel ?matchedLabel"));
+        Assert.That(sentQuery, Does.Contain("LCASE(STR(?matchedLabel)) = LCASE(\"Clarence Seedorf\")"));
+        Assert.That(sentQuery, Does.Contain("LIMIT 1"));
+    }
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_FetchesP27AndFullStatementPathP54()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf");
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P27 ?nationality"));
+        Assert.That(sentQuery, Does.Contain("p:P54 ?clubStatement"));
+        Assert.That(sentQuery, Does.Contain("ps:P54 ?club"));
+        Assert.That(sentQuery, Does.Contain("wikibase:DeprecatedRank"), "must exclude deprecated-rank P54 statements, same as every other full-statement-path P54 query in this file");
+    }
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_NoMatchingRows_ReturnsNullWithoutThrowing()
+    {
+        var client = new WikidataClient(BuildHttpClient(
+            FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""")));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("Nobody Real");
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_ReturnsQidNameNationalityAndClubs()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1543" },
+                    "clubLabel": { "type": "literal", "value": "AC Milan" },
+                    "startTime": { "type": "literal", "value": "2002-01-01T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2009-01-01T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1543" },
+                    "clubLabel": { "type": "literal", "value": "AC Milan" },
+                    "startTime": { "type": "literal", "value": "2002-01-01T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2009-01-01T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1420" },
+                    "clubLabel": { "type": "literal", "value": "Real Madrid" },
+                    "startTime": { "type": "literal", "value": "1996-01-01T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2002-01-01T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.WikidataQid, Is.EqualTo("Q188207"));
+        Assert.That(result.FullName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.Nationality, Is.EqualTo("Netherlands"));
+        Assert.That(result.Clubs, Has.Count.EqualTo(2), "the duplicated AC Milan row (same clubLabel) must dedupe to one club name, HashSet<string> shape");
+        Assert.That(result.Clubs, Is.EquivalentTo(new[] { "AC Milan", "Real Madrid" }));
+    }
+
+    // Bug fix (2026-08-08, REQ-509/510, found in hand-review before this
+    // story's frontend/test work started): not every real P54
+    // club-membership statement carries a P580 start-time qualifier —
+    // plenty of lesser-known clubs (exactly the data-completeness gap this
+    // admin feature exists to help fill, per MVP-SCOPE.md) have the
+    // membership fact recorded with no start/end date at all. Club
+    // detection must never be gated on ?startTime also being bound — see
+    // WikidataPlayerCareerLookupResult's own doc comment for the full
+    // "why" this method's Clubs is a plain club-name list rather than
+    // WikidataCareerStintEntry.
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_IncludesClub_WhenStartTimeNeverBound()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "club": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1543" },
+                    "clubLabel": { "type": "literal", "value": "AC Milan" },
+                    "startTime": { "type": "literal", "value": "2002-01-01T00:00:00Z" },
+                    "endTime": { "type": "literal", "value": "2009-01-01T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" },
+                    "nationalityLabel": { "type": "literal", "value": "Netherlands" },
+                    "clubLabel": { "type": "literal", "value": "Some Lesser-Known Club" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Clubs, Is.EquivalentTo(new[] { "AC Milan", "Some Lesser-Known Club" }),
+            "a club with no bound startTime qualifier must still be recorded, not silently dropped");
+    }
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_ReturnsNationalityNullAndClubsEmpty_WhenNeitherBound()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q188207" },
+                    "playerLabel": { "type": "literal", "value": "Clarence Seedorf" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("clarence seedorf");
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.Nationality, Is.Null, "a matched player with no P27 statement is a normal, error-free outcome");
+        Assert.That(result.Clubs, Is.Empty, "a matched player with no P54 statement is a normal, error-free outcome");
+    }
+
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_BlankName_ReturnsNullWithoutSendingARequest()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        var result = await client.QueryPlayerCareerAndNationalityByNameAsync("   ");
+
+        Assert.That(result, Is.Null);
+        Assert.That(handler.LastRequest, Is.Null);
+    }
+
+    [Test]
+    public void REQ509_QueryPlayerCareerAndNationalityByNameAsync_HttpErrorStatus_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningStatus(System.Net.HttpStatusCode.InternalServerError)));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
+
+    [Test]
+    public void REQ509_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
+
+    [Test]
+    public void REQ509_QueryPlayerCareerAndNationalityByNameAsync_MalformedJson_ThrowsWikidataQueryException()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
+
+        Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
 }

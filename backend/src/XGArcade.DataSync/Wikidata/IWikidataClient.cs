@@ -402,4 +402,49 @@ public interface IWikidataClient
     Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
         string playerName,
         CancellationToken cancellationToken = default);
+
+    // REQ-509/REQ-510 (S-090): the admin-review live lookup — "occupation
+    // P106, citizenship P27, club membership P54," per those REQs' own
+    // acceptance criteria, run by player name (an admin reviewing a
+    // suggestion, or searching directly, has a name to start from — never a
+    // WikidataQid, so this can't reuse QueryPlayerCareerStintsByQidsAsync's
+    // by-QID batch shape). Closest existing precedent is
+    // QueryPlayerPhotoByNameAsync's name-match shape (case-insensitive label
+    // OR alias, deliberately LIMIT-1 on the CANDIDATE PLAYER, not on result
+    // rows overall — see BuildPlayerCareerAndNationalityByNameQuery's own
+    // comment for how the two are combined without truncating a real
+    // multi-club career to one row), combined with P27's citizenship label
+    // and P54's FULL statement-path club-membership history (p:P54/ps:P54,
+    // MINUS deprecated rank — the same non-negotiable "ever played for," not
+    // "currently plays for" shape QueryPlayerCareerStintsByQidsAsync's own
+    // doc comment explains at length; do not simplify to the truthy wdt:P54
+    // shortcut).
+    //
+    // Returns null when no footballer (P106=Q937857) matches playerName by
+    // label or alias at all — a genuine "Wikidata has no record of this
+    // name," never a swallowed failure (that distinction is exactly what
+    // throwing below is for). A matched player with no P27/P54 data at all
+    // still returns a non-null result with Nationality null and Clubs empty
+    // — both are independently optional, same "absent means none, never an
+    // error" contract as every other OPTIONAL-bound field in this file.
+    //
+    // Error contract — always throws WikidataQueryException on timeout/HTTP/
+    // parse failure, the SAME as every other name/QID-based lookup in this
+    // interface EXCEPT the five swallow-to-[] intersection-query methods
+    // above (QueryCountryClubIntersectionAsync et al. — whose swallow
+    // contract exists only because REQ-103/ADR-0011 must never block grid
+    // generation on a Wikidata failure). This method has no such "never
+    // block" caller: it is a brand-new, single-purpose, admin-triggered
+    // action (REQ-509/510), not REQ-211's per-guess fallback, so there is no
+    // throwOnTimeout parameter here — swallowing this method's failure to
+    // "no data" would violate REQ-509's own explicit acceptance criterion
+    // ("a query that fails to complete is reported to the admin as 'lookup
+    // unavailable, try again' — it is never silently treated as 'no data
+    // found'", ADR-0046's timeout-vs-no-match distinction applied here
+    // without exception). The caller (AdminSuggestionEndpoints) catches this
+    // and returns HTTP 503, the same shape GuessEndpoints.cs already uses for
+    // GuessSubmissionOutcome.LiveLookupUnavailable.
+    Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
+        string playerName,
+        CancellationToken cancellationToken = default);
 }

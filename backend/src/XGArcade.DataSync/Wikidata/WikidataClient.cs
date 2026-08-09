@@ -1456,6 +1456,160 @@ public class WikidataClient(
         return new WikidataPlayerPhotoLookupResult(labelValue.Value, photoUrl);
     }
 
+    // REQ-509/REQ-510 (S-090): see IWikidataClient's own doc comment for the
+    // full "why" — always throws on failure (no throwOnTimeout param, unlike
+    // the five intersection queries), since this is a brand-new,
+    // single-purpose admin-triggered action with no "never block" caller.
+    // Reuses _queryTimeout (15s), the same budget QueryPlayerPhotoByNameAsync
+    // reuses for the same reason: this is a single-player fetch (bounded by
+    // one player's own career length), not the population-wide join that
+    // motivated _guessTimeFallbackQueryTimeout's 28s.
+    public async Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
+        string playerName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(playerName))
+            return null;
+
+        var query = BuildPlayerCareerAndNationalityByNameQuery(playerName);
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return ParsePlayerCareerAndNationalityByNameBindings(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata admin career/nationality-by-name query for '{playerName}' timed out after {_queryTimeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException(
+                $"Wikidata admin career/nationality-by-name query for '{playerName}' failed: {ex.Message}", ex);
+        }
+    }
+
+    // Combines QueryPlayerPhotoByNameAsync's name-match subquery (LIMIT 1 —
+    // scoped to the SUBQUERY's own ?player projection, so it bounds "how many
+    // CANDIDATE PLAYERS this matches" to one, without truncating that one
+    // player's own OPTIONAL P27/P54 rows the way a top-level LIMIT 1 would)
+    // with QueryPlayerCareerStintsByQidsAsync's full P54 statement-path club
+    // history (same MINUS-deprecated-rank/MINUS-national-team-class shape —
+    // see that query builder's own comment for why both MINUS clauses are
+    // needed) and a P27 citizenship label. ?nationality/?club are both
+    // OPTIONAL and independent of each other — a player matched by name with
+    // neither, either, or both bound is every one of those a normal, valid
+    // outcome (parsed by ParsePlayerCareerAndNationalityByNameBindings below).
+    private static string BuildPlayerCareerAndNationalityByNameQuery(string playerName)
+    {
+        var escapedName = EscapeSparqlStringLiteral(playerName);
+        return $$"""
+            SELECT ?player ?playerLabel ?nationalityLabel ?club ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              {
+                SELECT ?player WHERE {
+                  ?player wdt:P106 wd:Q937857.
+                  {
+                    ?player rdfs:label ?matchedLabel.
+                    FILTER(LANG(?matchedLabel) = "en")
+                  }
+                  UNION
+                  {
+                    ?player skos:altLabel ?matchedLabel.
+                    FILTER(LANG(?matchedLabel) = "en")
+                  }
+                  FILTER(LCASE(STR(?matchedLabel)) = LCASE("{{escapedName}}"))
+                }
+                LIMIT 1
+              }
+              OPTIONAL { ?player wdt:P27 ?nationality. }
+              OPTIONAL {
+                ?player p:P54 ?clubStatement.
+                ?clubStatement ps:P54 ?club.
+                MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+                MINUS { ?club wdt:P31/wdt:P279* wd:{{NationalTeamClassWikidataQid}}. }
+                OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+                OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+                OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+    }
+
+    // Grouped across every row this query can produce (unlike
+    // ParsePlayerPhotoByNameBinding's single LIMIT-1 row): the name-match
+    // subquery bounds this to exactly one candidate ?player, but that
+    // player's own OPTIONAL P54 club rows still multiply rows the same way
+    // ParseCareerStintBindings' own comment describes. WikidataQid/FullName/
+    // Nationality are read from the first row that binds each (they're
+    // constant across every row for a single matched player); Clubs is a
+    // HashSet<string> of distinct club-name labels — simpler than
+    // ParseCareerStintBindings' HashSet-of-tuples dedup since this method's
+    // Clubs is a plain name list (see WikidataPlayerCareerLookupResult's own
+    // doc comment for why), so any two rows sharing a ?clubLabel are simply
+    // the same club regardless of what else differs between the rows.
+    // Returns null only when no row at all was returned — a genuine "no
+    // footballer matches this name," never a swallowed failure (see this
+    // method's own doc comment on IWikidataClient for the full
+    // error-contract reasoning).
+    private static WikidataPlayerCareerLookupResult? ParsePlayerCareerAndNationalityByNameBindings(SparqlResponse? response)
+    {
+        var bindings = response?.Results?.Bindings;
+        if (bindings is null || bindings.Count == 0)
+            return null;
+
+        string? wikidataQid = null;
+        string? fullName = null;
+        string? nationality = null;
+        var clubNames = new HashSet<string>();
+
+        foreach (var binding in bindings)
+        {
+            if (wikidataQid is null && binding.TryGetValue("player", out var playerValue) && !string.IsNullOrEmpty(playerValue.Value))
+                wikidataQid = playerValue.Value.Split('/').Last();
+
+            if (fullName is null && binding.TryGetValue("playerLabel", out var labelValue) && !string.IsNullOrWhiteSpace(labelValue.Value))
+                fullName = labelValue.Value;
+
+            if (nationality is null && binding.TryGetValue("nationalityLabel", out var nationalityValue) && !string.IsNullOrWhiteSpace(nationalityValue.Value))
+                nationality = nationalityValue.Value;
+
+            // Bug fix (2026-08-08, REQ-509/510): a club is recorded whenever
+            // ?clubLabel is bound AT ALL — deliberately NOT gated on
+            // ?startTime also being bound (the original bug: not every real
+            // P54 statement carries a P580 start-time qualifier, and gating
+            // on it silently dropped those clubs — see
+            // WikidataPlayerCareerLookupResult's own doc comment for the
+            // full "why"). ?startTime/?endTime/?numberOfMatches are still
+            // OPTIONAL-fetched by the query for parity with
+            // QueryPlayerCareerStintsByQidsAsync's shape, but this method's
+            // Clubs never needed them (only ClubName is ever read by
+            // AdminSuggestionEndpoints/CommitPlayerDataRequest.Clubs), so
+            // they're intentionally left unparsed here.
+            if (binding.TryGetValue("clubLabel", out var clubLabelValue) && !string.IsNullOrWhiteSpace(clubLabelValue.Value))
+                clubNames.Add(clubLabelValue.Value);
+        }
+
+        // wikidataQid/fullName absent means the name-match subquery itself
+        // never bound ?player — no footballer matches this name at all.
+        if (wikidataQid is null || fullName is null)
+            return null;
+
+        return new WikidataPlayerCareerLookupResult(wikidataQid, fullName, nationality, clubNames.ToList());
+    }
+
     private static IReadOnlyList<WikidataPlayerMatch> ParseBindings(SparqlResponse? response)
     {
         if (response?.Results?.Bindings is null)
