@@ -1481,3 +1481,67 @@ check the logs first before assuming the timeout value itself needs
 raising further, since a genuine WDQS outage or a non-timeout failure
 (HTTP error, malformed JSON) would look identical to a timeout from the
 admin's browser but very different in this new log line.
+
+**Update, same day, ~90 minutes later — the new logging paid off
+immediately, and confirmed the user's skepticism was right.** A real
+production log (pasted into this session, not reproduced here) for the
+exact same player (Donny van de Beek) showed the request running **38.8
+seconds and then returning HTTP 502 Bad Gateway** from
+`query.wikidata.org` — not a timeout at all. The 45s budget above was
+never the bottleneck; it gave the request enough room to actually
+complete and reveal what's really happening: something in front of WDQS
+(most likely a gateway/reverse-proxy enforcing its own upstream-response
+deadline, independent of any client-side `CancellationTokenSource`) is
+rejecting this query once it runs long enough. No client timeout, however
+large, fixes a failure that happens on the far side of that gateway.
+
+Root cause, once actually visible: `BuildPlayerCareerAndNationalityByNameQuery`'s
+candidate-selection subquery was a case-insensitive `rdfs:label`/
+`skos:altLabel` scan across every Wikidata footballer — an unindexed,
+population-wide literal comparison, not a narrow query. That's what was
+actually expensive; the timeout fix above only ever addressed the
+symptom (client giving up too early), never the cause (WDQS itself, or
+its gateway, choking on the query's real cost).
+
+Fixed in ADR-0062 (`docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md`):
+replaced that scan with a federated `SERVICE wikibase:mwapi { ... }`
+`EntitySearch` call — Wikidata's own indexed search, the same engine
+behind its search box — re-filtered to footballers, still `LIMIT 1`. Two
+alternatives were considered and rejected: backfilling a real
+`WikidataQid` column onto `PlayerNameIndex` so this could resolve locally
+(rejected — `PlayerNameIndex.PlayerId` is a one-way hash of the QID
+today, not the QID itself, and reconciling the two id spaces is exactly
+the kind of deliberate future decision ADR-0007/COMP-10's own comments
+say not to back into via a fix); and calling Wikidata's REST
+`wbsearchentities` API directly (rejected — a genuinely new external
+host/dependency needing its own ADR-0008-style terms review, plus two
+round trips instead of one). The chosen approach stays inside
+`WikidataClient`'s existing single-endpoint SPARQL client — the `SERVICE
+wikibase:mwapi` federation is executed server-side by WDQS itself against
+`www.wikidata.org`, not by this codebase's own `HttpClient` — confirmed
+by `architecture-reviewer` on direct scrutiny, not just deferred to the
+ADR's own claim.
+
+**Still unverified against the real endpoint** — same standing sandbox
+limitation (no live network access to `wikidata.org`). Specific things a
+human should check first, per the implementer's own flagged uncertainty:
+whether `mwapi:limit "10"` is actually respected by the live WDQS
+deployment; whether re-filtering `EntitySearch`'s ranked candidates down
+to `wdt:P106 wd:Q937857` can legitimately return zero results for an
+ambiguous name where a much more famous non-footballer outranks the
+actual player in the top 10 (try "Donny van de Beek" first as a known
+real case, then a deliberately ambiguous name); and whether
+`wikibase:endpoint "www.wikidata.org"` is the exact right form for this
+WDQS deployment. `QueryPlayerPhotoByNameAsync` (REQ-216/ADR-0057) still
+uses the old raw label-scan shape — deliberately not touched here (its
+own different timeout/urgency constraints), flagged in ADR-0062 as a
+possible future follow-up if this pattern proves out.
+
+**The general lesson, worth internalizing beyond this one incident:** a
+client-side timeout increase can only ever fix "our client gave up too
+early." It does nothing for "the query is too expensive and something
+else — the server, or infrastructure in front of it — rejects it once it
+runs long enough." Adding diagnosability (the Warning-level logging from
+the fix above) before assuming a timeout bump is sufficient is what
+turned this from "still broken, no idea why" into a concrete, actionable
+root cause within one production log line.
