@@ -90,4 +90,12 @@ internal sealed class FakeWikidataClient : IWikidataClient
     public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());
+
+    // REQ-509/510 (S-090): GridGameModule never calls this (it's
+    // AdminSuggestionEndpoints' admin-lookup method, not part of grid
+    // generation or guess-scoring) — a trivial stub, same as every other
+    // method in this file besides QueryPlayerPhotoByNameAsync above.
+    public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
+        string playerName, CancellationToken cancellationToken = default) =>
+        Task.FromResult<WikidataPlayerCareerLookupResult?>(null);
 }
