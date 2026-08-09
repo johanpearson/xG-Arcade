@@ -1398,3 +1398,86 @@ the new/changed code in this story was run through a real `dotnet build`/
 cross-referencing existing query-builder/dispatch patterns) instead. Must
 run in CI before merging, and the two QIDs must be checked against live
 Wikidata pages by a human before this is relied on in production.
+
+### 2026-08-09 — Admin Wikidata by-name lookup (`REQ-509`/`REQ-510`) failing with "Lookup unavailable" in production: same 15s-too-tight-for-a-broad-query-shape bug as `import-player-name-index`/`PlayerCareerPrefetchService`, just newer code
+
+Reported live (via a screenshot of the admin Suggestions screen): both
+`POST /admin/suggestions/{id}/lookup` (REQ-509, suggestion review) and
+`POST /admin/player-search/lookup` (REQ-510, standalone admin search)
+were failing with "Lookup unavailable — we couldn't reach Wikidata to
+verify this player" — for the *same* player, on the *same* attempt, on
+*both* endpoints, which was the tell: they share one code path
+(`AdminSuggestionEndpoints.LookupPlayerAsync` →
+`IWikidataClient.QueryPlayerCareerAndNationalityByNameAsync`), so a
+Wikidata reachability/timing problem takes out both admin recovery
+routes for a stuck suggestion at once, with no fallback between them.
+
+Root cause: `QueryPlayerCareerAndNationalityByNameAsync`'s query
+(`BuildPlayerCareerAndNationalityByNameQuery`) does a case-insensitive
+`rdfs:label`/`skos:altLabel` scan across every Wikidata footballer
+(`?player wdt:P106 wd:Q937857` + a `LCASE(STR(?matchedLabel)) =
+LCASE(...)` filter) to find a name match — an unindexed, population-wide
+scan, not a narrow per-cell query — but it was still using
+`WikidataClient`'s default `_queryTimeout` (15s), the budget ADR-0011
+tuned specifically for the narrow per-cell intersection queries. This is
+the exact same failure class recorded twice already in this file
+(2026-07-17 `import-player-name-index`, 2026-07-28
+`PlayerCareerPrefetchService`) — a broad/unbounded WDQS query shape
+needs its own, longer, dedicated timeout, and 15s is only ever safe for
+the narrow per-cell shape it was measured against. This admin lookup
+(built in S-090, 2026-08-08) just hadn't been through that lesson yet,
+being newer than both prior incidents.
+
+Fixed the same way both prior incidents were: added a fourth,
+purpose-specific `TimeSpan?` constructor param on `WikidataClient`,
+`adminLookupQueryTimeout` (`_adminLookupQueryTimeout`, defaulting to
+45s — same evidence band as `_cacheWarmingQueryTimeout`'s 45s, safely
+under WDQS's ~60s hard server-side cap per the 2026-07-18 entry above,
+but explicitly *not* framed as "nobody's waiting" the way cache warming
+is — an admin is synchronously blocked on this in a browser tab), used
+only by `QueryPlayerCareerAndNationalityByNameAsync`. Deliberately did
+**not** touch `QueryPlayerPhotoByNameAsync` (same by-name shape, but on
+the live wrong-guess photo-reveal path, ADR-0057, with a real-time/
+ingress-timeout constraint this admin lookup doesn't have) — its
+existing comment claiming budget parity with the career/nationality
+lookup was updated to explain the two now intentionally diverge, and a
+new regression test
+(`REQ216_QueryPlayerPhotoByNameAsync_UsesQueryTimeout_NotAdminLookupBudget`)
+locks that down so a future refactor can't silently re-merge the two
+budgets and only find out via a real 45s slowdown in production.
+
+Also added server-side `Warning`-level logging (with the caught
+`WikidataQueryException`) in both `/admin/suggestions/{id}/lookup` and
+`/admin/player-search/lookup`'s existing catch blocks — before this fix,
+neither endpoint logged anything on failure, so a recurrence would have
+been just as undiagnosable as this one was. The HTTP 503 response
+contract is unchanged (ADR-0046 — the exception's own message still
+never reaches the admin's browser, only the server log).
+
+Went through `architecture-reviewer` (no ADR needed — same "just tuning"
+judgment as the two prior timeout additions, `_guessTimeFallbackQueryTimeout`/
+ADR-0046 and `_cacheWarmingQueryTimeout`/REQ-110, neither of which got
+its own ADR either; flagged as a forward-looking note that a *fifth*
+per-purpose timeout on this constructor would be the point to reconsider
+the growing-parameter-list shape) and `quality-architect` (no blocking
+findings; one real gap closed — see the regression test above — plus two
+non-blocking follow-ups noted for later: `AdminSuggestionEndpointTests.cs`'s
+`CapturingLoggerProvider` is now duplicated with `GridEndpointTests.cs`'s
+copy in the same test assembly, worth extracting next time either file
+is touched; and the constructor's four same-typed optional `TimeSpan?`
+params are becoming error-prone by position, worth an options-object
+refactor if a fifth is ever proposed).
+
+**Whether this actually fixes it in production is still unverified** —
+this session had no live Wikidata access to reproduce the original
+failure or confirm 45s clears it (same standing sandbox limitation as
+every entry in this file); the user was explicit up front that they were
+skeptical a timeout bump alone would hold, given this class of lookup's
+recurring history. The new Warning-level logging exists specifically so
+that if "Lookup unavailable" recurs after this ships, there's now a
+server log entry (with the suggestion id or player name, and whether it
+was a timeout vs. an HTTP/parse failure) instead of nothing to go on —
+check the logs first before assuming the timeout value itself needs
+raising further, since a genuine WDQS outage or a non-timeout failure
+(HTTP error, malformed JSON) would look identical to a timeout from the
+admin's browser but very different in this new log line.

@@ -93,6 +93,7 @@ public static class AdminSuggestionEndpoints
             Guid id,
             IPlayerSuggestionRepository playerSuggestionRepository,
             IWikidataClient wikidataClient,
+            ILogger<AdminSuggestionEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
             var suggestion = await playerSuggestionRepository.GetByIdAsync(id, cancellationToken);
@@ -112,7 +113,7 @@ public static class AdminSuggestionEndpoints
             {
                 response = await LookupPlayerAsync(suggestion.PlayerName, wikidataClient, cancellationToken);
             }
-            catch (WikidataQueryException)
+            catch (WikidataQueryException ex)
             {
                 // REQ-509/ADR-0046: a lookup that fails/times out is reported
                 // as "lookup unavailable, try again" — never silently treated
@@ -121,7 +122,15 @@ public static class AdminSuggestionEndpoints
                 // exception's own Message is deliberately NOT surfaced here
                 // (unlike an /internal/* endpoint's CI-log carve-out,
                 // docs/coding-guidelines.md) — this endpoint's caller is an
-                // admin's browser, not a scheduled job's own log.
+                // admin's browser, not a scheduled job's own log. Logged
+                // server-side instead (bug fix, 2026-08-09) so a production
+                // "Lookup unavailable" report is diagnosable — before this
+                // fix both admin lookup endpoints failed identically and
+                // silently, indistinguishable from each other in the logs.
+                logger.LogWarning(
+                    ex,
+                    "Wikidata lookup failed for suggestion {SuggestionId} (player name {PlayerName}) via the suggestion-scoped admin lookup endpoint",
+                    id, suggestion.PlayerName);
                 return Results.Problem(
                     title: "Live verification unavailable",
                     detail: "We couldn't reach Wikidata to verify this player. Please try again.",
@@ -236,6 +245,7 @@ public static class AdminSuggestionEndpoints
         app.MapPost("/admin/player-search/lookup", async (
             PlayerSearchLookupRequest request,
             IWikidataClient wikidataClient,
+            ILogger<AdminSuggestionEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.PlayerName))
@@ -251,10 +261,16 @@ public static class AdminSuggestionEndpoints
             {
                 response = await LookupPlayerAsync(request.PlayerName, wikidataClient, cancellationToken);
             }
-            catch (WikidataQueryException)
+            catch (WikidataQueryException ex)
             {
                 // Same ADR-0046 timeout-vs-no-match distinction as
-                // /admin/suggestions/{id}/lookup above.
+                // /admin/suggestions/{id}/lookup above, and the same
+                // server-side-only logging (bug fix, 2026-08-09) — see that
+                // endpoint's catch block for the full reasoning.
+                logger.LogWarning(
+                    ex,
+                    "Wikidata lookup failed for player name {PlayerName} via the standalone admin player-search lookup endpoint",
+                    request.PlayerName);
                 return Results.Problem(
                     title: "Live verification unavailable",
                     detail: "We couldn't reach Wikidata to verify this player. Please try again.",

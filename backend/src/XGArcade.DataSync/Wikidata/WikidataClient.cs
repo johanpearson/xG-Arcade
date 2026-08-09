@@ -15,7 +15,8 @@ public class WikidataClient(
     TimeSpan? queryTimeout = null,
     TimeSpan? guessTimeFallbackQueryTimeout = null,
     ILogger<WikidataClient>? logger = null,
-    TimeSpan? cacheWarmingQueryTimeout = null) : IWikidataClient
+    TimeSpan? cacheWarmingQueryTimeout = null,
+    TimeSpan? adminLookupQueryTimeout = null) : IWikidataClient
 {
     // Optional param (like queryTimeout) so tests can construct a client
     // without wiring DI's logging; falls back to a real ILogger<T> in
@@ -110,6 +111,44 @@ public class WikidataClient(
     // of the workflow's 90-minute ceiling even for the worst pair). Same
     // overridable-for-tests shape as the two timeouts above.
     private readonly TimeSpan _cacheWarmingQueryTimeout = cacheWarmingQueryTimeout ?? TimeSpan.FromSeconds(45);
+
+    // REQ-509/REQ-510 tuning fix (2026-08-09): QueryPlayerCareerAndNationalityByNameAsync
+    // was still reusing _queryTimeout (15s) — see that method's own comment
+    // for why that was wrong. This is a fourth, admin-lookup-only budget,
+    // same overridable-for-tests shape as the three above.
+    //
+    // 45s, same evidence band as _cacheWarmingQueryTimeout's: this method's
+    // query shape is the same kind of broad, unindexed population-wide
+    // rdfs:label/skos:altLabel scan across every Wikidata footballer that
+    // cache warming's own reference-pair sweep runs into, not the narrow
+    // per-cell intersection shape ADR-0011's original 15s/28s budgets were
+    // tuned for. ADR-0011's own evidence (WDQS queries observed 9-27s under
+    // load) is the same evidence both _guessTimeFallbackQueryTimeout's 28s
+    // and _cacheWarmingQueryTimeout's 45s already lean on; 45s gives this
+    // broad shape the same comfortably wider margin above that 9-27s range
+    // that cache warming gets, while staying safely under WDQS's own ~60s
+    // hard SERVER-side cap (see NOTES.md's 2026-07-18 entry — pushing this
+    // much past ~55s risks re-triggering that exact trap, where a client
+    // timeout increase does nothing because the query is killed
+    // server-side first; 45s leaves real margin under that ceiling, not
+    // just under the observed range).
+    //
+    // Unlike cache warming, though, this is NOT a "nobody's waiting" budget
+    // — REQ-509/REQ-510's caller is an admin synchronously blocked on this
+    // in a browser tab (AdminSuggestionEndpoints' two /admin/... lookup
+    // endpoints), closer in spirit to guess-time fallback's "someone is
+    // waiting" framing than to cache warming's unattended CLI-verb-inside-
+    // a-90-minute-job framing. But the query itself is shaped like cache
+    // warming's (broad, population-wide), not guess-time fallback's
+    // (narrow, per-cell) — so 28s (tuned for the narrow shape) would be too
+    // tight here, and this can't just reuse _guessTimeFallbackQueryTimeout
+    // either, since REQ-509/510 doesn't share REQ-211's ADR-0046 fail-
+    // closed-as-incorrect contract. 45s is the deliberate balance: wide
+    // enough for the broad query shape this method actually runs, without
+    // making an admin who IS waiting sit through cache warming's full
+    // margin for a query that (unlike cache warming's unattended sweep)
+    // has no larger job budget to be a "small fraction" of.
+    private readonly TimeSpan _adminLookupQueryTimeout = adminLookupQueryTimeout ?? TimeSpan.FromSeconds(45);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -1625,10 +1664,29 @@ public class WikidataClient(
     // full "why" — always throws on failure (no throwOnTimeout param, unlike
     // the five intersection queries), since this is a brand-new,
     // single-purpose admin-triggered action with no "never block" caller.
-    // Reuses _queryTimeout (15s), the same budget QueryPlayerPhotoByNameAsync
-    // reuses for the same reason: this is a single-player fetch (bounded by
-    // one player's own career length), not the population-wide join that
-    // motivated _guessTimeFallbackQueryTimeout's 28s.
+    //
+    // Timeout budget: uses _adminLookupQueryTimeout (45s), NOT _queryTimeout
+    // (15s) — bug fix (2026-08-09, REQ-509/REQ-510 tuning). This method's
+    // BuildPlayerCareerAndNationalityByNameQuery subquery is a
+    // case-insensitive rdfs:label/skos:altLabel scan across every Wikidata
+    // footballer (an unindexed, population-wide match, the same query shape
+    // _cacheWarmingQueryTimeout was tuned for), not the narrow single-
+    // player/single-cell shape 15s was tuned for — see _adminLookupQueryTimeout's
+    // own doc comment above for the full evidence/reasoning.
+    //
+    // This intentionally now has a DIFFERENT budget than
+    // QueryPlayerPhotoByNameAsync just above, even though both are by-name
+    // lookups sharing the identical label/alias-match shape — that used to
+    // be true parity (both reused _queryTimeout), but this method has no
+    // equivalent of QueryPlayerPhotoByNameAsync's ADR-0057 wrong-guess-flow
+    // constraint (a live reveal inside a guess-submission response, subject
+    // to the frontend's request lifecycle and this app's ingress timeout).
+    // An admin's by-name lookup has no such ceiling to respect, so it's free
+    // to use the wider, broad-query-shape-appropriate budget instead. Do not
+    // "fix" this back into parity — see QueryPlayerPhotoByNameAsync's own
+    // comment, which independently already reuses _queryTimeout for its own
+    // reason (cost/urgency shape), not because the two methods need to
+    // match.
     public async Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
         string playerName, CancellationToken cancellationToken = default)
     {
@@ -1641,7 +1699,7 @@ public class WikidataClient(
         using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
 
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
+        using var timeoutCts = new CancellationTokenSource(_adminLookupQueryTimeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
         try
@@ -1657,7 +1715,7 @@ public class WikidataClient(
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new WikidataQueryException(
-                $"Wikidata admin career/nationality-by-name query for '{playerName}' timed out after {_queryTimeout.TotalSeconds:0}s.");
+                $"Wikidata admin career/nationality-by-name query for '{playerName}' timed out after {_adminLookupQueryTimeout.TotalSeconds:0}s.");
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {

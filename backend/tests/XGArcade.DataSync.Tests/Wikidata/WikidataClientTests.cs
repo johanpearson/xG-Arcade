@@ -2151,6 +2151,37 @@ public class WikidataClientTests
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
     }
 
+    // Regression guard for the 2026-08-09 REQ-509/REQ-510 tuning fix (see
+    // QueryPlayerCareerAndNationalityByNameAsync's own comment and its
+    // sibling REQ509_..._UsesAdminLookupBudget_NotQueryTimeout test above):
+    // that fix gave admin-triggered career/nationality lookups their own,
+    // much wider _adminLookupQueryTimeout budget, deliberately leaving this
+    // method on the original _queryTimeout (ADR-0057 wrong-guess-flow
+    // constraint) — "Do not 'fix' this back into parity." Same shape as
+    // that sibling test, but with the roles reversed: queryTimeout is set
+    // WIDE and adminLookupQueryTimeout SHORT, so if a future refactor ever
+    // pointed this method at _adminLookupQueryTimeout instead, this call
+    // would return (wrongly) after ~50ms and both assertions below would
+    // fail, instead of silently ballooning to a real 45s wait the way the
+    // old, budget-less test could.
+    [Test]
+    public async Task REQ216_QueryPlayerPhotoByNameAsync_UsesQueryTimeout_NotAdminLookupBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(400),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(50));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryPlayerPhotoByNameAsync("Clarence Seedorf"));
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short adminLookupQueryTimeout (50ms) must not cut this call off before the wider queryTimeout (400ms) elapses");
+        Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (queryTimeout) budget used, not adminLookupQueryTimeout");
+    }
+
     [Test]
     public void REQ216_QueryPlayerPhotoByNameAsync_MalformedJson_ThrowsWikidataQueryException()
     {
@@ -2993,11 +3024,42 @@ public class WikidataClientTests
     [Test]
     public void REQ509_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ThrowsWikidataQueryException()
     {
+        // adminLookupQueryTimeout, not queryTimeout — must be set here too,
+        // or this test would wait out the real (45s default) budget. See
+        // the test just below for proof the two budgets are genuinely
+        // independent, not just that a timeout eventually throws.
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
-            queryTimeout: TimeSpan.FromMilliseconds(50));
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(50));
 
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
+
+    // Bug fix (2026-08-09, REQ-509/REQ-510 tuning): this method used to
+    // reuse _queryTimeout (15s), which was too tight for its broad,
+    // population-wide by-name scan and caused production "Lookup
+    // unavailable" failures. Proves the fix: a short queryTimeout must NOT
+    // cut this call off before the wider adminLookupQueryTimeout elapses —
+    // same shape as
+    // QueryCountryClubIntersectionAsync_ThrowOnTimeoutTrue_UsesGuessTimeFallbackBudget_NotQueryTimeout
+    // above.
+    [Test]
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_UsesAdminLookupBudget_NotQueryTimeout()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(400));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+        stopwatch.Stop();
+
+        Assert.That(stopwatch.ElapsedMilliseconds, Is.GreaterThanOrEqualTo(300),
+            "a short queryTimeout (50ms) must not cut this call off before the wider adminLookupQueryTimeout (400ms) elapses");
+        Assert.That(ex!.Message, Does.Contain("0s."), "the reported duration should reflect the actual (adminLookup) budget used, not queryTimeout");
     }
 
     [Test]
