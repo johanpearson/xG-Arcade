@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.56"
+version: "1.57"
 status: draft
-last_updated: 2026-08-08
+last_updated: 2026-08-09
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -2384,8 +2384,9 @@ unresolved guess**
 > incorrect or couldn't be verified in time, so a real gap in the data has
 > a chance to be fixed for everyone — not just re-scored for me.
 
-**Status: Implemented (submission half only; REQ-509/510's admin review/
-commit half is S-090, still not built — 2026-08-01, S-089).** Backend:
+**Status: Implemented (submission half — 2026-08-01, S-089; REQ-509/510's
+admin review/commit half is also now implemented, S-090, 2026-08-08 — see
+those REQs' own status notes).** Backend:
 `POST /rounds/{roundId}/cells/{cellId}/suggestions`
 (`XGArcade.Api.Suggestions.SuggestionEndpoints`, `[RequireAuthorization]`)
 resolves the caller via `ClaimsPrincipal`/`IUserRepository
@@ -2456,8 +2457,8 @@ firing during normal play), the same basis REQ-108/REQ-214/REQ-402-403/
 REQ-717 were each pulled forward on before their own triggers fired — see
 `MVP-SCOPE.md`'s Tier 1 section for the matching entry recording this
 pull-forward. REQ-215's submission half (S-089) was built the same
-session; REQ-509/REQ-510's admin review/commit half remains queued as
-S-090, not yet pulled into an active session.
+session; REQ-509/REQ-510's admin review/commit half was built as S-090
+(2026-08-08) — see REQ-509's own status note.
 
 **Scope note:** this is a genuinely new, player-initiated pipeline,
 distinct from REQ-501-503's existing admin review of auto-fetched,
@@ -4294,8 +4295,64 @@ Wikidata commit**
 > corrected data myself, so a genuinely correct suggestion actually fixes
 > the game's data instead of just sitting unreviewed.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement.
+**Status: Implemented (2026-08-08, S-090).** Backend:
+`GET /admin/suggestions` (lists every pending suggestion — player name,
+asserted club(s), asserted nationality, submitting user's resolved display
+name, and submission timestamp — batched via `IUserRepository
+.GetByIdsAsync`, no N+1), `POST /admin/suggestions/{id}/lookup` (runs the
+live Wikidata career/nationality query for that suggestion's own stored
+`PlayerName`; a `WikidataQueryException` is reported as `503`
+"lookup unavailable, try again," never silently treated as no-match,
+per ADR-0046; `404` if the suggestion doesn't exist, `409` if it's already
+resolved), `POST /admin/suggestions/{id}/commit` (writes the admin's
+reviewed/confirmed values, moves the suggestion to `Committed`, records
+`ResolvedByAdminId`/`ResolvedAt`), and `POST /admin/suggestions/{id}/reject`
+(writes nothing, moves the suggestion to `Rejected`, records the same
+audit fields) — all in a new `XGArcade.Api.Admin.AdminSuggestionEndpoints.cs`
+file, `[RequireAuthorization("Admin")]`, deliberately kept separate from
+`AdminEndpoints.cs` (REQ-501-503's file) rather than folded into it, per
+ADR-0053. Commit and reject both call `IPlayerSuggestionRepository
+.ResolveAsync`, so a suggestion is never left pending after either action.
+The commit write path does not go through a single uniform mechanism:
+nationality (single-valued) is written via `PlayerOverride`, exactly as
+REQ-501's existing manual-override path already writes it (`Reason`/
+`LockedByAdminId`/`LockedAt` set); club(s) (multi-valued, per REQ-113's
+"ever played for, at any career point") are written as additive
+`PlayerAttribute` rows instead, one per confirmed club not already
+effective for that player — this split, and the reasoning for not routing
+everything through `PlayerOverride`, is recorded in ADR-0060 (new). Neither
+path ever writes `PlayerNameIndex` (ADR-0007/ADR-0053, unconditionally).
+Frontend: `SuggestionsScreen.tsx` (`frontend/src/admin/`) is a new,
+dedicated screen — never merged into `AdminScreen.tsx`'s existing
+unverified-data queue (ADR-0053) — reachable via a "Player suggestions"
+link added to `AdminScreen.tsx`, wired into `App.tsx` routing. **Bug found
+and fixed during implementation:** an early version of the Wikidata career
+lookup (`IWikidataClient
+.QueryPlayerCareerAndNationalityByNameAsync`/`WikidataClient
+.ParsePlayerCareerAndNationalityByNameBindings`) gated club detection on
+the SPARQL row's `?startTime` qualifier parsing successfully (reusing
+`WikidataCareerStintEntry`, whose `StartYear` is non-nullable by design for
+ADR-0054's xG Path stint log) — since not every real P54 club-membership
+statement carries a P580 start-time qualifier, this silently dropped clubs
+with no recorded start date from the admin lookup's result, contradicting
+this method's own "every non-deprecated P54 statement" contract and this
+REQ's "fetch every club the player has ever been recorded as a member of"
+acceptance criterion. Fixed same-session (before merge) by changing
+`WikidataPlayerCareerLookupResult.Clubs` to a plain distinct-name list
+gated only on `?clubLabel` being bound, never on `?startTime`; a regression
+test (`WikidataClientTests.cs`) pins a club with no `startTime` binding
+still appearing in the result. Test coverage: backend
+`AdminSuggestionEndpointTests.cs` (21 NUnit tests, `REQ509_...`/
+`REQ510_...` naming) plus `WikidataClientTests.cs` extensions for the new
+query method and the bug-fix regression case; frontend
+`SuggestionsScreen.test.tsx` (9 tests) plus an `App.test.tsx` navigation
+test — 486/486 Vitest tests passing (independently verified), clean
+architecture review and quality review. **Backend caveat: the `dotnet` SDK
+was unavailable in this build environment** — the backend implementation
+and its 21 tests were hand-traced against `AdminEndpoints`/
+`SuggestionEndpoints`/`WikidataClientTests`'s existing, already-verified
+patterns rather than actually built or run; confirm in CI before treating
+the backend half as independently verified.
 
 **Tier framing:** see REQ-215's own Tier framing note — this REQ is part
 of the same new pipeline, not scoped or tiered independently of it.
@@ -4379,8 +4436,26 @@ suggestion)**
 > the result to the database, without needing a player-submitted
 > suggestion to exist first, so I can proactively fix or extend the data.
 
-**Status: Not yet implemented — drafted only.** No code exists for any
-part of this requirement.
+**Status: Implemented (2026-08-08, S-090).** Backend:
+`POST /admin/player-search/lookup` (runs the identical live Wikidata
+fetch REQ-509's `/admin/suggestions/{id}/lookup` uses, but for a
+name supplied directly in the request body rather than a suggestion's
+stored `PlayerName`) and `POST /admin/player-search/commit` (writes
+through the identical commit path as REQ-509's — same nationality-via-
+`PlayerOverride`/club(s)-via-additive-`PlayerAttribute` split, ADR-0060 —
+`[RequireAuthorization("Admin")]`), both in the same
+`AdminSuggestionEndpoints.cs` file as REQ-509. Per that file's own header
+comment, the fetch and commit logic are each implemented exactly once
+(`LookupPlayerAsync`/`CommitPlayerDataAsync` helpers) and called from both
+this REQ's standalone endpoints and REQ-509's suggestion-scoped ones,
+rather than duplicated — no suggestion record is read, created, or
+required by either of this REQ's endpoints. Frontend: the same
+`SuggestionsScreen.tsx` exposes this as a standalone search-and-add entry
+point alongside the suggestion-review list. Test coverage: included in
+`AdminSuggestionEndpointTests.cs`'s 21 tests (`REQ510_...` naming) and
+`SuggestionsScreen.test.tsx` — see REQ-509's own status note for the full
+shared coverage/caveat detail (same file, same caveats, not duplicated
+here).
 
 **Tier framing:** see REQ-215's own Tier framing note — same new pipeline.
 
@@ -7398,8 +7473,9 @@ of `MVP-SCOPE.md`'s own ordering (REQ-215's "Tier framing" note) —
 (the feature was requested directly, by name, the same basis
 REQ-108/REQ-214/REQ-402-403/REQ-717 were each pulled forward on), recorded
 in `MVP-SCOPE.md`'s Tier 1 section; REQ-215's submission half was built
-the same session (S-089), REQ-509/REQ-510's admin half remains queued
-(S-090); and (2) whether REQ-509's
+the same session (S-089), REQ-509/REQ-510's admin half was queued as
+S-090 at the time and has since been built (2026-08-08 — see REQ-509's own
+status note); and (2) whether REQ-509's
 admin-reviewable suggestions should surface through REQ-503's existing
 (currently empty) review queue or a new, separate view, and whether a new
 ADR should record that choice (REQ-509's own status note) — **resolved

@@ -4459,9 +4459,8 @@ enabled and can complete the form) levels, matching REQ-215's own Test
 level line. *Deps:* REQ-211 (existing), REQ-717 (existing, for guest
 detection).
 
-**S-090 · REQ-509/510: admin suggestion review + Wikidata commit + manual search-and-add**
-*(Not yet started — queued for a later session; S-089 is this session's
-only build.)* Backend: admin endpoints to list pending suggestions
+**S-090 · REQ-509/510: admin suggestion review + Wikidata commit + manual search-and-add — done, 2026-08-08**
+Backend: admin endpoints to list pending suggestions
 (REQ-509), trigger a live Wikidata lookup by the suggestion's player name
 (same intersection-query shape as REQ-103/REQ-211, timeout reported as
 "lookup unavailable" rather than silently treated as no-match, per
@@ -4483,6 +4482,50 @@ no-match), UI (admin) levels, matching REQ-509/REQ-510's own Test level
 lines. *Deps:* S-089 (suggestions must exist to review, though REQ-510's
 manual-add half has no dependency on S-089 itself), ADR-0053 (the new
 separate-admin-view decision this story implements).
+**Built as:** matches the plan closely, plus one new structural decision
+and one bug found and fixed along the way. New
+`backend/src/XGArcade.Api/Admin/AdminSuggestionEndpoints.cs` implements all
+four suggestion-scoped endpoints (`GET /admin/suggestions`, `POST
+/admin/suggestions/{id}/lookup`, `POST /admin/suggestions/{id}/commit`,
+`POST /admin/suggestions/{id}/reject`) plus REQ-510's two standalone ones
+(`POST /admin/player-search/lookup`, `POST /admin/player-search/commit`),
+sharing a single fetch helper and a single commit helper across both REQs
+rather than duplicating either, exactly as the plan intended. New
+structural decision (flagged during the docs phase rather than decided
+silently): the commit action doesn't route every confirmed field through
+one uniform mechanism — nationality (single-valued) goes through
+`PlayerOverride`, exactly like REQ-501's existing manual-override path,
+but club(s) (multi-valued, per REQ-113's "ever played for, at any career
+point") go through additive `PlayerAttribute` rows instead, one per
+confirmed club not already effective for that player, so that confirming
+one club can never mask another the way a `PlayerOverride`'s full-type
+replacement (ADR-0015) would. Recorded in new ADR-0060 (`docs/decisions/
+0060-suggestion-commit-write-path-split-by-cardinality.md`); see that ADR
+for the full alternatives considered and accepted trade-offs (most notably:
+a committed club `PlayerAttribute` row carries no audit trail of its own —
+`PlayerSuggestion.ResolvedByAdminId`/`ResolvedAt` or a log line is the only
+record of who confirmed it). Bug found and fixed mid-implementation
+(`b8eee1b`, before merge): the new `IWikidataClient
+.QueryPlayerCareerAndNationalityByNameAsync` originally gated club
+detection on the SPARQL row's `?startTime` qualifier parsing successfully
+(reusing `WikidataCareerStintEntry`, whose `StartYear` is non-nullable by
+design for ADR-0054's xG Path stint log) — since not every real P54
+club-membership statement carries a P580 start-time qualifier, this
+silently dropped clubs with no recorded start date from the admin lookup's
+result. Fixed by changing `WikidataPlayerCareerLookupResult.Clubs` to a
+plain distinct-name list gated only on `?clubLabel` being bound; a
+regression test pins a club with no `startTime` binding still appearing.
+Frontend: `SuggestionsScreen.tsx`/`.css` (new), reachable via a "Player
+suggestions" link added to `AdminScreen.tsx` — never merged into that
+screen's existing unverified-data queue, per ADR-0053. Test coverage:
+`AdminSuggestionEndpointTests.cs` (21 NUnit tests), `WikidataClientTests.cs`
+extensions (including the bug-fix regression case), `SuggestionsScreen
+.test.tsx` (9 tests), plus an `App.test.tsx` navigation test — 486/486
+Vitest tests passing (independently verified); architecture review and
+quality review both clean. **Backend caveat unchanged from S-089: `dotnet`
+was unavailable in this build environment** — the backend half was
+hand-traced against existing, already-verified patterns rather than
+actually built or run; confirm in CI.
 
 **S-091 · Frontend: xG Path guess autocomplete (REQ-207 extension) — done, 2026-08-01**
 Pulled forward by deliberate product decision, 2026-08-01, immediately

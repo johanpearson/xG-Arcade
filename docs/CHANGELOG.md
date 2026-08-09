@@ -13,6 +13,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-09 — `docs/requirements-document.md` (v1.56 → v1.57),
+  `docs/backlog.md` — synced both docs to S-090's actual shipped state
+  (`docs/architecture-document.md`'s COMP-06 status note and new
+  ADR-0060 were already updated directly by the orchestrator, not touched
+  here). REQ-509 and REQ-510 moved from "drafted only" to "Implemented
+  (2026-08-08, S-090)," documenting the four suggestion-scoped admin
+  endpoints and two standalone search-and-add endpoints
+  (`AdminSuggestionEndpoints.cs`), the new `SuggestionsScreen.tsx` (linked
+  from, never merged into, `AdminScreen.tsx` per ADR-0053), the
+  nationality-via-`PlayerOverride`/club(s)-via-additive-`PlayerAttribute`
+  write-path split (ADR-0060), and a bug found and fixed mid-implementation
+  (the Wikidata career lookup silently dropping clubs with no P580
+  start-date qualifier). REQ-215's own status note and its two stale
+  "admin half still queued" cross-references were updated to match.
+  `docs/backlog.md`'s S-090 entry replaced its "not yet started" placeholder
+  with a "Built as" paragraph covering the same ground, plus the deviation
+  from the original story text (the write-path split wasn't specified up
+  front) and the bug fix. REQ-509, REQ-510, ADR-0060, ADR-0053.
+
 - 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
   `infra/scripts/promote-dev-to-prod.sh`, `infra/scripts/sync-prod-to-dev.sh`,
   `.github/workflows/promote-dev-to-prod-dry-run.yml` (new),
