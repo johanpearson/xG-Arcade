@@ -1666,13 +1666,21 @@ public class WikidataClient(
     // single-purpose admin-triggered action with no "never block" caller.
     //
     // Timeout budget: uses _adminLookupQueryTimeout (45s), NOT _queryTimeout
-    // (15s) — bug fix (2026-08-09, REQ-509/REQ-510 tuning). This method's
-    // BuildPlayerCareerAndNationalityByNameQuery subquery is a
-    // case-insensitive rdfs:label/skos:altLabel scan across every Wikidata
-    // footballer (an unindexed, population-wide match, the same query shape
-    // _cacheWarmingQueryTimeout was tuned for), not the narrow single-
-    // player/single-cell shape 15s was tuned for — see _adminLookupQueryTimeout's
-    // own doc comment above for the full evidence/reasoning.
+    // (15s) — bug fix (2026-08-09, REQ-509/REQ-510 tuning). At the time that
+    // budget was introduced, BuildPlayerCareerAndNationalityByNameQuery's
+    // subquery was a case-insensitive rdfs:label/skos:altLabel scan across
+    // every Wikidata footballer (an unindexed, population-wide match, the
+    // same query shape _cacheWarmingQueryTimeout was tuned for), not the
+    // narrow single-player/single-cell shape 15s was tuned for — see
+    // _adminLookupQueryTimeout's own doc comment above for the full
+    // evidence/reasoning. ADR-0062 (same day, separate change) replaced that
+    // subquery's candidate-selection mechanism with an indexed
+    // `SERVICE wikibase:mwapi` EntitySearch call specifically to cut the
+    // query's actual cost (a production 502 from WDQS's own gateway, not a
+    // timeout — see that ADR's Context section), but does NOT touch this
+    // 45s budget: the two are orthogonal fixes (query cost vs. client-side
+    // budget), and 45s remains the right budget for this method regardless
+    // of which mechanism selects the candidate underneath it.
     //
     // This intentionally now has a DIFFERENT budget than
     // QueryPlayerPhotoByNameAsync just above, even though both are by-name
@@ -1724,11 +1732,35 @@ public class WikidataClient(
         }
     }
 
-    // Combines QueryPlayerPhotoByNameAsync's name-match subquery (LIMIT 1 —
-    // scoped to the SUBQUERY's own ?player projection, so it bounds "how many
-    // CANDIDATE PLAYERS this matches" to one, without truncating that one
-    // player's own OPTIONAL P27/P54 rows the way a top-level LIMIT 1 would)
-    // with QueryPlayerCareerStintsByQidsAsync's full P54 statement-path club
+    // ADR-0062 (2026-08-09): the candidate-selection subquery below used to
+    // scan every Wikidata footballer's rdfs:label/skos:altLabel with a
+    // case-insensitive FILTER — an unindexed, population-wide graph scan
+    // that a production log confirmed WDQS's own gateway will 502 on once it
+    // runs long enough (38.8s, not a client-side timeout — see
+    // _adminLookupQueryTimeout's doc comment above, and ADR-0062's Context
+    // section for the full incident). It's replaced with a federated
+    // `SERVICE wikibase:mwapi { ... }` block that delegates candidate
+    // selection to Wikidata's own indexed `EntitySearch` API (the same
+    // engine behind Wikidata's search box) instead of a raw literal scan —
+    // same single-endpoint SPARQL client, no new external host. The
+    // subquery still selects exactly one candidate ?player (LIMIT 1, same
+    // as before): EntitySearch returns up to `mwapi:limit` ranked
+    // candidates (10 here — deliberately more than 1, since EntitySearch
+    // ranks by general relevance and can surface a same/similar-named
+    // non-footballer above the actual match), each re-filtered by
+    // `wdt:P106 wd:Q937857` (footballers) before the first survivor is
+    // taken. This mechanism change does NOT alter the outer query's shape
+    // or bindings — see the OPTIONAL P27/P54 comment just below, which is
+    // unchanged. Unverified against the real query.wikidata.org endpoint
+    // from this sandbox (no live network access) — see ADR-0062's
+    // Consequences section for what a human must confirm before this is
+    // trusted in production.
+    //
+    // Combines that mwapi-based candidate subquery (LIMIT 1 — scoped to the
+    // SUBQUERY's own ?player projection, so it bounds "how many CANDIDATE
+    // PLAYERS this matches" to one, without truncating that one player's own
+    // OPTIONAL P27/P54 rows the way a top-level LIMIT 1 would) with
+    // QueryPlayerCareerStintsByQidsAsync's full P54 statement-path club
     // history (same MINUS-deprecated-rank/MINUS-national-team-class shape —
     // see that query builder's own comment for why both MINUS clauses are
     // needed) and a P27 citizenship label. ?nationality/?club are both
@@ -1742,17 +1774,15 @@ public class WikidataClient(
             SELECT ?player ?playerLabel ?nationalityLabel ?club ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
               {
                 SELECT ?player WHERE {
+                  SERVICE wikibase:mwapi {
+                    bd:serviceParam wikibase:api "EntitySearch".
+                    bd:serviceParam wikibase:endpoint "www.wikidata.org".
+                    bd:serviceParam mwapi:search "{{escapedName}}".
+                    bd:serviceParam mwapi:language "en".
+                    bd:serviceParam mwapi:limit "10".
+                    ?player wikibase:apiOutputItem mwapi:item.
+                  }
                   ?player wdt:P106 wd:Q937857.
-                  {
-                    ?player rdfs:label ?matchedLabel.
-                    FILTER(LANG(?matchedLabel) = "en")
-                  }
-                  UNION
-                  {
-                    ?player skos:altLabel ?matchedLabel.
-                    FILTER(LANG(?matchedLabel) = "en")
-                  }
-                  FILTER(LCASE(STR(?matchedLabel)) = LCASE("{{escapedName}}"))
                 }
                 LIMIT 1
               }
