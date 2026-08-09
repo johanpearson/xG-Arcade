@@ -104,6 +104,17 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     private readonly Dictionary<(string Trophy, string Club), List<Player>> _trophyClubMatches = new();
     private readonly Dictionary<(string Trophy, string Club), int> _trophyClubCallCounts = new();
     private readonly Dictionary<(string Trophy, string Club), WikidataLookupOrigin> _trophyClubLastOrigin = new();
+    // ADR-0061: the most recent TrophyDefinition.IsTeamTrophy/
+    // CountryDefinition.UsesCountryForSportProperty each Trophy x Country
+    // pair's LookupAndPersistTrophyCountryAsync call was made with — lets a
+    // test assert GridGameModule threads both flags through
+    // CategoryCandidate/LookupLiveMatchesAsync correctly, mirroring
+    // _lastUsesCountryForSportProperty's own precedent for Country x Club.
+    private readonly Dictionary<(string Trophy, string Country), bool> _trophyCountryLastIsTeamTrophy = new();
+    private readonly Dictionary<(string Trophy, string Country), bool> _trophyCountryLastUsesCountryForSportProperty = new();
+    // ADR-0061: the Trophy x Club counterpart of _trophyCountryLastIsTeamTrophy
+    // above.
+    private readonly Dictionary<(string Trophy, string Club), bool> _trophyClubLastIsTeamTrophy = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
@@ -183,6 +194,16 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     public WikidataLookupOrigin? GetTrophyClubLastOrigin(string trophyName, string clubName) =>
         _trophyClubLastOrigin.TryGetValue((trophyName, clubName), out var origin) ? origin : null;
+
+    // ADR-0061: see _trophyCountryLastIsTeamTrophy's own comment above.
+    public bool? GetTrophyCountryLastIsTeamTrophy(string trophyName, string countryName) =>
+        _trophyCountryLastIsTeamTrophy.TryGetValue((trophyName, countryName), out var flag) ? flag : null;
+
+    public bool? GetTrophyCountryLastUsesCountryForSportProperty(string trophyName, string countryName) =>
+        _trophyCountryLastUsesCountryForSportProperty.TryGetValue((trophyName, countryName), out var flag) ? flag : null;
+
+    public bool? GetTrophyClubLastIsTeamTrophy(string trophyName, string clubName) =>
+        _trophyClubLastIsTeamTrophy.TryGetValue((trophyName, clubName), out var flag) ? flag : null;
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
         CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
@@ -279,6 +300,9 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         onCalled?.Invoke();
         _trophyCountryCallCounts[(trophy.Name, country.Name)] = GetTrophyCountryCallCount(trophy.Name, country.Name) + 1;
         _trophyCountryLastOrigin[(trophy.Name, country.Name)] = origin;
+        // ADR-0061.
+        _trophyCountryLastIsTeamTrophy[(trophy.Name, country.Name)] = trophy.IsTeamTrophy;
+        _trophyCountryLastUsesCountryForSportProperty[(trophy.Name, country.Name)] = country.UsesCountryForSportProperty;
 
         if (trophy.WikidataQid is null || country.WikidataQid is null)
             return [];
@@ -301,6 +325,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         onCalled?.Invoke();
         _trophyClubCallCounts[(trophy.Name, club.Name)] = GetTrophyClubCallCount(trophy.Name, club.Name) + 1;
         _trophyClubLastOrigin[(trophy.Name, club.Name)] = origin;
+        // ADR-0061.
+        _trophyClubLastIsTeamTrophy[(trophy.Name, club.Name)] = trophy.IsTeamTrophy;
 
         if (trophy.WikidataQid is null || club.WikidataQid is null)
             return [];

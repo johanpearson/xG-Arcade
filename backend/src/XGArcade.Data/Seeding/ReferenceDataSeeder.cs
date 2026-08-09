@@ -188,13 +188,38 @@ public static class ReferenceDataSeeder
         ("Celtic", "Q19593"),
     ];
 
-    // S-031: v1 seeds exactly one trophy (individual awards only, REQ-108) —
+    // S-031: v1 seeded exactly one trophy (individual awards only, REQ-108) —
     // IsTeamTrophy = false. Q166177 is a training-knowledge QID, NOT
     // verified against a live Wikidata page this session — see this class's
     // own doc comment above.
+    //
+    // ADR-0061 (2026-08-09): added FIFA World Cup (Q19317) and UEFA
+    // Champions League (Q18756), both IsTeamTrophy = true — see that ADR for
+    // the team-competition query shape (P1344/P3450/P1346 join, no P166
+    // equivalent) these two rows now unlock. Both QIDs are the competition
+    // SERIES item, per TrophyDefinition.WikidataQid's own doc comment, NOT
+    // a specific edition. Like every other QID in this file, these two are
+    // training-knowledge values, NOT verified against a live Wikidata
+    // endpoint from this sandbox (same network-policy block — see this
+    // class's own doc comment above) — **a human must verify both against
+    // their live Wikidata pages before this is relied on in a real
+    // deployment.** If either turns out wrong, correct it here the same way
+    // S-037 corrected the club QIDs — idempotent-by-Name upsert applies the
+    // fix on the next seed run with no migration needed.
+    //
+    // Growing the trophy pool from 1 to 3 has a real, foreseeable production
+    // consequence, not just a data change: it clears
+    // GridGameModule.SelectPairing's `trophyCount >= size` feasibility check
+    // for the default GridSize = 3, so Country x Trophy and Club x Trophy
+    // become selectable in production for the first time (Trophy x Trophy
+    // still needs trophyCount >= size * 2 = 6, stays infeasible for now).
+    // See GridGameModule.SelectPairing's own comment and ADR-0061's own
+    // "ADR-0035 follow-up resolved in the same story" note.
     private static readonly (string Name, string WikidataQid, bool IsTeamTrophy)[] Trophies =
     [
         ("Ballon d'Or", "Q166177", false),
+        ("FIFA World Cup", "Q19317", true),
+        ("UEFA Champions League", "Q18756", true),
     ];
 
     public static async Task SeedAsync(XGArcadeDbContext dbContext, CancellationToken cancellationToken = default)
