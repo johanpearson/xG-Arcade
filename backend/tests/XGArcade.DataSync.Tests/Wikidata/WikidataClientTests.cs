@@ -2846,14 +2846,15 @@ public class WikidataClientTests
 
     // ---- QueryPlayerCareerAndNationalityByNameAsync (REQ-509/REQ-510,
     // S-090, admin review live lookup) ---------------------------------------
-    // Combines QueryPlayerPhotoByNameAsync's name-match shape with P27
-    // citizenship and P54's full statement-path club history — see
-    // IWikidataClient's own doc comment for the full error-contract
-    // reasoning (always throws, no throwOnTimeout param, unlike the five
-    // intersection queries).
+    // Combines a wikibase:mwapi EntitySearch candidate lookup (ADR-0062,
+    // 2026-08-09 — replaced the original rdfs:label/skos:altLabel scan to
+    // fix a production WDQS-gateway 502) with P27 citizenship and P54's full
+    // statement-path club history — see IWikidataClient's own doc comment
+    // for the full error-contract reasoning (always throws, no
+    // throwOnTimeout param, unlike the five intersection queries).
 
     [Test]
-    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_MatchesFootballerByCaseInsensitiveLabelOrAlias_AndLimitsSubqueryToOne()
+    public async Task REQ509_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_MatchesFootballerViaMwapiEntitySearch_AndLimitsSubqueryToOne()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -2862,9 +2863,13 @@ public class WikidataClientTests
 
         var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
         Assert.That(sentQuery, Does.Contain("wdt:P106 wd:Q937857"));
-        Assert.That(sentQuery, Does.Contain("rdfs:label ?matchedLabel"));
-        Assert.That(sentQuery, Does.Contain("skos:altLabel ?matchedLabel"));
-        Assert.That(sentQuery, Does.Contain("LCASE(STR(?matchedLabel)) = LCASE(\"Clarence Seedorf\")"));
+        Assert.That(sentQuery, Does.Contain("SERVICE wikibase:mwapi"));
+        Assert.That(sentQuery, Does.Contain("wikibase:api \"EntitySearch\""));
+        Assert.That(sentQuery, Does.Contain("wikibase:endpoint \"www.wikidata.org\""));
+        Assert.That(sentQuery, Does.Contain("mwapi:search \"Clarence Seedorf\""));
+        Assert.That(sentQuery, Does.Contain("mwapi:language \"en\""));
+        Assert.That(sentQuery, Does.Contain("mwapi:limit \"10\""));
+        Assert.That(sentQuery, Does.Contain("?player wikibase:apiOutputItem mwapi:item"));
         Assert.That(sentQuery, Does.Contain("LIMIT 1"));
     }
 

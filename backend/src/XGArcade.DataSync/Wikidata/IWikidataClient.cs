@@ -507,25 +507,39 @@ public interface IWikidataClient
     // acceptance criteria, run by player name (an admin reviewing a
     // suggestion, or searching directly, has a name to start from — never a
     // WikidataQid, so this can't reuse QueryPlayerCareerStintsByQidsAsync's
-    // by-QID batch shape). Closest existing precedent is
-    // QueryPlayerPhotoByNameAsync's name-match shape (case-insensitive label
-    // OR alias, deliberately LIMIT-1 on the CANDIDATE PLAYER, not on result
-    // rows overall — see BuildPlayerCareerAndNationalityByNameQuery's own
-    // comment for how the two are combined without truncating a real
-    // multi-club career to one row), combined with P27's citizenship label
-    // and P54's FULL statement-path club-membership history (p:P54/ps:P54,
-    // MINUS deprecated rank — the same non-negotiable "ever played for," not
-    // "currently plays for" shape QueryPlayerCareerStintsByQidsAsync's own
-    // doc comment explains at length; do not simplify to the truthy wdt:P54
-    // shortcut).
+    // by-QID batch shape). Candidate-player selection is deliberately LIMIT-1
+    // on the CANDIDATE PLAYER, not on result rows overall — see
+    // BuildPlayerCareerAndNationalityByNameQuery's own comment for how that's
+    // combined with P27/P54 below without truncating a real multi-club career
+    // to one row.
     //
-    // Returns null when no footballer (P106=Q937857) matches playerName by
-    // label or alias at all — a genuine "Wikidata has no record of this
-    // name," never a swallowed failure (that distinction is exactly what
-    // throwing below is for). A matched player with no P27/P54 data at all
-    // still returns a non-null result with Nationality null and Clubs empty
-    // — both are independently optional, same "absent means none, never an
-    // error" contract as every other OPTIONAL-bound field in this file.
+    // ADR-0062 (2026-08-09): candidate selection uses a federated
+    // `SERVICE wikibase:mwapi` `EntitySearch` call (Wikidata's own indexed
+    // search, the same engine behind its search box) re-filtered to
+    // footballers (P106=Q937857), NOT QueryPlayerPhotoByNameAsync's
+    // rdfs:label/skos:altLabel scan — that raw label/alias shape was an
+    // unindexed, population-wide scan expensive enough to trigger a
+    // production HTTP 502 from WDQS's own gateway (see that ADR's Context
+    // section). QueryPlayerPhotoByNameAsync itself is unchanged and still
+    // uses the label/alias shape (a possible future follow-up per ADR-0062,
+    // not part of this change) — do not assume the two by-name lookups
+    // share an identical matching mechanism going forward.
+    //
+    // Combined with P27's citizenship label and P54's FULL statement-path
+    // club-membership history (p:P54/ps:P54, MINUS deprecated rank — the
+    // same non-negotiable "ever played for," not "currently plays for" shape
+    // QueryPlayerCareerStintsByQidsAsync's own doc comment explains at
+    // length; do not simplify to the truthy wdt:P54 shortcut).
+    //
+    // Returns null when no footballer (P106=Q937857) matches playerName via
+    // the EntitySearch candidate lookup at all — a genuine "Wikidata has no
+    // record of this name" (or nothing search-relevant enough to surface
+    // among the top-ranked candidates re-filtered to footballers), never a
+    // swallowed failure (that distinction is exactly what throwing below is
+    // for). A matched player with no P27/P54 data at all still returns a
+    // non-null result with Nationality null and Clubs empty — both are
+    // independently optional, same "absent means none, never an error"
+    // contract as every other OPTIONAL-bound field in this file.
     //
     // Error contract — always throws WikidataQueryException on timeout/HTTP/
     // parse failure, the SAME as every other name/QID-based lookup in this
