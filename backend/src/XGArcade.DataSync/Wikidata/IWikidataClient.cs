@@ -3,11 +3,9 @@ namespace XGArcade.DataSync.Wikidata;
 // COMP-07 (DataSync.Clients), Tier 0 half: the Wikidata half of ADR-0011's
 // live-lookup waterfall. Tier 0 grids are Country x Club, Club x Club (as of
 // docs/backlog.md S-030), and a Trophy-involving pairing (as of S-031,
-// REQ-108, individual awards only) (MVP-SCOPE.md) — so this is scoped to
-// those intersections rather than a generic n-category query. Team-
-// competition trophies (World Cup, Champions League) need a structurally
-// different query (squad membership + tournament result) and remain
-// deferred to a follow-up story.
+// REQ-108, individual awards; extended to team competitions by ADR-0061)
+// (MVP-SCOPE.md) — so this is scoped to those intersections rather than a
+// generic n-category query.
 public interface IWikidataClient
 {
     // Never LIMITs the underlying SPARQL query — see implementation-document.md
@@ -160,6 +158,107 @@ public interface IWikidataClient
     Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
+        bool throwOnTimeout = false,
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
+
+    // ADR-0061: team-competition trophies (FIFA World Cup, UEFA Champions
+    // League) have no P166-equivalent "trophies won" statement on a player
+    // item — winning a team competition is a fact about a squad and a
+    // specific tournament edition, not the player item itself (see that
+    // ADR's "What Wikidata actually models" section). This is a three-hop
+    // join instead of a single joining property: the player's own P1344
+    // ("participant of") edition, the edition's P3450 ("sports season of
+    // league or competition") membership in the trophy's series, and the
+    // edition's P1346 ("winner") matching the target country (via the
+    // winner's own P1532, "country for sport" — a P1346 value for the World
+    // Cup is a national-team item, e.g. "Brazil national football team",
+    // never the country item itself). Player-side P27 ("country of
+    // citizenship") — the team-trophy counterpart of
+    // QueryTrophyCountryIntersectionAsync above, for every ordinary
+    // sovereign-state country. Same
+    // no-LIMIT/never-throws-unless-throwOnTimeout contract as every other
+    // intersection query in this interface.
+    // onTechnicalFailure/timeoutTier: see QueryCountryClubIntersectionAsync's
+    // own doc comment — same purely-additive, default-preserving shape.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyCountryIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
+        bool throwOnTimeout = false,
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
+
+    // ADR-0061: the P1532 ("country for sport") player-side counterpart of
+    // QueryTeamTrophyCountryIntersectionAsync above, for England/Scotland/
+    // Wales/Northern Ireland — mirrors how QueryNationalTeamClubIntersectionAsync
+    // (P1532) is the ADR-0035 counterpart of QueryCountryClubIntersectionAsync
+    // (P27). The winner-side join stays P1532 either way (see
+    // QueryTeamTrophyCountryIntersectionAsync's own comment) — this method
+    // only changes which property identifies the PLAYER's side of the
+    // match; do not collapse the two into one branch, they answer genuinely
+    // different questions ("holds this citizenship" vs. "represented this
+    // country for sport"), same as every other P27-vs-P1532 split in this
+    // file. Same no-LIMIT/never-throws-unless-throwOnTimeout contract.
+    // onTechnicalFailure/timeoutTier: see QueryCountryClubIntersectionAsync's
+    // own doc comment.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
+        bool throwOnTimeout = false,
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
+
+    // ADR-0061: the Club counterpart of QueryTeamTrophyCountryIntersectionAsync
+    // above — no player-side branch needed, a club's identity is unambiguous,
+    // unlike a country's citizenship-vs-represented split. Keeps the P54
+    // club-membership clause (full statement path, same non-negotiable "ever
+    // played for," not "currently plays for," reasoning as every other P54
+    // use in this file) ALONGSIDE the P1344/P3450/P1346 edition-winner join,
+    // not instead of it — P1344 alone ("participated in this edition") is
+    // true for every player on every club that reached that edition, not
+    // just the winning squad; requiring club membership too narrows this
+    // back down to "played for the specific club that won it." A
+    // best-effort narrowing, not a guarantee — see ADR-0061's Consequences
+    // section for the known residual gap this doesn't solve (season/date
+    // qualifier matching between P54 and the edition's own year). The
+    // trophy's edition winner is matched directly against
+    // ClubDefinition.WikidataQid — a club competition's winner item IS the
+    // club item, no P1532-style indirection needed here (unlike the country
+    // variants above). Same no-LIMIT/never-throws-unless-throwOnTimeout
+    // contract.
+    // onTechnicalFailure/timeoutTier: see QueryCountryClubIntersectionAsync's
+    // own doc comment.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyClubIntersectionAsync(
+        string trophyWikidataQid,
+        string clubWikidataQid,
+        bool throwOnTimeout = false,
+        CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default);
+
+    // Judgment call, not part of ADR-0061's own three-method list (see
+    // NOTES.md's 2026-08-09 entry for the full reasoning): ADR-0035's
+    // follow-up note flagged that LookupAndPersistTrophyCountryAsync didn't
+    // honor CountryDefinition.UsesCountryForSportProperty "in general," not
+    // only for the team-trophy branch ADR-0061 adds. Closing that gap for
+    // the EXISTING individual-award P166 path (S-031) needs its own P1532
+    // player-side counterpart too, since QueryTrophyCountryIntersectionAsync
+    // has no such method to dispatch to — same P166 (truthy) + P1532
+    // (truthy) shape as QueryTrophyCountryIntersectionAsync's P166+P27,
+    // mirroring how QueryNationalTeamClubIntersectionAsync mirrors
+    // QueryCountryClubIntersectionAsync. Do not confuse this with
+    // QueryTeamTrophyNationalTeamIntersectionAsync above — that one is the
+    // team-competition (P1344/P3450/P1346) shape for a flagged country; this
+    // one is the individual-award (P166) shape for a flagged country. Same
+    // no-LIMIT/never-throws-unless-throwOnTimeout contract.
+    // onTechnicalFailure/timeoutTier: see QueryCountryClubIntersectionAsync's
+    // own doc comment.
+    Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid,
+        string countryWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,

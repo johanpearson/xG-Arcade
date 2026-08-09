@@ -110,15 +110,28 @@ already-passed-around `CategoryCandidate` is the smaller, cleaner diff.
   through that one shared builder, so this risk is the same one every other
   intersection-query pair (Trophy × Country, Trophy × Club) already
   carries, not a new class of risk.
-- Follow-up: `LookupAndPersistTrophyCountryAsync` (Country × Trophy) does
-  **not** yet honor `UsesCountryForSportProperty` — a national-team country
-  in that pairing would silently fall back to `P27` semantics. This is
-  currently unreachable in production (the seeded trophy pool is too small
-  for any Trophy pairing to ever be selected — see `GridGameModule.SelectPairing`'s
-  own comment), so it's tracked as follow-up work, not fixed here. Extend
-  `BuildTrophyCountryIntersectionQuery` with a `P1532` counterpart and
-  thread the flag through that dispatch branch too whenever the trophy pool
-  grows enough to make the pairing reachable.
+- Follow-up (RESOLVED 2026-08-09, ADR-0061): `LookupAndPersistTrophyCountryAsync`
+  (Country × Trophy) now honors `UsesCountryForSportProperty` in both the
+  individual-award (`IsTeamTrophy = false`) and team-competition
+  (`IsTeamTrophy = true`) cases — not just the team-competition case
+  ADR-0061 was originally scoped to add. Closing the gap required a fourth
+  new `IWikidataClient` method beyond ADR-0061's own three
+  (`QueryTrophyNationalTeamIntersectionAsync`, the P166+P1532 counterpart of
+  the existing P166+P27 `QueryTrophyCountryIntersectionAsync`), since no
+  existing method covered "individual award, national-team country" — a
+  judgment call made during ADR-0061's implementation, documented on that
+  method itself rather than as a second ADR, since it's the same
+  P27-vs-P1532 dispatch pattern this ADR already established, just applied
+  to close a gap this ADR's own follow-up note had flagged. Both
+  `GridGameModule`'s Country × Trophy call site and
+  `WikidataLookupService.LookupAndPersistTrophyCountryAsync`'s internal
+  dispatch now thread the flag through, per this note's original
+  instruction. This was resolved in the same story that grew the seeded
+  trophy pool from 1 to 3 (`ReferenceDataSeeder`, ADR-0061), which is what
+  made the Country × Trophy pairing reachable in production for the first
+  time — see ADR-0061's own "ADR-0035 follow-up resolved in the same story"
+  section for why fixing this alongside that pool growth was scope, not
+  creep.
 - Follow-up: all four seeded QIDs (`Q21`/`Q22`/`Q25`/`Q26`) are
   training-knowledge values, not verified against live Wikidata pages this
   session (no network access to wikidata.org from this sandbox) — a human

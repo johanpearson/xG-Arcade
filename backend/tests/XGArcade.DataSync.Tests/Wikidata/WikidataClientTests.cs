@@ -16,6 +16,7 @@ public class WikidataClientTests
     private const string ClubAQid = "Q9617";  // Arsenal
     private const string ClubBQid = "Q7156";  // Barcelona
     private const string TrophyQid = "Q166177"; // Ballon d'Or (unverified this session — see ReferenceDataSeeder)
+    private const string TeamTrophyQid = "Q19317"; // FIFA World Cup (unverified this session — see ReferenceDataSeeder, ADR-0061)
 
     private static HttpClient BuildHttpClient(FakeHttpMessageHandler handler) =>
         new(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
@@ -1302,6 +1303,214 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyClubIntersectionAsync(TrophyQid, "Arsenal"));
+    }
+
+    // ---- QueryTeamTrophyCountryIntersectionAsync / QueryTeamTrophyNationalTeamIntersectionAsync /
+    // QueryTeamTrophyClubIntersectionAsync / QueryTrophyNationalTeamIntersectionAsync (ADR-0061) ----
+    // Same RunIntersectionQueryAsync/ParseBindings code path as every query
+    // above (alias grouping, timeout, malformed JSON, etc. already proven
+    // generically) — only the query-shape assertions and QID-validation
+    // guards get dedicated coverage here, same precedent
+    // QueryTrophyCountryIntersectionAsync/QueryTrophyClubIntersectionAsync
+    // already established.
+
+    [Test]
+    public async Task REQ108_QueryTeamTrophyCountryIntersectionAsync_SentQuery_UsesP27PlayerSideAndP1532WinnerSide()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, CountryQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P27 wd:{CountryQid}."));
+        Assert.That(sentQuery, Does.Contain("?player wdt:P1344 ?edition."));
+        Assert.That(sentQuery, Does.Contain($"?edition wdt:P3450 wd:{TeamTrophyQid}."));
+        Assert.That(sentQuery, Does.Contain("?edition wdt:P1346 ?winner."));
+        Assert.That(sentQuery, Does.Contain($"?winner wdt:P1532 wd:{CountryQid}."),
+            "the winner-side join must always be P1532 — a P1346 winner value for a national-team competition is a national-team item, never the country item directly");
+        Assert.That(sentQuery, Does.Not.Contain("P166"), "team competitions have no P166 equivalent");
+        Assert.That(sentQuery, Does.Not.Contain("P54"), "the Country variant has no club-membership clause");
+    }
+
+    [Test]
+    public async Task QueryTeamTrophyCountryIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, CountryQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task QueryTeamTrophyCountryIntersectionAsync_SentQuery_NeverContainsLimit()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, CountryQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Not.Contain("LIMIT"));
+    }
+
+    [Test]
+    public void QueryTeamTrophyCountryIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyCountryIntersectionAsync("FIFA World Cup", CountryQid));
+    }
+
+    [Test]
+    public void QueryTeamTrophyCountryIntersectionAsync_RejectsNonQidCountryValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, "France"));
+    }
+
+    [Test]
+    public async Task REQ108_QueryTeamTrophyNationalTeamIntersectionAsync_SentQuery_UsesP1532OnBothPlayerAndWinnerSide()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyNationalTeamIntersectionAsync(TeamTrophyQid, NationalTeamQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P1532 wd:{NationalTeamQid}."));
+        Assert.That(sentQuery, Does.Contain("?player wdt:P1344 ?edition."));
+        Assert.That(sentQuery, Does.Contain($"?edition wdt:P3450 wd:{TeamTrophyQid}."));
+        Assert.That(sentQuery, Does.Contain("?edition wdt:P1346 ?winner."));
+        Assert.That(sentQuery, Does.Contain($"?winner wdt:P1532 wd:{NationalTeamQid}."));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "a flagged country must query P1532 exclusively on the player side, same as QueryNationalTeamClubIntersectionAsync");
+    }
+
+    [Test]
+    public async Task QueryTeamTrophyNationalTeamIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTeamTrophyNationalTeamIntersectionAsync(TeamTrophyQid, NationalTeamQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void QueryTeamTrophyNationalTeamIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyNationalTeamIntersectionAsync("FIFA World Cup", NationalTeamQid));
+    }
+
+    [Test]
+    public void QueryTeamTrophyNationalTeamIntersectionAsync_RejectsNonQidCountryValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyNationalTeamIntersectionAsync(TeamTrophyQid, "England"));
+    }
+
+    [Test]
+    public async Task REQ108_QueryTeamTrophyClubIntersectionAsync_SentQuery_KeepsP54ClubMembershipAlongsideEditionWinnerJoin()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyClubIntersectionAsync(TeamTrophyQid, ClubQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain($"?clubStatement ps:P54 wd:{ClubQid}."));
+        Assert.That(sentQuery, Does.Contain("MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }"));
+        Assert.That(sentQuery, Does.Contain("?player wdt:P1344 ?edition."));
+        Assert.That(sentQuery, Does.Contain($"?edition wdt:P3450 wd:{TeamTrophyQid}."));
+        Assert.That(sentQuery, Does.Contain($"?edition wdt:P1346 wd:{ClubQid}."),
+            "the Club variant matches the edition winner directly against the club QID — no P1532 indirection needed");
+        Assert.That(sentQuery, Does.Not.Contain("wdt:P54"),
+            "truthy wdt:P54 is best-rank-only — reintroducing it silently reduces 'ever played for' to 'currently plays for'");
+        Assert.That(sentQuery, Does.Not.Contain("P166"));
+    }
+
+    [Test]
+    public async Task QueryTeamTrophyClubIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTeamTrophyClubIntersectionAsync(TeamTrophyQid, ClubQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void QueryTeamTrophyClubIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyClubIntersectionAsync("FIFA World Cup", ClubQid));
+    }
+
+    [Test]
+    public void QueryTeamTrophyClubIntersectionAsync_RejectsNonQidClubValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyClubIntersectionAsync(TeamTrophyQid, "Arsenal"));
+    }
+
+    // Judgment call (see IWikidataClient.QueryTrophyNationalTeamIntersectionAsync's
+    // own doc comment) — the individual-award P166 counterpart of
+    // QueryTeamTrophyNationalTeamIntersectionAsync, needed to fully close
+    // ADR-0035's follow-up note for the pre-existing S-031 P166 path.
+
+    [Test]
+    public async Task REQ114_QueryTrophyNationalTeamIntersectionAsync_SentQuery_UsesTruthyP166AndP1532()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyNationalTeamIntersectionAsync(TrophyQid, NationalTeamQid);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P166 wd:{TrophyQid}."));
+        Assert.That(sentQuery, Does.Contain($"?player wdt:P1532 wd:{NationalTeamQid}."));
+        Assert.That(sentQuery, Does.Not.Contain("P27"));
+        Assert.That(sentQuery, Does.Not.Contain("P54"));
+        Assert.That(sentQuery, Does.Not.Contain("P1344"), "this is the individual-award shape, not the team-competition edition join");
+    }
+
+    [Test]
+    public async Task QueryTrophyNationalTeamIntersectionAsync_NoMatchingRows_ReturnsEmptyWithoutThrowing()
+    {
+        const string json = """{ "results": { "bindings": [] } }""";
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryTrophyNationalTeamIntersectionAsync(TrophyQid, NationalTeamQid);
+
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void QueryTrophyNationalTeamIntersectionAsync_RejectsNonQidTrophyValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyNationalTeamIntersectionAsync("Ballon d'Or", NationalTeamQid));
+    }
+
+    [Test]
+    public void QueryTrophyNationalTeamIntersectionAsync_RejectsNonQidCountryValue()
+    {
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
+
+        Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyNationalTeamIntersectionAsync(TrophyQid, "England"));
     }
 
     // ---- REQ-1207/S-082: P413 ("position") OPTIONAL binding + BirthYear ---

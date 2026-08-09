@@ -4740,3 +4740,79 @@ new `CellPlaceholderAvatar`), `GridCell.tsx`'s prop passthrough, and
 `incorrectGuessMatchedPlayerPhotoUrl` fields. *Deps:* ADR-0057 (resolved
 this session); REQ-211/ADR-0011 (existing, `WikidataClient` reused,
 budget/fallback tier NOT shared); REQ-214 (existing, UI template).
+
+**S-095 · Team-competition trophies for xG Grid Trophy category (REQ-108,
+ADR-0061) — implemented 2026-08-09**
+This is the deferred remainder S-031 explicitly called out as future work:
+"Team-competition trophies (World Cup, Champions League) are explicitly
+out of scope for this story — a distinct follow-up once individual awards
+are proven out, since they need a genuinely different Wikidata query
+pattern (squad membership + tournament result — no single property links a
+player directly to 'won this tournament')." That follow-up trigger fired
+here — no new product decision needed, this is the commitment S-031 already
+made being fulfilled. ADR-0061 scopes the query design first: a
+team-competition win is a join across three things (a player's `P1344`
+"participant of" a tournament edition, the edition's `P3450` "sports season
+of league or competition" linking it to the competition series, and the
+edition's `P1346` "winner" matched against the target country via `P1532`
+"country for sport" on the winner's national-team item, or directly against
+the target club), not a single joining property the way individual-award
+`P166` is. `TrophyDefinition.IsTeamTrophy` (added at S-031, unused until
+now) drives dispatch between the two query shapes; no schema change needed.
+As a judgment call during implementation, also resolved ADR-0035's own
+outstanding follow-up note in the same story: `LookupAndPersistTrophyCountryAsync`
+didn't yet honor `CountryDefinition.UsesCountryForSportProperty`, tracked as
+follow-up "whenever the trophy pool grows enough to make the pairing
+reachable" — since this story's own seeding is exactly what crosses that
+threshold, fixing it here was scope, not creep (see ADR-0061's own
+"ADR-0035 follow-up resolved in the same story" section).
+*Accept:* REQ108/REQ114-named tests: a Trophy×Country/Trophy×Club grid
+generates correctly and scores a guess correctly for both a team
+competition and an individual award, including the national-team-country
+(`UsesCountryForSportProperty`) branch on both query shapes; `ReferenceDataSeeder`
+seeds exactly three trophies (Ballon d'Or, FIFA World Cup, UEFA Champions
+League), idempotently. *Deps:* S-031 (extends its Trophy category
+plumbing directly); ADR-0035/REQ-114 (reuses its `P1532` national-team
+pattern on the winner side of the new join).
+
+**Built as:** `IWikidataClient`/`WikidataClient` gained four new
+intersection query methods — `QueryTeamTrophyCountryIntersectionAsync`,
+`QueryTeamTrophyNationalTeamIntersectionAsync`,
+`QueryTeamTrophyClubIntersectionAsync` (ADR-0061's own three), plus
+`QueryTrophyNationalTeamIntersectionAsync` for the existing individual-award
+path — a fourth method beyond ADR-0061's own list, a judgment call made
+during implementation to fully close ADR-0035's follow-up note, documented
+on ADR-0035's own updated follow-up entry rather than a second ADR, since
+it's the same P27-vs-P1532 dispatch pattern ADR-0035 already established.
+`WikidataLookupService.LookupAndPersistTrophyCountryAsync`/
+`LookupAndPersistTrophyClubAsync` now dispatch on `TrophyDefinition
+.IsTeamTrophy` (and, for Country, also on `CountryDefinition
+.UsesCountryForSportProperty`). `GridGameModule`'s `CategoryCandidate`
+gained `IsTeamTrophy` alongside the existing `UsesCountryForSportProperty`,
+threaded from generation and guess-time resolution through to both
+live-lookup dispatch call sites — this also closed the "REQ-114/ADR-0035
+scope note" gap that had previously left the Country×Trophy call site
+without `P1532` support at all. `ReferenceDataSeeder` seeds FIFA World Cup
+(`Q19317`) and UEFA Champions League (`Q18756`) as `IsTeamTrophy = true`
+rows alongside the existing Ballon d'Or, growing the seeded trophy pool
+from one to three. **Confirmed, asserted-not-just-commented production
+consequence:** this crosses `GridGameModule.SelectPairing`'s
+`trophyCount >= size` feasibility check for the default `GridSize = 3` —
+Country×Trophy and Club×Trophy are now REACHABLE and selectable in
+production for the first time, not just mechanically wired up (Trophy×Trophy
+still needs `trophyCount >= size * 2 = 6` and stays infeasible). Both new
+QIDs are training-knowledge guesses, **not independently verified against
+live Wikidata pages this session** (no network access from this sandbox,
+same limitation as every prior QID in this codebase) — flagged in
+`ReferenceDataSeeder`, `NOTES.md`, and test doc comments; a human must
+verify both before this is relied on in production. Full NUnit test suite
+added (REQ108/REQ114-named) across `WikidataClientTests.cs`,
+`WikidataLookupServiceTests.cs`, `GridGameModuleTests.cs`, and
+`ReferenceDataSeederTests.cs` — **not run in this sandbox** (`dotnet` SDK
+unavailable); checked by careful manual review only, per `NOTES.md`'s
+2026-08-09 entry — CI is the first real run. `docs/requirements-document.md`
+(REQ-107/REQ-108 status notes), `docs/architecture-document.md` (§6.1,
+boundary rule 1 discussion, COMP-05's cache-warming note),
+`MVP-SCOPE.md`, and `docs/implementation-document.md` (data model,
+`SelectPairing` narrative) all updated to describe team-competition
+trophies as built and reachable, not deferred.

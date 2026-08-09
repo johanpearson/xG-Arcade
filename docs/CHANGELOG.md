@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-09 — `docs/requirements-document.md` (v1.57 → v1.58),
+  `docs/architecture-document.md` (v0.84 → v0.85),
+  `docs/implementation-document.md` (v0.91 → v0.92), `docs/backlog.md`
+  (new S-095 entry), `MVP-SCOPE.md` — synced all five docs to REQ-108's
+  now-completed follow-up story: team-competition trophies (FIFA World Cup,
+  UEFA Champions League) for xG Grid's Trophy category, per ADR-0061's
+  `P1344`/`P3450`/`P1346` edition-participation/winner query shape. REQ-107
+  and REQ-108's status notes updated to record the trophy pool growing from
+  one to three and, critically, that Country×Trophy/Club×Trophy are now
+  REACHABLE and selectable in production (previously "structurally
+  dormant") — Trophy×Trophy remains infeasible (`trophyCount >= size * 2`
+  not yet cleared). `docs/architecture-document.md`'s boundary-rule-1
+  discussion (COMP-05/06/07 status note) updated to record ADR-0035's own
+  outstanding follow-up note as resolved in the same story; its §6.1 grid-
+  generation flow caveat and COMP-05's `PlayerCacheWarmingService` note
+  updated to match (the latter flagged as a newly-live, not fixed, gap —
+  Trophy pairs still aren't proactively cache-warmed even though they're
+  now reachable). `docs/implementation-document.md`'s `TrophyDefinition`
+  data-model snippet and grid-generation pairing narrative updated to match
+  the actual entity/behavior. `docs/backlog.md` gained a new S-095 entry
+  mirroring S-031's "Built as" format; `MVP-SCOPE.md`'s struck-through
+  REQ-108 Tier 1 entry updated to record the deferred remainder as shipped.
+  REQ-108, ADR-0061, ADR-0035 (follow-up note only, not re-litigated).
+
 - 2026-08-09 — `docs/requirements-document.md` (v1.56 → v1.57),
   `docs/backlog.md` — synced both docs to S-090's actual shipped state
   (`docs/architecture-document.md`'s COMP-06 status note and new

@@ -32,6 +32,12 @@ public class WikidataLookupServiceTests
     {
         Id = Guid.NewGuid(), Name = "England", WikidataQid = "Q21", UsesCountryForSportProperty = true,
     };
+    // ADR-0061: same QID as ReferenceDataSeeder, NOT independently verified
+    // against a live Wikidata page this session.
+    private static readonly TrophyDefinition WorldCup = new()
+    {
+        Id = Guid.NewGuid(), Name = "FIFA World Cup", WikidataQid = "Q19317", IsTeamTrophy = true,
+    };
 
     private const string SingleHenryMatchJson = """
         {
@@ -1211,5 +1217,134 @@ public class WikidataLookupServiceTests
 
         var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
         Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == player.Id), Is.EqualTo(0));
+    }
+
+    // ---- ADR-0061: team-competition trophy dispatch -------------------------
+    // LookupAndPersistTrophyCountryAsync/LookupAndPersistTrophyClubAsync now
+    // branch on TrophyDefinition.IsTeamTrophy (and, for Country, ALSO on
+    // CountryDefinition.UsesCountryForSportProperty) — these tests assert the
+    // actual SPARQL query sent for every combination, the same
+    // BuildServiceWithHandler technique REQ114_LookupAndPersistAsync_* uses
+    // above for the Country x Club P27-vs-P1532 split.
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophyOrdinaryCountry_SentQuery_UsesTeamCompetitionShapeWithP27()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(WorldCup, France, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Not.Contain("P166"), "a team trophy must never dispatch through the individual-award P166 query");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophyFlaggedCountry_SentQuery_UsesTeamCompetitionShapeWithP1532()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(WorldCup, England, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        // Both the player-side and winner-side joins use P1532 for a
+        // flagged country, so a bare count is the meaningful assertion here
+        // rather than a single Contains.
+        Assert.That(sentQuery.Split("wdt:P1532").Length - 1, Is.EqualTo(2),
+            "a flagged country's team-trophy query must use P1532 on both the player side and the winner side");
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Not.Contain("P166"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistTrophyCountryAsync_IndividualAwardFlaggedCountry_SentQuery_UsesP166AndP1532NotP27()
+    {
+        // The pre-existing S-031 P166 individual-award path must ALSO honor
+        // UsesCountryForSportProperty, per ADR-0035's follow-up note
+        // (resolved by ADR-0061) — this is the regression this fix closes.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, England, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("wdt:P1532 wd:Q21"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "a flagged country must never silently fall back to P27 for the individual-award path either");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_IndividualAwardOrdinaryCountry_SentQuery_StillUsesP166AndP27()
+    {
+        // Regression: the existing S-031 path for an ordinary (non-flagged)
+        // country must stay completely unaffected by this feature.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Not.Contain("P1532"));
+        Assert.That(sentQuery, Does.Not.Contain("P1344"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophy_HitPersistsPlayersUnderTrophyAndNationalityAttributeTypes()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(WorldCup, France, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "FIFA World Cup"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "France"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_TeamTrophy_SentQuery_UsesTeamCompetitionShapeWithP54()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(WorldCup, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Contain("wd:Q8682")); // Real Madrid's QID, matched directly as the edition winner
+        Assert.That(sentQuery, Does.Not.Contain("P166"), "a team trophy must never dispatch through the individual-award P166 query");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_IndividualAward_SentQuery_StillUsesP166AndP54()
+    {
+        // Regression: the existing S-031 Trophy x Club path must stay
+        // completely unaffected.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Not.Contain("P1344"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_TeamTrophy_HitPersistsPlayersUnderTrophyAndClubAttributeTypes()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(WorldCup, RealMadrid, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "FIFA World Cup"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Real Madrid"));
     }
 }

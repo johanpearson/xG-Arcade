@@ -247,6 +247,34 @@ internal sealed class FakeWikidataClient : IWikidataClient
         WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
+    // ADR-0061: never touched by PlayerNameIndexImporterTests/
+    // PlayerPhotoBackfillServiceTests, same "never touched by either caller"
+    // reasoning as the intersection methods above — stays stubbed to an
+    // empty result.
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyCountryIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyClubIntersectionAsync(
+        string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
     public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear, CancellationToken cancellationToken = default)
     {

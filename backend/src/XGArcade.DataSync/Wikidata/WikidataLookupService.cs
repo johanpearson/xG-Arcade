@@ -127,13 +127,31 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // on throwOnTimeout.
         var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
 
-        var matches = await wikidataClient.QueryTrophyCountryIntersectionAsync(
-            trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken);
+        // ADR-0061 (also resolves ADR-0035's follow-up note): TWO
+        // independent binary choices dispatch to one of four IWikidataClient
+        // methods — trophy.IsTeamTrophy picks the query SHAPE (individual
+        // P166 award vs. team-competition P1344/P3450/P1346 join),
+        // country.UsesCountryForSportProperty picks the player-side PROPERTY
+        // within that shape (P27 vs. P1532), same as
+        // LookupAndPersistAsync's own single-dispatch-point precedent for
+        // Country x Club. Do not collapse these into one flag — they answer
+        // genuinely independent questions.
+        var matches = (trophy.IsTeamTrophy, country.UsesCountryForSportProperty) switch
+        {
+            (true, true) => await wikidataClient.QueryTeamTrophyNationalTeamIntersectionAsync(
+                trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken),
+            (true, false) => await wikidataClient.QueryTeamTrophyCountryIntersectionAsync(
+                trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken),
+            (false, true) => await wikidataClient.QueryTrophyNationalTeamIntersectionAsync(
+                trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken),
+            (false, false) => await wikidataClient.QueryTrophyCountryIntersectionAsync(
+                trophy.WikidataQid, country.WikidataQid, throwOnTimeout, cancellationToken),
+        };
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint —
-        // this query has no P54 clause at all (see
-        // BuildTrophyCountryIntersectionQuery's own comment), so
-        // match.CareerStints is always structurally empty here regardless.
+        // none of the four Trophy x Country query shapes above has a P54
+        // clause (see each builder's own comment), so match.CareerStints is
+        // always structurally empty here regardless of which shape ran.
         // Extending career-stint persistence beyond the country/nationality
         // x club path is a separate future decision, not assumed here.
         return await PersistMatchesAsync(
@@ -153,13 +171,21 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // on throwOnTimeout.
         var throwOnTimeout = origin == WikidataLookupOrigin.GuessTimeFallback;
 
-        var matches = await wikidataClient.QueryTrophyClubIntersectionAsync(
-            trophy.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken);
+        // ADR-0061: trophy.IsTeamTrophy picks between the existing P166+P54
+        // individual-award query (S-031) and the new P1344/P3450/P1346+P54
+        // team-competition query — no club-side P27-vs-P1532 style split
+        // needed (see IWikidataLookupService's own doc comment on this
+        // method for why).
+        var matches = trophy.IsTeamTrophy
+            ? await wikidataClient.QueryTeamTrophyClubIntersectionAsync(
+                trophy.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken)
+            : await wikidataClient.QueryTrophyClubIntersectionAsync(
+                trophy.WikidataQid, club.WikidataQid, throwOnTimeout, cancellationToken);
 
         // ADR-0042/S-079: deliberately does NOT persist PlayerCareerStint,
-        // even though this query shape DOES share the ?clubStatement
-        // variable name (so match.CareerStints may be non-empty here) —
-        // this story only wires up the country/nationality x club path
+        // even though both query shapes DO share the ?clubStatement variable
+        // name (so match.CareerStints may be non-empty here) — this story
+        // only wires up the country/nationality x club path
         // (LookupAndPersistAsync above). Extending career-stint persistence
         // to trophy-club is a separate future decision, not assumed here.
         return await PersistMatchesAsync(

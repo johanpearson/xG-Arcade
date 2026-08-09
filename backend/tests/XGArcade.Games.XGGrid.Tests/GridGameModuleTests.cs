@@ -130,10 +130,16 @@ public class GridGameModuleTests
         return club;
     }
 
-    // S-031/REQ-108.
-    private TrophyDefinition SeedTrophy(string name, string? wikidataQid = "unset")
+    // S-031/REQ-108. ADR-0061: isTeamTrophy threaded through (default false,
+    // same "individual award" default ReferenceDataSeeder's Ballon d'Or row
+    // uses) — most existing callers don't care which query shape a trophy
+    // maps to, only the ADR-0061-specific tests below pass true.
+    private TrophyDefinition SeedTrophy(string name, string? wikidataQid = "unset", bool isTeamTrophy = false)
     {
-        var trophy = new TrophyDefinition { Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qtrophy-{name}" : wikidataQid };
+        var trophy = new TrophyDefinition
+        {
+            Id = Guid.NewGuid(), Name = name, WikidataQid = wikidataQid == "unset" ? $"Qtrophy-{name}" : wikidataQid, IsTeamTrophy = isTeamTrophy,
+        };
         _dbContext.TrophyDefinitions.Add(trophy);
         _dbContext.SaveChanges();
         return trophy;
@@ -689,12 +695,15 @@ public class GridGameModuleTests
     }
 
     // ---- REQ-108/S-031: Trophy category ------------------------------------
-    // Production only ever seeds one trophy (Ballon d'Or, ReferenceDataSeeder)
-    // — trophyCount(1) can never clear `size` for any realistic grid, so a
-    // Trophy pairing structurally never gets selected in production (see
-    // SelectPairing's own comment). Tests below inject a larger fake trophy
-    // pool (SeedTrophy, 3+ values) specifically to prove the mechanism itself
-    // works even though production data won't trigger it yet.
+    // Originally (S-031), production only ever seeded one trophy (Ballon
+    // d'Or, ReferenceDataSeeder) — trophyCount(1) could never clear `size`
+    // for any realistic grid, so a Trophy pairing structurally never got
+    // selected in production. The tests immediately below inject a larger
+    // fake trophy pool (SeedTrophy, 3+ values) to prove the mechanism itself
+    // works, independent of whether production data happened to trigger it
+    // yet — that separation still matters even now that ADR-0061 grew the
+    // real seeded pool to 3 (see the "---- ADR-0061" section further below
+    // for tests against that specific, now-reachable real-seed-data shape).
 
     [Test]
     public async Task REQ108_GenerateInstanceAsync_TrophyCountryPairing_ProducesGridUsingTrophyCategoryType()
@@ -761,15 +770,15 @@ public class GridGameModuleTests
     }
 
     [Test]
-    public async Task REQ108_SelectPairing_OnlyOneTrophySeeded_MatchingRealSeedData_NeverSelectsAnyTrophyPairing()
+    public async Task REQ108_SelectPairing_ExactlyOneTrophySeeded_TrophyPairingNeverSelected()
     {
-        // The real ReferenceDataSeeder shape: exactly one trophy (Ballon
-        // d'Or). With size >= 2, trophyCount(1) can never clear `size` for
-        // any mixed pairing, nor `size * 2` for Trophy x Trophy — so every
-        // Trophy pairing is infeasible and Country x Club is the only
-        // choice, regardless of the injected Random. This documents S-031's
-        // "structurally dormant in production" consequence as an asserted
-        // behavior, not just a code comment.
+        // Pure mechanism coverage (no longer "matching real seed data" —
+        // see the ADR-0061 section below for tests against the actual,
+        // now-3-trophy production shape): with only one trophy in the pool
+        // and size >= 2, trophyCount(1) can never clear `size` for any mixed
+        // pairing, nor `size * 2` for Trophy x Trophy — so every Trophy
+        // pairing is infeasible and Country x Club is the only choice,
+        // regardless of the injected Random.
         var template = SeedTemplate(size: 2);
         SeedCountry("France");
         SeedCountry("Spain");
@@ -788,7 +797,94 @@ public class GridGameModuleTests
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells, Has.None.Matches<GridCell>(
             c => c.RowCategoryType == CategoryPairingRules.Trophy || c.ColCategoryType == CategoryPairingRules.Trophy),
-            "with only one trophy seeded (matching real seed data), Trophy can never be selected for any realistic grid size");
+            "with only one trophy in the pool, Trophy can never be selected for any realistic grid size");
+    }
+
+    // ---- ADR-0061: real (3-trophy) seeded-pool reachability ----------------
+    // Before ADR-0061, REQ108_SelectPairing_ExactlyOneTrophySeeded_TrophyPairingNeverSelected
+    // above documented that production's real seeded pool (1 trophy) could
+    // never make a Trophy pairing reachable. ADR-0061 grew that pool to 3
+    // (Ballon d'Or, FIFA World Cup, UEFA Champions League) — these tests
+    // prove the REVERSED consequence: Country x Trophy/Club x Trophy are now
+    // reachable for the default GridSize = 3, while Trophy x Trophy (needing
+    // trophyCount >= size * 2 = 6) still isn't.
+
+    [Test]
+    public async Task REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_CountryTrophyPairingIsNowSelectable()
+    {
+        // The real ReferenceDataSeeder shape as of ADR-0061: exactly three
+        // trophies, matching names/flags. Zero clubs seeded -> every
+        // Club-involving pairing is infeasible; countryCount(3) and
+        // trophyCount(3) both clear the default GridSize = 3, so
+        // Country x Trophy is the only feasible pairing — deterministic
+        // regardless of the injected Random.
+        var template = SeedTemplate(size: 3);
+        SeedCountry("France");
+        SeedCountry("Spain");
+        SeedCountry("Brazil");
+        SeedTrophy("Ballon d'Or", isTeamTrophy: false);
+        SeedTrophy("FIFA World Cup", isTeamTrophy: true);
+        SeedTrophy("UEFA Champions League", isTeamTrophy: true);
+        var trophyNames = new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" };
+        foreach (var countryName in new[] { "France", "Spain", "Brazil" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyCountryMatches(trophyName, countryName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Country && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "with the real (now 3-trophy) seeded pool, Country x Trophy must be selectable for a size-3 grid — this reverses S-031's original 'structurally dormant' consequence");
+    }
+
+    [Test]
+    public async Task REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_ClubTrophyPairingIsNowSelectable()
+    {
+        // Mirror of the Country x Trophy test above — zero countries seeded
+        // -> every Country-involving pairing is infeasible, leaving
+        // Club x Trophy as the only feasible pairing.
+        var template = SeedTemplate(size: 3);
+        SeedClub("Arsenal");
+        SeedClub("Barcelona");
+        SeedClub("Real Madrid");
+        SeedTrophy("Ballon d'Or", isTeamTrophy: false);
+        SeedTrophy("FIFA World Cup", isTeamTrophy: true);
+        SeedTrophy("UEFA Champions League", isTeamTrophy: true);
+        var trophyNames = new[] { "Ballon d'Or", "FIFA World Cup", "UEFA Champions League" };
+        foreach (var clubName in new[] { "Arsenal", "Barcelona", "Real Madrid" })
+            foreach (var trophyName in trophyNames)
+                SeedCachedTrophyClubMatches(trophyName, clubName, count: 2);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        var result = await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        var instance = await _gridInstanceRepository.GetInstanceByIdAsync(result.Id);
+        Assert.That(instance, Is.Not.Null);
+        Assert.That(instance!.Cells, Has.All.Matches<GridCell>(
+            c => c.RowCategoryType == CategoryPairingRules.Club && c.ColCategoryType == CategoryPairingRules.Trophy),
+            "with the real (now 3-trophy) seeded pool, Club x Trophy must be selectable for a size-3 grid");
+    }
+
+    [Test]
+    public void REQ108_SelectPairing_MatchingRealSeedDataTrophyCount_ThreeTrophiesSeeded_TrophyTrophyPairingStillInfeasible()
+    {
+        // Trophy x Trophy needs trophyCount >= size * 2 = 6 — three trophies
+        // still doesn't clear that, even though it now clears the plain
+        // `>= size` bar Country x Trophy/Club x Trophy need. Zero countries
+        // and zero clubs seeded, so no other pairing is feasible either —
+        // GenerateInstanceAsync must abort with GridGenerationException
+        // rather than silently produce a Trophy x Trophy grid.
+        var template = SeedTemplate(size: 3);
+        SeedTrophy("Ballon d'Or", isTeamTrophy: false);
+        SeedTrophy("FIFA World Cup", isTeamTrophy: true);
+        SeedTrophy("UEFA Champions League", isTeamTrophy: true);
+        var module = BuildModule(minValidAnswers: 2, maxAttempts: 20);
+
+        Assert.ThrowsAsync<GridGenerationException>(async () =>
+            await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id }));
     }
 
     [Test]
@@ -2048,6 +2144,119 @@ public class GridGameModuleTests
         await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka"));
 
         Assert.That(_wikidataLookupService.GetLastUsesCountryForSportProperty("France", "Arsenal"), Is.False);
+    }
+
+    // ---- ADR-0061: team-competition trophy dispatch threading -------------
+    // Mirrors the REQ-114 Country x Club coverage immediately above — proves
+    // GridGameModule's Country x Trophy call site now threads BOTH
+    // row.UsesCountryForSportProperty and col.IsTeamTrophy through to
+    // WikidataLookupService (the "REQ-114/ADR-0035 scope note" gap this
+    // story closed), and that Club x Trophy threads col.IsTeamTrophy.
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_NationalTeamCountryTrophyPairing_LiveLookupDispatchedWithUsesCountryForSportPropertyTrue()
+    {
+        // size=1 keeps this deterministic without needing a 3-trophy pool:
+        // Country x Club is infeasible (zero clubs seeded), Trophy x Trophy
+        // needs trophyCount >= 2, so Country x Trophy is the only feasible
+        // pairing with one trophy seeded.
+        var template = SeedTemplate(size: 1);
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedTrophy("Ballon d'Or");
+        // No SeedCachedTrophyCountryMatches call — forces the live-lookup
+        // path so LookupAndPersistTrophyCountryAsync is actually invoked and
+        // its flags captured.
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "England", BuildFakeLivePlayers("BallonDor-England", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastUsesCountryForSportProperty("Ballon d'Or", "England"), Is.True,
+            "CategoryCandidate must carry CountryDefinition.UsesCountryForSportProperty through to the Trophy x Country live-lookup dispatch site, not silently fall back to P27 (ADR-0035/ADR-0061)");
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_OrdinaryCountryTrophyPairing_StillDispatchesWithUsesCountryForSportPropertyFalse()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France"); // usesCountryForSportProperty defaults to false
+        SeedTrophy("Ballon d'Or");
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "France", BuildFakeLivePlayers("BallonDor-France", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastUsesCountryForSportProperty("Ballon d'Or", "France"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TeamTrophyCountryPairing_LiveLookupDispatchedWithIsTeamTrophyTrue()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedTrophy("FIFA World Cup", isTeamTrophy: true);
+        _wikidataLookupService.SetTrophyCountryMatches("FIFA World Cup", "France", BuildFakeLivePlayers("WorldCup-France", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastIsTeamTrophy("FIFA World Cup", "France"), Is.True,
+            "CategoryCandidate must carry TrophyDefinition.IsTeamTrophy through to the Trophy x Country live-lookup dispatch site (ADR-0061)");
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_IndividualAwardCountryPairing_StillDispatchesWithIsTeamTrophyFalse()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedCountry("France");
+        SeedTrophy("Ballon d'Or", isTeamTrophy: false);
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "France", BuildFakeLivePlayers("BallonDor-France", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastIsTeamTrophy("Ballon d'Or", "France"), Is.False);
+    }
+
+    [Test]
+    public async Task REQ108_GenerateInstanceAsync_TeamTrophyClubPairing_LiveLookupDispatchedWithIsTeamTrophyTrue()
+    {
+        var template = SeedTemplate(size: 1);
+        SeedClub("Real Madrid");
+        SeedTrophy("UEFA Champions League", isTeamTrophy: true);
+        _wikidataLookupService.SetTrophyClubMatches("UEFA Champions League", "Real Madrid", BuildFakeLivePlayers("ChampionsLeague-RealMadrid", 3));
+        var module = BuildModule(minValidAnswers: 3, maxAttempts: 5);
+
+        await module.GenerateInstanceAsync(new RoundConfig { TemplateId = template.Id });
+
+        Assert.That(_wikidataLookupService.GetTrophyClubLastIsTeamTrophy("UEFA Champions League", "Real Madrid"), Is.True,
+            "CategoryCandidate must carry TrophyDefinition.IsTeamTrophy through to the Trophy x Club live-lookup dispatch site (ADR-0061)");
+    }
+
+    [Test]
+    public async Task REQ108_ScoreSubmissionAsync_NationalTeamCountryTrophyCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupWithUsesCountryForSportPropertyTrue()
+    {
+        // REQ-211's guess-time fallback dispatching through the right query
+        // path for a national-team x trophy cell — mirrors
+        // REQ114_ScoreSubmissionAsync_NationalTeamCell_NoCachedCandidateSatisfiesCell_FallsBackToLiveLookupAndAcceptsGenuinelyCorrectGuess
+        // above, but the column category is Trophy.
+        SeedCountry("England", usesCountryForSportProperty: true);
+        SeedTrophy("Ballon d'Or");
+        var (instanceId, cellId) = await SeedGridInstanceAsync(
+            "England", "Ballon d'Or", rowCategoryType: CategoryPairingRules.Country, colCategoryType: CategoryPairingRules.Trophy);
+        var kane = new Player { Id = Guid.NewGuid(), FullName = "Harry Kane", WikidataQid = "Qkane" };
+        _wikidataLookupService.SetTrophyCountryMatches("Ballon d'Or", "England", [kane]);
+        SeedNameIndexEntry("Harry Kane");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Harry Kane"));
+
+        Assert.That(result.IsCorrect, Is.True,
+            "a live lookup for a national-team x trophy cell must be able to confirm a genuinely correct guess even when nothing cached yet supports it");
+        Assert.That(result.PlayerAnswerId, Is.EqualTo(kane.Id));
+        Assert.That(_wikidataLookupService.GetTrophyCountryLastUsesCountryForSportProperty("Ballon d'Or", "England"), Is.True,
+            "the guess-time fallback (RefreshCellFromLiveLookupAsync -> ResolveCandidateAsync) must re-resolve the full " +
+            "CountryDefinition row, including its UsesCountryForSportProperty flag, not just Name/WikidataQid");
     }
 
     // ---- REQ-215/ADR-0052 (S-089, architecture-review fix):

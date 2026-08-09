@@ -75,6 +75,18 @@ public interface IWikidataLookupService
     // empty-on-unresolved-QID/never-throws contract. Persists matched
     // players under AttributeType "trophy"/trophy.Name and
     // "nationality"/country.Name.
+    //
+    // ADR-0061: internally branches on trophy.IsTeamTrophy — false calls the
+    // existing P166 individual-award query methods (S-031), true calls the
+    // new team-competition query methods (ADR-0061's P1344/P3450/P1346/
+    // P1532 join). Also, per ADR-0035's follow-up note (resolved by
+    // ADR-0061): internally branches on country.UsesCountryForSportProperty
+    // in BOTH the IsTeamTrophy=true and IsTeamTrophy=false cases, dispatching
+    // to whichever of the P27/P1532 method pair matches — the same
+    // single-dispatch-point precedent LookupAndPersistAsync already
+    // established for Country x Club (ADR-0035). Callers (GridGameModule)
+    // don't need to know which of the four resulting query shapes was used
+    // underneath; the signature is unchanged.
     Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
         TrophyDefinition trophy,
         CountryDefinition country,
@@ -84,6 +96,14 @@ public interface IWikidataLookupService
     // S-031/REQ-108: the Trophy x Club counterpart, same
     // empty-on-unresolved-QID/never-throws contract. Persists matched
     // players under AttributeType "trophy"/trophy.Name and "club"/club.Name.
+    //
+    // ADR-0061: internally branches on trophy.IsTeamTrophy — false calls the
+    // existing P166+P54 individual-award query (S-031), true calls the new
+    // P1344/P3450/P1346+P54 team-competition query. No club-side
+    // P27-vs-P1532 style split needed here — a club's identity is
+    // unambiguous, unlike a country's citizenship-vs-represented split (see
+    // ADR-0061's own note on why QueryTeamTrophyClubIntersectionAsync has no
+    // second variant).
     Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
         TrophyDefinition trophy,
         ClubDefinition club,

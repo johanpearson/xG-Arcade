@@ -1357,3 +1357,44 @@ manual review (hand-verified brace/paren balance, cross-checked against
 this file's other `record`/tuple `with`/mutation patterns that already
 compile elsewhere in this codebase) instead. Worth an actual CI run before
 merging.
+
+## ADR-0061's team-competition trophy work also needed a 4th, unlisted query method (2026-08-09)
+
+While implementing ADR-0061 (FIFA World Cup/UEFA Champions League as
+team-competition trophies), resolving ADR-0035's follow-up note — "extend
+`BuildTrophyCountryIntersectionQuery` with a `P1532` counterpart... whenever
+the trophy pool grows enough to make the pairing reachable" — turned out to
+require more than the three `IWikidataClient` methods ADR-0061 itself lists
+(`QueryTeamTrophyCountryIntersectionAsync`/
+`QueryTeamTrophyNationalTeamIntersectionAsync`/`QueryTeamTrophyClubIntersectionAsync`).
+ADR-0035's note was about `LookupAndPersistTrophyCountryAsync` honoring
+`CountryDefinition.UsesCountryForSportProperty` **in general**, not only for
+the new team-trophy branch — so the *existing*, pre-ADR-0061 individual-award
+P166 path (S-031) needed its own P1532 counterpart too, or a flagged country
+(England, Scotland, Wales, Northern Ireland) paired with an individual award
+like Ballon d'Or would still silently fall back to (wrong) P27 semantics,
+just one branch over from the one ADR-0061 explicitly fixed.
+
+Added a fourth method, `QueryTrophyNationalTeamIntersectionAsync` (P166
+truthy + P1532 truthy, the individual-award counterpart of
+`QueryTeamTrophyNationalTeamIntersectionAsync`'s team-competition shape), and
+a matching `BuildTrophyNationalTeamIntersectionQuery` builder — not written
+into ADR-0061's own text (that ADR's "Decision" section literally says
+"three new methods"), but documented at length on the method/builder
+themselves and in ADR-0035's now-resolved follow-up note, since it's the
+same P27-vs-P1532 dispatch pattern ADR-0035 already established, applied to
+close a gap that ADR's own note had explicitly flagged. Flagging here in
+case a future reviewer greps ADR-0061 for "how many new client methods"
+and is confused why the actual diff has four, not three — the answer is
+"ADR-0035's follow-up note, read literally, covers a case ADR-0061's own
+scope didn't."
+
+**Sandbox limitation:** as with every other session in this codebase, no
+outbound network access to `wikidata.org` and no `dotnet` SDK available —
+the two new team-trophy QIDs (`Q19317` FIFA World Cup, `Q18756` UEFA
+Champions League) are training-knowledge guesses, not verified, and none of
+the new/changed code in this story was run through a real `dotnet build`/
+`dotnet test` — checked by careful manual review (brace/paren balance,
+cross-referencing existing query-builder/dispatch patterns) instead. Must
+run in CI before merging, and the two QIDs must be checked against live
+Wikidata pages by a human before this is relied on in production.
