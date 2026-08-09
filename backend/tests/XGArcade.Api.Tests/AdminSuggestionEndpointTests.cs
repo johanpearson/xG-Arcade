@@ -39,6 +39,19 @@ public class AdminSuggestionEndpointTests
     {
         _fakeWikidataClient = new FakeWikidataClient();
 
+        // Generated once here, not inside the ConfigureServices closure
+        // below — CreateAdminClientWithLogging derives a second factory via
+        // _factory.WithWebHostBuilder(...), which replays every
+        // accumulated configuration action (including this one) against a
+        // fresh host. A name generated inside the closure would be
+        // re-rolled on that replay, silently pointing the logging-enabled
+        // client at an empty second database instead of the one any
+        // Seed*Async helper already wrote to via _factory.Services. Captured
+        // once here, both factories resolve the same EF Core InMemory store
+        // (keyed by name, shared per-process) regardless of how many nested
+        // WithWebHostBuilder factories get built from _factory in a test.
+        var inMemoryDatabaseName = Guid.NewGuid().ToString();
+
         _factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
@@ -56,7 +69,6 @@ public class AdminSuggestionEndpointTests
                         services.Remove(descriptor);
                     }
 
-                    var inMemoryDatabaseName = Guid.NewGuid().ToString();
                     services.AddDbContext<XGArcadeDbContext>(options =>
                         options.UseInMemoryDatabase(inMemoryDatabaseName));
 
