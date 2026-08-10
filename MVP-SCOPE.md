@@ -515,12 +515,14 @@ is written as something you can actually observe, not a vague feeling:
   before relying on this in production.
 - **Admin notification when a new player suggestion (REQ-215/509) or a
   new in-app incident report (REQ-903) is posted** — requested in the
-  same session as the banner above, explicitly **not built yet**:
-  queued as two separate backlog stories (`docs/backlog.md`) rather than
-  bundled into this session's one-story-per-PR slot. A suggestion-count
-  badge is straightforward (the pending-suggestions data already exists,
-  REQ-509's `GET /admin/suggestions/pending`). An incident-report
-  notification is not — REQ-903/ADR-0064 deliberately keeps no in-app
+  same session as the banner above; queued as two separate backlog
+  stories (`docs/backlog.md`) rather than bundled into that session's
+  one-story-per-PR slot. The suggestion-count badge half (REQ-512,
+  `docs/backlog.md` S-097) is **built, 2026-08-10**: a frontend-only
+  read of REQ-509's existing `GET /admin/suggestions` — see that
+  backlog entry for the implementation shape. The incident-report half
+  (`docs/backlog.md` S-098) remains **not built yet** — REQ-903/ADR-0064
+  deliberately keeps no in-app
   record of a created incident ("no in-app moderation/review queue"), so
   surfacing "a new one was filed" needs the admin UI to poll GitHub's
   Issues API for open issues labeled `user-reported`, a genuinely new
