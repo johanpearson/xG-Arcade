@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.5"
+version: "0.6"
 status: draft
-last_updated: 2026-07-18
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -111,6 +111,24 @@ update_when:
 - **Every color/font/spacing value traces to `design-document.md`'s token
   table** — this is enforced by `ui-implementer`, but applies regardless of
   which agent or person writes the code.
+- **Fetch-on-mount sections that classify a result into "escalate on 401 /
+  hide on 403 / show inline on any other error", guarded against unmount:**
+  reuse `useAdminSectionFetch` (`frontend/src/admin/AdminScreen.tsx`) rather
+  than hand-rolling another `cancelled`-flag `useEffect`. Extracted once this
+  exact shape reached five independent copies in that one file
+  (`PlayerSuggestionsEntry`/REQ-512, `IncidentReportsEntry`/REQ-904,
+  `AnnouncementBannerSection`/REQ-511, `AccountMetricsSection`/REQ-507,
+  `XGPathCycleSection`/REQ-1209) — a rule-of-three-plus case flagged during
+  REQ-512's quality gate and acted on once REQ-904 crossed the threshold. The
+  hook owns only the transport half (fetch/cancel/401-escalate/403-hide/
+  thrown-error-inline) and exposes `{ data, hidden, loadError, refetch }`; a
+  business-level state carried inside a *successful* response (e.g.
+  `XGPathCycleSection`'s `hasData`, `IncidentReportsEntry`'s `available`)
+  stays the caller's to branch on via `data`, never folded into the hook —
+  see that hook's own doc comment for why conflating the two would be wrong.
+  Not admin-screen-specific in principle; if this shape shows up outside
+  `AdminScreen.tsx`, that's `quality-architect`'s call on whether to promote
+  it to a shared location, not a reason to duplicate it again first.
 
 ## Testing
 
