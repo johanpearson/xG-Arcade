@@ -12,7 +12,11 @@ public class GitHubIssueClientTests
 {
     private static readonly GitHubIncidentReportOptions Options = new("johanpearson", "xg-arcade", "user-reported");
 
-    private static GitHubIssueClient BuildClient(FakeHttpMessageHandler handler, string? token = "a-fine-grained-pat") =>
+    // HttpMessageHandler, not FakeHttpMessageHandler specifically — the
+    // network-failure test below passes a different HttpMessageHandler
+    // subclass (FakeHttpMessageHandlerThrowingNetworkFailure), and
+    // HttpClient's own constructor only needs the base type anyway.
+    private static GitHubIssueClient BuildClient(HttpMessageHandler handler, string? token = "a-fine-grained-pat") =>
         new(
             new HttpClient(handler) { BaseAddress = new Uri("https://api.github.com/") },
             new GitHubIncidentReportToken(token),
