@@ -86,6 +86,11 @@ public class IncidentReportServiceTests
     }
 }
 
+// Shared (internal, so visible assembly-wide) across every
+// XGArcade.Core.Tests file exercising IGitHubIssueClient — reused as-is by
+// CachedIncidentIssueSummaryProviderTests.cs (REQ-904/ADR-0066) rather than
+// redefined there, same "one fake per interface, not one per test file"
+// precedent XGArcade.Api.Tests' own FakeGitHubIssueClient already sets.
 internal sealed class FakeGitHubIssueClient : IGitHubIssueClient
 {
     public string? LastTitle { get; private set; }
@@ -97,5 +102,21 @@ internal sealed class FakeGitHubIssueClient : IGitHubIssueClient
         LastTitle = title;
         LastBody = body;
         return Task.FromResult(NextResult);
+    }
+
+    // REQ-904/ADR-0066: minimal stub added alongside this ADR's own
+    // CachedIncidentIssueSummaryProviderTests.cs — this member didn't exist
+    // when IGitHubIssueClient gained ListOpenIssuesByLabelAsync, which left
+    // this class (and therefore this whole test project) failing to build.
+    // CallCount lets a test assert the cache is actually preventing 1:1
+    // GitHub calls, same shape as XGArcade.Api.Tests.FakeGitHubIssueClient's
+    // own ListCallCount.
+    public int ListCallCount { get; private set; }
+    public GitHubIssueListResult NextListResult { get; set; } = GitHubIssueListResult.Ok([]);
+
+    public Task<GitHubIssueListResult> ListOpenIssuesByLabelAsync(CancellationToken cancellationToken)
+    {
+        ListCallCount++;
+        return Task.FromResult(NextListResult);
     }
 }

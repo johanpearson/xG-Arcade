@@ -2,6 +2,7 @@ import type {
   AdminAccountMetrics,
   AdminActiveRound,
   AdminAnnouncementBanner,
+  AdminIncidentReportsResponse,
   AdminRound,
   AdminXGPathCycleState,
   AnnouncementBanner,
@@ -810,6 +811,20 @@ export async function fetchPendingSuggestions(accessToken: string): Promise<Pend
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as PendingSuggestion[];
+}
+
+// REQ-904/ADR-0066: the open-incident-report count for AdminScreen's
+// "Incident reports" entry point. Always 200 when authorized — a GitHub-poll
+// failure comes back as `available: false` in the body (never a thrown
+// ApiError), so callers must branch on `available`, not on a catch block, to
+// render REQ-904's distinct failure/unknown state. A 401/403 (no/insufficient
+// session) is still left to throw like every other admin call in this file.
+export async function fetchAdminIncidentReports(accessToken: string): Promise<AdminIncidentReportsResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/incident-reports`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminIncidentReportsResponse;
 }
 
 // REQ-509: triggers a fresh, admin-initiated Wikidata lookup for one pending

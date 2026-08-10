@@ -13,6 +13,50 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/requirements-document.md` (REQ-904, new, v1.67 →
+  v1.68 — already drafted and bumped earlier this session),
+  `docs/decisions/0066-admin-github-issue-polling-cache.md` (new, already
+  written and Accepted earlier this session), `docs/architecture-document.md`
+  (COMP-12 extended with a REQ-904/ADR-0066 status-note addition, §10 ADR
+  table gained the missing ADR-0066 row, v0.92 → v0.93), `docs/backlog.md`
+  (S-098 updated from "queued, not started" to built/tested) — admin
+  notification for open in-app incident reports (REQ-904), the second of
+  the two follow-on stories queued alongside REQ-511's banner (S-096) and
+  REQ-512's suggestion badge (S-097). Unlike S-097, REQ-903/ADR-0064
+  deliberately keeps no in-app record of a created incident, so there was
+  no existing data source to badge against — `IGitHubIssueClient` gained
+  `ListOpenIssuesByLabelAsync` (same PAT as `CreateIssueAsync`, no scope
+  widening), fronted by a new `ICachedIncidentIssueSummaryProvider`/
+  `CachedIncidentIssueSummaryProvider` (`XGArcade.Core.IncidentReporting`)
+  wrapping the GitHub read in a single shared `IMemoryCache` entry
+  (default 60s TTL, `GitHub:IncidentReportCacheTtlSeconds`) with
+  stale-serve-on-failure semantics — this codebase's first use of
+  `Microsoft.Extensions.Caching.Memory`, added as a direct
+  `XGArcade.Core.csproj` package reference. `GET /admin/incident-reports`
+  (new file, `XGArcade.Api.Admin.AdminIncidentReportEndpoints`), same
+  `"Admin"` policy every other admin endpoint uses, no new authorization
+  policy introduced. Frontend: a new `IncidentReportsEntry` section in
+  `AdminScreen.tsx` (placed after S-097's `PlayerSuggestionsEntry`),
+  fetching once on load, rendering the count's absence rather than `(0)`
+  at zero and a distinct inline message for the "no successful poll yet"
+  failure state; a new `.admin-screen__link` class styles the "view on
+  GitHub" link-out using only existing tokens (`--color-text-primary`,
+  `--touch-target-min`) — `docs/design-document.md` confirmed unchanged
+  (no new color/typeface/animation introduced), and
+  `docs/implementation-document.md` confirmed unchanged (its tech-stack
+  table tracks layer-level choices, not individual component-level
+  packages — `Microsoft.Extensions.Caching.Memory` is covered by
+  ADR-0066/COMP-12 in the same way `PartitionedRateLimiter` was for
+  REQ-903's rate limiting, never added to that table). Full quality-gate
+  run (`architecture-reviewer` + `quality-architect`): no boundary
+  violations (the cache confirmed as the only caller `GET
+  /admin/incident-reports` uses, `IGitHubIssueClient` remains the only
+  class calling GitHub's REST API); this doc-sync pass closes the doc
+  gaps that same review found (COMP-12/CHANGELOG/backlog were not yet
+  updated when code/tests/ADR-0066 landed). Backend 1375/1375, frontend
+  543/543 passing, both confirmed in this sandbox. See `docs/backlog.md`'s
+  S-098 entry for the full implementation shape.
+
 - 2026-08-10 — `docs/requirements-document.md` (REQ-511, new, v1.65 →
   v1.66), `docs/architecture-document.md` (COMP-13, new; §10 ADR table,
   v0.91 → v0.92), `docs/design-document.md` (§7, new REQ-511

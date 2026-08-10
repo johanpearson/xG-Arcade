@@ -10,6 +10,20 @@
     <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- REQ-904/ADR-0066: CachedIncidentIssueSummaryProvider's IMemoryCache
+         dependency — a standard Microsoft.Extensions.* package (ships
+         alongside .NET, not a new third-party dependency). Pinned to
+         10.0.10, not 10.0.0: XGArcade.Data's Microsoft.EntityFrameworkCore
+         10.0.10 reference transitively demands
+         Microsoft.Extensions.Caching.Memory >= 10.0.10, so anything lower
+         is an immediately-violated floor that fails restore with NU1605
+         (package downgrade). 10.0.10 matches the version NuGet was already
+         going to resolve to, the same convention XGArcade.Data itself uses
+         for its EF Core package pins. -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

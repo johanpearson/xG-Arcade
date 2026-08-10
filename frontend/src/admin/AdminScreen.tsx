@@ -12,6 +12,7 @@ import {
   fetchActiveAdminRound,
   fetchAdminAccountMetrics,
   fetchAdminAnnouncementBanner,
+  fetchAdminIncidentReports,
   fetchAdminXGPathCycle,
   fetchGuestAccountCount,
   fetchPendingSuggestions,
@@ -154,6 +155,15 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
         onOpenSuggestions={onOpenSuggestions}
       />
 
+      {/* REQ-904/ADR-0066: the sibling "admin notification" entry point from
+          the same S-096/S-097/S-098 grouping as PlayerSuggestionsEntry above
+          — placed directly after it for that reason. Unlike
+          PlayerSuggestionsEntry, there is no in-app screen to navigate to
+          (ADR-0064's "no review queue" boundary), so this renders as a
+          passive entry (heading + optional count + external link), not a
+          button. */}
+      <IncidentReportsEntry accessToken={accessToken} onAuthError={onAuthError} />
+
       {/* REQ-511: own fetch/state, same resilience pattern as
           AccountMetricsSection/XGPathCycleSection below — rendered
           unconditionally (this endpoint, like those, is registered in
@@ -271,6 +281,120 @@ function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggestions }:
       {loadError && (
         <p className="admin-screen__error" role="alert">
           {loadError}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// REQ-904/ADR-0064/ADR-0066: this repo's fixed, server-configured owner/repo/
+// label (same values Program.cs's GitHubIncidentReportOptions defaults to,
+// and the same ones the backend itself already writes issues to/reads issues
+// from) — hard-coded here as a display-only link, never accepted as a prop
+// or sourced from anything dynamic, matching REQ-904's "no client-supplied
+// repo/label" rule and ADR-0064's "target repo and label are hard-coded
+// server-side" boundary. This is not a request parameter to any endpoint, so
+// hard-coding a second copy on the frontend doesn't violate that boundary —
+// it's just where GitHub's own filtered issue list already lives.
+const INCIDENT_REPORTS_GITHUB_URL =
+  'https://github.com/johanpearson/xg-arcade/issues?q=is%3Aissue+is%3Aopen+label%3Auser-reported';
+
+interface IncidentReportsEntryProps {
+  accessToken: string;
+  onAuthError: () => void;
+}
+
+// REQ-904/ADR-0066 (S-098): own fetch/state, fetch-on-load only (no polling/
+// websocket — REQ-904's own freshness model). Three renderable states, not
+// PlayerSuggestionsEntry's two above, because a GitHub-poll failure
+// (`available: false`) is a real, distinct failure/unknown state — never
+// conflated with "you're not an admin" (403, handled identically to
+// AccountMetricsSection/XGPathCycleSection's own hide-quietly pattern below,
+// since this section — unlike PlayerSuggestionsEntry's button — has no
+// separately-gated destination screen to fall back on) and never conflated
+// with a genuine zero count. A 401 escalates via onAuthError; a 403 hides
+// this section only; a GitHub-poll failure (`available: false` in a normal
+// 200 body, per ADR-0066 — never a thrown error) renders a distinct inline
+// message; any other failure (500, network, parse) also renders inline
+// rather than silently reading as "nothing open", the one failure mode this
+// entry point can't afford per REQ-904's "never a false zero-count" rule.
+// Renders the count next to the heading the same way UnverifiedDataSection's
+// "Unverified data (N)" heading does, except the count itself is omitted
+// entirely at zero (REQ-904/REQ-512's shared "absence, not '0'" convention)
+// rather than always shown.
+type IncidentReportsState =
+  | { phase: 'loading' }
+  | { phase: 'hidden' }
+  | { phase: 'ready'; openCount: number }
+  | { phase: 'unavailable' }
+  | { phase: 'error'; message: string };
+
+function IncidentReportsEntry({ accessToken, onAuthError }: IncidentReportsEntryProps) {
+  const [state, setState] = useState<IncidentReportsState>({ phase: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const result = await fetchAdminIncidentReports(accessToken);
+        if (cancelled) return;
+        if (!result.available) {
+          // ADR-0066: "no successful GitHub poll has ever happened" — never
+          // rendered as openCount: 0.
+          setState({ phase: 'unavailable' });
+          return;
+        }
+        setState({ phase: 'ready', openCount: result.openCount });
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          onAuthError();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setState({ phase: 'hidden' });
+          return;
+        }
+        setState({ phase: 'error', message: describeError(err) });
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, onAuthError]);
+
+  if (state.phase === 'hidden') return null;
+
+  const openCount = state.phase === 'ready' ? state.openCount : null;
+
+  return (
+    <section className="admin-screen__section">
+      <h3 className="admin-screen__section-title">
+        Incident reports{openCount !== null && openCount > 0 ? ` (${openCount})` : ''}
+      </h3>
+      {openCount !== null && openCount > 0 && (
+        <a
+          className="admin-screen__link"
+          href={INCIDENT_REPORTS_GITHUB_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          View open reports on GitHub
+        </a>
+      )}
+      {state.phase === 'unavailable' && (
+        <p className="admin-screen__error" role="alert">
+          Couldn't check GitHub for open incident reports right now — this doesn't mean there are none, try
+          reloading in a minute.
+        </p>
+      )}
+      {state.phase === 'error' && (
+        <p className="admin-screen__error" role="alert">
+          {state.message}
         </p>
       )}
     </section>

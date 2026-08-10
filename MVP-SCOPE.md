@@ -521,15 +521,24 @@ is written as something you can actually observe, not a vague feeling:
   `docs/backlog.md` S-097) is **built, 2026-08-10**: a frontend-only
   read of REQ-509's existing `GET /admin/suggestions` — see that
   backlog entry for the implementation shape. The incident-report half
-  (`docs/backlog.md` S-098) remains **not built yet** — REQ-903/ADR-0064
-  deliberately keeps no in-app
-  record of a created incident ("no in-app moderation/review queue"), so
-  surfacing "a new one was filed" needs the admin UI to poll GitHub's
-  Issues API for open issues labeled `user-reported`, a genuinely new
-  capability (a live GitHub API read from the admin screen), confirmed
-  as the intended approach directly by the product owner, 2026-08-10 —
-  not a lightweight in-app persistence table, which would have
-  encroached on ADR-0064's existing boundary. Both queued, not started.
+  (REQ-904, ADR-0066, `docs/backlog.md` S-098) is **also built,
+  2026-08-10**: REQ-903/ADR-0064 deliberately keeps no in-app record of
+  a created incident ("no in-app moderation/review queue"), so
+  surfacing "a new one was filed" needed the admin UI/backend to poll
+  GitHub's Issues API for open issues labeled `user-reported`, a
+  genuinely new capability (a live, server-side GitHub API read
+  triggered by an admin page load) — confirmed as the intended approach
+  directly by the product owner, 2026-08-10, rather than a lightweight
+  in-app persistence table, which would have encroached on ADR-0064's
+  existing boundary. Extends COMP-12 (`Core.IncidentReporting`) with a
+  read-only `IGitHubIssueClient.ListOpenIssuesByLabelAsync` (no PAT
+  scope widening) behind a short-TTL, shared `IMemoryCache` layer
+  (ADR-0066) so repeated admin page loads don't multiply outbound
+  GitHub calls; `GET /admin/incident-reports` surfaces a count plus a
+  link out to GitHub's filtered issue list — no in-app list/detail view
+  (that's exactly the review queue ADR-0064 already rejected). Both
+  halves now built. Verified: backend `dotnet test` 1375/1375, frontend
+  `npx vitest run` 543/543, `tsc -b` and lint clean.
 
 ## Tier 2 — already deferred, unchanged
 

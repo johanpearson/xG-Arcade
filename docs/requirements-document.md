@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.67"
+version: "1.68"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -6607,6 +6607,113 @@ doing nothing or crashing. The one real manual end-to-end submission
 against a throwaway/test repo this REQ's "Test level" calls for is still
 outstanding — do that check before relying on this against the real repo
 in front of real players.
+
+---
+
+**REQ-904 – Admin notification for open in-app incident reports**
+> As an admin, I want a clear notification in the admin UI when a new
+> in-app incident report (REQ-903) has been filed, so I don't have to
+> remember to check GitHub Issues manually.
+
+**Count source and display:**
+- Given at least one GitHub issue in this repository is open and labeled
+  `user-reported` (REQ-903/ADR-0064's fixed, server-configured label — the
+  same one `GitHubIssueClient`/`GitHubIncidentReportOptions` already write
+  to)
+- When an admin who satisfies the existing `"Admin"` authorization policy
+  loads the admin area (`AdminScreen.tsx`, SCREEN-04, the same screen
+  REQ-512's suggestion badge lives on)
+- Then an "Incident reports" entry point shows a count equal to the number
+  of currently-open, `user-reported`-labeled issues, sourced from a new
+  `GET /admin/incident-reports` endpoint that calls GitHub's Issues API
+  server-side (ADR-0066) — no client-supplied repo, label, or token is
+  ever accepted; the target repo and label are the same fixed,
+  server-configured values REQ-903 already uses
+- And the response may also include each open issue's title, number, and
+  URL (GitHub's list-issues response returns these at no extra cost), but
+  the admin UI need only render the aggregate count plus a single
+  "view on GitHub" link that opens this repo's filtered issue list
+  (`is:issue is:open label:user-reported`) in a new tab — there is no
+  in-app list or detail view of individual issues
+- Given zero open, `user-reported`-labeled issues exist
+- When an admin loads the admin area
+- Then no badge/count is shown next to "Incident reports" — a zero count
+  is represented by the count's absence, not a count displaying "0", the
+  same convention REQ-512 uses
+
+**Freshness — fetch on load, no polling:**
+- Given an admin loads or reloads `AdminScreen.tsx`
+- Then the count reflects the server's most recent successful poll of
+  GitHub as of that load — the same "fetch on load, no polling/websocket"
+  freshness model REQ-511/REQ-512 already use; no live-updating within a
+  single page view is required, and no push/real-time mechanism is
+  introduced
+
+**Server-side caching of the GitHub read:**
+- Given more than one admin loads or reloads the admin area within a short
+  window
+- When each of those page loads triggers a request to
+  `GET /admin/incident-reports`
+- Then the backend serves those requests from a short-lived, server-side
+  cache shared across all admins (exact TTL left to implementation) rather
+  than calling GitHub's Issues API once per page load — repeated admin
+  page loads in quick succession do not multiply outbound GitHub API calls
+  1:1 with page loads
+- Given the cached result has expired
+- When the next `GET /admin/incident-reports` request arrives
+- Then the backend performs a fresh GitHub API call and repopulates the
+  cache from that result
+
+**Failure handling — never a false "zero incidents":**
+- Given the GitHub API call fails (network error, GitHub-side rate limit,
+  or the incident-reporting token is unconfigured/invalid)
+- When an admin loads the admin area during that failure
+- Then the admin sees a clear failure/unknown state for the "Incident
+  reports" entry point, distinct from and never rendered as a zero count —
+  a false "nothing to see" is worse than a visible error, the same
+  principle REQ-512 already establishes for its sibling badge
+- And a stale-but-still-valid cached count (per the caching criterion
+  above) may continue to be served during a transient GitHub failure, but
+  once the cache itself has nothing to serve, the failure state above is
+  shown rather than defaulting to zero
+
+**Authorization boundary:**
+- Given a request to `GET /admin/incident-reports`
+- When the caller has no valid session
+- Then the request is rejected with `401`
+- Given a request to `GET /admin/incident-reports`
+- When the caller is authenticated but is not in the `Admin:UserIds`
+  allowlist
+- Then the request is rejected with `403`, using the same "Admin"
+  authorization policy already enforced by REQ-509's
+  `GET /admin/suggestions` and every other admin endpoint — no new
+  authorization policy is introduced for this REQ
+- Given a non-admin or guest is using the site
+- Then no incident-report count or entry point is rendered anywhere in
+  their UI — reachable only from within the already-gated `AdminScreen.tsx`
+
+**Out of scope for this REQ:** any in-app list or detail view of
+individual incident issues, or any ability to resolve/close/triage them
+from the app — that is exactly the review-queue ADR-0064 already rejected
+for REQ-903 itself, and this REQ does not reopen it; live/polling/
+websocket updates (no push mechanism exists anywhere in this system);
+notification for anything other than open, `user-reported`-labeled issues
+in this repository (no other label or repo is read); any new persistence
+table for incident reports — this REQ reads GitHub directly, on demand,
+through the server-side cache described above, never a locally-stored
+record of issues.
+
+**Test level:** Unit (a positive open-issue count renders a count; a zero
+count renders no badge; a GitHub failure renders the distinct
+failure/unknown state, never a zero), API (`GET /admin/incident-reports`
+against a stubbed/mocked GitHub client — tests must never call the real
+GitHub API — rejects `401`/`403` per the Admin policy; repeated requests
+within the cache TTL do not each trigger a new call to the stubbed GitHub
+client; a request after the TTL expires does), UI ("Incident reports" on
+`AdminScreen.tsx` shows the count when open issues exist, shows nothing
+when none exist, shows a visible failure state on a GitHub-call failure,
+and its "view on GitHub" link opens the correct filtered issue list; no
+count or entry point is rendered for a non-admin or guest)
 
 ---
 
