@@ -977,6 +977,24 @@ describe('AdminScreen', () => {
     expect(onOpenSuggestions).toHaveBeenCalledTimes(1);
   });
 
+  it('REQ-512: a non-401/403 error from the suggestions fetch shows an inline error message, with no badge and no onAuthError call', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
+    // The rest of the page must remain usable — this section's error is
+    // scoped to itself, same as XGPathCycleSection's own error handling.
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
   // ---- REQ-511: site-wide announcement banner section -------------------
 
   const loadedActiveBanner = {

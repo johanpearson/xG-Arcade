@@ -1044,6 +1044,72 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     expect(await screen.findByRole('heading', { name: 'Player suggestions' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/admin/suggestions');
   });
+
+  // REQ-512: PlayerSuggestionsEntry's own code comment in AdminScreen.tsx
+  // claims this screen's remount (App.tsx's ternary unmounts AdminScreen
+  // while SuggestionsScreen is open and remounts it on the way back) is
+  // what naturally re-triggers the badge's fetch, with no extra refresh
+  // plumbing. AdminScreen.test.tsx's own REQ-512 tests each render
+  // AdminScreen once in isolation and can't exercise that remount — this
+  // test goes through the real App.tsx navigation round trip to prove the
+  // claim rather than leaving it as an untested comment.
+  it('REQ-512: navigating back to the admin screen from suggestions after resolving one refreshes the pending-suggestion badge', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const adminMeResponse = { ...meResponse, isAdmin: true };
+    const suggestion = (id: string) => ({
+      id,
+      playerName: 'Someone Player',
+      assertedClubs: ['Some Club'],
+      assertedNationality: 'Some Country',
+      submittingUserId: 'user-1',
+      submittingUserDisplayName: 'Player One',
+      rowCategoryType: 'Nationality',
+      colCategoryType: 'Club',
+      createdAt: '2026-08-01T00:00:00Z',
+    });
+    // First call (AdminScreen's initial mount) returns 2 pending; every call
+    // after that (i.e. the remount on the way back from SuggestionsScreen)
+    // returns 1, simulating one having been resolved in the meantime.
+    let suggestionsCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(adminMeResponse);
+      if (url.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (url.includes('/admin/rounds/xg-grid/active')) return jsonResponse(null);
+      if (url.includes('/admin/suggestions')) {
+        suggestionsCallCount += 1;
+        return jsonResponse(
+          suggestionsCallCount === 1 ? [suggestion('s-1'), suggestion('s-2')] : [suggestion('s-1')],
+        );
+      }
+      // /admin/accounts/metrics is fetched by AdminScreen's own
+      // AccountMetricsSection on mount but isn't needed to reach the
+      // "Player suggestions" badge below — left unmocked deliberately, the
+      // same way the other admin navigation tests in this block do.
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Settings' });
+    await user.click(screen.getByRole('button', { name: 'Admin' }));
+    await screen.findByRole('heading', { name: 'Admin' });
+
+    expect(await screen.findByRole('button', { name: 'Player suggestions (2)' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Player suggestions (2)' }));
+    await screen.findByRole('heading', { name: 'Player suggestions' });
+
+    await user.click(screen.getByRole('button', { name: 'Back to admin' }));
+
+    expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Player suggestions (1)' })).toBeInTheDocument();
+  });
 });
 
 // REQ-903/ADR-0064: the footer's "Report a problem" entry point — moved
