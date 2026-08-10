@@ -124,15 +124,21 @@ public static class AuthSetup
         });
     }
 
+    // ci.yml's local E2E stack has no live Supabase project to call, so it sets
+    // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
+    // signed JWT instead. Re-check the environment here rather than trusting
+    // the config flag alone — same "never guarded only by config/an attribute"
+    // principle CLAUDE.md establishes for COMP-09's Testing.SeedManager
+    // (ADR-0006) — so this can never accidentally activate outside Development.
+    // Shared by ConfigureSupabaseAuthentication (builder-time) and
+    // LogJwksConfiguration (app-time) below so the two can't silently drift —
+    // same "single source of truth" reasoning as WikidataHttpClientConfiguration.
+    private static bool IsLocalE2EAuth(IConfiguration configuration, IHostEnvironment environment) =>
+        configuration["Auth:Mode"] == "local-e2e" && environment.IsDevelopment();
+
     public static void ConfigureSupabaseAuthentication(this WebApplicationBuilder builder)
     {
-        // ci.yml's local E2E stack has no live Supabase project to call, so it sets
-        // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
-        // signed JWT instead. Re-check the environment here rather than trusting
-        // the config flag alone — same "never guarded only by config/an attribute"
-        // principle CLAUDE.md establishes for COMP-09's Testing.SeedManager
-        // (ADR-0006) — so this can never accidentally activate outside Development.
-        var useLocalE2EAuth = builder.Configuration["Auth:Mode"] == "local-e2e" && builder.Environment.IsDevelopment();
+        var useLocalE2EAuth = IsLocalE2EAuth(builder.Configuration, builder.Environment);
 
         if (useLocalE2EAuth)
         {
@@ -257,14 +263,14 @@ public static class AuthSetup
     // anyone can even attempt to log in, so the very first thing visible in the
     // log stream after a deploy is the resolved JWKS address — if the path is
     // wrong, that's visible within seconds of checking, not after a confused
-    // user reports a login failure. Re-derives useLocalE2EAuth/jwksPath from
-    // configuration rather than threading them through from
-    // ConfigureSupabaseAuthentication above — both are cheap config reads, and
-    // this keeps the builder-time and app-time steps independently callable.
+    // user reports a login failure. Re-derives useLocalE2EAuth (via the shared
+    // IsLocalE2EAuth helper above) and jwksPath from configuration rather than
+    // threading them through from ConfigureSupabaseAuthentication — both are
+    // cheap config reads, and this keeps the builder-time and app-time steps
+    // independently callable.
     public static void LogJwksConfiguration(this WebApplication app)
     {
-        var useLocalE2EAuth = app.Configuration["Auth:Mode"] == "local-e2e" && app.Environment.IsDevelopment();
-        if (useLocalE2EAuth)
+        if (IsLocalE2EAuth(app.Configuration, app.Environment))
             return;
 
         // Safe: ConfigureSupabaseAuthentication's non-local-e2e branch already did
