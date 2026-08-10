@@ -12,7 +12,7 @@ namespace XGArcade.Core.IncidentReporting;
 // resolve an unwrapped `string` constructor parameter unambiguously.
 // Value is nullable/optional (unlike SupabaseServiceRoleKey, which throws
 // at startup if unset) because this feature's manual setup (CLAUDE.md's
-// REQ-903 handoff — creating and naming the GITHUB_INCIDENT_REPORT_PAT
+// REQ-903 handoff — creating and naming the INCIDENT_REPORT_PAT
 // secret) is not guaranteed to have happened in every environment yet.
 // CreateIssueAsync's own null/blank check below turns an unset token into
 // a clean per-request failure, never a startup crash.
@@ -47,7 +47,7 @@ public class GitHubIssueClient(
         if (string.IsNullOrWhiteSpace(token.Value))
         {
             // Never a stack trace/exception here — an unconfigured token is
-            // an expected state until the manual GITHUB_INCIDENT_REPORT_PAT
+            // an expected state until the manual INCIDENT_REPORT_PAT
             // setup (CLAUDE.md's handoff for this story) has happened in
             // this environment.
             logger.LogError("Incident report failed: GitHub:IncidentReportToken is not configured.");

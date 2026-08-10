@@ -46,7 +46,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   Threaded through `infra/bicep/modules/backend-container-app.bicep` →
   `infra/bicep/main.bicep` → `.github/workflows/deploy.yml` as
   `GitHub__IncidentReportToken`, sourced from a new, optional
-  (default-empty) `GITHUB_INCIDENT_REPORT_PAT` shared repo secret
+  (default-empty) `INCIDENT_REPORT_PAT` shared repo secret
   (`infra/README.md`, `SETUP.md` step 6) — not yet created in any real
   environment, so `POST /incidents` currently fails closed (503) rather
   than reaching GitHub. Frontend: `SettingsScreen.tsx` gained a "Report a
@@ -61,10 +61,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `SuggestionEndpoints`/`SuggestionEndpointTests` and `SupabaseAuthClient`/
   `SupabaseAuthClientCaptchaTests` patterns, not actually built or run;
   confirm in CI. Frontend: `npm run test` (497/497) and `tsc -b` both pass
-  locally. **Not production-ready yet**: the `GITHUB_INCIDENT_REPORT_PAT`
-  secret has not been created, and REQ-903's required one-time manual
-  end-to-end check against a throwaway/test repo has not been done — see
-  REQ-903's own "Verification status" note.
+  locally. **Naming correction (same day):** originally named
+  `GITHUB_INCIDENT_REPORT_PAT` throughout this session's docs/workflow —
+  GitHub rejects any repo secret name starting with the reserved `GITHUB_`
+  prefix, so it's `INCIDENT_REPORT_PAT` everywhere instead
+  (`.github/workflows/deploy.yml`, `infra/README.md`, `SETUP.md`,
+  `MVP-SCOPE.md`, `TODO.md`, `docs/requirements-document.md`, and
+  `GitHubIssueClient.cs`'s own comments) — the Bicep parameter/env var
+  names (`githubIncidentReportToken`/`GitHub__IncidentReportToken`) are
+  unaffected, since those aren't GitHub secret names. **The secret has now
+  been created** (confirmed by the product owner, 2026-08-10) — REQ-903's
+  required one-time manual end-to-end check against a throwaway/test repo
+  is still outstanding before relying on this in production; see REQ-903's
+  own "Verification status" note.
 
 - 2026-08-10 — new `docs/decisions/0064-backend-mediated-github-incident-reporting.md`,
   `docs/requirements-document.md` (REQ-903), `docs/architecture-document.md`

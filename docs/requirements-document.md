@@ -6410,13 +6410,14 @@ of it calls the real GitHub API. **Not yet built/run in this sandbox**
 traced against this codebase's existing patterns (`SuggestionEndpoints`/
 `SuggestionEndpointTests`, `SupabaseAuthClient`/`SupabaseAuthClientCaptchaTests`),
 not compiler-verified; confirm with a real `dotnet test` run in CI. The
-one real manual end-to-end submission against a throwaway/test repo this
-REQ's "Test level" calls for has **not** been done yet — it requires the
-`GITHUB_INCIDENT_REPORT_PAT` secret, which is not provisioned in any
-environment as of this note (see `infra/README.md`'s secrets table and
-`SETUP.md` step 6). Until that secret exists, `POST /incidents` fails
-closed (a clear 503, per this REQ's own GitHub-failure acceptance
-criterion) rather than doing nothing or crashing.
+`INCIDENT_REPORT_PAT` secret (see `infra/README.md`'s secrets table and
+`SETUP.md` step 6) has now been created (confirmed by the product owner,
+2026-08-10) — until it existed, `POST /incidents` failed closed (a clear
+503, per this REQ's own GitHub-failure acceptance criterion) rather than
+doing nothing or crashing. The one real manual end-to-end submission
+against a throwaway/test repo this REQ's "Test level" calls for is still
+outstanding — do that check before relying on this against the real repo
+in front of real players.
 
 ---
 

@@ -471,14 +471,15 @@ is written as something you can actually observe, not a vague feeling:
   `Core.IncidentReporting` (backend) and a "Report a problem" section in
   Settings (frontend) — see REQ-903's own status note
   (`docs/requirements-document.md`) and COMP-12's entry
-  (`docs/architecture-document.md`) for the concrete shape. **Not yet
-  wired up end-to-end against the real GitHub API**: the
-  `GITHUB_INCIDENT_REPORT_PAT` secret this needs (see `infra/README.md`'s
-  secrets table and `SETUP.md` step 6) has not been created in any
-  environment yet — until it is, `POST /incidents` fails closed (a clear
-  503) rather than doing nothing. The one real manual end-to-end
+  (`docs/architecture-document.md`) for the concrete shape. The
+  `INCIDENT_REPORT_PAT` secret this needs (see `infra/README.md`'s
+  secrets table and `SETUP.md` step 6 — named `INCIDENT_REPORT_PAT`, not
+  `GITHUB_INCIDENT_REPORT_PAT`, since GitHub rejects secret names starting
+  with the reserved `GITHUB_` prefix) has now been created (confirmed by
+  the product owner, 2026-08-10). The one real manual end-to-end
   submission against a throwaway/test repo REQ-903's "Test level" calls
-  for is also still outstanding, and backend tests are hand-traced, not
+  for is still outstanding before relying on this against the real repo,
+  and backend tests are hand-traced, not
   yet run through a real `dotnet test` (this sandbox has no `dotnet` SDK
   available, the same recurring constraint noted elsewhere in this repo's
   history — confirm in CI). See ADR-0064 for the full decision (including
