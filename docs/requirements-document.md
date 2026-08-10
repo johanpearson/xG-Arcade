@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.59"
+version: "1.60"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -6315,6 +6315,62 @@ runs and produces a non-empty, valid export)
 
 **Test level:** Manual (deliberately break a job once and confirm a
 notification arrives)
+
+**REQ-903 – In-app incident reporting to GitHub Issues**
+> As a registered (non-guest) player, I want to report a bug or problem I
+> hit directly from the app, so the team sees it as a real, actionable
+> GitHub issue without me needing a GitHub account of my own.
+
+**Status: Not started — design only (ADR-0064).**
+
+**Tier framing — pulled forward by deliberate product decision, 2026-08-10,
+same pattern as REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own
+precedent:** no trigger fired (no observed volume of reports going
+out-of-band) — the product owner raised it directly. See `MVP-SCOPE.md`'s
+Tier 1 section for the matching entry.
+
+- Given a logged-in, non-guest player encounters a problem and opens the
+  incident-report entry point
+- When they submit a non-blank description (with a reasonable max length)
+- Then the backend creates a GitHub issue in this repository via a
+  server-held credential, labeled for triage (e.g. `user-reported`) —
+  never a credential exposed to, or accepted from, the client (ADR-0064)
+- And the issue body includes non-PII triage context (the reporting
+  user's internal `UserId`, the current route/screen if supplied, a
+  timestamp) — never the player's email and never the GitHub token itself
+- And on success the player sees a confirmation (the created issue's URL
+  is fine to return — it isn't secret)
+
+- Given the caller is a guest account (`IsGuest == true`)
+- Then the request is rejected with `403`, enforced server-side regardless
+  of what the client sends — same boundary rule REQ-215 already
+  established for a different write path, and no incident-report entry
+  point is shown to a guest in the UI
+
+- Given the caller has no valid session
+- Then the request is rejected with `401`
+
+- Given a player has already filed more than a small number of reports in
+  a short window (rate limit, exact numbers left to implementation)
+- Then further submissions are rejected with a clear "try again later"
+  response rather than silently creating more issues
+
+- Given the GitHub API call itself fails (network error, invalid/expired
+  token, GitHub-side rate limit)
+- Then the player sees a clear failure message, no partial or duplicate
+  issue is created, and the failure does not crash or block the rest of
+  the app
+
+**Out of scope for this REQ:** any in-app moderation/review queue before
+an issue is created (unlike REQ-215/REQ-509-510's suggestion pipeline) —
+every valid, rate-limit-respecting submission becomes a real issue
+immediately, see ADR-0064's accepted trade-offs.
+
+**Test level:** Unit (request validation, guest/anonymous rejection, rate
+limiting), API/Integration (`POST /incidents` auth and status-code
+behavior against a stubbed/mocked GitHub client — tests must never call
+the real GitHub API), Manual (one real end-to-end submission against a
+throwaway/test repo before relying on this in production)
 
 ---
 
