@@ -977,6 +977,23 @@ builder.Services.AddHttpClient<IGitHubIssueClient, GitHubIssueClient>(client =>
 });
 builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
 
+// REQ-904/ADR-0066: server-side cached poll of GitHub's open,
+// user-reported-labeled issues for the admin "Incident reports" entry
+// point. AddMemoryCache registers the in-process IMemoryCache singleton
+// this repo has had no prior reason to use — no distributed cache exists
+// (ADR-0066's own "premature, revisit if the backend ever runs more than
+// one instance" alternative). CachedIncidentIssueSummaryProvider is
+// registered as a singleton (not scoped/transient) so its single shared
+// cache entry and "last successful poll" state are genuinely shared across
+// every admin request, per ADR-0066's "one shared cache entry, not
+// per-admin/per-request" decision — a scoped/transient registration would
+// silently defeat the whole point of this cache.
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton(new IncidentReportCacheTtl(
+    TimeSpan.FromSeconds(builder.Configuration.GetValue<double?>("GitHub:IncidentReportCacheTtlSeconds")
+        ?? IncidentReportCacheTtl.DefaultValue.TotalSeconds)));
+builder.Services.AddSingleton<ICachedIncidentIssueSummaryProvider, CachedIncidentIssueSummaryProvider>();
+
 // REQ-903: per-user rate limit for POST /incidents — see
 // IncidentEndpoints.MapIncidentEndpoints's own comment for why this is a
 // plain PartitionedRateLimiter<Guid> (keyed on the resolved caller's
@@ -1204,6 +1221,11 @@ app.MapPlayerAutocompleteEndpoints();
 // REQ-903/ADR-0064/COMP-12: in-app bug reports -> GitHub issues in this
 // repo, non-guest only (enforced server-side inside the handler itself).
 app.MapIncidentEndpoints();
+// REQ-904/ADR-0066: admin-only read of the cached open-incident-issue
+// count — its own file/registration, same "submission file vs. admin
+// file" split as MapSuggestionEndpoints/MapAdminSuggestionEndpoints above,
+// never folded into MapAdminEndpoints.
+app.MapAdminIncidentReportEndpoints();
 // REQ-511: the public, unauthenticated read path (GET /announcement-banner)
 // — see AnnouncementBannerEndpoints.cs's own doc comment for why this is
 // registered unconditionally, with no .RequireAuthorization() anywhere in

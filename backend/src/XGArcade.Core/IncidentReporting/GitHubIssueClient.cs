@@ -97,10 +97,84 @@ public class GitHubIssueClient(
         }
     }
 
+    // REQ-904/ADR-0066: lists this repo's currently-open, fixed-label
+    // issues — called only by CachedIncidentIssueSummaryProvider, never
+    // directly by an endpoint (ADR-0066's "the cache is the only caller of
+    // this method" requirement). Same per-request bearer token, same
+    // client-safe-failure-summary discipline as CreateIssueAsync above.
+    public async Task<GitHubIssueListResult> ListOpenIssuesByLabelAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(token.Value))
+        {
+            // Same "expected state until INCIDENT_REPORT_PAT is configured,
+            // never a stack trace" reasoning as CreateIssueAsync's own check.
+            logger.LogError("Incident report list failed: GitHub:IncidentReportToken is not configured.");
+            return GitHubIssueListResult.Failed("Incident reporting is not configured on this environment yet.");
+        }
+
+        // per_page=100: GitHub's default page size (30) could silently
+        // undercount open issues once this repo accumulates more than that
+        // many open user-reported issues at once; 100 is GitHub's own max
+        // and comfortably covers any realistic admin-triage backlog without
+        // needing to implement pagination for a feature that only ever
+        // surfaces a count plus a short list. state=open and labels= are
+        // the same fixed values ADR-0064/GitHubIncidentReportOptions
+        // already uses to tag issues on creation — never client-supplied.
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"repos/{options.Owner}/{options.Repo}/issues?state=open&labels={Uri.EscapeDataString(options.Label)}&per_page=100");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                logger.LogError(
+                    "Incident report list failed: GitHub API returned {StatusCode}. {ResponseBody}",
+                    response.StatusCode, responseBody);
+                return GitHubIssueListResult.Failed("Could not list open issues on GitHub. Please try again later.");
+            }
+
+            var items = await response.Content.ReadFromJsonAsync<List<GitHubIssueListItem>>(cancellationToken: cancellationToken);
+            if (items is null)
+            {
+                logger.LogError("Incident report list failed: GitHub API returned a success status with no parseable body.");
+                return GitHubIssueListResult.Failed("Could not list open issues on GitHub. Please try again later.");
+            }
+
+            // GitHub's "list issues" endpoint also returns pull requests
+            // (a PR is represented as an issue with a non-null
+            // `pull_request` field) — filtered out defensively even though
+            // this app's own issue-creation path never labels a PR
+            // `user-reported`, so a future manually-labeled PR can never
+            // inflate this count.
+            var issues = items
+                .Where(i => i.PullRequest is null && i.Title is not null && i.HtmlUrl is not null)
+                .Select(i => new GitHubIssueSummary(i.Number, i.Title!, i.HtmlUrl!))
+                .ToList();
+
+            return GitHubIssueListResult.Ok(issues);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogError(ex, "Incident report list failed: could not reach the GitHub API.");
+            return GitHubIssueListResult.Failed("Could not reach GitHub. Please try again later.");
+        }
+    }
+
     private record GitHubCreateIssueRequest(
         [property: JsonPropertyName("title")] string Title,
         [property: JsonPropertyName("body")] string Body,
         [property: JsonPropertyName("labels")] IReadOnlyList<string> Labels);
 
     private record GitHubIssueResponse([property: JsonPropertyName("html_url")] string? HtmlUrl);
+
+    private record GitHubIssueListItem(
+        [property: JsonPropertyName("number")] int Number,
+        [property: JsonPropertyName("title")] string? Title,
+        [property: JsonPropertyName("html_url")] string? HtmlUrl,
+        [property: JsonPropertyName("pull_request")] object? PullRequest);
 }
