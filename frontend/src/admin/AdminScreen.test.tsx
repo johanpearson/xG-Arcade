@@ -883,6 +883,118 @@ describe('AdminScreen', () => {
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
   });
 
+  // ---- REQ-512: pending player-suggestions badge ------------------------
+
+  function pendingSuggestion(id: string) {
+    return {
+      id,
+      playerName: 'Someone Player',
+      assertedClubs: ['Some Club'],
+      assertedNationality: 'Some Country',
+      submittingUserId: 'user-1',
+      submittingUserDisplayName: 'Player One',
+      rowCategoryType: 'Nationality',
+      colCategoryType: 'Club',
+      createdAt: '2026-08-01T00:00:00Z',
+    };
+  }
+
+  it('REQ-512: shows "Player suggestions (3)" when 3 suggestions are pending', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () =>
+        jsonResponse([pendingSuggestion('s-1'), pendingSuggestion('s-2'), pendingSuggestion('s-3')]),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Player suggestions (3)' })).toBeInTheDocument();
+  });
+
+  it('REQ-512: shows plain "Player suggestions" with no "(0)" when zero suggestions are pending', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse([]),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    // Wait for the fetch to resolve rather than asserting on the initial
+    // (also badge-less) render, so this genuinely exercises the N===0 case
+    // rather than passing trivially on the pre-fetch state.
+    await screen.findByText('No unverified data to review.');
+    expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
+  });
+
+  it('REQ-512: a 401 from the suggestions fetch calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ-512: a 403 from the suggestions fetch leaves the button showing plain "Player suggestions", with no error banner and no page-level access-denied flip', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
+    // The rest of the page renders normally — this section's failure never
+    // flips the whole page to access-denied, same as AccountMetricsSection's
+    // and XGPathCycleSection's own 403 resilience.
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
+  it('REQ-512: clicking "Player suggestions" still calls onOpenSuggestions regardless of badge state', async () => {
+    const onOpenSuggestions = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse([pendingSuggestion('s-1')]),
+    });
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={onOpenSuggestions} />);
+
+    const button = await screen.findByRole('button', { name: 'Player suggestions (1)' });
+    await user.click(button);
+
+    expect(onOpenSuggestions).toHaveBeenCalledTimes(1);
+  });
+
+  it('REQ-512: a non-401/403 error from the suggestions fetch shows an inline error message, with no badge and no onAuthError call', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/suggestions': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Player suggestions' })).toBeInTheDocument();
+    // The rest of the page must remain usable — this section's error is
+    // scoped to itself, same as XGPathCycleSection's own error handling.
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
   // ---- REQ-511: site-wide announcement banner section -------------------
 
   const loadedActiveBanner = {

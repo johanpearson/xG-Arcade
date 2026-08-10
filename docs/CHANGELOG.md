@@ -46,6 +46,33 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   other recent backend story in this repo. See `docs/backlog.md`'s S-096
   entry for the full implementation shape.
 
+- 2026-08-10 — `docs/requirements-document.md` (REQ-512, new, v1.66 →
+  v1.67), `docs/backlog.md` (S-097 built) — admin notification badge for
+  pending player suggestions (REQ-215/509/512), the first of the two
+  follow-on stories queued alongside REQ-511's banner above.
+  `requirements-writer` drafted REQ-512 first per this repo's "no REQ, no
+  code" workflow; `ui-implementer` then built it as a frontend-only
+  change — a new `PlayerSuggestionsEntry` component in `AdminScreen.tsx`
+  reusing REQ-509's existing `GET /admin/suggestions` endpoint and
+  existing `fetchPendingSuggestions()` client function, no new backend
+  endpoint or data source. Rendered as plain text (`Player suggestions
+  (N)`), the same convention `Unverified data (N)` already uses in the
+  same file, deliberately not a new pill/badge token since
+  `design-document.md` §2 has none — `docs/design-document.md` is
+  unchanged as a result. A quality-gate finding (401/403/other-error
+  states were not distinguished) was fixed before merge, matching
+  `AccountMetricsSection`/`XGPathCycleSection`'s existing resilience
+  pattern. `architecture-reviewer` gave an explicit no-change verdict for
+  `docs/architecture-document.md` — no new component, boundary, or data
+  flow; REQ-509's existing endpoint and `"Admin"` policy are reused
+  as-is, so no ADR was opened. 7 new tests (`AdminScreen.test.tsx`,
+  `App.test.tsx`); full frontend suite 536/536 passing, `tsc -b`/oxlint
+  clean, confirmed in this sandbox; backend untouched by this story.
+  `docs/implementation-document.md` confirmed unchanged (no new
+  library/service, no data model or folder-layout change, no test
+  tooling change). See `docs/backlog.md`'s S-097 entry for the full
+  implementation shape.
+
 - 2026-08-10 — `docs/design-document.md` (v0.69 → v0.70, SCREEN-11 updated),
   `docs/requirements-document.md` (REQ-903, v1.64 → v1.65 — also corrects a
   pre-existing acceptance-criteria error, see below),
