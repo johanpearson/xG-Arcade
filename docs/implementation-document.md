@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.92"
+version: "0.93"
 status: draft
-last_updated: 2026-08-09
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -242,10 +242,17 @@ misconfigured per-endpoint. See ADR-0006.
                                    Bug fix (2026-08-08, REQ-1203) added
                                    PathCareerStintFilter — a read-time-only
                                    filter excluding leftover pre-2026-08-02
-                                   youth/age-grade national-team
-                                   PlayerCareerStint rows, applied at both
-                                   PathEndpoints.cs's GET /path/current and
-                                   GetEligiblePlayerIdsAsync's REQ-1201 check
+                                   national-team PlayerCareerStint rows,
+                                   applied at both PathEndpoints.cs's GET
+                                   /path/current and
+                                   GetEligiblePlayerIdsAsync's REQ-1201 check.
+                                   Originally scoped to youth/age-grade teams
+                                   only (IsYouthNationalTeam); widened
+                                   2026-08-10 to IsNationalTeam, matching any
+                                   national team (senior included) per a bug
+                                   report showing a senior team leaking
+                                   through — see REQ-1203's 2026-08-10 status
+                                   note in requirements-document.md
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -1412,7 +1419,14 @@ descriptions silently drifting apart. Two differences from the photo
 backfill worth calling out: (1) the read side,
 `IPlayerStoreRepository.GetPlayersMissingPositionOrBirthYearAsync`, matches
 on `Position IS NULL OR BirthYear IS NULL` (either field missing), not a
-single-field check; (2) the write side,
+single-field check — widened 2026-08-10 to also match a `Position` value
+that is itself a raw Wikidata entity URI (e.g.
+`"http://www.wikidata.org/entity/Q8025128"`), since a pre-2026-08-02 row
+persisted under the position-URI bug described below is NOT `NULL` and was
+therefore permanently skipped by every backfill run until this widening;
+`UpdatePlayerPositionsAndBirthYearsAsync` now overwrites that one bad-
+sentinel shape as its only exception to "never clobber an already-set
+field" below; (2) the write side,
 `UpdatePlayerPositionsAndBirthYearsAsync`, takes a
 `PlayerPositionBirthYearUpdate(Position, BirthYear)` per player rather than
 a single scalar, and only writes a field when the update supplies a
