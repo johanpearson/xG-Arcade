@@ -1,6 +1,6 @@
 # ADR-0064: Backend-mediated GitHub issue creation for in-app incident reports
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-08-10
 - **Related requirements:** REQ-903
 - **Related components:** COMP-12 (new), COMP-01

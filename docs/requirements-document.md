@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.62"
+version: "1.63"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -6342,7 +6342,15 @@ notification arrives)
 > hit directly from the app, so the team sees it as a real, actionable
 > GitHub issue without me needing a GitHub account of my own.
 
-**Status: Not started — design only (ADR-0064).**
+**Status: Built, 2026-08-10 (ADR-0064).** `POST /incidents`
+(`XGArcade.Api.Incidents.IncidentEndpoints`), `Core.IncidentReporting`
+(`IGitHubIssueClient`/`GitHubIssueClient`, `IIncidentReportService`/
+`IncidentReportService`) and a Settings-screen entry point
+(`SettingsScreen.tsx`'s "Report a problem" section) implement every
+acceptance criterion below. See COMP-12's own status note
+(`architecture-document.md`) for the concrete shape, and this REQ's
+"Verification status" note at the end of this section for what's still
+outstanding before this is production-ready.
 
 **Tier framing — pulled forward by deliberate product decision, 2026-08-10,
 same pattern as REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own
@@ -6392,6 +6400,23 @@ limiting), API/Integration (`POST /incidents` auth and status-code
 behavior against a stubbed/mocked GitHub client — tests must never call
 the real GitHub API), Manual (one real end-to-end submission against a
 throwaway/test repo before relying on this in production)
+
+**Verification status (2026-08-10):** Unit (`GitHubIssueClientTests.cs`,
+`IncidentReportServiceTests.cs`) and API (`IncidentEndpointTests.cs`)
+coverage is written, all against a fake/stubbed `IGitHubIssueClient` — none
+of it calls the real GitHub API. **Not yet built/run in this sandbox**
+(`dotnet` SDK unavailable here, same recurring sandbox constraint
+`docs/CHANGELOG.md`'s 2026-08-10 REQ-509 entry already documents) — hand-
+traced against this codebase's existing patterns (`SuggestionEndpoints`/
+`SuggestionEndpointTests`, `SupabaseAuthClient`/`SupabaseAuthClientCaptchaTests`),
+not compiler-verified; confirm with a real `dotnet test` run in CI. The
+one real manual end-to-end submission against a throwaway/test repo this
+REQ's "Test level" calls for has **not** been done yet — it requires the
+`GITHUB_INCIDENT_REPORT_PAT` secret, which is not provisioned in any
+environment as of this note (see `infra/README.md`'s secrets table and
+`SETUP.md` step 6). Until that secret exists, `POST /incidents` fails
+closed (a clear 503, per this REQ's own GitHub-failure acceptance
+criterion) rather than doing nothing or crashing.
 
 ---
 

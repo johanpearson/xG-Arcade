@@ -13,6 +13,59 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/decisions/0064-backend-mediated-github-incident-reporting.md`
+  (Status: Proposed → Accepted), `docs/requirements-document.md` (REQ-903,
+  v1.62 → v1.63), `docs/architecture-document.md` (COMP-12, v0.88 → v0.89),
+  `MVP-SCOPE.md` (Tier 1 pull-forward entry marked built),
+  `docs/legal/privacy-policy-draft.md` (v0.9 → v0.10, new "Who we share it
+  with" bullet for GitHub — a report's description and internal account id
+  become a GitHub issue, potentially public, the first feature that posts
+  player-written text to a third party) — implemented
+  REQ-903/ADR-0064: a logged-in, non-guest player can file a bug report
+  from Settings ("Report a problem") that the backend turns into a real
+  GitHub issue in this repo. Backend: `POST /incidents`
+  (`XGArcade.Api.Incidents.IncidentEndpoints`, mirrors REQ-215's
+  `SuggestionEndpoints` resolve-caller/reject-guest shape exactly),
+  `Core.IncidentReporting` (new, `XGArcade.Core` — `IGitHubIssueClient`/
+  `GitHubIssueClient` calling GitHub's REST API with a fine-grained PAT set
+  per-request via `HttpRequestMessage.Headers.Authorization`, never on the
+  shared `HttpClient`'s defaults, same pattern `SupabaseAuthClient
+  .DeleteUserAsync` already established for its own service_role key;
+  `IIncidentReportService`/`IncidentReportService` builds the non-PII
+  triage body). Guests rejected `403` server-side; per-user rate limit
+  (default 3/10min, `RateLimiting:IncidentReportPermitLimit`/
+  `WindowMinutes`) via a plain `PartitionedRateLimiter<Guid>` keyed on the
+  resolved caller's `User.Id`, checked directly in the endpoint rather than
+  as a global named `RateLimiter` policy — the existing `auth-signup`/
+  `auth-login`/`auth-guest` policies are IP-partitioned and evaluated by
+  `UseRateLimiter()` before `UseAuthentication()` runs, the wrong shape for
+  a per-user key that only exists once this endpoint's own caller-lookup
+  has run; see COMP-12's own architecture-document.md entry for the full
+  reasoning. Target repo/label are non-secret `GitHubIncidentReportOptions`
+  resolved from config in `Program.cs`, never accepted from the client.
+  Threaded through `infra/bicep/modules/backend-container-app.bicep` →
+  `infra/bicep/main.bicep` → `.github/workflows/deploy.yml` as
+  `GitHub__IncidentReportToken`, sourced from a new, optional
+  (default-empty) `GITHUB_INCIDENT_REPORT_PAT` shared repo secret
+  (`infra/README.md`, `SETUP.md` step 6) — not yet created in any real
+  environment, so `POST /incidents` currently fails closed (503) rather
+  than reaching GitHub. Frontend: `SettingsScreen.tsx` gained a "Report a
+  problem" section (always rendered, disabled — not hidden — for a guest,
+  mirroring REQ-215's advertised-but-disabled rule), `lib/api.ts`'s
+  `reportIncident`, `lib/incidentReportCopy.ts` for the guest-locked/
+  submitted copy strings. Tests (`GitHubIssueClientTests.cs`,
+  `IncidentReportServiceTests.cs`, `IncidentEndpointTests.cs`) never call
+  the real GitHub API — all against a fake `IGitHubIssueClient`. **Backend
+  caveat: `dotnet` SDK unavailable in this sandbox** — the new backend code
+  and tests were hand-traced against this codebase's existing
+  `SuggestionEndpoints`/`SuggestionEndpointTests` and `SupabaseAuthClient`/
+  `SupabaseAuthClientCaptchaTests` patterns, not actually built or run;
+  confirm in CI. Frontend: `npm run test` (497/497) and `tsc -b` both pass
+  locally. **Not production-ready yet**: the `GITHUB_INCIDENT_REPORT_PAT`
+  secret has not been created, and REQ-903's required one-time manual
+  end-to-end check against a throwaway/test repo has not been done — see
+  REQ-903's own "Verification status" note.
+
 - 2026-08-10 — new `docs/decisions/0064-backend-mediated-github-incident-reporting.md`,
   `docs/requirements-document.md` (REQ-903), `docs/architecture-document.md`
   (new COMP-12 Core.IncidentReporting), `MVP-SCOPE.md` (Tier 1 pull-forward

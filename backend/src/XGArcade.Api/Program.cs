@@ -11,6 +11,7 @@ using XGArcade.Api.Admin;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
+using XGArcade.Api.Incidents;
 using XGArcade.Api.Leagues;
 using XGArcade.Api.Path;
 using XGArcade.Api.Players;
@@ -18,6 +19,7 @@ using XGArcade.Api.Rounds;
 using XGArcade.Api.Suggestions;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
+using XGArcade.Core.IncidentReporting;
 using XGArcade.Core.Leagues;
 using XGArcade.Core.Rounds;
 using XGArcade.Core.Scoring;
@@ -938,6 +940,59 @@ builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionReposito
 // cached, per ADR-0031.
 builder.Services.AddScoped<ILiveRoundContributionService, LiveRoundContributionService>();
 
+// REQ-903/ADR-0064/COMP-12: the fine-grained GitHub PAT (Issues:write on
+// this one repo only), read once here — deliberately NOT `?? throw`, unlike
+// Supabase's secrets above: this is a Tier 1 pull-forward with no manual
+// secret guaranteed to be provisioned in every environment yet (see
+// CLAUDE.md's setup-info handoff for this story). An unset token means
+// POST /incidents fails closed per-request (GitHubIssueClient
+// .CreateIssueAsync's own check), not that the whole app refuses to start.
+builder.Services.AddSingleton(new GitHubIncidentReportToken(builder.Configuration["GitHub:IncidentReportToken"]));
+// ADR-0064: fixed server-side, never accepted from the client — resolved
+// once here (appsettings.json carries the real, non-secret defaults for
+// this repo) and passed into GitHubIssueClient as plain values, rather than
+// XGArcade.Core taking a direct dependency on IConfiguration itself (that
+// project has no existing reason to reference
+// Microsoft.Extensions.Configuration).
+builder.Services.AddSingleton(new GitHubIncidentReportOptions(
+    builder.Configuration["GitHub:IncidentReportOwner"] ?? "johanpearson",
+    builder.Configuration["GitHub:IncidentReportRepo"] ?? "xg-arcade",
+    builder.Configuration["GitHub:IncidentReportLabel"] ?? "user-reported"));
+builder.Services.AddHttpClient<IGitHubIssueClient, GitHubIssueClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    // GitHub's REST API rejects requests with no User-Agent; Accept/
+    // X-GitHub-Api-Version pin the response shape/version this class's
+    // GitHubIssueResponse parsing assumes (GitHub's documented current
+    // convention, not this project's own choice).
+    client.DefaultRequestHeaders.Add("User-Agent", "xg-arcade-backend");
+    client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+    client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+});
+builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
+
+// REQ-903: per-user rate limit for POST /incidents — see
+// IncidentEndpoints.MapIncidentEndpoints's own comment for why this is a
+// plain PartitionedRateLimiter<Guid> (keyed on the resolved caller's
+// User.Id) checked directly in the endpoint, rather than a global named
+// RateLimiter policy like auth-signup/auth-login/auth-guest below (those
+// are IP-partitioned and evaluated before authentication runs — a shape
+// that doesn't fit a per-user key here). Same FixedWindowRateLimiter shape
+// as those three otherwise: fixed window, no queueing. Configurable via the
+// same RateLimiting:* override convention as the auth-* policies, default
+// left deliberately tight (ADR-0064: "a small number... exact numbers left
+// to implementation") since a valid submission always creates a real,
+// visible GitHub issue with no review queue in front of it.
+var incidentReportPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:IncidentReportPermitLimit") ?? 3;
+var incidentReportWindowMinutes = builder.Configuration.GetValue<double?>("RateLimiting:IncidentReportWindowMinutes") ?? 10;
+builder.Services.AddSingleton(PartitionedRateLimiter.Create<Guid, Guid>(userId =>
+    RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = incidentReportPermitLimit,
+        Window = TimeSpan.FromMinutes(incidentReportWindowMinutes),
+        QueueLimit = 0,
+    })));
+
 // ci.yml's local E2E stack has no live Supabase project to call, so it sets
 // Auth:Mode=local-e2e to swap in a fake ISupabaseAuthClient + a locally
 // signed JWT instead. Re-check the environment here rather than trusting
@@ -1140,6 +1195,9 @@ app.MapAdminManagementEndpoints();
 // for why it's kept separate from MapAdminManagementEndpoints above.
 app.MapAdminXGPathEndpoints();
 app.MapPlayerAutocompleteEndpoints();
+// REQ-903/ADR-0064/COMP-12: in-app bug reports -> GitHub issues in this
+// repo, non-guest only (enforced server-side inside the handler itself).
+app.MapIncidentEndpoints();
 
 app.Run();
 

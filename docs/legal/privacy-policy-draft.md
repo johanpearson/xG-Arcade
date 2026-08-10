@@ -1,9 +1,9 @@
 ---
 doc_id: privacy-policy-draft
 title: Privacy Policy (Draft)
-version: "0.9"
+version: "0.10"
 status: draft — NOT LEGALLY REVIEWED
-last_updated: 2026-07-25
+last_updated: 2026-08-10
 ---
 
 > **This is a starting draft, not a finished legal document.** It's written
@@ -76,6 +76,17 @@ last_updated: 2026-07-25
   URL, never the image file itself. Shipped 2026-07-18 (`docs/backlog.md`
   S-043 backend, S-044 frontend) — this browser request is live whenever a
   solved cell with a photo is revealed.
+- **GitHub** (bug reports, REQ-903) — if you choose to use the optional
+  "Report a problem" feature in Settings (registered accounts only, not
+  available to guests), the description you write and an internal account
+  identifier (not your email or display name) are sent to GitHub and
+  published as an issue in this project's GitHub repository — visible to
+  anyone if that repository is public (the current default; see
+  `SETUP.md`), or to anyone with repository access if it's private. Only
+  submit information you're comfortable with GitHub, and possibly the
+  public, seeing. This is the only feature that sends anything you write to
+  a third party for posting outside this application; everything else on
+  this page describes data GitHub never sees.
 - We do not sell your data to anyone, for any reason.
 
 ## How long we keep it

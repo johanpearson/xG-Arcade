@@ -467,9 +467,23 @@ is written as something you can actually observe, not a vague feeling:
   the backend creates the issue server-side using a fine-grained GitHub
   PAT scoped to `Issues: write` on this repo only — never exposed to the
   client. Guests are rejected server-side (`403`), same boundary REQ-215
-  already established. **Design only — not yet built.** See ADR-0064 for
-  the full decision (including why a PAT over a GitHub App, and why not a
-  frontend-direct call) and REQ-903 for acceptance criteria.
+  already established. **Built, 2026-08-10:** `POST /incidents` +
+  `Core.IncidentReporting` (backend) and a "Report a problem" section in
+  Settings (frontend) — see REQ-903's own status note
+  (`docs/requirements-document.md`) and COMP-12's entry
+  (`docs/architecture-document.md`) for the concrete shape. **Not yet
+  wired up end-to-end against the real GitHub API**: the
+  `GITHUB_INCIDENT_REPORT_PAT` secret this needs (see `infra/README.md`'s
+  secrets table and `SETUP.md` step 6) has not been created in any
+  environment yet — until it is, `POST /incidents` fails closed (a clear
+  503) rather than doing nothing. The one real manual end-to-end
+  submission against a throwaway/test repo REQ-903's "Test level" calls
+  for is also still outstanding, and backend tests are hand-traced, not
+  yet run through a real `dotnet test` (this sandbox has no `dotnet` SDK
+  available, the same recurring constraint noted elsewhere in this repo's
+  history — confirm in CI). See ADR-0064 for the full decision (including
+  why a PAT over a GitHub App, and why not a frontend-direct call) and
+  REQ-903 for acceptance criteria.
 
 ## Tier 2 — already deferred, unchanged
 

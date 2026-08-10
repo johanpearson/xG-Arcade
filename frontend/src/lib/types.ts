@@ -393,6 +393,13 @@ export interface SubmitSuggestionResponse {
   createdAt: string;
 }
 
+// REQ-903/ADR-0064: the response to POST /incidents
+// (IncidentEndpoints.SubmitIncidentReportResponse) — the created GitHub
+// issue's own URL, not secret, safe to show the player as confirmation.
+export interface SubmitIncidentReportResponse {
+  issueUrl: string;
+}
+
 // REQ-1203 (S-086): one club revealed within a ClubReveal turn — mirrors
 // `PathClubClueResponse` (backend/src/XGArcade.Api/Path/PathEndpoints.cs)
 // exactly. appearanceCount is null exactly when Wikidata's appearance-count

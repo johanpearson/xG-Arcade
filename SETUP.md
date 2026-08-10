@@ -227,6 +227,7 @@ specific is prefixed `PROD_` or `DEV_`, nothing else):
 | Secret | Value comes from |
 |---|---|
 | `RESEND_API_KEY` | Step 3, once you're doing email confirmation |
+| `GITHUB_INCIDENT_REPORT_PAT` (REQ-903, ADR-0064) | github.com → Settings → Developer settings → Fine-grained tokens → Generate new token. Repository access: "Only select repositories" → this repo only. Repository permissions: `Issues` → **Read and write** (this also auto-selects `Metadata` → **Read**, required, leave it) — no other permission. Recommended expiration: 90 days. This powers the in-app "Report a problem" feature (`Core.IncidentReporting`) turning a player's bug report into a real GitHub issue here — optional until you're ready to test that feature; `POST /incidents` just fails closed (a clear error to the player) until this secret exists. Test against a throwaway/test repo first, not this one, before trusting it in front of real players (see `docs/decisions/0064-backend-mediated-github-incident-reporting.md`) |
 
 **Dev (MVP needs these — this is Tier 0's one environment):**
 

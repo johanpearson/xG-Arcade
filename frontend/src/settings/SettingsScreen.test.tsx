@@ -490,4 +490,90 @@ describe('SettingsScreen', () => {
       expect(screen.queryByText(GUEST_EXPIRY_COPY)).not.toBeInTheDocument();
     });
   });
+
+  // REQ-903/ADR-0064: the incident-report entry point — always rendered
+  // (guest or not, REQ-903's own "advertised, not hidden" rule), disabled
+  // for a guest rather than absent.
+  describe('incident report (REQ-903)', () => {
+    it('REQ-903: isGuest=false renders an enabled report form', () => {
+      renderSettingsScreen({ isGuest: false });
+
+      expect(screen.getByRole('button', { name: 'Send report' })).toBeEnabled();
+      expect(screen.getByLabelText('What went wrong?')).toBeEnabled();
+      expect(screen.queryByTestId('incident-report-guest-locked-copy')).not.toBeInTheDocument();
+    });
+
+    it('REQ-903: isGuest=true renders the section present but disabled, alongside the guest-locked copy', () => {
+      renderSettingsScreen({ isGuest: true });
+
+      expect(screen.getByRole('button', { name: 'Send report' })).toBeDisabled();
+      expect(screen.getByLabelText('What went wrong?')).toBeDisabled();
+      expect(screen.getByTestId('incident-report-guest-locked-copy')).toBeInTheDocument();
+    });
+
+    it('REQ-903: rejects an empty description client-side, without calling the API', async () => {
+      const fetchMock = vi.fn();
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: false }, fetchMock);
+
+      await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+      expect(await screen.findByText('Please describe the problem.')).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('REQ-903: submitting a valid report calls POST /incidents and shows the created issue URL on success', async () => {
+      const fetchMock = vi.fn().mockImplementation(() =>
+        jsonResponse({ issueUrl: 'https://github.com/johanpearson/xg-arcade/issues/7' }),
+      );
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: false, accessToken: 'token-abc' }, fetchMock);
+
+      await user.type(screen.getByLabelText('What went wrong?'), 'The grid froze after I submitted a guess.');
+      await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+      expect(await screen.findByText('Thanks — your report was filed.')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'View report' })).toHaveAttribute(
+        'href',
+        'https://github.com/johanpearson/xg-arcade/issues/7',
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/incidents'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }),
+          body: JSON.stringify({ description: 'The grid froze after I submitted a guess.', route: '/settings' }),
+        }),
+      );
+    });
+
+    it('REQ-903: a 429 (rate limit) shows the server\'s inline error, not a generic failure banner', async () => {
+      const fetchMock = vi.fn().mockImplementation(() =>
+        jsonResponse(
+          { title: 'Too many reports', detail: "You've submitted several reports recently. Please wait a bit before submitting another." },
+          429,
+        ),
+      );
+      const user = userEvent.setup();
+      renderSettingsScreen({ isGuest: false }, fetchMock);
+
+      await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+      await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+      expect(
+        await screen.findByText("You've submitted several reports recently. Please wait a bit before submitting another."),
+      ).toBeInTheDocument();
+    });
+
+    it('REQ-903: a 401 (dead session) calls onAuthError, not the inline report error', async () => {
+      const fetchMock = vi.fn().mockImplementation(() => jsonResponse({ title: 'Unauthorized' }, 401));
+      const user = userEvent.setup();
+      const { onAuthError } = renderSettingsScreen({ isGuest: false }, fetchMock);
+
+      await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+      await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+      await waitFor(() => expect(onAuthError).toHaveBeenCalled());
+    });
+  });
 });

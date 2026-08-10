@@ -21,6 +21,7 @@ import type {
   RemovePlayerDataResponse,
   SignupResponse,
   SubmitGuessResponse,
+  SubmitIncidentReportResponse,
   SubmitSuggestionResponse,
   UnverifiedPlayerData,
   UpdateDisplayNameResponse,
@@ -908,6 +909,33 @@ export async function commitPlayerSearch(
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as CommitPlayerDataResult;
+}
+
+// REQ-903/ADR-0064: files an in-app bug report — the backend turns it into
+// a real GitHub issue server-side (POST /incidents, IncidentEndpoints). A
+// guest is rejected server-side with 403 ("Guest accounts cannot file
+// incident reports") regardless of what the client UI shows, same
+// "left to throw as an ApiError, UI already disables the entry point first"
+// convention submitSuggestion above already follows for its own guest
+// restriction. `route` is optional context only (the current screen), never
+// re-typed by the player. A 429 (per-user rate limit) and a 503 (GitHub API
+// itself failed) are both left to throw like any other failure here — the
+// caller shows the server's own detail text inline.
+export async function reportIncident(
+  accessToken: string,
+  description: string,
+  route?: string,
+): Promise<SubmitIncidentReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/incidents`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ description, route }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as SubmitIncidentReportResponse;
 }
 
 // This story's "simple list" of the caller's own custom leagues

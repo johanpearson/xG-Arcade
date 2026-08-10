@@ -46,6 +46,10 @@ param supabaseServiceRoleKey string
 @description('Shared bearer token authorizing calls to /internal/* endpoints. See modules/backend-container-app.bicep for guidance.')
 param internalJobToken string
 
+@secure()
+@description('Fine-grained GitHub PAT (Issues:write, REQ-903/ADR-0064). See modules/backend-container-app.bicep for guidance. Optional/defaults to empty.')
+param githubIncidentReportToken string = ''
+
 @description('Frontend origin allowed by CORS. See modules/backend-container-app.bicep for guidance.')
 param corsAllowedOrigin string = ''
 
@@ -83,6 +87,7 @@ module backendApi 'modules/backend-container-app.bicep' = {
     supabaseAnonKey: supabaseAnonKey
     supabaseServiceRoleKey: supabaseServiceRoleKey
     internalJobToken: internalJobToken
+    githubIncidentReportToken: githubIncidentReportToken
     corsAllowedOrigin: corsAllowedOrigin
     adminUserIds: adminUserIds
     minReplicas: minReplicas
