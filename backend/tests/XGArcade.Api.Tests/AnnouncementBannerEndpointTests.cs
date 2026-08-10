@@ -246,6 +246,10 @@ public class AnnouncementBannerEndpointTests
         var response = await client.PutAsJsonAsync("/admin/announcement-banner", new UpsertAnnouncementBannerRequest(exactlyMax));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<AdminAnnouncementBannerResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Message.Length, Is.EqualTo(500), "the full 500-character message must be stored, not silently truncated");
+        Assert.That(body.Message, Is.EqualTo(exactlyMax), "the returned message must equal the exact input string sent");
     }
 
     // ---- REQ-511: activating and deactivating -------------------------------

@@ -359,6 +359,89 @@ describe('App (REQ-717: guest banner)', () => {
   });
 });
 
+// REQ-511 ("Test level: ... UI (an active banner is visible to a logged-in
+// user, a guest, and a fully logged-out visitor...")): AnnouncementBanner.
+// test.tsx already covers the component's own fetch/render logic (including
+// the no-Authorization-header proxy for "requires no authentication") in
+// isolation; this block proves the actual mounting point in App.tsx — above
+// every auth-gated branch — really does put the banner on screen across all
+// three real render paths (splash/logged-out, guest session, normal
+// logged-in account), the same shape of assertion as the REQ-717 guest
+// banner and REQ-903 footer-button blocks above/below this one.
+describe('App (REQ-511: announcement banner)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  const activeBanner = { active: true, message: 'Scheduled maintenance tonight at 10pm UTC.' };
+
+  it('REQ-511: shows the active banner on the splash screen for a fully logged-out visitor', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/announcement-banner')) return jsonResponse(activeBanner);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument();
+    expect(await screen.findByText('Scheduled maintenance tonight at 10pm UTC.')).toBeInTheDocument();
+  });
+
+  it('REQ-511: shows the active banner for a guest session', async () => {
+    const guestMeResponse = {
+      id: 'guest-1',
+      email: null,
+      displayName: 'Guest8317',
+      emailConfirmed: false,
+      isAdmin: false,
+      isGuest: true,
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/announcement-banner')) return jsonResponse(activeBanner);
+      if (url.includes('/auth/guest')) return jsonResponse({ accessToken: 'guest-token', refreshToken: 'guest-refresh' });
+      if (url.includes('/auth/me')) return jsonResponse(guestMeResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+
+    expect(await screen.findByText('Playing as Guest8317.')).toBeInTheDocument();
+    expect(await screen.findByText('Scheduled maintenance tonight at 10pm UTC.')).toBeInTheDocument();
+  });
+
+  it('REQ-511: shows the active banner for a normal logged-in (non-guest) account', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/announcement-banner')) return jsonResponse(activeBanner);
+      if (url.includes('/auth/login')) return jsonResponse({ accessToken: 'token-abc', refreshToken: 'refresh-abc' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+    await user.type(screen.getByLabelText('Email'), 'player@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+    expect(await screen.findByText('Scheduled maintenance tonight at 10pm UTC.')).toBeInTheDocument();
+  });
+});
+
 // REQ-718 UI addendum (rule 4/5, 2026-08-01): the guest-only logout
 // confirmation dialog gating handleLogoutClick, and the guest-expiry copy
 // rendered in the banner/Settings. This describe block covers the dialog's
