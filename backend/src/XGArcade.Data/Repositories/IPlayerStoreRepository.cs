@@ -233,6 +233,14 @@ public interface IPlayerStoreRepository
     // — same reasoning GetPlayersMissingPhotoAsync's own single-field OR
     // would have used if PhotoUrl had a sibling field to combine with.
     //
+    // Widened (bug fix, 2026-08-10, bug-bundle): "missing" also includes a
+    // Position that's NOT NULL but is still the raw, unresolved Wikidata
+    // entity URI a pre-2026-08-02 write-path bug left behind on rows
+    // created before that fix — those rows are otherwise permanently
+    // invisible to this backfill. No equivalent bad-sentinel state exists
+    // for BirthYear, so its half of the WHERE clause is unchanged. See the
+    // implementation's own comment for the full reasoning.
+    //
     // excludingPlayerIds/batchSize: same "guaranteed run-termination via a
     // this-run-attempted set, no Skip/Take" reasoning as
     // GetPlayersMissingPhotoAsync's own doc comment — see that method's
@@ -253,7 +261,12 @@ public interface IPlayerStoreRepository
     // that was never looked up this call, and must never overwrite a field
     // that was already set (REQ-1207's "set once" contract extends to this
     // backfill too, not just row-creation) with an OLDER value from a
-    // stale/duplicate entry in the same batch.
+    // stale/duplicate entry in the same batch. ONE deliberate exception
+    // (bug fix, 2026-08-10, bug-bundle): a Position that's still the raw,
+    // unresolved Wikidata entity URI (a pre-2026-08-02 write-path bug, not
+    // a genuine value) IS overwritten — see the implementation's own
+    // comment and GetPlayersMissingPositionOrBirthYearAsync's above for the
+    // full reasoning.
     Task UpdatePlayerPositionsAndBirthYearsAsync(
         IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default);
 

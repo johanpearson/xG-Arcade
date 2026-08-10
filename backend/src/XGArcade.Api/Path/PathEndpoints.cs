@@ -128,13 +128,16 @@ public static class PathEndpoints
 
                 var revealedTurnCount = PathClueSequenceBuilder.GetRevealedTurnCount(attemptCount, isCorrect);
 
-                // Bug fix (2026-08-08, REQ-1203): filter out any leftover
-                // pre-2026-08-02 youth/age-grade national-team row before
-                // this player's stints ever reach PathClueSequenceBuilder —
-                // see PathCareerStintFilter's own doc comment for the full
-                // "why a read-time filter, not a cleanup script" reasoning.
+                // Bug fix (2026-08-08, REQ-1203; broadened 2026-08-10,
+                // bug-bundle, to any national team, not just youth/age-grade):
+                // filter out any leftover pre-2026-08-02 national-team row
+                // before this player's stints ever reach
+                // PathClueSequenceBuilder — see PathCareerStintFilter's own
+                // doc comment for both the full "why a read-time filter, not
+                // a cleanup script" reasoning and the 2026-08-10
+                // scope-correction reasoning for covering senior teams too.
                 var stints = stintsByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var playerStints)
-                    ? PathCareerStintFilter.ExcludeYouthNationalTeams(playerStints).OrderBy(s => s.SequenceOrder).ToList()
+                    ? PathCareerStintFilter.ExcludeNationalTeams(playerStints).OrderBy(s => s.SequenceOrder).ToList()
                     : [];
                 playersById.TryGetValue(puzzle.TargetPlayerId, out var targetPlayer);
                 var nationality = attributesByPlayerId.TryGetValue(puzzle.TargetPlayerId, out var attributes)

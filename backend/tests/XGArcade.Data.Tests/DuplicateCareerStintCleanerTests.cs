@@ -103,16 +103,81 @@ public class DuplicateCareerStintCleanerTests
     }
 
     [Test]
-    public async Task REQ1203_CleanAsync_DifferentAppearanceCount_IsNotTreatedAsADuplicate()
+    public async Task REQ1203_CleanAsync_NullVsPopulatedAppearanceCount_MergesIntoCanonicalRowKeepingPopulatedCount()
     {
-        // Same "known, ACCEPTED limitation" as WikidataClient.ParseCareerStintBindings'
-        // own dedup: a null vs. known AppearanceCount must not be treated as
-        // "matches anything," or two genuinely different stints could be
-        // silently merged.
+        // Bug fix (2026-08-10, bug-bundle): supersedes the previous
+        // "DifferentAppearanceCount_IsNotTreatedAsADuplicate" test, whose
+        // name and assertions are now only accurate for the
+        // both-populated-and-different case (see the next test below). A
+        // null AppearanceCount means "unknown," and a populated value seen
+        // on the matching non-canonical row is strictly more informative,
+        // not a conflict — the two rows must now merge, with the surviving
+        // canonical row's AppearanceCount updated to the populated value
+        // rather than that value being silently dropped.
         await SeedClubAsync("Lyon");
         var playerId = Guid.NewGuid();
         await SeedStintAsync(playerId, "Lyon", 2000, 2003, null);
         await SeedStintAsync(playerId, "Olympique Lyonnais", 2000, 2003, 90);
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(1));
+        var remaining = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == playerId).ToListAsync();
+        Assert.That(remaining, Has.Count.EqualTo(1));
+        Assert.That(remaining[0].ClubName, Is.EqualTo("Lyon"));
+        Assert.That(remaining[0].AppearanceCount, Is.EqualTo(90));
+    }
+
+    [Test]
+    public async Task REQ1203_CleanAsync_BothAppearanceCountsPopulatedButDiffer_IsNotTreatedAsADuplicate()
+    {
+        // The narrower, INTENTIONAL non-fix carve-out this class's own doc
+        // comment describes: two rows for the same player/dates but with
+        // DIFFERENT, both-populated AppearanceCount values could plausibly
+        // be two genuinely different stints, so they must not be merged —
+        // same "known, ACCEPTED limitation" as
+        // WikidataClient.MergeCareerStintEntries' identical rule.
+        await SeedClubAsync("Lyon");
+        var playerId = Guid.NewGuid();
+        await SeedStintAsync(playerId, "Lyon", 2000, 2003, 25);
+        await SeedStintAsync(playerId, "Olympique Lyonnais", 2000, 2003, 90);
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(0));
+        Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == playerId), Is.EqualTo(2));
+    }
+
+    // ---- Step 2: same-ClubName duplicates (2026-08-10 bug-bundle) --------
+    // Regression coverage for the exact bug reported with screenshots: "AC
+    // Milan 25 apps" / "AC Milan 95 apps" and "Real Sociedad 2 apps" / bare
+    // "Real Sociedad," all under one already-identical ClubName that Step 1
+    // above never compares against itself.
+
+    [Test]
+    public async Task REQ1203_CleanAsync_SameClubNameNullVsPopulatedAppearanceCount_Merges()
+    {
+        await SeedClubAsync("Real Sociedad");
+        var playerId = Guid.NewGuid();
+        var populated = await SeedStintAsync(playerId, "Real Sociedad", 2018, 2020, 2);
+        await SeedStintAsync(playerId, "Real Sociedad", 2018, 2020, null);
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(1));
+        var remaining = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == playerId).ToListAsync();
+        Assert.That(remaining, Has.Count.EqualTo(1));
+        Assert.That(remaining[0].Id, Is.EqualTo(populated.Id));
+        Assert.That(remaining[0].AppearanceCount, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task REQ1203_CleanAsync_SameClubNameBothAppearanceCountsPopulatedButDiffer_IsNotTreatedAsADuplicate()
+    {
+        await SeedClubAsync("AC Milan");
+        var playerId = Guid.NewGuid();
+        await SeedStintAsync(playerId, "AC Milan", 2019, 2021, 25);
+        await SeedStintAsync(playerId, "AC Milan", 2019, 2021, 95);
 
         var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
 

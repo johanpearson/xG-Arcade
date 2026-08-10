@@ -3,10 +3,10 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Games.XGPath;
 
-// REQ-1203, bug fix (2026-08-08, reported via user testing): a read-time
-// defensive filter for youth/age-grade national-team PlayerCareerStint rows
-// that were persisted BEFORE the 2026-08-02 SPARQL-level fix
-// (WikidataClient.BuildPlayerCareerStintsByQidsQuery's
+// REQ-1203, bug fix (2026-08-08, reported via user testing; broadened
+// 2026-08-10, bug-bundle): a read-time defensive filter for national-team
+// PlayerCareerStint rows that were persisted BEFORE the 2026-08-02
+// SPARQL-level fix (WikidataClient.BuildPlayerCareerStintsByQidsQuery's
 // `MINUS { ?club wdt:P31/wdt:P279* wd:{NationalTeamClassWikidataQid} }`
 // clause) started excluding any national team — senior or youth — from
 // being fetched at all. That fix only stops NEW rows from being written.
@@ -32,61 +32,83 @@ namespace XGArcade.Games.XGPath;
 // read-time exclusion — a false positive there just means one clue is
 // skipped — but not fine for an irreversible row deletion.
 //
-// Scope: youth/age-grade national teams ONLY, matching the actual reported
-// symptom — not every national team, and not non-FIFA regional sides. Real
-// screenshots reviewed alongside this fix showed "Italy men's national
-// association football team" (the senior team) rendering correctly right
-// where it belongs in the same puzzle timeline, and a "Basque Country
-// regional football team" stint appearing without being flagged as a
-// problem. Matching only "national" + an age-grade "under-N" marker keeps
-// this filter provably safe against the case that matters most (never
-// hiding a real club or the valid senior-team clue) — a broader "any
-// national team" filter risks silently swallowing a leftover senior-team
-// row nobody has actually reported as wrong, which would be a new,
-// unreported correctness regression, not a fix for the one that was
-// reported.
+// Scope, CORRECTED 2026-08-10 (bug-bundle): the 2026-08-08 fix deliberately
+// scoped this filter to youth/age-grade national teams ONLY, on the
+// judgment (from screenshots reviewed at the time) that senior national
+// teams were rendering correctly. A 2026-08-10 bug report — screenshot
+// showing "Italy men's national association football team" with "30 apps"
+// leaking into a club-reveal clue — directly contradicts that judgment and
+// REQ-1203's own unqualified acceptance criterion ("national team
+// caps/appearances are never revealed as a clue for this game — this clue
+// type does not exist for xG Path" makes no senior/youth distinction). This
+// filter now matches ANY national team, senior or youth — the same
+// semantic WikidataClient's write-time MINUS clause already applies for
+// new fetches (see that file's own comment near
+// NationalTeamClassWikidataQid), just re-implemented as a label-based
+// heuristic here because there is no QID on old persisted rows to check
+// against directly (see the "why a read-time regex filter, not a QID-based
+// DB query" reasoning two paragraphs up, unchanged).
+//
+// Still deliberately NOT "any label containing the word 'national'" — see
+// NationalTeamPattern's own comment for the word-boundary care taken to
+// avoid over-matching a real club whose name happens to contain "national"
+// as a substring (e.g. "International", "Multinational"), or a genuine
+// club literally named "National" with no accompanying "team" word. Still
+// leaves non-FIFA regional representative sides alone — a "Basque Country
+// regional football team" is not a national team and stays a valid clue
+// (existing test case for this, preserved unchanged below).
 public static class PathCareerStintFilter
 {
-    // Wikidata's English label convention for age-grade national sides is
-    // "<Country> national under-<N> [association] football team" (e.g.
-    // "Spain national under-16 association football team", "Italy
-    // national under-20 football team", "Italy national under-21 football
-    // team" — all three straight from the reported screenshots). Matching
-    // "national" followed by an "under-<digits>" marker, rather than
-    // "national ... team" alone, is what keeps this from also matching the
-    // valid senior-team case ("Italy men's national association football
-    // team" has no "under-N" marker at all).
+    // Wikidata's English label convention for a national representative
+    // side — senior OR youth/age-grade — always pairs the word "national"
+    // with a trailing "team" (e.g. "Spain national under-16 association
+    // football team", "Italy men's national association football team",
+    // "Switzerland men's national football team", "Spain national football
+    // team"). Matching "national" ... "team" as two independent word-
+    // bounded tokens (not requiring a specific fixed phrase between them)
+    // is what lets this pattern cover every observed shape — with or
+    // without an age-grade "under-N" marker, with or without a "men's"/
+    // "women's" marker, with or without "association" — without needing a
+    // combinatorial list of exact phrasings.
     //
-    // The leading \b before "national" is required: without it, the pattern
-    // matches "national" as a bare substring anywhere it occurs, including
-    // at the tail of a longer word — e.g. "International Under-20 Select
-    // XI", "FC International Milan Under-20", and "Multinational
-    // Development Squad Under-19" all contain "...national" via
-    // "Inter"+"national"/"Multi"+"national" followed later by an
-    // "under-N" marker, and would be wrongly excluded despite not being
-    // national teams at all. The leading \b anchors the match to a real
-    // word boundary so "national" must start its own word.
+    // Both \b anchors matter, independently:
+    //   - The leading \b before "national" stops the pattern from matching
+    //     "national" as a bare substring inside a longer word — e.g.
+    //     "International Under-20 Select XI", "FC International Milan
+    //     Under-20", and "Multinational Development Squad Under-19" all
+    //     contain "...national" via "Inter"+"national"/"Multi"+"national",
+    //     and would be wrongly excluded despite not being national teams
+    //     at all. The leading \b anchors the match to a real word boundary
+    //     so "national" must start its own word.
+    //   - The trailing \b before "team" (and requiring "team" as its own
+    //     word, not just any occurrence of the four characters) is what
+    //     keeps a genuine club literally named "National" (no accompanying
+    //     "team" word in its label) from matching, and is also why a
+    //     "Basque Country regional football team" — which never contains
+    //     the word "national" at all — is correctly left alone regardless
+    //     of this trailing check.
     //
     // NOT verified against a live Wikidata query from this sandbox (no
     // wikidata.org access here) — this pattern is inferred from the
     // reported label text only. Flagged for manual confirmation against
     // real production PlayerCareerStint rows if this is found to under- or
     // over-match in practice.
-    private static readonly Regex YouthNationalTeamPattern =
-        new(@"\bnational\s.*\bunder-\d+\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex NationalTeamPattern =
+        new(@"\bnational\b.*\bteam\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static bool IsYouthNationalTeam(string clubName) =>
-        YouthNationalTeamPattern.IsMatch(clubName);
+    public static bool IsNationalTeam(string clubName) =>
+        NationalTeamPattern.IsMatch(clubName);
 
-    // Excludes youth/age-grade national-team rows from an already-fetched
-    // stint list — used at every read site that turns PlayerCareerStint
-    // rows into either a puzzle's clue content (PathEndpoints.cs) or an
-    // eligibility decision (XGPathGameModule.GetEligiblePlayerIdsAsync),
-    // so the filter lives in exactly one place rather than being
-    // copy-pasted at each call site.
-    public static IReadOnlyList<PlayerCareerStint> ExcludeYouthNationalTeams(
+    // Excludes national-team rows (any, not just youth/age-grade — see this
+    // class's own 2026-08-10 scope-correction comment above) from an
+    // already-fetched stint list — used at every read site that turns
+    // PlayerCareerStint rows into either a puzzle's clue content
+    // (PathEndpoints.cs) or an eligibility decision
+    // (XGPathGameModule.GetEligiblePlayerIdsAsync), so the filter lives in
+    // exactly one place rather than being copy-pasted at each call site.
+    public static IReadOnlyList<PlayerCareerStint> ExcludeNationalTeams(
         IReadOnlyList<PlayerCareerStint> stints) =>
         stints.Count == 0
             ? stints
-            : stints.Where(s => !IsYouthNationalTeam(s.ClubName)).ToList();
+            : stints.Where(s => !IsNationalTeam(s.ClubName)).ToList();
 }

@@ -56,6 +56,18 @@ namespace XGArcade.Data.Seeding;
 // a stint has been reduced to just the canonical row, there's nothing left
 // to match on a second run, same "safe to run again" contract as
 // StaleClubAttributeCleaner/PairLookupFailureCleaner.
+//
+// Widened, and a second pass added (2026-08-10, bug-bundle): the exact
+// (PlayerId, StartYear, EndYear, AppearanceCount) tuple two paragraphs up
+// is no longer applied literally. See CleanAsync's own Step 1/Step 2
+// comments for the full detail, but in short: (a) a null AppearanceCount on
+// one side and a populated value on the other now still counts as
+// "provably the same stint" — a null means "unknown," not a genuinely
+// different number, and (b) a second pass now also merges rows that share
+// the exact same ClubName (seeded or not), which the original single pass
+// never compared against itself. Both changes preserve the one
+// non-negotiable carve-out: two rows with DIFFERENT, both-POPULATED
+// AppearanceCount values are still never merged, seeded-name match or not.
 public static class DuplicateCareerStintCleaner
 {
     // Full-table read, same order of magnitude as
@@ -82,27 +94,103 @@ public static class DuplicateCareerStintCleaner
                 "is this the right database, and has migrate-and-seed run against it?");
         }
 
+        // Not .AsNoTracking(): a Step 1 merge (below) can mutate a
+        // surviving canonical row's AppearanceCount in place, and that
+        // change needs to be tracked for the single SaveChangesAsync call
+        // at the end to persist it.
         var allStints = await dbContext.PlayerCareerStints.ToListAsync(cancellationToken);
+        var toRemove = new HashSet<PlayerCareerStint>();
 
-        var canonicalKeys = allStints
+        // ---- Step 1: cross-writer name-variant duplicates (this class's
+        // original purpose — see the class doc comment above) ----
+        // Bug fix (2026-08-10, bug-bundle): widened to also treat an
+        // AppearanceCount of null on one side and a populated value on the
+        // other as PROVING the same real stint, not just an exact match —
+        // see WikidataClient.MergeCareerStintEntries' identical rule, which
+        // this retroactive cleanup mirrors so the go-forward (live parse)
+        // and existing-data paths converge on the same behavior. A null
+        // AppearanceCount means "unknown," and a populated value observed
+        // on the matching row is strictly more informative, never a
+        // conflict — so the surviving canonical row's AppearanceCount is
+        // updated to the populated value before the non-canonical row is
+        // removed, rather than the more informative value being silently
+        // dropped along with the row that carried it. Two rows with
+        // DIFFERENT, both-populated AppearanceCounts are still left alone
+        // entirely — the deliberate correctness-risk carve-out this
+        // class's own doc comment already establishes, unchanged: could
+        // plausibly be two genuinely different stints (e.g. a
+        // loan-and-return spell), so this is a narrower, intentional
+        // non-fix, not an oversight.
+        var canonicalRowsByKey = allStints
             .Where(s => seededClubNames.Contains(s.ClubName))
-            .Select(s => (s.PlayerId, s.StartYear, s.EndYear, s.AppearanceCount))
-            .ToHashSet();
+            .GroupBy(s => (s.PlayerId, s.StartYear, s.EndYear))
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-        var duplicates = allStints
-            .Where(s => !seededClubNames.Contains(s.ClubName)
-                && canonicalKeys.Contains((s.PlayerId, s.StartYear, s.EndYear, s.AppearanceCount)))
-            .ToList();
+        foreach (var stint in allStints.Where(s => !seededClubNames.Contains(s.ClubName)))
+        {
+            if (!canonicalRowsByKey.TryGetValue((stint.PlayerId, stint.StartYear, stint.EndYear), out var canonicalRows))
+                continue;
 
-        if (duplicates.Count == 0)
+            var match = canonicalRows.FirstOrDefault(c =>
+                c.AppearanceCount == stint.AppearanceCount
+                || c.AppearanceCount is null
+                || stint.AppearanceCount is null);
+
+            if (match is null)
+                continue;
+
+            if (match.AppearanceCount is null && stint.AppearanceCount is not null)
+                match.AppearanceCount = stint.AppearanceCount;
+
+            toRemove.Add(stint);
+        }
+
+        // ---- Step 2 (new, 2026-08-10 bug-bundle): same-ClubName
+        // duplicates ----
+        // Step 1 only ever proves a duplicate across a SEEDED name and a
+        // DIFFERENT, non-seeded raw label. It never compares two rows that
+        // already share the exact same ClubName (seeded or not) — which is
+        // exactly the shape of the reported bug: "AC Milan 25 apps" and
+        // "AC Milan 95 apps," "Real Sociedad 2 apps" and bare "Real
+        // Sociedad," all under one identical, already-canonical ClubName
+        // string. Group by (PlayerId, ClubName, StartYear, EndYear) and
+        // apply the same null-vs-populated merge rule as Step 1: exactly
+        // one distinct populated AppearanceCount in the group merges every
+        // null-AppearanceCount row in it away (informationally subsumed);
+        // more than one distinct populated value is left untouched
+        // entirely (same correctness-risk carve-out). Rows already marked
+        // for removal by Step 1 are excluded so they aren't double-counted.
+        var remaining = allStints.Where(s => !toRemove.Contains(s));
+        foreach (var group in remaining.GroupBy(s => (s.PlayerId, s.ClubName, s.StartYear, s.EndYear)))
+        {
+            var rows = group.ToList();
+            if (rows.Count < 2)
+                continue;
+
+            var distinctPopulatedCounts = rows
+                .Where(r => r.AppearanceCount is not null)
+                .Select(r => r.AppearanceCount!.Value)
+                .Distinct()
+                .ToList();
+
+            if (distinctPopulatedCounts.Count != 1)
+                continue; // 0 populated (nothing to merge) or >1 distinct (correctness-risk carve-out) — leave alone.
+
+            foreach (var nullRow in rows.Where(r => r.AppearanceCount is null))
+                toRemove.Add(nullRow);
+        }
+
+        if (toRemove.Count == 0)
             return 0;
 
-        dbContext.PlayerCareerStints.RemoveRange(duplicates);
+        dbContext.PlayerCareerStints.RemoveRange(toRemove);
 
         // Load-then-SaveChangesAsync (docs/coding-guidelines.md), never
-        // ExecuteDeleteAsync — the InMemory test provider can't translate it.
+        // ExecuteDeleteAsync — the InMemory test provider can't translate
+        // it. One call covers both the removals above and any Step 1
+        // AppearanceCount update made to a surviving tracked row.
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return duplicates.Count;
+        return toRemove.Count;
     }
 }
