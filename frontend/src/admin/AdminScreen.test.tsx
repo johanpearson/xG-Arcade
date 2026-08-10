@@ -995,6 +995,142 @@ describe('AdminScreen', () => {
     expect(onAuthError).not.toHaveBeenCalled();
   });
 
+  // ---- REQ-904: incident-reports admin notification ---------------------
+
+  function incidentReportsResponse(openCount: number) {
+    return {
+      available: true,
+      openCount,
+      issues: Array.from({ length: openCount }, (_, i) => ({
+        number: i + 1,
+        title: `Issue ${i + 1}`,
+        url: `https://github.com/johanpearson/xg-arcade/issues/${i + 1}`,
+      })),
+    };
+  }
+
+  it('REQ-904: shows plain "Incident reports" with no count and no GitHub link when zero issues are open', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse(incidentReportsResponse(0)),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    // Wait for the page (and this section's own fetch) to resolve before
+    // asserting absence, so this genuinely exercises the openCount===0 case
+    // rather than passing trivially on the pre-fetch render.
+    await screen.findByText('No unverified data to review.');
+    expect(await screen.findByRole('heading', { name: 'Incident reports' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View open reports on GitHub' })).not.toBeInTheDocument();
+    // Distinguishes this from the `available: false` case below, which
+    // renders the exact same bare heading PLUS this inline message.
+    expect(
+      screen.queryByText(
+        "Couldn't check GitHub for open incident reports right now — this doesn't mean there are none, try reloading in a minute.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('REQ-904: shows "Incident reports (3)" and a "View open reports on GitHub" link when 3 issues are open', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse(incidentReportsResponse(3)),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Incident reports (3)' })).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'View open reports on GitHub' });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://github.com/johanpearson/xg-arcade/issues?q=is%3Aissue+is%3Aopen+label%3Auser-reported',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('REQ-904: shows a distinct "unavailable" message (never the zero-count rendering) when available is false', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse({ available: false, openCount: 0, issues: [] }),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Incident reports' })).toBeInTheDocument();
+    // REQ-904: available:false must never be silently rendered the same way
+    // as a real zero count — the zero-count test above asserts NO alert is
+    // present; this is the distinguishing DOM difference between the two
+    // otherwise-identical-looking headings.
+    expect(
+      await screen.findByText(
+        "Couldn't check GitHub for open incident reports right now — this doesn't mean there are none, try reloading in a minute.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View open reports on GitHub' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-904: shows an inline error (not the "unavailable" message) on a non-401/403 fetch failure', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse({ title: 'Server error', detail: 'Something broke.' }, 500),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'Incident reports' })).toBeInTheDocument();
+    expect(await screen.findByText('Something broke.')).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Couldn't check GitHub for open incident reports right now — this doesn't mean there are none, try reloading in a minute.",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('REQ-904: shows an inline error on a network failure, describing the underlying error', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => Promise.reject(new Error('Network request failed')),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Network request failed')).toBeInTheDocument();
+  });
+
+  it('REQ-904: hides the "Incident reports" entry entirely on a 403 (non-admin), with no error banner', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    await screen.findByText('No unverified data to review.');
+    await waitFor(() => expect(screen.queryByText(/Incident reports/)).not.toBeInTheDocument());
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
+  it('REQ-904: a 401 from the incident-reports fetch calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/incident-reports': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
   // ---- REQ-511: site-wide announcement banner section -------------------
 
   const loadedActiveBanner = {
