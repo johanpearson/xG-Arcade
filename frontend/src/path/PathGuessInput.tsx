@@ -83,6 +83,10 @@ export function PathGuessInput({ clueCount, guess, accessToken, onSubmit }: Path
   // immediately re-trigger the fetch effect below and reopen the list for a
   // query that just got answered.
   const justSelectedRef = useRef(false);
+  // Same purpose as GuessInput.tsx's identical ref: tracks the in-flight
+  // autocomplete request so a superseded keystroke aborts it instead of
+  // just ignoring its (still in-flight) response.
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const isCorrect = guess?.isCorrect ?? false;
   const locked = guess?.locked ?? false;
@@ -105,27 +109,38 @@ export function PathGuessInput({ clueCount, guess, accessToken, onSubmit }: Path
       return;
     }
 
-    let cancelled = false;
     const timer = setTimeout(() => {
-      fetchPlayerAutocomplete(accessToken, trimmed, SUGGESTION_LIMIT)
+      // Abort any still-in-flight request from a previous keystroke before
+      // starting this one, so fast typing never leaves multiple redundant
+      // requests hitting the DB concurrently.
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      fetchPlayerAutocomplete(accessToken, trimmed, SUGGESTION_LIMIT, controller.signal)
         .then((results) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           setSuggestions(results);
           setShowSuggestions(results.length > 0);
           setHighlightedIndex(-1);
         })
-        .catch(() => {
+        .catch((err) => {
+          // An intentionally aborted request (superseded by a newer
+          // keystroke, or the effect cleaning up) is not a failure — it
+          // must never surface as an error or clear/replace suggestions
+          // that a later, still-in-flight request may still fill in.
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          if (controller.signal.aborted) return;
           // Autocomplete is a nice-to-have — a failed fetch never blocks or
           // errors the guess form, it just shows no suggestions.
-          if (cancelled) return;
           setSuggestions([]);
           setShowSuggestions(false);
         });
     }, DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
       clearTimeout(timer);
+      abortControllerRef.current?.abort();
     };
   }, [name, accessToken]);
 

@@ -230,6 +230,61 @@ describe('PathGuessInput', () => {
     expect(fetchMock.mock.calls[0][0]).toContain('query=Thierry');
   });
 
+  it('REQ207_abortsSupersededRequest: a newer keystroke aborts the previous in-flight suggestions request rather than leaving it running alongside the new one', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      signals.push(init?.signal as AbortSignal);
+      return jsonResponse([{ playerId: 'p1', name: 'Thierry Henry' }]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PathGuessInput clueCount={1} guess={null} accessToken="token" onSubmit={vi.fn()} />);
+
+    const field = screen.getByLabelText('Player name');
+    await user.type(field, 'Th');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(signals[0].aborted).toBe(false);
+
+    await user.type(field, 'ie');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The first (now superseded) request's signal was aborted once the
+    // second one started — the second one is untouched.
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+  });
+
+  it('REQ207_abortedRequestNeverSurfacesAsAnError: an in-flight request aborted by a newer keystroke is swallowed silently, not shown as an error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<PathGuessInput clueCount={1} guess={null} accessToken="token" onSubmit={vi.fn()} />);
+
+    const field = screen.getByLabelText('Player name');
+    await user.type(field, 'Th');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // Supersedes and aborts the first request above.
+    await user.type(field, 'ie');
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+  });
+
   it('REQ207_selectingFillsInputWithoutSubmitting: selecting a suggestion fills the field but does not submit the guess', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup();
