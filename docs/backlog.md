@@ -5005,3 +5005,116 @@ method). Backend 1375/1375, frontend 543/543 passing.
 admin-github-issue-polling-cache.md` (new), `docs/architecture-document.md`
 (COMP-12 extended, §10 ADR table), and this backlog entry all
 updated/added in this story.
+
+## Epic 7 — Technical debt remediation (`CODEBASE_ANALYSIS.md` follow-up)
+
+Source: `CODEBASE_ANALYSIS.md` (2026-08-10), a static/behavioral/security
+scan of the codebase. Unlike Epics 0–6, this epic isn't part of the Tier 0
+build sequence — it doesn't gate or get gated by feature work, and its
+stories don't depend on each other except where noted. **Every story here
+is a pure refactor: no behavior change, no new REQ IDs.** Acceptance
+criteria are "the existing test suite (named after its current REQ IDs)
+passes unchanged," not new REQ-tagged tests. If a story's own execution
+turns up a structural choice that could reasonably have gone another way
+(per `CLAUDE.md`'s ADR test), add an ADR as part of that story — don't
+pre-empt it here. Work these in any order/parallel; each is scoped to one
+PR/session.
+
+**S-099 · Patch high-severity `undici` transitive dependency**
+`npm audit` (frontend) reports a High-severity advisory chain on `undici`
+7.28.0, pulled in transitively via `jsdom` (a Vitest devDependency —
+test-only, never shipped to production, but a trivial fix). Run `npm
+audit fix` in `frontend/` (or bump the resolved version manually if
+`audit fix` doesn't land on a clean one) and confirm nothing else shifts
+unexpectedly in `package-lock.json`.
+*Accept:* `npm audit` reports 0 vulnerabilities; `npm run test` and `npm
+run test:e2e` pass with the same pass count as before the bump.
+*Deps:* none.
+
+**S-100 · WikidataClient: extract intersection-query spec table (infra + first 3 pairs)**
+`WikidataClient.cs` (2,034 lines, the repo's highest-churn file after
+`Program.cs`) has 9 near-identical `Query*IntersectionAsync` methods and
+10 near-identical `Build*Query` methods, one pair per `(CategoryType,
+CategoryType)` combination. Introduce a spec table — a
+`(CategoryType, CategoryType)`-keyed structure holding each pair's SPARQL
+clause template and timeout tier (`WikidataQueryTimeoutTier`) — and a
+single shared driver that centralizes the `WikidataQid.IsValid` guard
+(currently duplicated per-method) before building/running the query.
+Migrate the 3 non-trophy pairs first: `QueryCountryClubIntersectionAsync`,
+`QueryNationalTeamClubIntersectionAsync`, `QueryClubClubIntersectionAsync`.
+Keep existing public method signatures as thin wrappers over the driver
+so `GridGameModule`/`XGPathGameModule` call sites need no changes.
+*Accept:* for each of the 3 migrated pairs, a test asserts the
+spec-table-generated SPARQL string is byte-for-byte identical to the
+pre-refactor output (not just "non-null") — this is the regression net,
+since `dotnet test` wasn't runnable in the analysis environment that
+proposed this refactor and must be relied on here instead; full
+`WikidataClientTests.cs` suite passes unchanged.
+*Deps:* none.
+
+**S-101 · WikidataClient: migrate remaining 6 trophy-pair queries onto the spec table**
+Extend S-100's spec table to the 6 trophy-related pairs:
+`QueryTrophyCountryIntersectionAsync`, `QueryTrophyClubIntersectionAsync`,
+`QueryTeamTrophyCountryIntersectionAsync`,
+`QueryTeamTrophyNationalTeamIntersectionAsync`,
+`QueryTeamTrophyClubIntersectionAsync`,
+`QueryTrophyNationalTeamIntersectionAsync`. Once every pair goes through
+the shared driver, delete the now-dead standalone `Build*Query` methods.
+*Accept:* same byte-for-byte SPARQL diff verification as S-100 for all 6
+remaining pairs; full test suite green; `WikidataClient.cs`'s line count
+drop reported in the PR description.
+*Deps:* S-100.
+
+**S-102 · Decompose Program.cs composition root**
+`Program.cs` (1,245 lines) is the single most-changed file in the repo's
+history — every feature commit tends to touch it, because DI wiring, JWT/
+Supabase auth config, CLI-verb dispatch (`--all-clubs` and friends), and
+Minimal-API endpoint mapping (26 `app.Map*`/`app.Use*` calls) all live in
+one file. Split it into focused extension-method groups (e.g. an
+auth-setup group, a CLI-verb-dispatch group, an endpoint-mapping group),
+called from a slimmed-down `Program.cs`. Pure reorganization.
+*Accept:* `Program.cs` reduced to a thin composition root; full
+`XGArcade.Api.Tests` (`WebApplicationFactory`-based) suite passes
+unchanged — this is the suite most sensitive to composition-root
+reshuffling; manual local smoke check that `/health`, auth, and at least
+one CLI verb still work.
+*Deps:* none.
+
+**S-103 · Continue AdminScreen.tsx God-Component extraction**
+`AdminScreen.tsx` (1,432 lines, 16 `useState`, 4 `useEffect`) is already
+mid-refactor (`#167` extracted the shared `useAdminSectionFetch` hook).
+Continue that direction: extract the remaining self-contained sections
+(announcement banner, incident reports, player suggestions, etc.) into
+their own components, each owning its own local state instead of sharing
+`AdminScreen`'s. `AdminScreen.tsx` itself becomes a thin
+layout/composition component.
+*Accept:* `AdminScreen.tsx` line count and `useState` count substantially
+reduced; `AdminScreen.test.tsx` (or its post-split equivalent) passes with
+no behavior change; no new color/typeface/animation introduced (confirm
+against `docs/design-document.md` §2, same as every other frontend story).
+*Deps:* none.
+
+**S-104 · Reduce GridGameModule.cs nesting/complexity**
+`GridGameModule.cs` (983 lines, 23 methods) has the deepest control-flow
+nesting of any hand-written file in the repo. Flatten the deepest-nested
+branches into named private methods / early-returns without changing
+generation or scoring behavior.
+*Accept:* full `GridGameModuleTests.cs` suite passes unchanged; nesting
+measurably reduced from the analysis's baseline (lines at ≥5 indent
+levels).
+*Deps:* none.
+
+**S-105 · Relocate the longest inline rationale comments to their ADRs (optional, low priority)**
+`CODEBASE_ANALYSIS.md` §2 confirmed the codebase's highest comment-ratio
+files (`Grid.css`, `CellState.css`, `types.ts`, `turnstile.ts`) are
+genuinely substantive, not noise — but some of the longest multi-paragraph
+comments duplicate rationale that already lives in an ADR. Where that's
+true, trim the inline comment to a pointer + one-line summary instead of
+the full history. Skip any comment that is the *only* place its rationale
+is recorded — this story must not cause a net loss of documented
+rationale, only de-duplicate it.
+*Accept:* comment ratio drops for the specific files touched;
+`quality-architect` review confirms nothing load-bearing was cut (every
+trim points at an ADR/doc section that still contains the full
+explanation).
+*Deps:* none.
