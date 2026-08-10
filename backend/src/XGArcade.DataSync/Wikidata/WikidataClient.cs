@@ -1317,27 +1317,37 @@ public class WikidataClient(
     // query against wikidata.org — see NormalizeClubName's own comment for
     // the (deliberately narrow) fix applied to the observed symptom.
     //
-    // Known, ACCEPTED limitation of the above fix (quality-gate finding,
-    // 2026-08-03): the HashSet dedup two paragraphs below is still keyed
-    // on the FULL (ClubName, StartYear, EndYear, AppearanceCount) tuple.
-    // Normalizing ClubName only collapses duplicate rows that also agree
-    // on every other field. Two rows for what is really the same stint
-    // but that disagree on AppearanceCount (e.g. one row's P1350
-    // qualifier absent -> null, the other's present -> 25 -- plausible,
-    // since two Wikidata statements for "the same" stint can carry
-    // differently-complete qualifiers) or on EndYear will still fail to
-    // merge and reproduce the duplicate-node symptom for that variant.
-    // This is deliberately NOT widened here: doing so (e.g. treating a
-    // null AppearanceCount as "matches anything") would risk silently
-    // merging two GENUINELY different stints at the same club with
-    // matching dates but different, both-known appearance counts -- a
+    // Formerly-ACCEPTED limitation of the above fix (quality-gate finding,
+    // 2026-08-03; partially fixed 2026-08-10, bug-bundle): dedup used to be
+    // keyed on the FULL (ClubName, StartYear, EndYear, AppearanceCount)
+    // tuple via a plain HashSet, so normalizing ClubName alone only
+    // collapsed duplicate rows that also agreed on every other field. Two
+    // rows for what is really the same stint but that disagree on
+    // AppearanceCount (e.g. one row's P1350 qualifier absent -> null, the
+    // other's present -> 25 -- plausible, since two Wikidata statements for
+    // "the same" stint can carry differently-complete qualifiers) failed to
+    // merge and reproduced the duplicate-node symptom for that variant —
+    // this is exactly the "AC Milan 25 apps" / "AC Milan 95 apps" and bare
+    // "Real Sociedad" / "Real Sociedad 2 apps" shapes from the 2026-08-10
+    // bug report.
+    //
+    // MergeCareerStintEntries below now handles the NULL-vs-populated case:
+    // a null AppearanceCount means "unknown," and a populated value seen on
+    // another row for the same (ClubName, StartYear, EndYear) is strictly
+    // more informative, not a conflict, so those two rows merge into one,
+    // keeping the populated count. The genuinely dangerous case — BOTH rows
+    // populated but with DIFFERENT AppearanceCount values — is still
+    // deliberately left unmerged: treating that as a match would risk
+    // silently merging two GENUINELY different stints at the same club with
+    // matching dates but different, both-known appearance counts (e.g. a
+    // loan-and-return spell recorded as two separate P54 statements) — a
     // correctness risk, not just a display one, and a strictly worse
-    // failure mode than the display duplicate this fix targets. If this
-    // variant is observed in practice it needs its own deliberate merge
-    // rule (and test), not a silent loosening of this tuple.
+    // failure mode than the display duplicate this fix targets. See
+    // REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenBothAppearanceCountsPopulatedButDiffer
+    // for the test locking this narrower carve-out in place.
     private static IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> ParseCareerStintBindings(SparqlResponse? response)
     {
-        var stintsByQid = new Dictionary<string, HashSet<WikidataCareerStintEntry>>();
+        var rawEntriesByQid = new Dictionary<string, List<WikidataCareerStintEntry>>();
         if (response?.Results?.Bindings is null)
             return new Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>>();
 
@@ -1362,8 +1372,8 @@ public class WikidataClient(
                     : null;
 
             var qid = playerValue.Value.Split('/').Last();
-            if (!stintsByQid.TryGetValue(qid, out var stints))
-                stintsByQid[qid] = stints = [];
+            if (!rawEntriesByQid.TryGetValue(qid, out var entries))
+                rawEntriesByQid[qid] = entries = [];
 
             // ?club (bug fix, 2026-08-04, REQ-1203 follow-up): same
             // "trailing URI segment is the QID" extraction as ?player above.
@@ -1379,22 +1389,70 @@ public class WikidataClient(
                 ? clubValue.Value.Split('/').Last()
                 : null;
 
-            // Normalize BEFORE the HashSet sees it: this is the club name
-            // that both dedup and every downstream persistence use — see
-            // WikidataCareerStintEntry's own doc comment and this class's
-            // NormalizeClubName for why the canonical (not raw) form is
-            // what gets stored. NormalizeClubName's suffix-strip is still
-            // applied here as the best-effort fallback label (used when
-            // ClubQid doesn't resolve to a seeded ClubDefinition) — QID-based
-            // canonicalization happens one layer up, not in this client,
-            // per this class's own "no ClubDefinition dependency" layering
-            // convention within COMP-07 (not a documented cross-component
-            // boundary rule — see architecture-document.md's numbered
-            // boundary list, which has no entry for this).
-            stints.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
+            // Normalize BEFORE MergeCareerStintEntries sees it: this is the
+            // club name that both merging and every downstream persistence
+            // use — see WikidataCareerStintEntry's own doc comment and this
+            // class's NormalizeClubName for why the canonical (not raw)
+            // form is what gets stored. NormalizeClubName's suffix-strip is
+            // still applied here as the best-effort fallback label (used
+            // when ClubQid doesn't resolve to a seeded ClubDefinition) —
+            // QID-based canonicalization happens one layer up, not in this
+            // client, per this class's own "no ClubDefinition dependency"
+            // layering convention within COMP-07 (not a documented
+            // cross-component boundary rule — see architecture-document.md's
+            // numbered boundary list, which has no entry for this).
+            entries.Add(new WikidataCareerStintEntry(NormalizeClubName(clubLabelValue.Value), startYear, endYear, appearanceCount, clubQid));
         }
 
-        return stintsByQid.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<WikidataCareerStintEntry>)kv.Value.ToList());
+        return rawEntriesByQid.ToDictionary(kv => kv.Key, kv => MergeCareerStintEntries(kv.Value));
+    }
+
+    // Bug fix (2026-08-10, bug-bundle): replaces the plain HashSet-based
+    // exact-tuple dedup ParseCareerStintBindings used to do directly. Groups
+    // a single player's raw parsed entries by (ClubName, StartYear,
+    // EndYear) — the same-real-stint identity — and, within each group,
+    // applies the deliberate merge rule described in
+    // ParseCareerStintBindings' own comment above:
+    //   - exactly one distinct POPULATED AppearanceCount present (whether
+    //     alongside one or more null-AppearanceCount rows, or alone): merge
+    //     down to a single entry carrying that populated count. A null
+    //     AppearanceCount elsewhere in the group is informationally
+    //     subsumed, never a conflict.
+    //   - more than one distinct POPULATED AppearanceCount present: leave
+    //     every row as its own entry, unmerged — the correctness-risk case,
+    //     a deliberate non-fix, not an oversight.
+    //   - no populated AppearanceCount in the group at all (every row
+    //     null): nothing to merge; exact structural duplicates still
+    //     collapse via Distinct(), same as the old HashSet did for the
+    //     whole record.
+    private static IReadOnlyList<WikidataCareerStintEntry> MergeCareerStintEntries(List<WikidataCareerStintEntry> entries)
+    {
+        var merged = new List<WikidataCareerStintEntry>();
+
+        foreach (var group in entries.GroupBy(e => (e.ClubName, e.StartYear, e.EndYear)))
+        {
+            var rows = group.ToList();
+            var distinctPopulatedCounts = rows
+                .Where(r => r.AppearanceCount is not null)
+                .Select(r => r.AppearanceCount!.Value)
+                .Distinct()
+                .ToList();
+
+            if (distinctPopulatedCounts.Count == 1)
+            {
+                var populatedCount = distinctPopulatedCounts[0];
+                var clubQid = rows.Select(r => r.ClubQid).FirstOrDefault(qid => qid is not null);
+                merged.Add(rows[0] with { AppearanceCount = populatedCount, ClubQid = clubQid });
+                continue;
+            }
+
+            // Either >1 distinct populated counts (correctness-risk case,
+            // left unmerged) or 0 (nothing to merge) — either way, keep
+            // every row, only collapsing exact structural duplicates.
+            merged.AddRange(rows.Distinct());
+        }
+
+        return merged;
     }
 
     // Legal-suffix variants Wikidata is observed to use interchangeably for

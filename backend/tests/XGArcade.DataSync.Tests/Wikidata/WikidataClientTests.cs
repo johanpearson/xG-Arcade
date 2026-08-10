@@ -2437,24 +2437,21 @@ public class WikidataClientTests
         Assert.That(result["Q1519"][0].ClubName, Is.EqualTo(expectedNormalized));
     }
 
-    // Locks in a KNOWN, ACCEPTED limitation of the club-name normalization
-    // fix above (quality-gate finding, 2026-08-03) — see
-    // ParseCareerStintBindings' own comment for the full reasoning. Dedup
-    // is still keyed on the FULL (ClubName, StartYear, EndYear,
-    // AppearanceCount) tuple: normalizing ClubName alone only collapses
-    // rows that also agree on every other field. Two rows for what could
-    // plausibly be the same real stint (same normalized club, same
-    // start/end) but that disagree on AppearanceCount — one row's P1350
-    // qualifier absent (null), the other's present (25) — currently do
-    // NOT merge, and both survive as separate entries. This is
-    // deliberate, not an oversight: treating null as "matches anything"
-    // would risk merging two GENUINELY different stints at the same club
-    // with matching dates but different, both-known appearance counts.
-    // This test exists so that a future change to this behavior is a
-    // conscious decision (with its own test update), not an accidental
-    // regression.
+    // Bug fix (2026-08-10, bug-bundle): supersedes the previous
+    // "DoesNotMergeSameClubAndDates_WhenAppearanceCountDiffers" test, whose
+    // name and assertions are now only accurate for the both-populated-
+    // and-different case (see the next test below) — a null vs. populated
+    // AppearanceCount is no longer treated as a conflict. Regression test
+    // for the exact bug reported with a screenshot: a "Real Sociedad 2
+    // apps" node and a bare "Real Sociedad" (no apps) node for the same
+    // real stint. Two rows for the same normalized club and dates, one
+    // with no P1350 qualifier bound (null) and one with a real value
+    // (25), must merge into a single entry keeping the populated count —
+    // null means "unknown," and a later-observed real number is strictly
+    // more informative, never a conflict. See MergeCareerStintEntries'
+    // own comment for the full rule.
     [Test]
-    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenAppearanceCountDiffers()
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_MergesSameClubAndDates_WhenOneAppearanceCountIsNullAndOtherIsPopulated()
     {
         const string json = """
             {
@@ -2470,10 +2467,43 @@ public class WikidataClientTests
 
         var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
 
-        Assert.That(result["Q1519"], Has.Count.EqualTo(2),
-            "documented current limitation: a null vs. known AppearanceCount still prevents merging, even though ClubName and dates now normalize/match");
-        Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Liverpool", 2010, 2015, null)));
+        Assert.That(result["Q1519"], Has.Count.EqualTo(1),
+            "a null vs. a populated AppearanceCount for the same normalized club and dates must now merge into one entry");
         Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("Liverpool", 2010, 2015, 25)));
+    }
+
+    // The narrower, INTENTIONAL non-fix carve-out MergeCareerStintEntries'
+    // own comment describes: two rows for the same normalized club and
+    // dates but with DIFFERENT, both-populated AppearanceCount values
+    // (e.g. the "AC Milan 25 apps" / "AC Milan 95 apps" shape from the
+    // 2026-08-10 bug report) must still NOT merge — this could plausibly
+    // be two genuinely different stints (e.g. a loan-and-return spell
+    // recorded as two separate P54 statements), so silently merging on a
+    // mismatched, both-known appearance count would be a correctness
+    // regression, not just a display fix. This test exists so a future
+    // change to this behavior is a conscious decision, not an accidental
+    // regression.
+    [Test]
+    public async Task REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenBothAppearanceCountsPopulatedButDiffer()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "AC Milan" }, "startTime": { "type": "literal", "value": "2010-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2015-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "25" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "clubLabel": { "type": "literal", "value": "AC Milan" }, "startTime": { "type": "literal", "value": "2010-01-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2015-01-01T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "95" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]);
+
+        Assert.That(result["Q1519"], Has.Count.EqualTo(2),
+            "both-populated-but-different AppearanceCount values must not be merged — could be two genuinely different stints");
+        Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("AC Milan", 2010, 2015, 25)));
+        Assert.That(result["Q1519"], Does.Contain(new WikidataCareerStintEntry("AC Milan", 2010, 2015, 95)));
     }
 
     [Test]

@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.58"
+version: "1.59"
 status: draft
-last_updated: 2026-08-09
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -6382,12 +6382,17 @@ not a claim about current behavior.
   check purely because leftover junk rows (e.g. "Spain national under-16
   association football team") padded the row count past 3.
   `XGPathGameModule.GetEligiblePlayerIdsAsync` now filters via the new
-  `PathCareerStintFilter.ExcludeYouthNationalTeams` immediately before
-  `IsEligible` runs. This REQ's own acceptance criteria below are
+  `PathCareerStintFilter.ExcludeNationalTeams` (named `ExcludeYouthNationalTeams`
+  at the time of this note; renamed 2026-08-10 — see below) immediately
+  before `IsEligible` runs. This REQ's own acceptance criteria below are
   unchanged in wording — "3 distinct documented career club stints" always
   meant real ones; this closes a gap where already-persisted junk data
   could make that check pass incorrectly, the same class of gap REQ-1203's
   2026-08-02 status note closed for the club-reveal display path.
+  **Broadened 2026-08-10:** the filter this note describes now matches ANY
+  national team, senior or youth, not just youth/age-grade rows — see
+  REQ-1203's own 2026-08-10 status note for the full reasoning; this
+  eligibility-check call site is otherwise unchanged.
 - Given a candidate player is being considered as an xG Path puzzle target
 - When the candidate is evaluated for eligibility
 - Then the player must have at least 3 distinct documented career club
@@ -6578,6 +6583,27 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   is observed in practice it needs its own deliberate merge rule (and
   test), not a silent loosening of this tuple. Locked in by
   `WikidataClientTests.REQ1203_QueryPlayerCareerStintsByQidsAsync_DoesNotMergeSameClubAndDates_WhenAppearanceCountDiffers`.
+- **Status note (2026-08-10, bug fix, ADR-0063): the limitation above is now
+  partially fixed — a `null`-vs-populated `AppearanceCount` DOES merge; two
+  different, both-populated `AppearanceCount` values still do not.** A real
+  duplicate-node bug report showed exactly the null-vs-populated shape this
+  REQ's 2026-08-03 note above flagged as a known gap (e.g. "AC Milan 25
+  apps" / "AC Milan 95 apps," "Real Sociedad 2 apps" / bare "Real
+  Sociedad"). `WikidataClient.ParseCareerStintBindings` (via a new
+  `MergeCareerStintEntries` helper) and `DuplicateCareerStintCleaner` (the
+  retroactive cleanup for the ~608K-row table, both its existing Step 1 and
+  a new same-`ClubName` Step 2) now treat a `null` `AppearanceCount` on one
+  side and a populated value on the other as provably the same stint —
+  `null` means "unknown," not "a different number" — and merge to the
+  populated value. The correctness-risk carve-out this REQ's 2026-08-03
+  note established is deliberately **unchanged**: two rows with DIFFERENT,
+  both-populated `AppearanceCount` values are still never merged (a loan-
+  and-return spell, for example, could genuinely be two different stints)
+  — this is not a full fix for the 2026-08-03 limitation, only the
+  null-vs-populated slice of it. This widening required (and is documented
+  in) ADR-0063, since ADR-0059's own "For AI agents" section required a
+  fresh ADR before `DuplicateCareerStintCleaner`'s provable-only matching
+  was widened at all.
 - **Status note (2026-08-04, bug fix, ADR-0059): duplicate club-reveal nodes
   from a cross-writer label mismatch — fixed.** A second, distinct cause of
   the same duplicate-node symptom the 2026-08-03 fix above only partly
@@ -6643,8 +6669,9 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   ADR-0059's canonical-name-exists check was — a name-based filter is safe
   for read-time exclusion (a false positive only skips a clue) but not for
   an irreversible row deletion. Scoped narrowly to match only what was
-  actually reported: `PathCareerStintFilter.IsYouthNationalTeam` matches
-  "national" followed by an age-grade "under-`\d+`" marker
+  actually reported: `PathCareerStintFilter.IsYouthNationalTeam` (renamed
+  `IsNationalTeam` 2026-08-10 — see the superseding status note below)
+  matches "national" followed by an age-grade "under-`\d+`" marker
   (`national\s.*\bunder-\d+\b`, case-insensitive) — deliberately NOT
   "national ... team" alone, which would also have wrongly stripped the
   valid senior-team clue ("Italy men's national association football
@@ -6656,6 +6683,39 @@ puzzle count), an omitted-`gameKey` regression, and the unrecognized-
   this sandbox (no `wikidata.org` access here); flagged for manual
   confirmation against real production rows if it's found to under- or
   over-match in practice.
+- **Status note (2026-08-10, bug fix — supersedes the youth-only scoping in
+  the 2026-08-08 note above, which is not deleted but is no longer current
+  reasoning): senior national teams were still leaking into club-reveal
+  clues — the youth-only scope was reopened and the filter broadened to
+  match any national team.** A new bug report (screenshot) showed "Italy
+  men's national association football team" rendering WITH an appearance
+  count ("30 apps") as a club-reveal clue — the exact senior-team case the
+  2026-08-08 note above says was reviewed and confirmed rendering
+  correctly; that judgment call is now known to have been wrong, or at
+  least not durable. This REQ's own acceptance criterion below ("national
+  team caps/appearances are never revealed as a clue... this clue type does
+  not exist for xG Path") has no senior/youth carve-out in its wording —
+  the youth-only scoping was a narrower reading than the REQ's own text
+  supports, not something the REQ ever asked for. Fixed by renaming
+  `PathCareerStintFilter.IsYouthNationalTeam`/`ExcludeYouthNationalTeams` to
+  `IsNationalTeam`/`ExcludeNationalTeams` and broadening the pattern from
+  `\bnational\s.*\bunder-\d+\b` (youth/age-grade only) to
+  `\bnational\b.*\bteam\b` (any national team, senior or youth) — matching
+  "national" and "team" as independent word-bounded tokens covers every
+  observed label shape (with or without an age-grade marker, with or
+  without "men's"/"women's", with or without "association") without a
+  combinatorial list of exact phrasings. The non-FIFA-regional-side
+  carve-out ("Basque Country regional football team" stays a valid clue) is
+  preserved, but is now understood to be **incidental, not a deliberate
+  policy exemption**: this filter has no FIFA-affiliation signal at all and
+  matches purely on label wording — "Basque Country regional football
+  team" is untouched only because its label never contains the word
+  "national," not because of any non-FIFA-side rule. A non-FIFA side whose
+  Wikidata label nonetheless says "national team" (e.g. hypothetically
+  "Catalonia national football team") IS excluded, the same as any FIFA
+  member national team — this is intentional under the REQ's own unqualified
+  acceptance criterion, not an oversight. See `docs/architecture-document.md`
+  COMP-11's matching 2026-08-10 status note.
 - Given a puzzle targeting a specific eligible player (REQ-1201), whose
   documented career has `N` club stints (`N >= 3`, guaranteed by REQ-1201's
   eligibility check, with no upper cap)
@@ -7073,6 +7133,29 @@ solved, exhausted-unsolved, and still-unlocked cases).
   block added at all, since it had none. This REQ's set-once persistence
   contract and null-handling are otherwise unchanged; only what gets
   captured as the non-null value changed, from a QID to a label.
+- **Status note (2026-08-10, bug fix): rows written before the 2026-08-02
+  fix above stayed broken forever — the backfill's candidate query is now
+  widened to catch them.** The 2026-08-02 fix directly above stopped any
+  NEW `Player` row from getting a raw QID URI in `Position`, but it did
+  nothing for rows already written with the bad value before that fix
+  shipped — `PlayerStoreRepository.GetPlayersMissingPositionOrBirthYearAsync`
+  only ever selected rows where `Position IS NULL`, and a raw-URI `Position`
+  is NOT NULL, so those pre-2026-08-02 rows were silently and permanently
+  invisible to `PlayerPositionBirthYearBackfillService` — every future
+  backfill run re-selected only genuinely-empty rows and never touched the
+  already-bad ones. This is exactly what a bug report showed: a raw
+  `http://www.wikidata.org/entity/Q...` URI still rendering as the position
+  clue on rows that predate 2026-08-02. Fixed by widening the candidate
+  query to also select a `Position` that starts with the raw Wikidata
+  entity URI prefix (`http://www.wikidata.org/entity/`), and by making
+  `UpdatePlayerPositionsAndBirthYearsAsync` overwrite a raw-URI `Position`
+  — the one deliberate exception to this REQ's "set once, never
+  overwritten" contract above, since a raw-URI value was never a genuine
+  value in the first place, just the pre-2026-08-02 write-path bug frozen
+  in place. No equivalent bad-sentinel state exists for `BirthYear` (it's
+  parsed from an `xsd:dateTime` binding straight into an `int`, never
+  carried through as a raw URI or other placeholder), so `BirthYear`'s half
+  of the candidate query and the set-once contract are unchanged.
 - Given the existing Wikidata intersection queries that create or enrich
   `Player` rows during xG Grid/xG Path player sync (Country×Club,
   National-team×Club, Club×Club, Trophy×Country, Trophy×Club — every query

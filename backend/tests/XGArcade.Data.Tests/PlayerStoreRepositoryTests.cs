@@ -564,6 +564,38 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
+    public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_IncludesPlayersWithRawWikidataUriPosition()
+    {
+        // Bug fix (2026-08-10, bug-bundle): rows created before the
+        // 2026-08-02 WikidataClient fix hold the raw P413 entity URI as
+        // Position, not a resolved label. Position is NOT NULL on these
+        // rows, so they must still surface as backfill candidates or they're
+        // permanently skipped.
+        var rawUriPosition = new Player
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Raw URI Player",
+            WikidataQid = "Q8025128",
+            Position = "http://www.wikidata.org/entity/Q8025128",
+            BirthYear = 1990,
+        };
+        var resolvedPosition = new Player
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Resolved Position Player",
+            WikidataQid = "Q42233",
+            Position = "midfielder",
+            BirthYear = 1978,
+        };
+        await _repository.AddPlayerAsync(rawUriPosition);
+        await _repository.AddPlayerAsync(resolvedPosition);
+
+        var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 200);
+
+        Assert.That(result.Select(p => p.Id), Is.EquivalentTo(new[] { rawUriPosition.Id }));
+    }
+
+    [Test]
     public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_RespectsBatchSize()
     {
         for (var i = 0; i < 5; i++)
@@ -649,6 +681,32 @@ public class PlayerStoreRepositoryTests
 
         var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("defender"), "REQ-1207's set-once contract must hold for this backfill too");
+        Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
+    }
+
+    [Test]
+    public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_RawWikidataUriPosition_IsOverwrittenWithResolvedLabel()
+    {
+        // Bug fix (2026-08-10, bug-bundle): the raw-URI shape is the one
+        // deliberate exception to the "already-set field is never
+        // overwritten" rule above — otherwise widening the read-side
+        // candidate query would be a no-op.
+        var player = new Player
+        {
+            Id = Guid.NewGuid(),
+            FullName = "Raw URI Player",
+            WikidataQid = "Q8025128",
+            Position = "http://www.wikidata.org/entity/Q8025128",
+        };
+        await _repository.AddPlayerAsync(player);
+
+        await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
+        {
+            [player.Id] = new PlayerPositionBirthYearUpdate("midfielder", 1990),
+        });
+
+        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        Assert.That(reloaded!.Position, Is.EqualTo("midfielder"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
     }
 

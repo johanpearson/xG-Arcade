@@ -2,12 +2,14 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Games.XGPath.Tests;
 
-// REQ-1203, bug fix (2026-08-08): PathCareerStintFilter.ExcludeYouthNationalTeams
-// / IsYouthNationalTeam — the read-time defensive filter for leftover
-// pre-2026-08-02 youth/age-grade national-team PlayerCareerStint rows (see
-// PathCareerStintFilter's own doc comment for the full "why a read-time
-// filter, not a cleanup script" reasoning). Deliberately pure/DB-free, same
-// precedent as PathClueSequenceBuilderTests.
+// REQ-1203, bug fix (2026-08-08; broadened 2026-08-10, bug-bundle):
+// PathCareerStintFilter.ExcludeNationalTeams / IsNationalTeam — the
+// read-time defensive filter for leftover pre-2026-08-02 national-team
+// PlayerCareerStint rows (see PathCareerStintFilter's own doc comment for
+// the full "why a read-time filter, not a cleanup script" reasoning, and
+// its 2026-08-10 scope-correction comment for why this now covers senior
+// national teams too, not just youth/age-grade). Deliberately pure/DB-free,
+// same precedent as PathClueSequenceBuilderTests.
 public class PathCareerStintFilterTests
 {
     private static PlayerCareerStint Stint(string clubName) =>
@@ -28,36 +30,59 @@ public class PathCareerStintFilterTests
     [TestCase("Italy national under-21 football team")]
     [TestCase("France national under-19 football team")]
     [TestCase("England national under-17 football team")]
-    public void REQ1203_IsYouthNationalTeam_ReportedAgeGradeNationalTeamLabels_ReturnsTrue(string clubName)
+    public void REQ1203_IsNationalTeam_ReportedAgeGradeNationalTeamLabels_ReturnsTrue(string clubName)
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.True);
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.True);
     }
 
     [Test]
-    public void REQ1203_IsYouthNationalTeam_IsCaseInsensitive()
+    public void REQ1203_IsNationalTeam_IsCaseInsensitive()
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam("SPAIN NATIONAL UNDER-16 ASSOCIATION FOOTBALL TEAM"), Is.True);
+        Assert.That(PathCareerStintFilter.IsNationalTeam("SPAIN NATIONAL UNDER-16 ASSOCIATION FOOTBALL TEAM"), Is.True);
     }
 
-    // ---- REQ-1203: the senior national team must NOT be excluded — it's a --
-    // real, meaningful career milestone and showed correctly in the same -----
-    // reported puzzle timeline the youth teams leaked into ------------------
+    // ---- Bug fix (2026-08-10, bug-bundle): the senior national team MUST --
+    // now be excluded too — REQ-1203's own unqualified acceptance criterion -
+    // makes no senior/youth distinction, and a 2026-08-10 bug report ---------
+    // (screenshot: "Italy men's national association football team" with ---
+    // "30 apps" leaking into a club-reveal clue) directly contradicted the --
+    // 2026-08-08 fix's narrower judgment call. This flips the previous ------
+    // "SeniorNationalTeamLabels_ReturnsFalse" assertion. -----------------
 
     [TestCase("Italy men's national association football team")]
     [TestCase("Switzerland men's national football team")]
     [TestCase("Spain national football team")]
-    public void REQ1203_IsYouthNationalTeam_SeniorNationalTeamLabels_ReturnsFalse(string clubName)
+    public void REQ1203_IsNationalTeam_SeniorNationalTeamLabels_ReturnsTrue(string clubName)
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.False);
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.True);
     }
 
-    // ---- Scope: only what was actually reported — a non-FIFA regional side -
-    // (seen in the same screenshots, not flagged as a problem) is left alone -
+    // ---- Scope: a non-FIFA regional side (seen in the same screenshots, ---
+    // not flagged as a problem) is still left alone — regional --------------
+    // representative teams are NOT national teams -----------------------
 
     [Test]
-    public void REQ1203_IsYouthNationalTeam_NonFifaRegionalTeam_ReturnsFalse()
+    public void REQ1203_IsNationalTeam_NonFifaRegionalTeam_ReturnsFalse()
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam("Basque Country regional football team"), Is.False);
+        Assert.That(PathCareerStintFilter.IsNationalTeam("Basque Country regional football team"), Is.False);
+    }
+
+    // ---- Boundary fix (2026-08-10 follow-up, quality-gate finding): the ---
+    // class doc comment previously overclaimed this filter "leaves non-FIFA -
+    // regional representative sides alone" as if that were a general -------
+    // FIFA-affiliation carve-out. It isn't — this filter has no way to know -
+    // FIFA affiliation at all and matches purely on label wording. A -------
+    // non-FIFA side whose Wikidata label nonetheless uses "national team" ---
+    // phrasing (unlike the "regional" wording of the Basque Country case ----
+    // above) IS excluded, same as any FIFA member. NOT verified against a --
+    // live Wikidata query from this sandbox — "Catalonia national football --
+    // team" is used as a plausible real label but is flagged for manual -----
+    // confirmation rather than presented as a verified Wikidata fact --------
+
+    [Test]
+    public void REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue()
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam("Catalonia national football team"), Is.True);
     }
 
     // ---- Real clubs, including ones with "United"/similar in the name, ----
@@ -68,9 +93,9 @@ public class PathCareerStintFilterTests
     [TestCase("Paris Saint-Germain")]
     [TestCase("Real Madrid")]
     [TestCase("Sporting Clube de Portugal")]
-    public void REQ1203_IsYouthNationalTeam_RealClubNames_ReturnsFalse(string clubName)
+    public void REQ1203_IsNationalTeam_RealClubNames_ReturnsFalse(string clubName)
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.False);
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
     }
 
     // ---- Regression: without a leading \b before "national", the pattern --
@@ -81,15 +106,27 @@ public class PathCareerStintFilterTests
     [TestCase("International Under-20 Select XI")]
     [TestCase("FC International Milan Under-20")]
     [TestCase("Multinational Development Squad Under-19")]
-    public void REQ1203_IsYouthNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse(string clubName)
+    public void REQ1203_IsNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse(string clubName)
     {
-        Assert.That(PathCareerStintFilter.IsYouthNationalTeam(clubName), Is.False);
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
     }
 
-    // ---- ExcludeYouthNationalTeams: filters a mixed stint list -------------
+    // ---- Regression: a club literally named "National" (no accompanying --
+    // "team" word) must not be excluded — the trailing \bteam\b requirement -
+    // is what keeps this pattern from over-matching on the word "national" --
+    // alone -------------------------------------------------------------
+
+    [TestCase("National")]
+    [TestCase("CD National")]
+    public void REQ1203_IsNationalTeam_ClubNamedNationalWithoutTeamWord_ReturnsFalse(string clubName)
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam(clubName), Is.False);
+    }
+
+    // ---- ExcludeNationalTeams: filters a mixed stint list ------------------
 
     [Test]
-    public void REQ1203_ExcludeYouthNationalTeams_MixOfRealClubsAndYouthNationalTeams_KeepsOnlyRealClubs()
+    public void REQ1203_ExcludeNationalTeams_MixOfRealClubsAndYouthNationalTeams_KeepsOnlyRealClubs()
     {
         var stints = new[]
         {
@@ -100,14 +137,17 @@ public class PathCareerStintFilterTests
             Stint("Real Madrid"),
         };
 
-        var filtered = PathCareerStintFilter.ExcludeYouthNationalTeams(stints);
+        var filtered = PathCareerStintFilter.ExcludeNationalTeams(stints);
 
         Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco", "Paris Saint-Germain", "Real Madrid" }));
     }
 
     [Test]
-    public void REQ1203_ExcludeYouthNationalTeams_KeepsSeniorNationalTeamAlongsideRealClubs()
+    public void REQ1203_ExcludeNationalTeams_ExcludesSeniorNationalTeamAlongsideYouthNationalTeams()
     {
+        // Bug fix (2026-08-10, bug-bundle): this test replaces the previous
+        // "KeepsSeniorNationalTeamAlongsideRealClubs" assertion — the senior
+        // national team must now be excluded, same as the youth one.
         var stints = new[]
         {
             Stint("AS Monaco"),
@@ -115,39 +155,40 @@ public class PathCareerStintFilterTests
             Stint("Italy national under-20 football team"),
         };
 
-        var filtered = PathCareerStintFilter.ExcludeYouthNationalTeams(stints);
+        var filtered = PathCareerStintFilter.ExcludeNationalTeams(stints);
 
-        Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco", "Italy men's national association football team" }));
+        Assert.That(filtered.Select(s => s.ClubName), Is.EqualTo(new[] { "AS Monaco" }));
     }
 
     [Test]
-    public void REQ1203_ExcludeYouthNationalTeams_OnlyYouthNationalTeams_ReturnsEmpty()
+    public void REQ1203_ExcludeNationalTeams_OnlyNationalTeams_ReturnsEmpty()
     {
         var stints = new[]
         {
             Stint("Spain national under-16 association football team"),
             Stint("Spain national under-17 association football team"),
+            Stint("Spain national football team"),
         };
 
-        var filtered = PathCareerStintFilter.ExcludeYouthNationalTeams(stints);
+        var filtered = PathCareerStintFilter.ExcludeNationalTeams(stints);
 
         Assert.That(filtered, Is.Empty);
     }
 
     [Test]
-    public void REQ1203_ExcludeYouthNationalTeams_EmptyInput_ReturnsEmpty()
+    public void REQ1203_ExcludeNationalTeams_EmptyInput_ReturnsEmpty()
     {
-        var filtered = PathCareerStintFilter.ExcludeYouthNationalTeams([]);
+        var filtered = PathCareerStintFilter.ExcludeNationalTeams([]);
 
         Assert.That(filtered, Is.Empty);
     }
 
     [Test]
-    public void REQ1203_ExcludeYouthNationalTeams_NoJunkRows_ReturnsAllUnchanged()
+    public void REQ1203_ExcludeNationalTeams_NoJunkRows_ReturnsAllUnchanged()
     {
         var stints = new[] { Stint("AS Monaco"), Stint("Paris Saint-Germain"), Stint("Real Madrid") };
 
-        var filtered = PathCareerStintFilter.ExcludeYouthNationalTeams(stints);
+        var filtered = PathCareerStintFilter.ExcludeNationalTeams(stints);
 
         Assert.That(filtered, Is.EqualTo(stints));
     }

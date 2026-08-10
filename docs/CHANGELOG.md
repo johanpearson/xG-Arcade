@@ -13,6 +13,66 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — new `docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md`,
+  `docs/decisions/0059-career-stint-club-name-canonicalization.md`
+  ("For AI agents" section) — quality-gate follow-up on commit `237439c`
+  (REQ-1203/REQ-1207 xG Path clue-reveal bug fixes). `DuplicateCareerStintCleaner`'s
+  widened matching (null-tolerant `AppearanceCount` merge, same-`ClubName`
+  Step 2 pass, in-place survivor mutation) needed the fresh ADR that
+  ADR-0059's own "For AI agents" guardrail required before any widening —
+  ADR-0063 records it and ADR-0059 now points at it. Same round also fixed
+  two real bugs the ADR gap was standing in front of: Step 2 silently
+  failing to collapse two rows sharing an identical, already-populated
+  `AppearanceCount` (only null rows were ever removed); and Step 1's
+  in-place mutation being order-dependent for 3+-row groups sharing a
+  `(PlayerId, StartYear, EndYear)` key (now conservative — an ambiguous
+  3+-row group is left entirely untouched rather than picking a winner via
+  enumeration order). Also corrected `PathCareerStintFilter`'s doc comment,
+  which overclaimed the national-team regex "leaves non-FIFA regional
+  representative sides alone" — it has no FIFA-affiliation signal at all
+  and matches on label wording only; a non-FIFA side labeled as a
+  "national team" is excluded same as any other, pinned down with a new
+  test (`Catalonia national football team`, NOT verified against a live
+  Wikidata query from this sandbox — flagged for manual confirmation). No
+  `dotnet` SDK available in this sandbox; new/changed tests hand-traced,
+  not run. REQ-1203, ADR-0059, ADR-0063.
+
+- 2026-08-10 — `docs/requirements-document.md` (v1.58 → v1.59),
+  `docs/architecture-document.md` (v0.86 → v0.87) — doc-sync pass over
+  commits `237439c`/`44771a6`/`ccbfbfe` (the same xG Path clue-reveal
+  bug-bundle round as the entry directly above). REQ-1203: renamed stale
+  `PathCareerStintFilter.ExcludeYouthNationalTeams`/`IsYouthNationalTeam`
+  references to `ExcludeNationalTeams`/`IsNationalTeam`; added a new
+  2026-08-10 status note (superseding, not deleting, the 2026-08-08 note)
+  recording that the youth-only scoping was reopened by a new bug report
+  showing a senior national team leaking through, and that the filter now
+  matches any national team per this REQ's own unqualified acceptance
+  criterion — the non-FIFA-regional-side behavior is unchanged but is now
+  documented as incidental (label-wording-based), not a deliberate policy
+  exemption; added a status note on the 2026-08-03 "known, accepted
+  limitation" (`AppearanceCount` mismatch) recording that ADR-0063's
+  null-vs-populated merge now partially closes it (both-populated-and-
+  different still doesn't merge). REQ-1207: added a status note on the
+  raw-Wikidata-URI backfill-candidate widening fix. `docs/architecture-
+  document.md`: updated COMP-11's status note and §6.2b's data-flow wording
+  to match the broadened national-team filter (was described as
+  "youth/age-grade only," now reads as senior-or-youth with both dates'
+  reasoning). REQ-1203, REQ-1207, ADR-0063. Note:
+  `docs/implementation-document.md` (project-structure section, ~line 245)
+  still describes the filter as "youth/age-grade national-team" only — left
+  unedited, out of this pass's explicit scope; flagged for a follow-up pass.
+
+- 2026-08-10 — `docs/implementation-document.md` (v0.92 → v0.93) — closed
+  the follow-up flagged in the entry directly above. Project-structure
+  section's `PathCareerStintFilter` description updated from "youth/age-
+  grade national-team" rows to noting the 2026-08-10 widening to any
+  national team (`IsYouthNationalTeam` → `IsNationalTeam`); the position/
+  birth-year backfill section's `GetPlayersMissingPositionOrBirthYearAsync`
+  description updated to record the raw-Wikidata-URI candidate widening and
+  `UpdatePlayerPositionsAndBirthYearsAsync`'s corresponding one-time
+  exception to its "never clobber an already-set field" rule. Same round
+  as commits `237439c`/`44771a6`/`ccbfbfe`. REQ-1203, REQ-1207.
+
 - 2026-08-09 — `docs/architecture-document.md` (v0.85 → v0.86), new
   `docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md` — a
   production log showed REQ-509/510's admin by-name Wikidata lookup

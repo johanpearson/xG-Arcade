@@ -339,7 +339,7 @@ public class XGPathGameModule(
         // genuinely eligible candidate, which not filtering here never
         // does).
         var structurallyEligibleIds = stintsByPlayer
-            .Where(kvp => IsEligible(PathCareerStintFilter.ExcludeYouthNationalTeams(kvp.Value), seededClubNames))
+            .Where(kvp => IsEligible(PathCareerStintFilter.ExcludeNationalTeams(kvp.Value), seededClubNames))
             .Select(kvp => kvp.Key)
             .ToList();
 

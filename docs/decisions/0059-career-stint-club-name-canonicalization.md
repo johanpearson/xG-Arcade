@@ -153,3 +153,14 @@ writer path), reuse `PlayerCareerStintRefreshService.BuildClubNameByClubQidAsync
 against an already-canonical row) must not be widened into a fuzzy/alias
 match without a fresh ADR — that would repeat exactly the correctness risk
 `NormalizeClubName`'s own doc comment already rejected once.
+
+**Update (2026-08-10):** this guardrail was exercised once — ADR-0063
+("Widen DuplicateCareerStintCleaner's provable-duplicate matching to a
+null-tolerant AppearanceCount rule, with in-place survivor mutation")
+widened `DuplicateCareerStintCleaner`'s matching to treat a null
+`AppearanceCount` on one side and a populated value on the other as still
+provably the same stint, and added a same-`ClubName` grouping pass. Any
+**further** widening (in particular full `ClubName` fuzzy/alias matching,
+or treating two DIFFERENT, both-populated `AppearanceCount` values as a
+match) still needs its own fresh ADR referencing both this one and
+ADR-0063 — this guardrail is not satisfied once and then void.

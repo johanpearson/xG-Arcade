@@ -420,12 +420,31 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    // Bug fix (2026-08-10, bug-bundle): before WikidataClient's 2026-08-02 fix
+    // (see that file's BuildPlayerPositionsAndBirthYearsByQidsQuery/
+    // BuildIntersectionQuery comments), Player.Position was populated with the
+    // raw Wikidata P413 entity URI (e.g.
+    // "http://www.wikidata.org/entity/Q8025128") instead of a resolved
+    // position label. Those rows are NOT NULL, so the plain "is it null"
+    // candidate query below was silently and permanently skipping them —
+    // every future backfill run re-selected only genuinely-empty rows and
+    // never touched the already-bad ones, which is exactly what xG Path
+    // testers saw as a raw QID URI rendered in the position clue. Treat that
+    // shape as "missing" too so PlayerPositionBirthYearBackfillService
+    // re-fetches and resolves it. No equivalent bad-sentinel state exists for
+    // BirthYear — it's parsed from an xsd:dateTime binding into an int, never
+    // carried through as a raw URI or other placeholder string — so its
+    // condition is left as a plain null check; don't invent a fix for a
+    // failure mode that doesn't exist there.
+    private const string WikidataEntityUriPrefix = "http://www.wikidata.org/entity/";
+
     public async Task<IReadOnlyList<Player>> GetPlayersMissingPositionOrBirthYearAsync(
         IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default)
     {
         var query = dbContext.Players
             .AsNoTracking()
-            .Where(p => p.WikidataQid != null && (p.Position == null || p.BirthYear == null));
+            .Where(p => p.WikidataQid != null
+                && (p.Position == null || p.Position.StartsWith(WikidataEntityUriPrefix) || p.BirthYear == null));
 
         if (excludingPlayerIds.Count > 0)
             query = query.Where(p => !excludingPlayerIds.Contains(p.Id));
@@ -459,7 +478,19 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             // underneath us mid-run) value for it — same defensive posture
             // as PlayerCreationRequest's own "set only at creation, never
             // revisited" rule.
-            if (update.Position is not null && player.Position is null)
+            //
+            // Bug fix (2026-08-10, bug-bundle): one deliberate exception to
+            // "already-set is never overwritten" — a Position that's still
+            // the raw Wikidata entity URI (see
+            // GetPlayersMissingPositionOrBirthYearAsync's own comment above)
+            // is not a genuine value, it's the pre-2026-08-02 write-path bug
+            // frozen in place. GetPlayersMissingPositionOrBirthYearAsync
+            // already selects those rows back into this backfill's candidate
+            // set, so the write side has to actually replace them or the
+            // fix is a no-op — this is the only case where a non-null
+            // Position is overwritten.
+            if (update.Position is not null
+                && (player.Position is null || player.Position.StartsWith(WikidataEntityUriPrefix)))
                 player.Position = update.Position;
 
             if (update.BirthYear is not null && player.BirthYear is null)
