@@ -57,15 +57,18 @@ namespace XGArcade.Data.Seeding;
 // to match on a second run, same "safe to run again" contract as
 // StaleClubAttributeCleaner/PairLookupFailureCleaner.
 //
-// Widened, and a second pass added (2026-08-10, bug-bundle): the exact
-// (PlayerId, StartYear, EndYear, AppearanceCount) tuple two paragraphs up
-// is no longer applied literally. See CleanAsync's own Step 1/Step 2
-// comments for the full detail, but in short: (a) a null AppearanceCount on
-// one side and a populated value on the other now still counts as
-// "provably the same stint" — a null means "unknown," not a genuinely
-// different number, and (b) a second pass now also merges rows that share
-// the exact same ClubName (seeded or not), which the original single pass
-// never compared against itself. Both changes preserve the one
+// Widened, and a second pass added (2026-08-10, bug-bundle; see
+// docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md
+// for the ADR this widening required, per ADR-0059's own "For AI agents"
+// guardrail against widening this class's matching without a fresh ADR):
+// the exact (PlayerId, StartYear, EndYear, AppearanceCount) tuple two
+// paragraphs up is no longer applied literally. See CleanAsync's own Step
+// 1/Step 2 comments for the full detail, but in short: (a) a null
+// AppearanceCount on one side and a populated value on the other now still
+// counts as "provably the same stint" — a null means "unknown," not a
+// genuinely different number, and (b) a second pass now also merges rows
+// that share the exact same ClubName (seeded or not), which the original
+// single pass never compared against itself. Both changes preserve the one
 // non-negotiable carve-out: two rows with DIFFERENT, both-POPULATED
 // AppearanceCount values are still never merged, seeded-name match or not.
 public static class DuplicateCareerStintCleaner
@@ -126,21 +129,91 @@ public static class DuplicateCareerStintCleaner
             .GroupBy(s => (s.PlayerId, s.StartYear, s.EndYear))
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var stint in allStints.Where(s => !seededClubNames.Contains(s.ClubName)))
+        var nonCanonicalRowsByKey = allStints
+            .Where(s => !seededClubNames.Contains(s.ClubName))
+            .GroupBy(s => (s.PlayerId, s.StartYear, s.EndYear))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Bug fix (2026-08-10 follow-up, ADR-0063, quality-gate finding):
+        // grouped by key up front (rather than looping per-stint with an
+        // inline TryGetValue, as before) so a 3+-row group sharing a key can
+        // be reasoned about as a whole instead of one pairwise mutation at a
+        // time. The previous per-stint loop mutated a canonical row's
+        // AppearanceCount in place while iterating, and a LATER
+        // non-canonical stint for the SAME key read that already-mutated
+        // value back out via FirstOrDefault — so for a group of 3+ rows
+        // (e.g. canonical row null, one non-seeded row 25, another
+        // non-seeded row 95), which value the canonical row ended up with
+        // (and therefore which non-seeded row failed to match and stayed
+        // unmerged) depended on allStints' enumeration order: undocumented,
+        // untested, and not something to rely on over production's
+        // ~608K-row table.
+        foreach (var (key, nonCanonicalRows) in nonCanonicalRowsByKey)
         {
-            if (!canonicalRowsByKey.TryGetValue((stint.PlayerId, stint.StartYear, stint.EndYear), out var canonicalRows))
+            if (!canonicalRowsByKey.TryGetValue(key, out var canonicalRows))
                 continue;
 
-            var match = canonicalRows.FirstOrDefault(c =>
-                c.AppearanceCount == stint.AppearanceCount
-                || c.AppearanceCount is null
-                || stint.AppearanceCount is null);
-
-            if (match is null)
+            // More than one canonical (seeded-name) row sharing this exact
+            // key is a rare, untested edge case (e.g. two distinct seeded
+            // clubs with identical start/end years) — which one is "the"
+            // canonicalization target is itself ambiguous, so leave the
+            // whole group alone rather than guess, same conservative
+            // instinct as the ambiguous-AppearanceCount case below.
+            if (canonicalRows.Count != 1)
                 continue;
 
-            if (match.AppearanceCount is null && stint.AppearanceCount is not null)
-                match.AppearanceCount = stint.AppearanceCount;
+            var canonical = canonicalRows[0];
+
+            if (nonCanonicalRows.Count > 1)
+            {
+                // 3+-row group (this canonical row plus 2+ non-canonical
+                // rows sharing the same key). Made deterministic and
+                // conservative: if more than one DISTINCT populated
+                // AppearanceCount exists anywhere across the whole group
+                // (canonical row included), leave every row in the group
+                // untouched — the same both-populated-and-different
+                // carve-out the 2-row case below already applies,
+                // generalized to N rows instead of silently picking a
+                // winner via mutation order. Only the unambiguous case (at
+                // most one distinct populated AppearanceCount across the
+                // whole group) is auto-merged.
+                var distinctPopulatedAcrossGroup = new[] { canonical }
+                    .Concat(nonCanonicalRows)
+                    .Where(r => r.AppearanceCount is not null)
+                    .Select(r => r.AppearanceCount!.Value)
+                    .Distinct()
+                    .ToList();
+
+                if (distinctPopulatedAcrossGroup.Count > 1)
+                    continue; // Ambiguous — leave every row for this key alone.
+
+                if (distinctPopulatedAcrossGroup.Count == 1 && canonical.AppearanceCount is null)
+                    canonical.AppearanceCount = distinctPopulatedAcrossGroup[0];
+
+                foreach (var row in nonCanonicalRows)
+                    toRemove.Add(row);
+
+                continue;
+            }
+
+            // Exactly one canonical row and one non-canonical row share this
+            // key — original pairwise rule, unchanged: a null
+            // AppearanceCount on one side and a populated value on the
+            // other still counts as "provably the same stint" (null means
+            // "unknown," not a genuinely different number); two DIFFERENT,
+            // both-populated AppearanceCounts are left unmerged entirely —
+            // the deliberate correctness-risk carve-out this class's own
+            // doc comment establishes.
+            var stint = nonCanonicalRows[0];
+            var isProvablySameStint = canonical.AppearanceCount == stint.AppearanceCount
+                || canonical.AppearanceCount is null
+                || stint.AppearanceCount is null;
+
+            if (!isProvablySameStint)
+                continue;
+
+            if (canonical.AppearanceCount is null && stint.AppearanceCount is not null)
+                canonical.AppearanceCount = stint.AppearanceCount;
 
             toRemove.Add(stint);
         }
@@ -176,8 +249,35 @@ public static class DuplicateCareerStintCleaner
             if (distinctPopulatedCounts.Count != 1)
                 continue; // 0 populated (nothing to merge) or >1 distinct (correctness-risk carve-out) — leave alone.
 
-            foreach (var nullRow in rows.Where(r => r.AppearanceCount is null))
-                toRemove.Add(nullRow);
+            // Bug fix (2026-08-10 follow-up, ADR-0063, quality-gate finding):
+            // the previous version of this branch only ever removed rows
+            // where AppearanceCount was NULL, so a group with the SAME
+            // populated AppearanceCount on every row (e.g. two identical
+            // "25 apps" rows for the same club/dates, no null row at all)
+            // passed the distinctPopulatedCounts check above but had
+            // nothing for the old "remove null rows" loop to act on — both
+            // rows silently survived untouched, contradicting this step's
+            // own comment that it mirrors
+            // WikidataClient.MergeCareerStintEntries's rule (which
+            // correctly collapses to ONE row via `rows[0] with {...}`
+            // whenever distinctPopulatedCounts.Count == 1, independent of
+            // whether any row is null). Now collapses the whole group to a
+            // single surviving row carrying the one populated value in
+            // every case. Survivor choice: PlayerCareerStint has no
+            // secondary identity field (e.g. no ClubQid, unlike
+            // WikidataCareerStintEntry) to prefer between rows that already
+            // agree, so ties are broken deterministically by preferring a
+            // row that already holds the populated value (no mutation
+            // needed) and otherwise falling back to the group's first row
+            // (mutated in place), matching Step 1's mutate-then-keep
+            // pattern above.
+            var populatedCount = distinctPopulatedCounts[0];
+            var survivor = rows.FirstOrDefault(r => r.AppearanceCount == populatedCount) ?? rows[0];
+            if (survivor.AppearanceCount is null)
+                survivor.AppearanceCount = populatedCount;
+
+            foreach (var row in rows.Where(r => r != survivor))
+                toRemove.Add(row);
         }
 
         if (toRemove.Count == 0)

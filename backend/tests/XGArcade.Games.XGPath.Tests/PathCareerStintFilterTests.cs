@@ -67,6 +67,24 @@ public class PathCareerStintFilterTests
         Assert.That(PathCareerStintFilter.IsNationalTeam("Basque Country regional football team"), Is.False);
     }
 
+    // ---- Boundary fix (2026-08-10 follow-up, quality-gate finding): the ---
+    // class doc comment previously overclaimed this filter "leaves non-FIFA -
+    // regional representative sides alone" as if that were a general -------
+    // FIFA-affiliation carve-out. It isn't — this filter has no way to know -
+    // FIFA affiliation at all and matches purely on label wording. A -------
+    // non-FIFA side whose Wikidata label nonetheless uses "national team" ---
+    // phrasing (unlike the "regional" wording of the Basque Country case ----
+    // above) IS excluded, same as any FIFA member. NOT verified against a --
+    // live Wikidata query from this sandbox — "Catalonia national football --
+    // team" is used as a plausible real label but is flagged for manual -----
+    // confirmation rather than presented as a verified Wikidata fact --------
+
+    [Test]
+    public void REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue()
+    {
+        Assert.That(PathCareerStintFilter.IsNationalTeam("Catalonia national football team"), Is.True);
+    }
+
     // ---- Real clubs, including ones with "United"/similar in the name, ----
     // must never be excluded ------------------------------------------------
 

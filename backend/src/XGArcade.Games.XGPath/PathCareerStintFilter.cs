@@ -53,10 +53,33 @@ namespace XGArcade.Games.XGPath;
 // NationalTeamPattern's own comment for the word-boundary care taken to
 // avoid over-matching a real club whose name happens to contain "national"
 // as a substring (e.g. "International", "Multinational"), or a genuine
-// club literally named "National" with no accompanying "team" word. Still
-// leaves non-FIFA regional representative sides alone — a "Basque Country
-// regional football team" is not a national team and stays a valid clue
-// (existing test case for this, preserved unchanged below).
+// club literally named "National" with no accompanying "team" word.
+//
+// CORRECTED (2026-08-10 follow-up, quality-gate finding): the previous
+// version of this comment claimed this filter "leaves non-FIFA regional
+// representative sides alone," which overstated what the regex actually
+// does. This filter has no data source for FIFA/federation affiliation at
+// all — it only ever sees a ClubName string — and does NOT special-case
+// it. It matches purely on Wikidata label WORDING: any label containing
+// both "national" and "team" as word-bounded tokens (see NationalTeamPattern
+// above) is excluded, regardless of whether the side is actually
+// FIFA-affiliated. A non-FIFA side whose Wikidata label nonetheless uses
+// "national team" phrasing — e.g. "Catalonia national football team" (NOT
+// verified against a live Wikidata query from this sandbox; flagged for
+// manual confirmation) — is excluded the same as any FIFA member national
+// team. REQ-1203's own acceptance criterion ("national team caps/
+// appearances are never revealed as a clue" — no FIFA-affiliation
+// qualifier anywhere in the requirement text) supports reading this as the
+// correct, not over-broad, behavior: excluding anything self-described in
+// its own label as a "national team" is safer and more REQ-consistent than
+// trying to encode FIFA membership this filter has no way to check anyway.
+// "Basque Country regional football team" stays a valid clue ONLY because
+// its label uses "regional" and never triggers the "national" + "team"
+// match in the first place — that is not a general carve-out for non-FIFA
+// sides, just the one existing test case's specific wording (preserved
+// unchanged below). See
+// REQ1203_IsNationalTeam_NonFifaButLabeledAsNationalTeam_ReturnsTrue for
+// the test that pins down this exact boundary.
 public static class PathCareerStintFilter
 {
     // Wikidata's English label convention for a national representative

@@ -186,6 +186,75 @@ public class DuplicateCareerStintCleanerTests
     }
 
     [Test]
+    public async Task REQ1203_CleanAsync_SameClubNameIdenticalPopulatedAppearanceCounts_CollapsesToOneRow()
+    {
+        // Bug fix (2026-08-10 follow-up, quality-gate finding): two rows for
+        // the same club/dates with the SAME populated AppearanceCount (no
+        // null row at all) used to slip past this step untouched — the
+        // distinctPopulatedCounts.Count == 1 check passed, but the old
+        // "remove null rows" loop found nothing to remove since neither row
+        // was null. Both duplicate rows must now collapse to one.
+        await SeedClubAsync("AC Milan");
+        var playerId = Guid.NewGuid();
+        await SeedStintAsync(playerId, "AC Milan", 2019, 2021, 25);
+        await SeedStintAsync(playerId, "AC Milan", 2019, 2021, 25);
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(1));
+        var remaining = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == playerId).ToListAsync();
+        Assert.That(remaining, Has.Count.EqualTo(1));
+        Assert.That(remaining[0].AppearanceCount, Is.EqualTo(25));
+    }
+
+    // ---- Step 1: 3+-row groups sharing a (PlayerId, StartYear, EndYear) ---
+    // key (2026-08-10 follow-up, quality-gate finding) ----------------------
+    // Regression coverage for the order-dependent-merge risk: the previous
+    // per-stint loop mutated a canonical row's AppearanceCount in place
+    // while iterating, so which non-canonical row "won" for a 3+-row group
+    // depended on allStints' enumeration order. Now deterministic: an
+    // ambiguous group (more than one distinct populated AppearanceCount
+    // across the whole group) is left entirely alone; an unambiguous group
+    // (at most one distinct populated value) still merges correctly.
+
+    [Test]
+    public async Task REQ1203_CleanAsync_ThreeRowGroupWithTwoDistinctPopulatedAppearanceCounts_IsLeftEntirelyAlone()
+    {
+        await SeedClubAsync("Lyon");
+        var playerId = Guid.NewGuid();
+        await SeedStintAsync(playerId, "Lyon", 2000, 2003, null); // Canonical row, unknown count.
+        await SeedStintAsync(playerId, "Olympique Lyonnais", 2000, 2003, 25); // Non-canonical, 25 apps.
+        await SeedStintAsync(playerId, "OL", 2000, 2003, 95); // Non-canonical, 95 apps — disagrees with the row above.
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(0));
+        var remaining = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == playerId).ToListAsync();
+        Assert.That(remaining, Has.Count.EqualTo(3));
+        Assert.That(remaining.Single(s => s.ClubName == "Lyon").AppearanceCount, Is.Null);
+        Assert.That(remaining.Single(s => s.ClubName == "Olympique Lyonnais").AppearanceCount, Is.EqualTo(25));
+        Assert.That(remaining.Single(s => s.ClubName == "OL").AppearanceCount, Is.EqualTo(95));
+    }
+
+    [Test]
+    public async Task REQ1203_CleanAsync_ThreeRowGroupWithOnePopulatedAppearanceCountAndOneNull_StillMergesCorrectly()
+    {
+        await SeedClubAsync("Lyon");
+        var playerId = Guid.NewGuid();
+        await SeedStintAsync(playerId, "Lyon", 2000, 2003, null); // Canonical row, unknown count.
+        await SeedStintAsync(playerId, "Olympique Lyonnais", 2000, 2003, 90); // Non-canonical, the one populated value.
+        await SeedStintAsync(playerId, "OL", 2000, 2003, null); // Non-canonical, also unknown.
+
+        var removedCount = await DuplicateCareerStintCleaner.CleanAsync(_dbContext);
+
+        Assert.That(removedCount, Is.EqualTo(2));
+        var remaining = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == playerId).ToListAsync();
+        Assert.That(remaining, Has.Count.EqualTo(1));
+        Assert.That(remaining[0].ClubName, Is.EqualTo("Lyon"));
+        Assert.That(remaining[0].AppearanceCount, Is.EqualTo(90));
+    }
+
+    [Test]
     public async Task REQ1203_CleanAsync_DifferentPlayers_NeverCrossMatched()
     {
         await SeedClubAsync("Lyon");
