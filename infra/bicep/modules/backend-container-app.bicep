@@ -46,6 +46,10 @@ param supabaseServiceRoleKey string
 @description('Shared bearer token authorizing calls to /internal/* endpoints (generate-round.yml, sync-players.yml) — same value as the INTERNAL_JOB_TOKEN GitHub secret.')
 param internalJobToken string
 
+@secure()
+@description('Fine-grained GitHub PAT scoped to Issues:write on this one repo only (REQ-903/ADR-0064/COMP-12) — used by Core.IncidentReporting to create GitHub issues from in-app bug reports, same value as the INCIDENT_REPORT_PAT GitHub secret. Optional/defaults to empty: unlike the Supabase secrets above, this Tier 1 pull-forward has no manual secret guaranteed to be provisioned in every environment yet — an empty value means POST /incidents fails closed per-request (GitHubIssueClient\'s own check), never a deploy failure or app crash.')
+param githubIncidentReportToken string = ''
+
 @description('Frontend origin (scheme + host) allowed by CORS, e.g. https://xg-arcade-dev.azurestaticapps.net. Empty until the Static Web App\'s hostname is known (see "post-deploy secrets" in infra/README.md), which means CORS allows nothing yet — safe default, not a functional requirement until the frontend is deployed.')
 param corsAllowedOrigin string = ''
 
@@ -99,6 +103,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
           name: 'internal-job-token'
           value: internalJobToken
         }
+        {
+          name: 'github-incident-report-token'
+          value: githubIncidentReportToken
+        }
       ]
     }
     template: {
@@ -134,6 +142,10 @@ resource backendApi 'Microsoft.App/containerApps@2026-01-01' = {
             {
               name: 'Internal__JobToken'
               secretRef: 'internal-job-token'
+            }
+            {
+              name: 'GitHub__IncidentReportToken'
+              secretRef: 'github-incident-report-token'
             }
             {
               name: 'Admin__UserIds'

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.62"
+version: "1.65"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -6342,7 +6342,25 @@ notification arrives)
 > hit directly from the app, so the team sees it as a real, actionable
 > GitHub issue without me needing a GitHub account of my own.
 
-**Status: Not started — design only (ADR-0064).**
+**Status: Built, 2026-08-10 (ADR-0064).** `POST /incidents`
+(`XGArcade.Api.Incidents.IncidentEndpoints`), `Core.IncidentReporting`
+(`IGitHubIssueClient`/`GitHubIssueClient`, `IIncidentReportService`/
+`IncidentReportService`) implement every backend acceptance criterion
+below. Frontend entry point: originally a section inside `SettingsScreen.tsx`;
+moved the same day, directly requested, into an app-wide footer button
+(`App.tsx`) opening `IncidentReportDialog.tsx` as a modal — reachable from
+whatever screen a player is actually on, not just Settings. A third,
+same-day pass added structured, mandatory Title/Screen fields (previously
+folded into free-text Description) plus an auto-captured, read-only
+Environment field, so `IncidentReportService` can format every created
+issue into one consistent template rather than however a player happened
+to phrase a single free-text box — see design-document.md's SCREEN-11 for
+the concrete shape and the screenshot-attachment question this raised,
+still deliberately deferred rather than folded into any of these passes.
+See COMP-12's own status note (`architecture-document.md`) for the
+backend's concrete shape, and this REQ's "Verification status" note at
+the end of this section for what's still outstanding before this is
+production-ready.
 
 **Tier framing — pulled forward by deliberate product decision, 2026-08-10,
 same pattern as REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own
@@ -6352,21 +6370,36 @@ Tier 1 section for the matching entry.
 
 - Given a logged-in, non-guest player encounters a problem and opens the
   incident-report entry point
-- When they submit a non-blank description (with a reasonable max length)
+- When they submit a non-blank title, a non-blank description (each with a
+  reasonable max length), and a screen selection (a mandatory dropdown
+  over a fixed set of values, pre-filled from wherever the entry point was
+  opened but changeable) — **updated 2026-08-10, same day as the original
+  build, requested directly**: title and screen were folded into free-text
+  description originally; splitting them into their own mandatory fields
+  is what lets every created issue follow the same shape
 - Then the backend creates a GitHub issue in this repository via a
   server-held credential, labeled for triage (e.g. `user-reported`) —
   never a credential exposed to, or accepted from, the client (ADR-0064)
-- And the issue body includes non-PII triage context (the reporting
-  user's internal `UserId`, the current route/screen if supplied, a
-  timestamp) — never the player's email and never the GitHub token itself
+- And the issue's title is the player's own submitted title, and its body
+  is a fixed, consistently-formatted template built from the submitted
+  fields plus non-PII triage context (the reporting user's internal
+  `UserId`, the selected screen, the environment — the frontend's own
+  origin URL, captured automatically, never typed by the player — and a
+  timestamp), each under its own labeled heading — never the player's
+  email and never the GitHub token itself
 - And on success the player sees a confirmation (the created issue's URL
   is fine to return — it isn't secret)
 
 - Given the caller is a guest account (`IsGuest == true`)
 - Then the request is rejected with `403`, enforced server-side regardless
   of what the client sends — same boundary rule REQ-215 already
-  established for a different write path, and no incident-report entry
-  point is shown to a guest in the UI
+  established for a different write path. **Corrected 2026-08-10** (this
+  criterion originally said "no incident-report entry point is shown to a
+  guest in the UI," which was never actually built that way and directly
+  contradicted REQ-215's own "advertised, not hidden" precedent this REQ
+  otherwise follows): a guest sees the entry point and every field,
+  present but disabled/inert, never hidden — the 403 above is what
+  actually enforces the restriction, the disabled UI is advertising only
 
 - Given the caller has no valid session
 - Then the request is rejected with `401`
@@ -6392,6 +6425,24 @@ limiting), API/Integration (`POST /incidents` auth and status-code
 behavior against a stubbed/mocked GitHub client — tests must never call
 the real GitHub API), Manual (one real end-to-end submission against a
 throwaway/test repo before relying on this in production)
+
+**Verification status (2026-08-10):** Unit (`GitHubIssueClientTests.cs`,
+`IncidentReportServiceTests.cs`) and API (`IncidentEndpointTests.cs`)
+coverage is written, all against a fake/stubbed `IGitHubIssueClient` — none
+of it calls the real GitHub API. **Not yet built/run in this sandbox**
+(`dotnet` SDK unavailable here, same recurring sandbox constraint
+`docs/CHANGELOG.md`'s 2026-08-10 REQ-509 entry already documents) — hand-
+traced against this codebase's existing patterns (`SuggestionEndpoints`/
+`SuggestionEndpointTests`, `SupabaseAuthClient`/`SupabaseAuthClientCaptchaTests`),
+not compiler-verified; confirm with a real `dotnet test` run in CI. The
+`INCIDENT_REPORT_PAT` secret (see `infra/README.md`'s secrets table and
+`SETUP.md` step 6) has now been created (confirmed by the product owner,
+2026-08-10) — until it existed, `POST /incidents` failed closed (a clear
+503, per this REQ's own GitHub-failure acceptance criterion) rather than
+doing nothing or crashing. The one real manual end-to-end submission
+against a throwaway/test repo this REQ's "Test level" calls for is still
+outstanding — do that check before relying on this against the real repo
+in front of real players.
 
 ---
 

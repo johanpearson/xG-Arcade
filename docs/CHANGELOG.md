@@ -13,6 +13,148 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/design-document.md` (v0.69 → v0.70, SCREEN-11 updated),
+  `docs/requirements-document.md` (REQ-903, v1.64 → v1.65 — also corrects a
+  pre-existing acceptance-criteria error, see below),
+  `docs/architecture-document.md` (COMP-12, v0.90 → v0.91) — a third,
+  same-day pass on REQ-903, requested directly: mandatory, structured
+  Title/Screen fields (previously folded into free-text Description) plus
+  an auto-captured, read-only Environment field, so every issue this
+  feature creates follows one consistent template instead of however a
+  player happened to phrase a single free-text box. Backend:
+  `SubmitIncidentReportRequest` gained `Title`/`Screen` (both mandatory,
+  server-re-validated regardless of the client's `<select>`/`<input>`
+  shape — `IncidentEndpoints.TitleMaxLength`/`ScreenMaxLength` at
+  120/50) and `Environment` (optional on the wire, `EnvironmentMaxLength`
+  200); `IncidentReportService.SubmitAsync` now uses the submitted Title
+  verbatim as the created GitHub issue's own title (previously
+  derived/truncated from Description) and builds the body as one fixed
+  markdown template (`## Description` / `## Details`, each of
+  Screen/Environment/internal-UserId/timestamp under its own bolded
+  label, same order every time). Frontend: `IncidentReportDialog.tsx`
+  gained a Title text input and a Screen `<select>` (a fixed option list,
+  `lib/incidentReportCopy.ts`'s new `INCIDENT_REPORT_SCREEN_OPTIONS`,
+  mirroring `App.tsx`'s own `Screen` union as parallel plain strings to
+  avoid a circular import — pre-selected from wherever the dialog was
+  opened, changeable), plus a read-only "Environment: {origin}" line
+  computed from `window.location.origin` — REQ-903's "found in
+  environment... can be set in the background since we know from what
+  url" request, answered literally. Description's placeholder wording
+  changed to prompt reproduction steps and expected-vs-actual, now that
+  Title/Screen carry the summary/location. **Also fixes a pre-existing
+  REQ-903 documentation error found while updating this**: the original
+  acceptance criteria said a guest sees no incident-report entry point in
+  the UI at all — that was never actually built that way (both the
+  original Settings section and the footer relocation built "advertised,
+  disabled" from the start, correctly following REQ-215's own precedent)
+  and directly contradicted REQ-903's own text elsewhere citing that same
+  REQ-215 precedent; the requirements doc's wording was simply wrong and
+  is corrected in place, not a behavior change. `SettingsScreen`/
+  `App.test.tsx`/`IncidentReportDialog.test.tsx` and the backend's
+  `IncidentEndpointTests.cs`/`IncidentReportServiceTests.cs` all updated
+  for the new fields (513 frontend tests passing locally, `tsc -b` and
+  `oxlint` clean; backend hand-traced only, same `dotnet`-unavailable
+  sandbox caveat as every other change in this story — confirm in CI).
+
+- 2026-08-10 — `docs/design-document.md` (v0.68 → v0.69, new SCREEN-11),
+  `docs/requirements-document.md` (REQ-903, v1.63 → v1.64),
+  `docs/architecture-document.md` (COMP-12, v0.89 → v0.90) — moved
+  REQ-903's incident-report entry point, same day as its original build,
+  from a section inside `SettingsScreen.tsx` to an app-wide footer button
+  (`App.tsx`'s `.app__footer-report-link`) opening a new
+  `frontend/src/incidents/IncidentReportDialog.tsx` modal — requested
+  directly, so a player can report a problem from whatever screen they're
+  actually looking at rather than navigating to Settings first. Structural/
+  accessibility pattern taken from `GuestLogoutConfirm.tsx`/
+  `ScoringExplainer.tsx` (`role="dialog"`, Escape/backdrop-click-to-close,
+  focus-in/focus-return). The footer button itself only renders while
+  `accessToken` is set (matches REQ-903's own 401 rule — no entry point at
+  all while signed out); a guest still sees it, disabled, per REQ-215's
+  "advertised, not hidden" precedent, unchanged from the original build.
+  The dialog is opened with `App.tsx`'s current `screen` state passed
+  straight through as REQ-903's `route` field, so triage context now
+  reflects wherever the report was actually filed from instead of always
+  saying "/settings". Added a second, explicitly requested change:
+  `lib/incidentReportCopy.ts` gained `INCIDENT_REPORT_DESCRIPTION_PLACEHOLDER`,
+  concrete example wording shown as the textarea's placeholder, addressing
+  reports that tended to be too vague to act on. **Screenshot/image
+  attachment was requested and explicitly deferred, not built**: GitHub's
+  issue-creation API has no attach-a-file endpoint, so the only two real
+  paths are widening the PAT past ADR-0064's locked-in `Issues: write`
+  scope (to also write repo contents) or adding a new third-party image
+  host (its own ToS check, secret, and privacy-policy disclosure per
+  CLAUDE.md's external-data-source rule) — both are genuine architectural
+  decisions flagged rather than silently picked; the product owner chose
+  to ship the placement/example-copy change now and revisit screenshots as
+  its own story. `SettingsScreen.tsx`/`.test.tsx`/`.css` had the section,
+  its six tests, and its now-unused styles removed entirely (no
+  duplication with the new footer/dialog location); `App.test.tsx` and the
+  new `IncidentReportDialog.test.tsx` cover the relocation (28 + 13 + 4 net
+  new/moved tests). `npm run test` (508/508), `tsc -b`, and `oxlint` all
+  pass locally.
+
+- 2026-08-10 — `docs/decisions/0064-backend-mediated-github-incident-reporting.md`
+  (Status: Proposed → Accepted), `docs/requirements-document.md` (REQ-903,
+  v1.62 → v1.63), `docs/architecture-document.md` (COMP-12, v0.88 → v0.89),
+  `MVP-SCOPE.md` (Tier 1 pull-forward entry marked built),
+  `docs/legal/privacy-policy-draft.md` (v0.9 → v0.10, new "Who we share it
+  with" bullet for GitHub — a report's description and internal account id
+  become a GitHub issue, potentially public, the first feature that posts
+  player-written text to a third party) — implemented
+  REQ-903/ADR-0064: a logged-in, non-guest player can file a bug report
+  from Settings ("Report a problem") that the backend turns into a real
+  GitHub issue in this repo. Backend: `POST /incidents`
+  (`XGArcade.Api.Incidents.IncidentEndpoints`, mirrors REQ-215's
+  `SuggestionEndpoints` resolve-caller/reject-guest shape exactly),
+  `Core.IncidentReporting` (new, `XGArcade.Core` — `IGitHubIssueClient`/
+  `GitHubIssueClient` calling GitHub's REST API with a fine-grained PAT set
+  per-request via `HttpRequestMessage.Headers.Authorization`, never on the
+  shared `HttpClient`'s defaults, same pattern `SupabaseAuthClient
+  .DeleteUserAsync` already established for its own service_role key;
+  `IIncidentReportService`/`IncidentReportService` builds the non-PII
+  triage body). Guests rejected `403` server-side; per-user rate limit
+  (default 3/10min, `RateLimiting:IncidentReportPermitLimit`/
+  `WindowMinutes`) via a plain `PartitionedRateLimiter<Guid>` keyed on the
+  resolved caller's `User.Id`, checked directly in the endpoint rather than
+  as a global named `RateLimiter` policy — the existing `auth-signup`/
+  `auth-login`/`auth-guest` policies are IP-partitioned and evaluated by
+  `UseRateLimiter()` before `UseAuthentication()` runs, the wrong shape for
+  a per-user key that only exists once this endpoint's own caller-lookup
+  has run; see COMP-12's own architecture-document.md entry for the full
+  reasoning. Target repo/label are non-secret `GitHubIncidentReportOptions`
+  resolved from config in `Program.cs`, never accepted from the client.
+  Threaded through `infra/bicep/modules/backend-container-app.bicep` →
+  `infra/bicep/main.bicep` → `.github/workflows/deploy.yml` as
+  `GitHub__IncidentReportToken`, sourced from a new, optional
+  (default-empty) `INCIDENT_REPORT_PAT` shared repo secret
+  (`infra/README.md`, `SETUP.md` step 6) — not yet created in any real
+  environment, so `POST /incidents` currently fails closed (503) rather
+  than reaching GitHub. Frontend: `SettingsScreen.tsx` gained a "Report a
+  problem" section (always rendered, disabled — not hidden — for a guest,
+  mirroring REQ-215's advertised-but-disabled rule), `lib/api.ts`'s
+  `reportIncident`, `lib/incidentReportCopy.ts` for the guest-locked/
+  submitted copy strings. Tests (`GitHubIssueClientTests.cs`,
+  `IncidentReportServiceTests.cs`, `IncidentEndpointTests.cs`) never call
+  the real GitHub API — all against a fake `IGitHubIssueClient`. **Backend
+  caveat: `dotnet` SDK unavailable in this sandbox** — the new backend code
+  and tests were hand-traced against this codebase's existing
+  `SuggestionEndpoints`/`SuggestionEndpointTests` and `SupabaseAuthClient`/
+  `SupabaseAuthClientCaptchaTests` patterns, not actually built or run;
+  confirm in CI. Frontend: `npm run test` (497/497) and `tsc -b` both pass
+  locally. **Naming correction (same day):** originally named
+  `GITHUB_INCIDENT_REPORT_PAT` throughout this session's docs/workflow —
+  GitHub rejects any repo secret name starting with the reserved `GITHUB_`
+  prefix, so it's `INCIDENT_REPORT_PAT` everywhere instead
+  (`.github/workflows/deploy.yml`, `infra/README.md`, `SETUP.md`,
+  `MVP-SCOPE.md`, `TODO.md`, `docs/requirements-document.md`, and
+  `GitHubIssueClient.cs`'s own comments) — the Bicep parameter/env var
+  names (`githubIncidentReportToken`/`GitHub__IncidentReportToken`) are
+  unaffected, since those aren't GitHub secret names. **The secret has now
+  been created** (confirmed by the product owner, 2026-08-10) — REQ-903's
+  required one-time manual end-to-end check against a throwaway/test repo
+  is still outstanding before relying on this in production; see REQ-903's
+  own "Verification status" note.
+
 - 2026-08-10 — new `docs/decisions/0064-backend-mediated-github-incident-reporting.md`,
   `docs/requirements-document.md` (REQ-903), `docs/architecture-document.md`
   (new COMP-12 Core.IncidentReporting), `MVP-SCOPE.md` (Tier 1 pull-forward

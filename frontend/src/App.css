@@ -108,7 +108,10 @@
    frontend/tests/e2e/app-loads.spec.ts still asserts on this element. */
 .app__footer {
   padding: var(--space-2) var(--space-4);
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
   font-size: 11px;
   color: var(--color-text-muted);
 }
@@ -118,4 +121,20 @@
   background: var(--color-surface-sunken);
   border-radius: 4px;
   padding: 2px 6px;
+}
+
+/* REQ-903/ADR-0064: always in the footer once logged in — same understated
+   footer treatment as the health status beside it, not a prominent action,
+   but a real touch target (--touch-target-min) since it's still a genuine
+   interactive control. */
+.app__footer-report-link {
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-2);
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
 }

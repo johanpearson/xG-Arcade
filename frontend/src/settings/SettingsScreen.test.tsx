@@ -491,3 +491,9 @@ describe('SettingsScreen', () => {
     });
   });
 });
+
+// REQ-903/ADR-0064: the incident-report entry point moved out of Settings
+// (2026-08-10, same day as its original build) into a footer-accessible
+// modal (IncidentReportDialog.tsx, App.tsx) reachable from any
+// authenticated screen — see that component's own test file for its
+// coverage. SettingsScreen no longer renders or knows about it at all.

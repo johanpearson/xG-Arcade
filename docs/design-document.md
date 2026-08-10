@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.68"
+version: "0.70"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -2446,6 +2446,124 @@ extension of REQ-213's existing content:
   active, showing Grid-specific content that doesn't describe xG Path's
   rules. Pre-existing, unrelated to this screen, and out of this change's
   scope — noted here as a candidate for a follow-up, not addressed now.
+
+### SCREEN-11: Footer incident-report entry point (REQ-903, ADR-0064)
+
+New for this story — no prior SCREEN entry covered this. Built first
+(2026-08-10) as a section inside SCREEN-08 (Settings); moved the same day,
+directly requested, to the app-wide footer instead, documented here after
+the fact per this doc's own discipline for undocumented gaps found
+mid-build (same situation SCREEN-02b's own top note describes).
+
+**Placement decision.** REQ-903's entry point needs to be usable from
+whatever screen a player is actually looking at when something breaks —
+Settings is the wrong home for that, since reaching it first means
+navigating away from the very screen showing the problem. `App.tsx`'s
+`<footer>` already renders unconditionally beneath `<main>` regardless of
+`screen`, the same element that already shows the health-check status
+(S-002) — the "Report a problem" button lives there, and opens
+`IncidentReportDialog` as a modal over whatever screen is currently
+showing, rather than navigating anywhere.
+
+```
+Footer (every authenticated screen):
+┌───────────────────────────────────────────────┐
+│                    API status: ok  Report a problem │
+└───────────────────────────────────────────────┘
+
+Dialog (opened over whatever screen was showing) — structured-fields
+shape, added the same day as the footer relocation above:
+┌─────────────────────────────┐
+│ Report a problem          × │
+│                               │
+│ Title                         │
+│ ┌───────────────────────────┐│
+│ │ Short summary, e.g. "Grid  ││
+│ │ freezes after guess submit"││
+│ └───────────────────────────┘│
+│                               │
+│ Screen                        │
+│ ┌───────────────────────────┐│
+│ │ xG Grid               ▾   ││  ← defaults to whatever screen was
+│ └───────────────────────────┘│    showing when this was opened
+│                               │
+│ What went wrong?              │
+│ ┌───────────────────────────┐│
+│ │ Steps to reproduce, if you ││
+│ │ can — and what you        ││
+│ │ expected vs. what          ││
+│ │ actually happened…         ││
+│ └───────────────────────────┘│
+│                               │
+│ Environment: https://…        │  ← read-only, not a field
+│                               │
+│         [ Send report ]      │
+└─────────────────────────────┘
+```
+
+- **Component: `IncidentReportDialog.tsx`**, structural/accessibility shell
+  taken from `GuestLogoutConfirm.tsx`/`ScoringExplainer.tsx` (`role="dialog"`,
+  `aria-modal="true"`, backdrop-click-to-close, Escape-to-close, header
+  `×` close button, focus moves in on open and returns to the footer button
+  on close) — no new interaction pattern invented for this screen.
+- **Guest visibility**: present but disabled — every field, including
+  Title/Screen below — same "advertised, not hidden" rule REQ-215's
+  `SuggestionEntry` (SCREEN-02b) already established, not a new decision.
+  Signed-out (no session at all) renders no footer button at all, matching
+  REQ-903's own 401 requirement — there is no meaningful "advertise it,
+  disabled" state for a visitor who isn't authenticated at all.
+- **Structured fields (2026-08-10, same day as the footer relocation,
+  requested directly): Title/Screen are now mandatory, separate fields —
+  a free-text box alone let reports drift into inconsistent shapes with no
+  guaranteed way to tell what screen a problem happened on without reading
+  every word.**
+  - **Title**: a short text input, becomes the created GitHub issue's own
+    title verbatim — so the issue list itself is scannable, not just each
+    issue's body.
+  - **Screen**: a `<select>` dropdown over a fixed, closed list mirroring
+    `App.tsx`'s own `Screen` union (Choose a game / xG Grid / xG Path /
+    Leaderboard / Leagues / Settings / Admin / Admin — Player suggestions),
+    plus "Something else / not sure" for anything not tied to one screen.
+    Pre-selected from wherever the dialog was actually opened (accurate by
+    construction), but the player can change it — the problem might be
+    *about* a different screen than whichever one they happened to be on
+    when they noticed it.
+  - **What went wrong?** (Description): unchanged position/shape, but its
+    job narrows now that Title/Screen are split out — placeholder wording
+    updated to prompt reproduction steps and expected-vs-actual, not a
+    one-line summary (that's Title's job now).
+  - **Environment**: shown as small, muted, read-only text under the
+    form — never an editable field. Computed automatically from
+    `window.location.origin` (the frontend's own deployed URL) the moment
+    the dialog opens — directly answering "found in environment" without
+    asking the player to know or type it, since the app already knows
+    which URL it's being served from.
+  - **Server-side formatting**: `IncidentReportService`
+    (`XGArcade.Core.IncidentReporting`) turns these four fields into one
+    fixed GitHub issue body template (`## Description` / `## Details` with
+    Screen/Environment/internal-user-id/timestamp each under its own
+    bolded label, in the same order every time) — the point of asking for
+    structured fields in the first place: every issue this endpoint
+    creates is shaped the same way regardless of what any individual
+    player wrote, so triage never has to re-parse free text to find the
+    screen or environment.
+- **Screenshots: still explicitly out of scope.** Considered and
+  deliberately deferred (unchanged since the footer-relocation pass) —
+  GitHub's issue-creation API has no attach-a-file endpoint; the two real
+  options are widening the PAT past ADR-0064's locked-in `Issues: write`
+  scope (to write repo contents) or adding a new third-party image host
+  (its own ToS review, secret, and privacy-policy disclosure, per
+  CLAUDE.md's external-data-source rule) — both are decisions to make
+  deliberately later, not something to fold into either of this story's
+  two same-day passes.
+- **Tokens only**: `--color-surface-card`/`--color-border-hairline` for
+  the dialog card, `--color-text-muted` for the footer button, hint/
+  placeholder-adjacent copy, and the read-only Environment line,
+  `--color-accent-red`/`--color-accent-green-text` for error/success
+  text — the exact same palette `SettingsScreen.css`'s claim/display-name
+  forms already used before this moved, no new value introduced by either
+  pass. The Title input and Screen `<select>` reuse the identical
+  bordered-field treatment the Description textarea already had.
 
 ## 4. Responsive strategy
 

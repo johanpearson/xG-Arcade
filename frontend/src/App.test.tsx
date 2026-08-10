@@ -962,3 +962,124 @@ describe('App (REQ-721: URL reflects current screen)', () => {
     expect(window.location.hash).toBe('#/admin/suggestions');
   });
 });
+
+// REQ-903/ADR-0064: the footer's "Report a problem" entry point — moved
+// out of SettingsScreen.tsx (2026-08-10, same day as the original build)
+// so it's reachable from whatever screen a player is actually looking at.
+// IncidentReportDialog.test.tsx covers the dialog's own self-contained
+// behavior in isolation; this describe block covers only App.tsx's own
+// wiring (when the button appears, and that it opens the right dialog with
+// the right route/isGuest values).
+describe('App (REQ-903: footer incident-report entry point)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it('REQ-903: no "Report a problem" button renders while logged out (splash/auth screen)', async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+
+    expect(screen.queryByRole('button', { name: 'Report a problem' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-903: a logged-in (non-guest) account sees the footer button on every screen, and it opens the dialog', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+
+    const reportButton = screen.getByRole('button', { name: 'Report a problem' });
+    await user.click(reportButton);
+
+    expect(await screen.findByRole('dialog', { name: 'Report a problem' })).toBeInTheDocument();
+    expect(screen.queryByTestId('incident-report-guest-locked-copy')).not.toBeInTheDocument();
+  });
+
+  it('REQ-903: a guest account still sees the footer button (advertised, not hidden), and the dialog shows the guest-locked copy', async () => {
+    const guestMeResponse = {
+      id: 'guest-1',
+      email: null,
+      displayName: 'Guest8317',
+      emailConfirmed: false,
+      isAdmin: false,
+      isGuest: true,
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/guest')) return jsonResponse({ accessToken: 'guest-token', refreshToken: 'guest-refresh' });
+      if (url.includes('/auth/me')) return jsonResponse(guestMeResponse);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await goToAuthScreen(user);
+    await user.click(screen.getByRole('button', { name: 'Play as guest' }));
+    await screen.findByText('Playing as Guest8317.');
+
+    await user.click(screen.getByRole('button', { name: 'Report a problem' }));
+
+    expect(await screen.findByTestId('incident-report-guest-locked-copy')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send report' })).toBeDisabled();
+  });
+
+  it('REQ-903: submitting a report defaults the Screen dropdown to whatever screen the button was clicked from, and sends the current origin as environment', async () => {
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/health')) return jsonResponse({ status: 'ok' });
+      if (url.includes('/auth/me')) return jsonResponse(meResponse);
+      if (url.includes('/leagues/global/leaderboard')) return jsonResponse({ rows: [], nextCursor: null });
+      if (url.includes('/incidents') && init?.method === 'POST') {
+        return jsonResponse({ issueUrl: 'https://github.com/johanpearson/xg-arcade/issues/9' });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('Choose a game')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Leaderboard' }));
+    await screen.findByRole('button', { name: 'Report a problem' });
+
+    await user.click(screen.getByRole('button', { name: 'Report a problem' }));
+    expect((screen.getByLabelText('Screen') as HTMLSelectElement).value).toBe('leaderboard');
+    await user.type(screen.getByLabelText('Title'), 'Something broke');
+    await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+    await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/incidents'),
+        expect.objectContaining({
+          body: JSON.stringify({
+            title: 'Something broke',
+            description: 'Something broke.',
+            screen: 'leaderboard',
+            environment: window.location.origin,
+          }),
+        }),
+      ),
+    );
+  });
+});
