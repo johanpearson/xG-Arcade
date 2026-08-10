@@ -13,6 +13,30 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — new `docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md`,
+  `docs/decisions/0059-career-stint-club-name-canonicalization.md`
+  ("For AI agents" section) — quality-gate follow-up on commit `237439c`
+  (REQ-1203/REQ-1207 xG Path clue-reveal bug fixes). `DuplicateCareerStintCleaner`'s
+  widened matching (null-tolerant `AppearanceCount` merge, same-`ClubName`
+  Step 2 pass, in-place survivor mutation) needed the fresh ADR that
+  ADR-0059's own "For AI agents" guardrail required before any widening —
+  ADR-0063 records it and ADR-0059 now points at it. Same round also fixed
+  two real bugs the ADR gap was standing in front of: Step 2 silently
+  failing to collapse two rows sharing an identical, already-populated
+  `AppearanceCount` (only null rows were ever removed); and Step 1's
+  in-place mutation being order-dependent for 3+-row groups sharing a
+  `(PlayerId, StartYear, EndYear)` key (now conservative — an ambiguous
+  3+-row group is left entirely untouched rather than picking a winner via
+  enumeration order). Also corrected `PathCareerStintFilter`'s doc comment,
+  which overclaimed the national-team regex "leaves non-FIFA regional
+  representative sides alone" — it has no FIFA-affiliation signal at all
+  and matches on label wording only; a non-FIFA side labeled as a
+  "national team" is excluded same as any other, pinned down with a new
+  test (`Catalonia national football team`, NOT verified against a live
+  Wikidata query from this sandbox — flagged for manual confirmation). No
+  `dotnet` SDK available in this sandbox; new/changed tests hand-traced,
+  not run. REQ-1203, ADR-0059, ADR-0063.
+
 - 2026-08-09 — `docs/architecture-document.md` (v0.85 → v0.86), new
   `docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md` — a
   production log showed REQ-509/510's admin by-name Wikidata lookup
