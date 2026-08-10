@@ -23,9 +23,7 @@ import {
 } from '../lib/api';
 import type {
   AdminActiveRound,
-  AdminAccountMetrics,
   AdminAnnouncementBanner,
-  AdminXGPathCycleState,
   ClearGuestAccountResult,
   UnverifiedPlayerData,
 } from '../lib/types';
@@ -209,6 +207,86 @@ export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: Adm
   );
 }
 
+interface UseAdminSectionFetchOptions {
+  onAuthError: () => void;
+}
+
+interface UseAdminSectionFetchResult<T> {
+  data: T | null;
+  hidden: boolean;
+  loadError: string | null;
+  refetch: () => Promise<void>;
+}
+
+// Shared fetch/cancel/401/403/thrown-error shape used by every admin-screen
+// section that owns its own independent fetch-on-mount. Originally
+// duplicated four times (PlayerSuggestionsEntry/REQ-512,
+// AnnouncementBannerSection/REQ-511, AccountMetricsSection/REQ-507,
+// XGPathCycleSection/REQ-1209) and flagged as a rule-of-three-plus
+// duplication candidate during REQ-512's quality gate; extracted once a
+// fifth near-identical instance (IncidentReportsEntry/REQ-904) made it
+// concrete. A 401 escalates via onAuthError; a 403 sets `hidden` (the
+// caller decides what to do with that — usually returning null); any other
+// thrown error is captured as `loadError`; unmount-during-fetch is guarded
+// internally so no caller needs its own local `cancelled` flag. `refetch`
+// re-runs fetchFn on demand (e.g. AccountMetricsSection passes it down as
+// GuestClearSection's onCleared) and resolves once the resulting state
+// update has been applied, matching what each caller's own hand-rolled
+// refresh function used to do.
+//
+// Deliberately does NOT own any state that arises from a *successful*
+// response — XGPathCycleSection's `hasData` and IncidentReportsEntry's
+// `available` are both business-level "is there real data yet" distinctions
+// that live inside `data` and are branched on by the caller, never inside
+// this hook. Folding those in would conflate "the fetch itself
+// succeeded/failed" (this hook's whole job) with "what the successful
+// response means" (the caller's job) — see IncidentReportsEntry's own
+// comment for why that distinction matters (REQ-904's `available: false`
+// must never read as a thrown error or as a hidden section).
+function useAdminSectionFetch<T>(
+  fetchFn: () => Promise<T>,
+  { onAuthError }: UseAdminSectionFetchOptions,
+): UseAdminSectionFetchResult<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const runFetch = useCallback(
+    async (isCancelled: () => boolean) => {
+      try {
+        const result = await fetchFn();
+        if (isCancelled()) return;
+        setData(result);
+        setLoadError(null);
+      } catch (err) {
+        if (isCancelled()) return;
+        if (err instanceof ApiError && err.status === 401) {
+          onAuthError();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setHidden(true);
+          return;
+        }
+        setLoadError(describeError(err));
+      }
+    },
+    [fetchFn, onAuthError],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    runFetch(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [runFetch]);
+
+  const refetch = useCallback(() => runFetch(() => false), [runFetch]);
+
+  return { data, hidden, loadError, refetch };
+}
+
 interface PlayerSuggestionsEntryProps {
   accessToken: string;
   onAuthError: () => void;
@@ -217,9 +295,10 @@ interface PlayerSuggestionsEntryProps {
 
 // REQ-512: the "Player suggestions" entry point's pending-count badge.
 // Reuses REQ-509's existing GET /admin/suggestions data (fetchPendingSuggestions)
-// — no new endpoint, no second data source. Own fetch/state, same resilience
-// pattern as AccountMetricsSection/XGPathCycleSection below: a 401 escalates
-// via onAuthError, a 403 leaves the count absent silently (this section never
+// — no new endpoint, no second data source. Uses the shared
+// useAdminSectionFetch hook (same resilience pattern as
+// AccountMetricsSection/XGPathCycleSection below): a 401 escalates via
+// onAuthError, a 403 leaves the count absent silently (this section never
 // erroring or flipping the whole page to access-denied — the button itself
 // still works regardless, since SuggestionsScreen enforces its own access
 // checks), and anything else (500, network failure, parse error, etc.) is
@@ -236,42 +315,15 @@ interface PlayerSuggestionsEntryProps {
 // a colored pill/badge, since design-document.md §2 has no token for one and
 // this avoids introducing an ad-hoc color per CLAUDE.md's token rule.
 function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggestions }: PlayerSuggestionsEntryProps) {
-  const [pendingCount, setPendingCount] = useState<number | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const suggestions = await fetchPendingSuggestions(accessToken);
-        if (cancelled) return;
-        setPendingCount(suggestions.length);
-        setLoadError(null);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        if (err instanceof ApiError && err.status === 403) {
-          // Non-admin: no badge/count is shown — REQ-512 treats a
-          // zero/unknown count identically (badge absence), and this
-          // section never flips the whole page to access-denied.
-          setPendingCount(null);
-          return;
-        }
-        setPendingCount(null);
-        setLoadError(describeError(err));
-      }
-    }
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
+  const fetchFn = useCallback(() => fetchPendingSuggestions(accessToken), [accessToken]);
+  // `hidden` is deliberately unused here — a 403 just leaves `data` null,
+  // the same way any other unfetched state does, and that alone already
+  // produces REQ-512's "no badge/count shown" behavior. Unlike
+  // AccountMetricsSection/XGPathCycleSection below, this section never hides
+  // itself outright — the button must keep rendering regardless of the
+  // fetch's outcome, since SuggestionsScreen enforces its own access checks.
+  const { data, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const pendingCount = data ? data.length : null;
 
   return (
     <section className="admin-screen__section">
@@ -304,72 +356,39 @@ interface IncidentReportsEntryProps {
   onAuthError: () => void;
 }
 
-// REQ-904/ADR-0066 (S-098): own fetch/state, fetch-on-load only (no polling/
-// websocket — REQ-904's own freshness model). Three renderable states, not
-// PlayerSuggestionsEntry's two above, because a GitHub-poll failure
-// (`available: false`) is a real, distinct failure/unknown state — never
-// conflated with "you're not an admin" (403, handled identically to
+// REQ-904/ADR-0066 (S-098): fetch-on-load only (no polling/websocket —
+// REQ-904's own freshness model), using the shared useAdminSectionFetch hook
+// for the transport half (401/403/thrown-error/cancel). Three renderable
+// states, not PlayerSuggestionsEntry's two above, because a GitHub-poll
+// failure (`available: false`) is a real, distinct failure/unknown state —
+// never conflated with "you're not an admin" (403, handled identically to
 // AccountMetricsSection/XGPathCycleSection's own hide-quietly pattern below,
 // since this section — unlike PlayerSuggestionsEntry's button — has no
 // separately-gated destination screen to fall back on) and never conflated
 // with a genuine zero count. A 401 escalates via onAuthError; a 403 hides
 // this section only; a GitHub-poll failure (`available: false` in a normal
 // 200 body, per ADR-0066 — never a thrown error) renders a distinct inline
-// message; any other failure (500, network, parse) also renders inline
-// rather than silently reading as "nothing open", the one failure mode this
-// entry point can't afford per REQ-904's "never a false zero-count" rule.
-// Renders the count next to the heading the same way UnverifiedDataSection's
-// "Unverified data (N)" heading does, except the count itself is omitted
-// entirely at zero (REQ-904/REQ-512's shared "absence, not '0'" convention)
-// rather than always shown.
-type IncidentReportsState =
-  | { phase: 'loading' }
-  | { phase: 'hidden' }
-  | { phase: 'ready'; openCount: number }
-  | { phase: 'unavailable' }
-  | { phase: 'error'; message: string };
-
+// message, branched on locally rather than inside the hook (see
+// useAdminSectionFetch's own doc comment for why); any other failure (500,
+// network, parse) also renders inline rather than silently reading as
+// "nothing open", the one failure mode this entry point can't afford per
+// REQ-904's "never a false zero-count" rule. Renders the count next to the
+// heading the same way UnverifiedDataSection's own "Unverified data (N)"
+// heading does, except the count itself is omitted entirely at zero
+// (REQ-904/REQ-512's shared "absence, not '0'" convention) rather than
+// always shown.
 function IncidentReportsEntry({ accessToken, onAuthError }: IncidentReportsEntryProps) {
-  const [state, setState] = useState<IncidentReportsState>({ phase: 'loading' });
+  const fetchFn = useCallback(() => fetchAdminIncidentReports(accessToken), [accessToken]);
+  const { data, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
 
-  useEffect(() => {
-    let cancelled = false;
+  if (hidden) return null;
 
-    async function load() {
-      try {
-        const result = await fetchAdminIncidentReports(accessToken);
-        if (cancelled) return;
-        if (!result.available) {
-          // ADR-0066: "no successful GitHub poll has ever happened" — never
-          // rendered as openCount: 0.
-          setState({ phase: 'unavailable' });
-          return;
-        }
-        setState({ phase: 'ready', openCount: result.openCount });
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        if (err instanceof ApiError && err.status === 403) {
-          setState({ phase: 'hidden' });
-          return;
-        }
-        setState({ phase: 'error', message: describeError(err) });
-      }
-    }
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
-
-  if (state.phase === 'hidden') return null;
-
-  const openCount = state.phase === 'ready' ? state.openCount : null;
+  // ADR-0066: `available: false` is a business-level state carried inside a
+  // normal 200 response body, not a thrown error, so it's branched on here
+  // rather than inside useAdminSectionFetch (which only owns transport-level
+  // states). Never rendered as openCount: 0.
+  const openCount = data && data.available ? data.openCount : null;
+  const unavailable = data !== null && !data.available;
 
   return (
     <section className="admin-screen__section">
@@ -386,15 +405,15 @@ function IncidentReportsEntry({ accessToken, onAuthError }: IncidentReportsEntry
           View open reports on GitHub
         </a>
       )}
-      {state.phase === 'unavailable' && (
+      {unavailable && (
         <p className="admin-screen__error" role="alert">
           Couldn't check GitHub for open incident reports right now — this doesn't mean there are none, try
           reloading in a minute.
         </p>
       )}
-      {state.phase === 'error' && (
+      {loadError && (
         <p className="admin-screen__error" role="alert">
-          {state.message}
+          {loadError}
         </p>
       )}
     </section>
@@ -406,18 +425,6 @@ interface AnnouncementBannerSectionProps {
   onAuthError: () => void;
 }
 
-// REQ-511: "no banner has ever been created yet" (the GET's own 404) is a
-// distinct state from "a banner exists but is currently inactive" —
-// `loaded`'s nested `banner.isActive` carries that second distinction, so
-// the two are never collapsed the way the public GET /announcement-banner
-// response deliberately does for a visitor.
-type AnnouncementBannerLoadState =
-  | { phase: 'loading' }
-  | { phase: 'none' }
-  | { phase: 'loaded'; banner: AdminAnnouncementBanner }
-  | { phase: 'hidden' }
-  | { phase: 'error'; message: string };
-
 // REQ-511 (SCREEN-04): the admin-only create/edit/activate/deactivate
 // section for the site-wide announcement banner — `App.tsx`'s own
 // `AnnouncementBanner` component is the public, read-only half every
@@ -426,45 +433,44 @@ type AnnouncementBannerLoadState =
 // screen like SuggestionsScreen — a single message field plus two
 // activate/deactivate buttons doesn't warrant its own screen/nav hop the
 // way REQ-509/510's multi-row suggestion review queue does (ADR-0053).
-// Owns its own fetch/state independently of AdminScreen's top-level
-// PageState, same resilience pattern as AccountMetricsSection/
+// Uses the shared useAdminSectionFetch hook for its fetch/cancel/401/403/
+// error handling, same resilience pattern as AccountMetricsSection/
 // XGPathCycleSection: a 401 escalates via onAuthError, a 403 hides this
 // section only, and any other load failure shows inline — never blocking
-// or blocked by any other admin section.
+// or blocked by any other admin section. "No banner has ever been created
+// yet" (the GET's own 404, surfaced as `{ banner: null }` by fetchFn below)
+// is a distinct state from "a banner exists but is currently inactive":
+// `banner?.isActive` carries that second distinction, so the two are never
+// collapsed the way the public GET /announcement-banner response
+// deliberately does for a visitor.
 function AnnouncementBannerSection({ accessToken, onAuthError }: AnnouncementBannerSectionProps) {
-  const [loadState, setLoadState] = useState<AnnouncementBannerLoadState>({ phase: 'loading' });
+  const fetchFn = useCallback(async () => {
+    const banner = await fetchAdminAnnouncementBanner(accessToken);
+    // Wrapped in a container so `data` can distinguish "not loaded yet"
+    // (null) from "loaded, no banner exists yet" (a non-null container
+    // holding a null banner) — useAdminSectionFetch's `data: T | null`
+    // can't otherwise tell those apart when T itself is nullable.
+    return { banner };
+  }, [accessToken]);
+  const { data, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+
+  // Save/activate/deactivate write their response straight into this local
+  // override instead of triggering a second fetch — same no-round-trip
+  // behavior as before this hook extraction. `undefined` means "no mutation
+  // has happened yet, defer to the hook's own fetched value."
+  const [savedBanner, setSavedBanner] = useState<AdminAnnouncementBanner | null | undefined>(undefined);
+  const banner = savedBanner !== undefined ? savedBanner : data ? data.banner : null;
+  const loading = data === null && !hidden && !loadError;
+
   const [messageInput, setMessageInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [togglingActive, setTogglingActive] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const banner = await fetchAdminAnnouncementBanner(accessToken);
-      if (banner === null) {
-        setLoadState({ phase: 'none' });
-        setMessageInput('');
-      } else {
-        setLoadState({ phase: 'loaded', banner });
-        setMessageInput(banner.message);
-      }
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      if (err instanceof ApiError && err.status === 403) {
-        setLoadState({ phase: 'hidden' });
-        return;
-      }
-      setLoadState({ phase: 'error', message: describeError(err) });
-    }
-  }, [accessToken, onAuthError]);
-
   useEffect(() => {
-    load();
-  }, [load]);
+    setMessageInput(banner ? banner.message : '');
+  }, [banner]);
 
   // REQ-511: "a blank/empty message is rejected with a validation error
   // and does not change the stored banner" — the server is the actual
@@ -478,9 +484,8 @@ function AnnouncementBannerSection({ accessToken, onAuthError }: AnnouncementBan
     setSaving(true);
     setSaveError(null);
     try {
-      const banner = await upsertAnnouncementBanner(accessToken, messageInput);
-      setLoadState({ phase: 'loaded', banner });
-      setMessageInput(banner.message);
+      const saved = await upsertAnnouncementBanner(accessToken, messageInput);
+      setSavedBanner(saved);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         onAuthError();
@@ -496,10 +501,10 @@ function AnnouncementBannerSection({ accessToken, onAuthError }: AnnouncementBan
     setTogglingActive(true);
     setToggleError(null);
     try {
-      const banner = nextActive
+      const saved = nextActive
         ? await activateAnnouncementBanner(accessToken)
         : await deactivateAnnouncementBanner(accessToken);
-      setLoadState({ phase: 'loaded', banner });
+      setSavedBanner(saved);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         onAuthError();
@@ -511,22 +516,21 @@ function AnnouncementBannerSection({ accessToken, onAuthError }: AnnouncementBan
     }
   }
 
-  if (loadState.phase === 'hidden') return null;
+  if (hidden) return null;
 
-  const banner = loadState.phase === 'loaded' ? loadState.banner : null;
-  const formDisabled = saving || loadState.phase === 'loading';
+  const formDisabled = saving || loading;
 
   return (
     <section className="admin-screen__section">
       <h3 className="admin-screen__section-title">Site-wide announcement banner</h3>
 
-      {loadState.phase === 'loading' && <p className="admin-screen__empty">Loading…</p>}
-      {loadState.phase === 'error' && (
+      {loading && <p className="admin-screen__empty">Loading…</p>}
+      {loadError && (
         <p className="admin-screen__error" role="alert">
-          {loadState.message}
+          {loadError}
         </p>
       )}
-      {loadState.phase === 'none' && (
+      {!loading && !loadError && banner === null && (
         <p className="admin-screen__empty">No banner has been created yet — write one below.</p>
       )}
       {banner && (
@@ -1154,41 +1158,19 @@ interface AccountMetricsSectionProps {
 // AdminScreen (see the render-site comment above) — never gated by the
 // Non-Production-only activeRound probe RoundControlSection/
 // UserDeletionSection share, since both REQs are explicitly Production-
-// visible. Owns its own fetch/error state independently of AdminScreen's
-// top-level PageState: a 401 here escalates via onAuthError like every other
-// admin action in this file, but a 403 only hides this section (`hidden`)
-// rather than flipping the whole page to access-denied — REQ-501/502/503's
-// unverified-data fetch already owns that page-level decision, and in
-// practice a 403 here for a genuinely non-admin caller can't happen without
-// the unverified-data fetch (same "Admin" policy) having already 403'd and
-// flipped the page first. Handled defensively anyway, per the explicit
-// instruction not to rely on that ordering.
+// visible. Uses the shared useAdminSectionFetch hook for its fetch/error
+// state, independently of AdminScreen's top-level PageState: a 401 here
+// escalates via onAuthError like every other admin action in this file, but
+// a 403 only hides this section (`hidden`) rather than flipping the whole
+// page to access-denied — REQ-501/502/503's unverified-data fetch already
+// owns that page-level decision, and in practice a 403 here for a genuinely
+// non-admin caller can't happen without the unverified-data fetch (same
+// "Admin" policy) having already 403'd and flipped the page first. Handled
+// defensively anyway, per the explicit instruction not to rely on that
+// ordering.
 function AccountMetricsSection({ accessToken, onAuthError }: AccountMetricsSectionProps) {
-  const [metrics, setMetrics] = useState<AdminAccountMetrics | null>(null);
-  const [hidden, setHidden] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const refreshMetrics = useCallback(async () => {
-    try {
-      const result = await fetchAdminAccountMetrics(accessToken);
-      setMetrics(result);
-      setLoadError(null);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      if (err instanceof ApiError && err.status === 403) {
-        setHidden(true);
-        return;
-      }
-      setLoadError(describeError(err));
-    }
-  }, [accessToken, onAuthError]);
-
-  useEffect(() => {
-    refreshMetrics();
-  }, [refreshMetrics]);
+  const fetchFn = useCallback(() => fetchAdminAccountMetrics(accessToken), [accessToken]);
+  const { data: metrics, hidden, loadError, refetch } = useAdminSectionFetch(fetchFn, { onAuthError });
 
   if (hidden) return null;
 
@@ -1221,7 +1203,7 @@ function AccountMetricsSection({ accessToken, onAuthError }: AccountMetricsSecti
         )}
       </section>
 
-      <GuestClearSection accessToken={accessToken} onAuthError={onAuthError} onCleared={refreshMetrics} />
+      <GuestClearSection accessToken={accessToken} onAuthError={onAuthError} onCleared={refetch} />
     </>
   );
 }
@@ -1390,46 +1372,16 @@ interface XGPathCycleSectionProps {
 
 // REQ-1209/ADR-0058: read-only visibility into xG Path's REQ-1208
 // target-selection cycle state, mirroring AccountMetricsSection's shape
-// exactly (its own fetch/state, independent of AdminScreen's top-level
-// PageState) — a 401 escalates via onAuthError like every other admin
-// action in this file, a 403 only hides this section, and any other error
-// shows inline rather than failing the whole page. Rendered unconditionally
-// by AdminScreen (see the render-site comment there), so its fetch/render
-// never blocks, and is never blocked by, any other admin section's state.
+// exactly (both built on the shared useAdminSectionFetch hook, independent
+// of AdminScreen's top-level PageState) — a 401 escalates via onAuthError
+// like every other admin action in this file, a 403 only hides this
+// section, and any other error shows inline rather than failing the whole
+// page. Rendered unconditionally by AdminScreen (see the render-site
+// comment there), so its fetch/render never blocks, and is never blocked
+// by, any other admin section's state.
 function XGPathCycleSection({ accessToken, onAuthError }: XGPathCycleSectionProps) {
-  const [cycleState, setCycleState] = useState<AdminXGPathCycleState | null>(null);
-  const [hidden, setHidden] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const result = await fetchAdminXGPathCycle(accessToken);
-        if (cancelled) return;
-        setCycleState(result);
-        setLoadError(null);
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        if (err instanceof ApiError && err.status === 403) {
-          setHidden(true);
-          return;
-        }
-        setLoadError(describeError(err));
-      }
-    }
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
+  const fetchFn = useCallback(() => fetchAdminXGPathCycle(accessToken), [accessToken]);
+  const { data: cycleState, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
 
   if (hidden) return null;
 
