@@ -13,6 +13,22 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — no docs changed beyond this entry — S-100 (`docs/backlog.md`
+  Epic 7): `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`'s three
+  non-trophy intersection pairs (`QueryCountryClubIntersectionAsync`,
+  `QueryNationalTeamClubIntersectionAsync`, `QueryClubClubIntersectionAsync`)
+  now go through a `(CategoryType, CategoryType)`-keyed spec table
+  (`CategoryType.cs`, `IntersectionQuerySpec.cs`, `IntersectionQuerySpecs.cs`,
+  new files) and a shared `QueryIntersectionAsync` driver that centralizes
+  the `WikidataQid.IsValid` guard previously duplicated per method. Public
+  method signatures/behavior unchanged (thin wrappers); the remaining six
+  trophy-involving pairs are untouched pending S-101. Pure refactor, no new
+  REQ IDs, no component boundary crossed (still entirely inside
+  `XGArcade.DataSync`) — no ADR, following the same reasoning as the
+  `useAdminSectionFetch` entry below. Regression proof: three new
+  byte-for-byte SPARQL-string assertions in `WikidataClientTests.cs`
+  (`REQ100_Query*IntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput`),
+  full existing suite otherwise unchanged.
 - 2026-08-10 — `docs/backlog.md` (new Epic 7: S-099 through S-105) — added
   a technical-debt-remediation epic from `CODEBASE_ANALYSIS.md`'s findings
   (WikidataClient.cs duplication/size, Program.cs composition-root sprawl,
