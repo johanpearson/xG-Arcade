@@ -1346,6 +1346,41 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyCountryIntersectionAsync(TrophyQid, "France"));
     }
 
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TrophyCountry — see that test's own
+    // comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTrophyCountryIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyCountryIntersectionAsync(TrophyQid, CountryQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P166 wd:Q166177.
+              ?player wdt:P27 wd:Q142.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
     [Test]
     public async Task QueryTrophyClubIntersectionAsync_GroupsMultipleAliasRowsUnderOnePlayer()
     {
@@ -1439,6 +1474,43 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyClubIntersectionAsync(TrophyQid, "Arsenal"));
     }
 
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TrophyClub — see that test's own
+    // comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTrophyClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyClubIntersectionAsync(TrophyQid, ClubQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P166 wd:Q166177.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:Q9617.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
     // ---- QueryTeamTrophyCountryIntersectionAsync / QueryTeamTrophyNationalTeamIntersectionAsync /
     // QueryTeamTrophyClubIntersectionAsync / QueryTrophyNationalTeamIntersectionAsync (ADR-0061) ----
     // Same RunIntersectionQueryAsync/ParseBindings code path as every query
@@ -1506,6 +1578,44 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, "France"));
     }
 
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TeamTrophyCountry — see that test's
+    // own comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTeamTrophyCountryIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyCountryIntersectionAsync(TeamTrophyQid, CountryQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P27 wd:Q142.
+              ?player wdt:P1344 ?edition.
+              ?edition wdt:P3450 wd:Q19317.
+              ?edition wdt:P1346 ?winner.
+              ?winner wdt:P1532 wd:Q142.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
     [Test]
     public async Task REQ108_QueryTeamTrophyNationalTeamIntersectionAsync_SentQuery_UsesP1532OnBothPlayerAndWinnerSide()
     {
@@ -1549,6 +1659,44 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyNationalTeamIntersectionAsync(TeamTrophyQid, "England"));
+    }
+
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TeamTrophyNationalTeam — see that
+    // test's own comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTeamTrophyNationalTeamIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyNationalTeamIntersectionAsync(TeamTrophyQid, NationalTeamQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P1532 wd:Q21.
+              ?player wdt:P1344 ?edition.
+              ?edition wdt:P3450 wd:Q19317.
+              ?edition wdt:P1346 ?winner.
+              ?winner wdt:P1532 wd:Q21.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
     }
 
     [Test]
@@ -1599,6 +1747,45 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTeamTrophyClubIntersectionAsync(TeamTrophyQid, "Arsenal"));
     }
 
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TeamTrophyClub — see that test's own
+    // comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTeamTrophyClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTeamTrophyClubIntersectionAsync(TeamTrophyQid, ClubQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 wd:Q9617.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              ?player wdt:P1344 ?edition.
+              ?edition wdt:P3450 wd:Q19317.
+              ?edition wdt:P1346 wd:Q9617.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
     // Judgment call (see IWikidataClient.QueryTrophyNationalTeamIntersectionAsync's
     // own doc comment) — the individual-award P166 counterpart of
     // QueryTeamTrophyNationalTeamIntersectionAsync, needed to fully close
@@ -1645,6 +1832,41 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryTrophyNationalTeamIntersectionAsync(TrophyQid, "England"));
+    }
+
+    // S-101 (docs/backlog.md): same regression proof as
+    // REQ100_QueryCountryClubIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput
+    // above, for IntersectionQuerySpecs.TrophyNationalTeam — see that test's
+    // own comment for what this guards against.
+    [Test]
+    public async Task REQ100_QueryTrophyNationalTeamIntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryTrophyNationalTeamIntersectionAsync(TrophyQid, NationalTeamQid);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?alias ?photo ?positionLabel ?dateOfBirth ?startTime ?endTime ?numberOfMatches WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P166 wd:Q166177.
+              ?player wdt:P1532 wd:Q21.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              OPTIONAL {
+                ?player skos:altLabel ?alias.
+                FILTER(LANG(?alias) = "en")
+              }
+              OPTIONAL { ?player wdt:P18 ?photo. }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
     }
 
     // ---- REQ-1207/S-082: P413 ("position") OPTIONAL binding + BirthYear ---

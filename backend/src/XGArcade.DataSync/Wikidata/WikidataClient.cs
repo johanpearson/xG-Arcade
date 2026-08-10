@@ -203,95 +203,65 @@ public class WikidataClient(
         WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         await QueryIntersectionAsync(CategoryType.Club, CategoryType.Club, clubAWikidataQid, clubBWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(countryWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.Trophy, CategoryType.Country, trophyWikidataQid, countryWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
-        var query = BuildTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
-
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(clubWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
-
-        var query = BuildTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.Trophy, CategoryType.Club, trophyWikidataQid, clubWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     // ADR-0061: team-competition trophy x country, player-side P27.
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(countryWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
-
-        var query = BuildTeamTrophyCountryIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("team-trophy-country", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.TeamTrophy, CategoryType.Country, trophyWikidataQid, countryWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     // ADR-0061: team-competition trophy x country, player-side P1532 (home
     // nations) — the ADR-0035 counterpart of QueryTeamTrophyCountryIntersectionAsync
     // above.
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyNationalTeamIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(countryWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
-
-        var query = BuildTeamTrophyNationalTeamIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("team-trophy-national-team", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.TeamTrophy, CategoryType.NationalTeam, trophyWikidataQid, countryWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     // ADR-0061: team-competition trophy x club.
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyClubIntersectionAsync(
         string trophyWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(clubWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
-
-        var query = BuildTeamTrophyClubIntersectionQuery(trophyWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("team-trophy-club", trophyWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.TeamTrophy, CategoryType.Club, trophyWikidataQid, clubWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     // Judgment call (see IWikidataClient's own doc comment on this method for
     // the full reasoning): the individual-award P166 counterpart of
@@ -299,36 +269,24 @@ public class WikidataClient(
     // needed to fully close ADR-0035's follow-up note (which was about
     // LookupAndPersistTrophyCountryAsync "in general," not just the
     // team-trophy branch ADR-0061 itself adds).
+    // S-101: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyNationalTeamIntersectionAsync(
         string trophyWikidataQid,
         string countryWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(trophyWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{trophyWikidataQid}'", nameof(trophyWikidataQid));
-        if (!WikidataQid.IsValid(countryWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.Trophy, CategoryType.NationalTeam, trophyWikidataQid, countryWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
-        var query = BuildTrophyNationalTeamIntersectionQuery(trophyWikidataQid, countryWikidataQid);
-        return await RunIntersectionQueryAsync("trophy-national-team", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
-
-    // S-100 (docs/backlog.md): the shared driver every spec-table-migrated
+    // S-100/S-101 (docs/backlog.md): the shared driver every
     // Query*IntersectionAsync wrapper calls into — looks its spec up in
     // IntersectionQuerySpecs.ByCategoryPair by (typeA, typeB), the same
     // (CategoryType, CategoryType) key the spec table is built around, then
     // centralizes the WikidataQid.IsValid guard that used to be duplicated
-    // per method (nine near-identical copies before this) — a spec-table
-    // entry can no longer skip it for a new pair the way a copy-pasted
-    // method could. Only the 3 non-trophy pairs (country-club,
-    // national-team-club, club-club) go through this driver so far; the
-    // remaining six trophy-involving Query*IntersectionAsync methods below
-    // still call their own Build*Query method and RunIntersectionQueryAsync
-    // directly, unchanged (S-101 migrates those onto this same driver, at
-    // which point ByCategoryPair gains their six entries too).
+    // per method (nine near-identical copies before S-100). All 9 pairs go
+    // through this driver as of S-101.
     //
     // The guard's ArgumentException.ParamName is now the generic "qidA"/
     // "qidB" rather than each wrapper's own parameter name (e.g.
@@ -556,136 +514,17 @@ public class WikidataClient(
         }
         """;
 
-    // S-100 (docs/backlog.md): BuildCountryClubIntersectionQuery,
-    // BuildNationalTeamClubIntersectionQuery, and BuildClubClubIntersectionQuery
-    // used to live here as private static methods — moved, unchanged, to
-    // IntersectionQuerySpecs.cs as the BuildCandidateClauses delegates for
-    // IntersectionQuerySpecs.CountryClub/NationalTeamClub/ClubClub. Their own
-    // rationale comments (P54's full-statement-path vs. wdt:P54 shortcut,
-    // P1532 vs. P27, the ADR-0052 FILTER EXISTS fix) moved with them — see
-    // that file, not here, for those three. The other Build*Query methods
-    // below are unmigrated (S-101) and still called directly by their own
-    // Query*IntersectionAsync method above.
-
-    // S-031/REQ-108: P166 ("award received") — deliberately uses the truthy
-    // wdt:P166 shortcut, unlike P54 above. This is a real judgment call, not
-    // a reflexive "truthy is simpler": P54's truthy shortcut is unsafe
-    // specifically because Wikidata editors routinely mark a player's
-    // *current* club statement preferred rank, which silently drops every
-    // normal-rank historical club from the best-rank-only wdt: graph (see
-    // BuildCountryClubIntersectionQuery's own comment for the Sandro Tonali
-    // incident this pins down). A repeatable individual award like Ballon
-    // d'Or has no equivalent editorial convention — there's no "this win
-    // supersedes that win" preferred-rank practice on P166 statements the
-    // way there is for "this is my current club" on P54 — so best-rank
-    // semantics and "received this award at all" coincide here, and truthy
-    // is safe. If a future trophy turns out to have its own rank quirk,
-    // this reasoning (and the truthy shortcut) needs re-checking per-trophy,
-    // not assumed to hold universally just because it holds for Ballon d'Or.
-    private static string BuildTrophyCountryIntersectionQuery(string trophyQid, string countryQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P166 wd:{{trophyQid}}.
-              ?player wdt:P27 wd:{{countryQid}}.
-            """);
-
-    // S-031/REQ-108: P166 (truthy, see BuildTrophyCountryIntersectionQuery's
-    // comment) + P54 (full statement path, excluding only deprecated rank —
-    // the same non-negotiable "ever played for," not "currently plays for,"
-    // reasoning as every other P54 use in this file). Do not "simplify" the
-    // P54 half to wdt:P54.
-    private static string BuildTrophyClubIntersectionQuery(string trophyQid, string clubQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P166 wd:{{trophyQid}}.
-              ?player p:P54 ?clubStatement.
-              ?clubStatement ps:P54 wd:{{clubQid}}.
-              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
-            """);
-
-    // ADR-0061: team-competition trophies have no P166-equivalent player
-    // statement — see IWikidataClient.QueryTeamTrophyCountryIntersectionAsync's
-    // own doc comment for the full "why a three-hop join" reasoning. P1344
-    // ("participant of"), P3450 ("sports season of league or competition"),
-    // and P1346 ("winner") all stay truthy (wdt:) — none of the three has a
-    // documented "current vs. historical" rank-hiding convention the way P54
-    // does (BuildCountryClubIntersectionQuery's own comment), and a specific
-    // tournament edition is a one-time historical fact, not something with a
-    // "current" value at all, so best-rank and "participated in/won this
-    // edition at all" coincide, the same reasoning
-    // BuildTrophyCountryIntersectionQuery's own comment gives for P166.
-    //
-    // The winner-side join is ALWAYS P1532 ("country for sport"), regardless
-    // of which property identifies the PLAYER's side of the match (P27 here,
-    // P1532 in BuildTeamTrophyNationalTeamIntersectionQuery below) — a
-    // P1346 winner value for the World Cup is a national-team item (e.g.
-    // "Brazil national football team"), never the country item itself, so a
-    // direct QID match against the country would silently return zero
-    // results rather than erroring. See ADR-0061's "Alternatives considered"
-    // table for why this isn't simplified to a direct country match.
-    private static string BuildTeamTrophyCountryIntersectionQuery(string trophyQid, string countryQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P27 wd:{{countryQid}}.
-              ?player wdt:P1344 ?edition.
-              ?edition wdt:P3450 wd:{{trophyQid}}.
-              ?edition wdt:P1346 ?winner.
-              ?winner wdt:P1532 wd:{{countryQid}}.
-            """);
-
-    // ADR-0061/ADR-0035: the P1532 player-side counterpart of
-    // BuildTeamTrophyCountryIntersectionQuery above, for England/Scotland/
-    // Wales/Northern Ireland — same reasoning
-    // BuildNationalTeamClubIntersectionQuery's own comment gives for why
-    // truthy wdt:P1532 is safe on the player side. The winner-side join
-    // stays P1532 either way (see BuildTeamTrophyCountryIntersectionQuery's
-    // own comment) — this builder only changes which property identifies
-    // the PLAYER's side of the match, never the winner side.
-    private static string BuildTeamTrophyNationalTeamIntersectionQuery(string trophyQid, string countryQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P1532 wd:{{countryQid}}.
-              ?player wdt:P1344 ?edition.
-              ?edition wdt:P3450 wd:{{trophyQid}}.
-              ?edition wdt:P1346 ?winner.
-              ?winner wdt:P1532 wd:{{countryQid}}.
-            """);
-
-    // ADR-0061: team-competition trophy x club. Deliberately keeps the P54
-    // club-membership clause (full statement path, same non-negotiable
-    // "ever played for," not "currently plays for," reasoning as every
-    // other P54 use in this file) ALONGSIDE the P1344/P3450/P1346
-    // edition-winner join, not instead of it — P1344 alone ("participated
-    // in this edition") is true for every player on every club that reached
-    // that edition, not just the winning squad; requiring club membership
-    // too narrows this back down to "played for the specific club that won
-    // it." A best-effort narrowing, not a guarantee — see ADR-0061's
-    // Consequences section for the known residual gap (no season/date
-    // qualifier matching between P54 and the edition's own year). The
-    // trophy's edition winner is matched directly against the club QID — a
-    // club competition's winner item IS the club item, no P1532-style
-    // indirection needed here (unlike the two country variants above).
-    private static string BuildTeamTrophyClubIntersectionQuery(string trophyQid, string clubQid) =>
-        BuildIntersectionQuery($$"""
-              ?player p:P54 ?clubStatement.
-              ?clubStatement ps:P54 wd:{{clubQid}}.
-              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
-              ?player wdt:P1344 ?edition.
-              ?edition wdt:P3450 wd:{{trophyQid}}.
-              ?edition wdt:P1346 wd:{{clubQid}}.
-            """);
-
-    // Judgment call, not part of ADR-0061's own three-builder list — the
-    // individual-award P166 counterpart of
-    // BuildTeamTrophyNationalTeamIntersectionQuery, needed to fully close
-    // ADR-0035's follow-up note for the EXISTING S-031 P166 path (see
-    // IWikidataClient.QueryTrophyNationalTeamIntersectionAsync's own doc
-    // comment). P166 stays truthy for the same reason
-    // BuildTrophyCountryIntersectionQuery's own comment gives; P1532 stays
-    // truthy for the same reason BuildNationalTeamClubIntersectionQuery's
-    // own comment gives. No P54/edition-join clauses at all — this is the
-    // individual-award shape, not the team-competition one.
-    private static string BuildTrophyNationalTeamIntersectionQuery(string trophyQid, string countryQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P166 wd:{{trophyQid}}.
-              ?player wdt:P1532 wd:{{countryQid}}.
-            """);
+    // S-100/S-101 (docs/backlog.md): every Build*Query candidate-clause
+    // method used to live here as a private static method — all 9 are now
+    // moved, unchanged, to IntersectionQuerySpecs.cs as the
+    // BuildCandidateClauses delegates for IntersectionQuerySpecs' 9 spec
+    // entries (CountryClub/NationalTeamClub/ClubClub from S-100;
+    // TrophyCountry/TrophyClub/TeamTrophyCountry/TeamTrophyNationalTeam/
+    // TeamTrophyClub/TrophyNationalTeam from S-101). Their own rationale
+    // comments (P54's full-statement-path vs. wdt:P54 shortcut, P1532 vs.
+    // P27, the ADR-0052 FILTER EXISTS fix, P166's truthy shortcut, the
+    // P1344/P3450/P1346 edition-winner join) moved with them — see that
+    // file, not here, for all 9.
 
     public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear, CancellationToken cancellationToken = default)
