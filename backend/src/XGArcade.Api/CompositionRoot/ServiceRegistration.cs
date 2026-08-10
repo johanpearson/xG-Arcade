@@ -1,0 +1,264 @@
+using System.Threading.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using XGArcade.Core.Auth;
+using XGArcade.Core.Games;
+using XGArcade.Core.IncidentReporting;
+using XGArcade.Core.Leagues;
+using XGArcade.Core.Rounds;
+using XGArcade.Core.Scoring;
+using XGArcade.Data;
+using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
+using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
+
+namespace XGArcade.Api.CompositionRoot;
+
+// The DI container wiring for every domain service/repository the API
+// depends on — database, Core (users/leagues/rounds/scoring), the game
+// modules, Wikidata sync, and incident reporting. Extracted out of
+// Program.cs (S-102) as a pure reorganization, no behavior change. CORS/rate
+// limiting and Supabase/JWT auth have their own group — see AuthSetup.cs.
+public static class ServiceRegistration
+{
+    public static void AddApplicationServices(this WebApplicationBuilder builder)
+    {
+        var databaseConnectionString = builder.Configuration.GetConnectionString("Database")
+            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+        builder.Services.AddDbContext<XGArcadeDbContext>(options =>
+            options.UseNpgsql(databaseConnectionString));
+
+        // COMP-06 (Data.PlayerStore) — the only path to category/player data;
+        // see architecture-document.md boundary rule 1.
+        builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
+        builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
+
+        // COMP-10 (Data.PlayerNameIndex) — REQ-207's autocomplete-only data source,
+        // deliberately a separate repository/interface from IPlayerStoreRepository
+        // above (never merged — see ADR-0007 and architecture-document.md boundary
+        // rule 5).
+        builder.Services.AddScoped<IPlayerNameIndexRepository, PlayerNameIndexRepository>();
+
+        // COMP-01 (Core.Users) — the only path to the local User profile table.
+        builder.Services.AddScoped<IUserRepository, UserRepository>();
+        // REQ-710: reusable anonymize/delete logic — AuthController's self-service
+        // DeleteAccount endpoint and (per docs/backlog.md S-026) a future
+        // admin-triggered endpoint both call this, never a second implementation.
+        builder.Services.AddScoped<IAccountDeletionService, AccountDeletionService>();
+
+        // COMP-02 (Core.Leagues) — S-011's REQ-401 (global league auto-membership)
+        // and the global-leaderboard read path. REQ-406/407/408 (S-053/S-054)
+        // extended ILeaderboardService to also depend on IRoundRepository (COMP-03)
+        // and ILiveRoundContributionService (COMP-04, registered below) — DI
+        // resolves the dependency graph regardless of registration order.
+        builder.Services.AddScoped<ILeagueRepository, LeagueRepository>();
+        builder.Services.AddScoped<ILeaderboardService, LeaderboardService>();
+        // REQ-402/403: custom league create/join — a stateless RNG-based generator
+        // (AddSingleton is fine, same as TimeProvider.System below) plus the
+        // scoped service that owns the collision-retry/membership logic around it.
+        builder.Services.AddSingleton<IInviteCodeGenerator, InviteCodeGenerator>();
+        builder.Services.AddScoped<ILeagueService, LeagueService>();
+
+        // COMP-07 (DataSync.Clients), Tier 0 half: SPARQL against Wikidata Query
+        // Service, per implementation-document.md §6a. No API-Football fallback
+        // client yet — that's Tier 1 (ADR-0011). WikidataHttpClientConfiguration is
+        // the single source of truth for BaseAddress/User-Agent — also used by the
+        // CLI verbs in CliVerbDispatcher.cs, which can't go through this DI
+        // registration since they run before WebApplication.CreateBuilder ever
+        // runs. Keeping this in one place means the two can't silently drift.
+        builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(WikidataHttpClientConfiguration.Configure);
+        builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
+
+        // COMP-05 (Games.XGGrid) — S-007's grid generation. GridSize now lives here
+        // (S-084/REQ-1202 follow-up), not on Core.Rounds' RoundSchedulingOptions —
+        // see that type's own doc comment for why.
+        builder.Services.AddSingleton(new GridGenerationOptions { GridSize = 3 });
+        builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
+        builder.Services.AddScoped<IGameModule, GridGameModule>();
+        // COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202),
+        // S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
+        // endpoint (REQ-1203, GET /path/current). Registered here so
+        // IGameModuleResolver.Resolve("xg-path") returns a real module, same as xG
+        // Grid above. S-084 adds the RoundSchedulingOptions registration below (a
+        // second instance, keyed by GameKey via IRoundSchedulingOptionsResolver) so
+        // "xg-path" rounds are now actually generated on a schedule, same as
+        // "xg-grid"'s.
+        builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
+        // ADR-0054: XGPathGameModule.GenerateInstanceAsync's own direct Wikidata
+        // career fetch — a Games.XGPath-only dependency, registered here rather than
+        // alongside IWikidataLookupService above since it's XGPathGameModule's own
+        // concern, not a general-purpose lookup service other callers share.
+        builder.Services.AddScoped<IPlayerCareerStintRefreshService, PlayerCareerStintRefreshService>();
+        // ADR-0056: xG Path's familiarity filter (REQ-1201's target-player
+        // eligibility, "would a casual player recognize this name" half) — same
+        // Games.XGPath-only, registered-alongside-its-sibling-service reasoning as
+        // IPlayerCareerStintRefreshService immediately above.
+        builder.Services.AddScoped<IPlayerFamiliarityService, PlayerFamiliarityService>();
+        builder.Services.AddScoped<IGameModule, XGPathGameModule>();
+        // S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
+        // GridGenerationOptions' role/precedent above for xG Path's own generation
+        // config (deliberately not a field on RoundSchedulingOptions; see that
+        // type's own doc comment).
+        builder.Services.AddSingleton(new PathGenerationOptions());
+        builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
+        // ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
+        // Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
+        // (the composition root), never hardcoded inside XGArcade.Core — same
+        // boundary reason as RoundSchedulingOptions.GameKey below (ADR-0003).
+        builder.Services.AddScoped<IScoringStrategy>(_ => new UniquenessScoringStrategy
+        {
+            GameKey = GridGameModule.XGGridGameKey,
+        });
+        // S-083/REQ-1206/ADR-0040 follow-up: xG Path's clue-efficiency formula,
+        // registered against "xg-path" the same way UniquenessScoringStrategy is
+        // registered against "xg-grid" above — GameKey supplied here, never
+        // hardcoded inside XGArcade.Core (ADR-0003).
+        builder.Services.AddScoped<IScoringStrategy>(_ => new ClueEfficiencyScoringStrategy
+        {
+            GameKey = XGPathGameModule.XGPathGameKey,
+        });
+        builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
+
+        // COMP-03 (Core.Rounds) — S-008's round generation/scheduling (REQ-301) and
+        // round-close (EndTime pull-forward). RoundCloseService's REQ-205 score
+        // locking is delegated to Core.Scoring's IScoreLockingService, registered
+        // below — DI resolves the dependency graph regardless of registration
+        // order, so the forward reference here is fine.
+        builder.Services.AddSingleton(TimeProvider.System);
+        // RoundDuration's default is now appsettings-bound (same pattern as
+        // Internal:JobToken below) rather than hardcoded — REQ-301's "play
+        // frequency can be adjusted without a code change": change
+        // RoundScheduling:RoundDurationHours (or the deployed Container App's
+        // RoundScheduling__RoundDurationHours env var) instead of editing this
+        // file. generate-round.yml's cron is daily and, thanks to
+        // RoundGenerationService's own idempotency check, only actually generates a
+        // new round roughly every RoundDuration — it no longer needs hand-matching
+        // against this value the way the old Tue/Fri cadence did. See
+        // RoundSchedulingOptions' own doc comment and NOTES.md for the full
+        // derivation.
+        var roundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:RoundDurationHours") ?? 48;
+        builder.Services.AddSingleton(new RoundSchedulingOptions
+        {
+            GameKey = GridGameModule.XGGridGameKey,
+            RoundDuration = TimeSpan.FromHours(roundDurationHours),
+        });
+        // S-084/REQ-1202: xG Path's own RoundSchedulingOptions instance, resolved
+        // independently of xG Grid's via IRoundSchedulingOptionsResolver
+        // (registered below) — a distinct config key
+        // (RoundScheduling:XGPath:RoundDurationHours) so a lasting change to one
+        // game's RoundDuration never affects the other's. Existing
+        // RoundScheduling:RoundDurationHours (xG Grid's) is left untouched for
+        // back-compat with any already-deployed Container App env var. Default is
+        // also 48h — no product reason yet for xG Path to run on a different
+        // cadence than xG Grid; change independently via this key (or the
+        // deployed Container App's RoundScheduling__XGPath__RoundDurationHours env
+        // var) if that changes.
+        var xgPathRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGPath:RoundDurationHours") ?? 48;
+        builder.Services.AddSingleton(new RoundSchedulingOptions
+        {
+            GameKey = XGPathGameModule.XGPathGameKey,
+            RoundDuration = TimeSpan.FromHours(xgPathRoundDurationHours),
+        });
+        builder.Services.AddScoped<IRoundSchedulingOptionsResolver, RoundSchedulingOptionsResolver>();
+        builder.Services.AddScoped<IRoundRepository, RoundRepository>();
+        builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
+        builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
+
+        // COMP-04 (Core.Scoring) — S-009's guess submission (REQ-201/202/203/208/210)
+        // and S-011's score locking (REQ-205, IScoreLockingService — Core.Rounds'
+        // RoundCloseService calls this rather than computing scores itself).
+        builder.Services.AddScoped<IGuessRepository, GuessRepository>();
+        builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
+        builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
+        // REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository — see that
+        // interface's own doc comment for why this is never folded into
+        // IPlayerStoreRepository above.
+        builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionRepository>();
+        // REQ-511: the site-wide announcement banner's own repository — see
+        // IAnnouncementBannerRepository's own doc comment for why this table's
+        // singleton invariant lives here rather than in IPlayerStoreRepository or
+        // any other existing repository.
+        builder.Services.AddScoped<IAnnouncementBannerRepository, AnnouncementBannerRepository>();
+        // REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
+        // Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)
+        // and exposes standalone (REQ-407) — recomputed on every call, never
+        // cached, per ADR-0031.
+        builder.Services.AddScoped<ILiveRoundContributionService, LiveRoundContributionService>();
+
+        builder.AddIncidentReportingServices();
+    }
+
+    private static void AddIncidentReportingServices(this WebApplicationBuilder builder)
+    {
+        // REQ-903/ADR-0064/COMP-12: the fine-grained GitHub PAT (Issues:write on
+        // this one repo only), read once here — deliberately NOT `?? throw`, unlike
+        // Supabase's secrets above: this is a Tier 1 pull-forward with no manual
+        // secret guaranteed to be provisioned in every environment yet (see
+        // CLAUDE.md's setup-info handoff for this story). An unset token means
+        // POST /incidents fails closed per-request (GitHubIssueClient
+        // .CreateIssueAsync's own check), not that the whole app refuses to start.
+        builder.Services.AddSingleton(new GitHubIncidentReportToken(builder.Configuration["GitHub:IncidentReportToken"]));
+        // ADR-0064: fixed server-side, never accepted from the client — resolved
+        // once here (appsettings.json carries the real, non-secret defaults for
+        // this repo) and passed into GitHubIssueClient as plain values, rather than
+        // XGArcade.Core taking a direct dependency on IConfiguration itself (that
+        // project has no existing reason to reference
+        // Microsoft.Extensions.Configuration).
+        builder.Services.AddSingleton(new GitHubIncidentReportOptions(
+            builder.Configuration["GitHub:IncidentReportOwner"] ?? "johanpearson",
+            builder.Configuration["GitHub:IncidentReportRepo"] ?? "xg-arcade",
+            builder.Configuration["GitHub:IncidentReportLabel"] ?? "user-reported"));
+        builder.Services.AddHttpClient<IGitHubIssueClient, GitHubIssueClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            // GitHub's REST API rejects requests with no User-Agent; Accept/
+            // X-GitHub-Api-Version pin the response shape/version this class's
+            // GitHubIssueResponse parsing assumes (GitHub's documented current
+            // convention, not this project's own choice).
+            client.DefaultRequestHeaders.Add("User-Agent", "xg-arcade-backend");
+            client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+            client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        });
+        builder.Services.AddScoped<IIncidentReportService, IncidentReportService>();
+
+        // REQ-904/ADR-0066: server-side cached poll of GitHub's open,
+        // user-reported-labeled issues for the admin "Incident reports" entry
+        // point. AddMemoryCache registers the in-process IMemoryCache singleton
+        // this repo has had no prior reason to use — no distributed cache exists
+        // (ADR-0066's own "premature, revisit if the backend ever runs more than
+        // one instance" alternative). CachedIncidentIssueSummaryProvider is
+        // registered as a singleton (not scoped/transient) so its single shared
+        // cache entry and "last successful poll" state are genuinely shared across
+        // every admin request, per ADR-0066's "one shared cache entry, not
+        // per-admin/per-request" decision — a scoped/transient registration would
+        // silently defeat the whole point of this cache.
+        builder.Services.AddMemoryCache();
+        builder.Services.AddSingleton(new IncidentReportCacheTtl(
+            TimeSpan.FromSeconds(builder.Configuration.GetValue<double?>("GitHub:IncidentReportCacheTtlSeconds")
+                ?? IncidentReportCacheTtl.DefaultValue.TotalSeconds)));
+        builder.Services.AddSingleton<ICachedIncidentIssueSummaryProvider, CachedIncidentIssueSummaryProvider>();
+
+        // REQ-903: per-user rate limit for POST /incidents — see
+        // IncidentEndpoints.MapIncidentEndpoints's own comment for why this is a
+        // plain PartitionedRateLimiter<Guid> (keyed on the resolved caller's
+        // User.Id) checked directly in the endpoint, rather than a global named
+        // RateLimiter policy like auth-signup/auth-login/auth-guest (AuthSetup.cs)
+        // (those are IP-partitioned and evaluated before authentication runs — a
+        // shape that doesn't fit a per-user key here). Same FixedWindowRateLimiter
+        // shape as those three otherwise: fixed window, no queueing. Configurable
+        // via the same RateLimiting:* override convention as the auth-* policies,
+        // default left deliberately tight (ADR-0064: "a small number... exact
+        // numbers left to implementation") since a valid submission always creates
+        // a real, visible GitHub issue with no review queue in front of it.
+        var incidentReportPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:IncidentReportPermitLimit") ?? 3;
+        var incidentReportWindowMinutes = builder.Configuration.GetValue<double?>("RateLimiting:IncidentReportWindowMinutes") ?? 10;
+        builder.Services.AddSingleton(PartitionedRateLimiter.Create<Guid, Guid>(userId =>
+            RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = incidentReportPermitLimit,
+                Window = TimeSpan.FromMinutes(incidentReportWindowMinutes),
+                QueueLimit = 0,
+            })));
+    }
+}
