@@ -4941,22 +4941,67 @@ backlog entry updated in this story; `docs/architecture-document.md` and
 boundary, data flow, or design token introduced).
 
 **S-098 · Admin notification for new in-app incident reports
-(REQ-903) — queued, not started**
-Decomposed alongside S-096/S-097 above, explicitly deferred. Needs a
-genuinely new capability, not just a badge: REQ-903/ADR-0064
-deliberately keeps no in-app record of a created incident ("no in-app
-moderation/review queue"), so there is no existing data source to badge
-against. Confirmed directly with the product owner (2026-08-10, via
+(REQ-904, ADR-0066) — implemented 2026-08-10**
+Decomposed alongside S-096/S-097 above, explicitly deferred, then picked
+up this session. Needed a genuinely new capability, not just a badge:
+REQ-903/ADR-0064 deliberately keeps no in-app record of a created
+incident ("no in-app moderation/review queue"), so there was no existing
+data source to badge against, unlike S-097's reuse of REQ-509's existing
+endpoint. Confirmed directly with the product owner (2026-08-10, via
 `AskUserQuestion`) that the intended approach is for the admin UI/backend
 to poll GitHub's Issues API for open issues labeled `user-reported`,
 rather than adding a lightweight in-app persistence table that would
 encroach on ADR-0064's existing "no review queue" boundary — that answer
-should be treated as settled scope, not re-litigated, when this story is
-picked up. No REQ drafted yet — start with `requirements-writer`; the
-resulting REQ and its architecture impact (a new outbound GitHub API
-read from the admin screen, rate-limiting/caching considerations) should
-also get an ADR, since polling a third-party API from an admin page load
-is a structural choice that could reasonably have gone another way (e.g.
-a cached/scheduled pull instead of live-per-page-load).
-*Deps:* none blocking, but should reference ADR-0064 explicitly when
-written up, since it operates right at that ADR's stated boundary.
+was treated as settled scope going in, not re-litigated. `requirements-
+writer` drafted REQ-904 first per this repo's usual "no REQ, no code"
+workflow.
+*Accept:* REQ904-named tests: a positive open-issue count renders a count
+next to "Incident reports"; a zero count renders no badge (absence, not
+`(0)`, same convention as REQ-512); a GitHub-poll failure renders a
+distinct failure/unknown state, never a false zero; repeated admin
+requests within the cache TTL do not each trigger a new GitHub call, a
+request after the TTL expires does; 401 escalates via `onAuthError`, 403
+hides the section.
+*Deps:* REQ-903/ADR-0064 (the existing `IGitHubIssueClient`/PAT this
+story extends, not replaces).
+
+**Built as:** Backend (`backend-implementer`) + frontend (`ui-implementer`).
+`IGitHubIssueClient` gained `ListOpenIssuesByLabelAsync` (same
+`GitHubIssueClient`, same PAT, no scope widening — GitHub's fine-grained
+`Issues: write` scope already covers reading issues on that repo). A new
+`ICachedIncidentIssueSummaryProvider`/`CachedIncidentIssueSummaryProvider`
+(`XGArcade.Core.IncidentReporting`) is the only caller of that method: a
+single shared `IMemoryCache` entry, default 60s TTL (`GitHub:
+IncidentReportCacheTtlSeconds`), that re-serves the last successfully-
+polled result on a GitHub failure rather than immediately flipping a
+working admin UI to an error state, and only returns an explicit
+"unavailable" result if no successful poll has ever happened. This is the
+first use of `Microsoft.Extensions.Caching.Memory` anywhere in this
+codebase — added as a direct `XGArcade.Core.csproj` package reference
+(pinned to 10.0.10 to satisfy a transitive floor `XGArcade.Data`'s EF
+Core reference already imposes), not a new third-party dependency. `GET
+/admin/incident-reports` (new file, `XGArcade.Api.Admin
+.AdminIncidentReportEndpoints`), same `"Admin"` policy every other admin
+endpoint uses, always `200` with `{available, openCount, issues}` — no
+new authorization policy introduced. Frontend: a new `IncidentReportsEntry`
+section in `AdminScreen.tsx`, placed directly after `PlayerSuggestionsEntry`
+(S-097's sibling badge), fetching once on load (no polling), rendering
+the count's absence rather than `(0)` at zero, a distinct inline message
+for the `available: false` failure state, and the same 401/403 handling
+S-097 established. A new `.admin-screen__link` class styles the "view on
+GitHub" link-out — tokens only (`--color-text-primary`,
+`--touch-target-min`), no new color/typeface/animation introduced, so
+`docs/design-document.md` was confirmed unchanged, same judgment call
+S-097 made for its own badge. Full quality-gate run
+(`architecture-reviewer` + `quality-architect`): no boundary violations
+(the cache is confirmed as the only caller `GET /admin/incident-reports`
+is allowed to use, and `IGitHubIssueClient` remains the only class that
+calls GitHub's REST API); ADR-0066 added for the caching/polling decision
+since it introduces a genuinely new "live outbound read triggered by an
+admin page load" shape this codebase hadn't had before. Tests never call
+the real GitHub API (`FakeGitHubIssueClient`, extended for the new
+method). Backend 1375/1375, frontend 543/543 passing.
+`docs/requirements-document.md` (REQ-904, new), `docs/decisions/0066-
+admin-github-issue-polling-cache.md` (new), `docs/architecture-document.md`
+(COMP-12 extended, §10 ADR table), and this backlog entry all
+updated/added in this story.
