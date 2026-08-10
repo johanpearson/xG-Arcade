@@ -4816,3 +4816,104 @@ boundary rule 1 discussion, COMP-05's cache-warming note),
 `MVP-SCOPE.md`, and `docs/implementation-document.md` (data model,
 `SelectPairing` narrative) all updated to describe team-competition
 trophies as built and reachable, not deferred.
+
+**S-096 · Admin-managed site-wide announcement banner (REQ-511,
+COMP-13, ADR-0065) — implemented 2026-08-10**
+Requested directly by the product owner alongside a separate admin
+notification request for new player suggestions/incident reports
+(REQ-215/509, REQ-903) — decomposed into three candidate stories via
+`/orchestrate`; the product owner picked this one to build first, one
+story per session per this file's own rule, queuing the other two below
+rather than bundling. Scope confirmed via `AskUserQuestion` before
+starting: a single admin-managed banner (no scheduling, no per-user
+dismissal, no multiple concurrent banners — see REQ-511's own "Out of
+scope" list), visible to every visitor including one with no session at
+all.
+*Accept:* REQ511-named tests: admin create/replace-not-insert,
+activate/deactivate flip visibility while preserving the saved message,
+blank-message and over-max-length rejection with no state change, public
+read requires no authentication and returns a clear no-active-banner
+state, write actions reject 401/403 under the existing `"Admin"` policy.
+*Deps:* none — new `Core.Announcements` component (COMP-13), no
+dependency on any existing admin feature beyond reusing the `"Admin"`
+authorization policy.
+
+**Built as:** Backend (`backend-implementer`): `AnnouncementBanner`
+(`XGArcade.Data.Entities`), a true singleton table — `IAnnouncementBannerRepository`
+never inserts a second row, see ADR-0065; `GET /announcement-banner`
+(`XGArcade.Api.Announcements.AnnouncementBannerEndpoints`), unauthenticated,
+same registration style as `GET /health`, always `200`; `PUT`/`activate`/
+`deactivate`/admin `GET /admin/announcement-banner`
+(`XGArcade.Api.Admin.AdminAnnouncementBannerEndpoints`), all
+`"Admin"`-policy-gated, no new authorization policy introduced.
+Frontend (`ui-implementer`): `frontend/src/components/AnnouncementBanner.tsx`
+mounted at the very top of `App.tsx`, above `<header>` and outside every
+auth-gated branch, fetched once on mount (no polling, per REQ-511's own
+"no push/real-time delivery is required"); inline `AnnouncementBannerSection`
+in `AdminScreen.tsx` (a judgment call — not a separate linked screen like
+`SuggestionsScreen`, since a single message field plus two toggle buttons
+didn't warrant its own nav hop), following `AccountMetricsSection`/
+`XGPathCycleSection`'s existing 401/403/inline-error resilience pattern.
+No new design token — reuses `.app__guest-banner`'s existing token
+pairing; documented in `design-document.md` §7 since no SCREEN-xx spec
+exists yet for either piece. Tests (`test-writer`): backend
+`AnnouncementBannerRepositoryTests.cs`/`AnnouncementBannerEndpointTests.cs`
+(singleton upsert-not-insert, 401/403/validation matrix, exactly-at-max-length
+message equality — strengthened after quality-gate flagged the original
+assertion as status-code-only) — hand-traced only, `dotnet` SDK
+unavailable in this sandbox, not compiled or run; frontend
+`AnnouncementBanner.test.tsx` plus `AdminScreen.test.tsx` extensions, and
+an `App.test.tsx` `describe('App (REQ-511: announcement banner)')` block
+(added after quality-gate flagged the original frontend tests as only
+covering the component in isolation, not its three real App.tsx render
+paths) asserting the banner renders identically for a fully logged-out
+visitor, a guest, and a normal logged-in account. **Quality-gate run**
+(`architecture-reviewer` + `quality-architect` in parallel): no boundary
+violations (clean on ADR-0003 game boundary, ADR-0004 hosting-agnostic,
+authorization reuse); two blocking test-coverage findings (the App.tsx
+cross-render-path gap and the weak max-length assertion above) routed
+back to `test-writer` and fixed; both reviewers separately flagged the
+same doc gaps (missing COMP entry, missing ADR, missing CHANGELOG entry),
+closed in this same story via `/new-adr` (ADR-0065) and this doc pass.
+Verified: 529/529 Vitest tests pass, `tsc -b` and `oxlint` clean, all
+confirmed independently in this sandbox; backend suite deferred to CI
+(`dotnet` unavailable here, same recurring constraint as S-095 and
+every other recent backend story). `docs/requirements-document.md`
+(REQ-511, new), `docs/architecture-document.md` (COMP-13, new; §10 ADR
+table), `docs/design-document.md` (§7, new REQ-511 open-question entry),
+`MVP-SCOPE.md` (Tier 1 pulled-forward entry), and `docs/decisions/0065-
+site-wide-announcement-banner-shape.md` (new) all added/updated in this
+story.
+
+**S-097 · Admin notification badge for pending player suggestions
+(REQ-215/509) — queued, not started**
+Decomposed alongside S-096 above but explicitly deferred to its own
+session per this file's one-story-per-PR rule. Low-risk relative to
+S-098 below: the pending-suggestions data already exists (REQ-509's `GET
+/admin/suggestions/pending`), so this is expected to be a count/badge
+read against data already being fetched by `SuggestionsScreen.tsx`/
+`AdminScreen.tsx`, not a new data source. No REQ drafted yet — start with
+`requirements-writer` per this repo's usual workflow (a feature with no
+REQ goes to requirements-writer before any code).
+*Deps:* none blocking — reuses REQ-509's existing endpoint.
+
+**S-098 · Admin notification for new in-app incident reports
+(REQ-903) — queued, not started**
+Decomposed alongside S-096/S-097 above, explicitly deferred. Needs a
+genuinely new capability, not just a badge: REQ-903/ADR-0064
+deliberately keeps no in-app record of a created incident ("no in-app
+moderation/review queue"), so there is no existing data source to badge
+against. Confirmed directly with the product owner (2026-08-10, via
+`AskUserQuestion`) that the intended approach is for the admin UI/backend
+to poll GitHub's Issues API for open issues labeled `user-reported`,
+rather than adding a lightweight in-app persistence table that would
+encroach on ADR-0064's existing "no review queue" boundary — that answer
+should be treated as settled scope, not re-litigated, when this story is
+picked up. No REQ drafted yet — start with `requirements-writer`; the
+resulting REQ and its architecture impact (a new outbound GitHub API
+read from the admin screen, rate-limiting/caching considerations) should
+also get an ADR, since polling a third-party API from an admin page load
+is a structural choice that could reasonably have gone another way (e.g.
+a cached/scheduled pull instead of live-per-page-load).
+*Deps:* none blocking, but should reference ADR-0064 explicitly when
+written up, since it operates right at that ADR's stated boundary.
