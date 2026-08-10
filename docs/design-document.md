@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.70"
+version: "0.71"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -3027,3 +3027,28 @@ Unchanged from v0.1:
   per-background-direction, not universally "always use the darkened one."
   `CellState.css`/`CellState.tsx` implement against this token directly —
   no bare `rgba()` value left untracked.
+- **A new site-wide element (2026-08-10, REQ-511) has no SCREEN-xx entry of
+  its own either, same gap as the guest banner above:** the admin-managed
+  announcement banner (`frontend/src/components/AnnouncementBanner.tsx`,
+  `.announcement-banner`) — a full-width band reading the admin's current
+  active message, mounted at the very top of `App.tsx`, above `<header>`
+  and outside every auth-gated branch, so it renders identically for a
+  logged-in user, a guest, and a fully logged-out visitor alike (REQ-511's
+  own "no authentication of any kind" requirement). Deliberately reuses
+  `.app__guest-banner`'s existing "quiet notice band" token pairing
+  (`surface-sunken` background, `border-hairline` bottom border, centered
+  text) rather than introducing a new color — the only new visual choice is
+  bold (600-weight) text, to read as more prominent than that thinner
+  session nudge, still using only the existing `text-primary` token. No new
+  motion (renders/unmounts instantly on fetch resolution, no transition).
+  The admin-only counterpart (`AdminScreen.tsx`'s `AnnouncementBannerSection`,
+  an inline section — not a separate linked screen like SuggestionsScreen,
+  since a single message field plus an activate/deactivate toggle doesn't
+  warrant its own nav hop) reuses `AdminScreen.css`'s existing form/section
+  tokens wholesale, adding only a `<textarea>` variant of the existing
+  `.admin-screen__field input` rule (same border/background/padding, plus
+  `resize: vertical` so a multi-line message field can't blow out the
+  section's fixed width). Needs a real SCREEN-xx entry (wireframe, copy
+  review, any state beyond the ones already listed here) rather than
+  staying an unreviewed de facto spec, same recommendation as every other
+  gap in this list.

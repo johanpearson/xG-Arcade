@@ -5,6 +5,7 @@ import { SuggestionsScreen } from './admin/SuggestionsScreen';
 import { ApiError, fetchMe, logout, refreshAccessToken } from './lib/api';
 import type { CurrentUser } from './lib/types';
 import { AuthScreen } from './auth/AuthScreen';
+import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { Logo } from './components/Logo';
 import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
@@ -353,6 +354,14 @@ function App() {
 
   return (
     <div className="app">
+      {/* REQ-511: rendered above <header>, outside every auth-gated branch
+          below — the one place in this tree that renders identically
+          whether the visitor is logged in, a guest, or fully logged out
+          with no session at all (splash/auth screen). Fetches its own
+          data independently and renders nothing while inactive/loading, so
+          it never affects any of the loading/auth logic elsewhere in this
+          component. */}
+      <AnnouncementBanner />
       <header className="app__header">
         {/* REQ-720: "xG Arcade" continues to route to the full
             landing/picker screen (GameSelectScreen) exactly as before —

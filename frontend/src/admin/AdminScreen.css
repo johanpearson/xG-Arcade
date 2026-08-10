@@ -142,7 +142,8 @@
   color: var(--color-text-muted);
 }
 
-.admin-screen__field input {
+.admin-screen__field input,
+.admin-screen__field textarea {
   min-height: var(--touch-target-min);
   padding: var(--space-3);
   border: 1px solid var(--color-border-hairline);
@@ -150,6 +151,17 @@
   background: var(--color-surface-sunken);
   color: var(--color-text-primary);
   font-size: 15px;
+}
+
+/* REQ-511: the announcement-banner message field is the first multi-line
+   input in this file — same border/background/padding as the single-line
+   `input` rule above, just with its own font so it inherits the app's
+   body typeface explicitly rather than a `<textarea>`'s browser default,
+   and resize limited to vertical only so it can't blow out the section's
+   fixed-width layout. */
+.admin-screen__field textarea {
+  font-family: var(--font-body);
+  resize: vertical;
 }
 
 .admin-screen__inline-form-actions,
