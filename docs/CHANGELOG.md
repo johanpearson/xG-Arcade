@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/coding-guidelines.md` (v0.5 → v0.6) — documented the
+  new `useAdminSectionFetch` convention (`frontend/src/admin/AdminScreen.tsx`):
+  a shared hook extracted from five previously hand-rolled fetch-on-mount +
+  401-escalate/403-hide/other-error-inline + unmount-cancellation-guard
+  implementations. Pure refactor of REQ-512/REQ-904/REQ-511/REQ-507/REQ-1209's
+  internal implementation only — no acceptance criteria, component boundary,
+  or data flow changed for any of them, so requirements-document.md and
+  architecture-document.md are unchanged; no ADR (no boundary crossed, stays
+  a local hook inside one existing component).
 - 2026-08-10 — `docs/requirements-document.md` (REQ-904, new, v1.67 →
   v1.68 — already drafted and bumped earlier this session),
   `docs/decisions/0066-admin-github-issue-polling-cache.md` (new, already
