@@ -10,5 +10,5 @@ namespace XGArcade.Core.IncidentReporting;
 public interface IIncidentReportService
 {
     Task<GitHubIssueCreationResult> SubmitAsync(
-        Guid userId, string description, string? route, CancellationToken cancellationToken);
+        Guid userId, string title, string description, string screen, string? environment, CancellationToken cancellationToken);
 }

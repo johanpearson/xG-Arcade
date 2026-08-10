@@ -84,7 +84,7 @@ public class IncidentEndpointTests
     }
 
     private static SubmitIncidentReportRequest ValidRequest() =>
-        new("The grid froze after I submitted a guess.", "/grid");
+        new("Grid freezes on submit", "The grid froze after I submitted a guess.", "grid", "https://xg-arcade-dev.example.com");
 
     // ---- REQ-903: unauthenticated ------------------------------------
 
@@ -131,13 +131,43 @@ public class IncidentEndpointTests
 
     [TestCase("")]
     [TestCase("   ")]
+    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForEmptyOrWhitespaceTitle(string title)
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest(title, "A real description.", "grid", null));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("A title is required"));
+    }
+
+    [Test]
+    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForTitleOverTheMaxLength()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        var tooLong = new string('a', IncidentEndpoints.TitleMaxLength + 1);
+
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest(tooLong, "A real description.", "grid", null));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Title is too long"));
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
     public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForEmptyOrWhitespaceDescription(string description)
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);
         var client = CreateAuthenticatedClient(authProviderUserId);
 
-        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest(description, null));
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", description, "grid", null));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
@@ -152,26 +182,68 @@ public class IncidentEndpointTests
         var client = CreateAuthenticatedClient(authProviderUserId);
         var tooLong = new string('a', IncidentEndpoints.DescriptionMaxLength + 1);
 
-        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest(tooLong, null));
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", tooLong, "grid", null));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.That(problem!.Title, Is.EqualTo("Description is too long"));
     }
 
-    [Test]
-    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForRouteOverTheMaxLength()
+    [TestCase("")]
+    [TestCase("   ")]
+    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForEmptyOrWhitespaceScreen(string screen)
     {
         var authProviderUserId = Guid.NewGuid();
         await SeedUserAsync(authProviderUserId);
         var client = CreateAuthenticatedClient(authProviderUserId);
-        var tooLongRoute = new string('/', IncidentEndpoints.RouteMaxLength + 1);
 
-        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A real description.", tooLongRoute));
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", "A real description.", screen, null));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.That(problem!.Title, Is.EqualTo("Route is too long"));
+        Assert.That(problem!.Title, Is.EqualTo("A screen is required"));
+    }
+
+    [Test]
+    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForScreenOverTheMaxLength()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        var tooLong = new string('a', IncidentEndpoints.ScreenMaxLength + 1);
+
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", "A real description.", tooLong, null));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Screen is too long"));
+    }
+
+    [Test]
+    public async Task REQ903_Incidents_Post_ReturnsBadRequest_ForEnvironmentOverTheMaxLength()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        var tooLong = new string('a', IncidentEndpoints.EnvironmentMaxLength + 1);
+
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", "A real description.", "grid", tooLong));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.That(problem!.Title, Is.EqualTo("Environment is too long"));
+    }
+
+    [Test]
+    public async Task REQ903_Incidents_Post_AcceptsAMissingEnvironment_SinceItIsOptional()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync("/incidents", new SubmitIncidentReportRequest("A title", "A real description.", "grid", null));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
     }
 
     // ---- REQ-903: happy path -------------------------------------------
@@ -205,6 +277,23 @@ public class IncidentEndpointTests
         Assert.That(body, Does.Contain(userId.ToString()));
         Assert.That(body, Does.Not.Contain("@example.com"),
             "REQ-903: the issue body must never include the reporting player's email address");
+    }
+
+    [Test]
+    public async Task REQ903_Incidents_Post_SendsTheGivenTitle_AndFormatsTheScreenAndEnvironment_IntoTheIssueBody()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        await client.PostAsJsonAsync(
+            "/incidents",
+            new SubmitIncidentReportRequest("Grid freezes on submit", "The grid froze after I submitted a guess.", "grid", "https://xg-arcade-dev.example.com"));
+
+        var (title, body) = _fakeGitHubIssueClient.Calls.Single();
+        Assert.That(title, Is.EqualTo("Grid freezes on submit"));
+        Assert.That(body, Does.Contain("**Screen:** grid"));
+        Assert.That(body, Does.Contain("**Environment:** https://xg-arcade-dev.example.com"));
     }
 
     // ---- REQ-903: GitHub failures surface as a clear, generic failure -----

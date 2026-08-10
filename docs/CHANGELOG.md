@@ -13,6 +13,49 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/design-document.md` (v0.69 → v0.70, SCREEN-11 updated),
+  `docs/requirements-document.md` (REQ-903, v1.64 → v1.65 — also corrects a
+  pre-existing acceptance-criteria error, see below),
+  `docs/architecture-document.md` (COMP-12, v0.90 → v0.91) — a third,
+  same-day pass on REQ-903, requested directly: mandatory, structured
+  Title/Screen fields (previously folded into free-text Description) plus
+  an auto-captured, read-only Environment field, so every issue this
+  feature creates follows one consistent template instead of however a
+  player happened to phrase a single free-text box. Backend:
+  `SubmitIncidentReportRequest` gained `Title`/`Screen` (both mandatory,
+  server-re-validated regardless of the client's `<select>`/`<input>`
+  shape — `IncidentEndpoints.TitleMaxLength`/`ScreenMaxLength` at
+  120/50) and `Environment` (optional on the wire, `EnvironmentMaxLength`
+  200); `IncidentReportService.SubmitAsync` now uses the submitted Title
+  verbatim as the created GitHub issue's own title (previously
+  derived/truncated from Description) and builds the body as one fixed
+  markdown template (`## Description` / `## Details`, each of
+  Screen/Environment/internal-UserId/timestamp under its own bolded
+  label, same order every time). Frontend: `IncidentReportDialog.tsx`
+  gained a Title text input and a Screen `<select>` (a fixed option list,
+  `lib/incidentReportCopy.ts`'s new `INCIDENT_REPORT_SCREEN_OPTIONS`,
+  mirroring `App.tsx`'s own `Screen` union as parallel plain strings to
+  avoid a circular import — pre-selected from wherever the dialog was
+  opened, changeable), plus a read-only "Environment: {origin}" line
+  computed from `window.location.origin` — REQ-903's "found in
+  environment... can be set in the background since we know from what
+  url" request, answered literally. Description's placeholder wording
+  changed to prompt reproduction steps and expected-vs-actual, now that
+  Title/Screen carry the summary/location. **Also fixes a pre-existing
+  REQ-903 documentation error found while updating this**: the original
+  acceptance criteria said a guest sees no incident-report entry point in
+  the UI at all — that was never actually built that way (both the
+  original Settings section and the footer relocation built "advertised,
+  disabled" from the start, correctly following REQ-215's own precedent)
+  and directly contradicted REQ-903's own text elsewhere citing that same
+  REQ-215 precedent; the requirements doc's wording was simply wrong and
+  is corrected in place, not a behavior change. `SettingsScreen`/
+  `App.test.tsx`/`IncidentReportDialog.test.tsx` and the backend's
+  `IncidentEndpointTests.cs`/`IncidentReportServiceTests.cs` all updated
+  for the new fields (513 frontend tests passing locally, `tsc -b` and
+  `oxlint` clean; backend hand-traced only, same `dotnet`-unavailable
+  sandbox caveat as every other change in this story — confirm in CI).
+
 - 2026-08-10 — `docs/design-document.md` (v0.68 → v0.69, new SCREEN-11),
   `docs/requirements-document.md` (REQ-903, v1.63 → v1.64),
   `docs/architecture-document.md` (COMP-12, v0.89 → v0.90) — moved

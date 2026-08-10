@@ -1042,7 +1042,7 @@ describe('App (REQ-903: footer incident-report entry point)', () => {
     expect(screen.getByRole('button', { name: 'Send report' })).toBeDisabled();
   });
 
-  it('REQ-903: submitting a report sends the current screen as the route', async () => {
+  it('REQ-903: submitting a report defaults the Screen dropdown to whatever screen the button was clicked from, and sends the current origin as environment', async () => {
     window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, 'token-abc');
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1063,6 +1063,8 @@ describe('App (REQ-903: footer incident-report entry point)', () => {
     await screen.findByRole('button', { name: 'Report a problem' });
 
     await user.click(screen.getByRole('button', { name: 'Report a problem' }));
+    expect((screen.getByLabelText('Screen') as HTMLSelectElement).value).toBe('leaderboard');
+    await user.type(screen.getByLabelText('Title'), 'Something broke');
     await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
     await user.click(screen.getByRole('button', { name: 'Send report' }));
 
@@ -1070,7 +1072,12 @@ describe('App (REQ-903: footer incident-report entry point)', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/incidents'),
         expect.objectContaining({
-          body: JSON.stringify({ description: 'Something broke.', route: 'leaderboard' }),
+          body: JSON.stringify({
+            title: 'Something broke',
+            description: 'Something broke.',
+            screen: 'leaderboard',
+            environment: window.location.origin,
+          }),
         }),
       ),
     );

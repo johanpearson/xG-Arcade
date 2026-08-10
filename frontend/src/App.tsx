@@ -567,7 +567,7 @@ function App() {
         <IncidentReportDialog
           accessToken={accessToken}
           isGuest={isGuest}
-          route={screen}
+          currentScreen={screen}
           onClose={() => setIncidentReportOpen(false)}
           onAuthError={() => {
             setIncidentReportOpen(false);

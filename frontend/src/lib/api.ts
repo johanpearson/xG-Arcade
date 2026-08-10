@@ -912,19 +912,26 @@ export async function commitPlayerSearch(
 }
 
 // REQ-903/ADR-0064: files an in-app bug report — the backend turns it into
-// a real GitHub issue server-side (POST /incidents, IncidentEndpoints). A
-// guest is rejected server-side with 403 ("Guest accounts cannot file
-// incident reports") regardless of what the client UI shows, same
-// "left to throw as an ApiError, UI already disables the entry point first"
-// convention submitSuggestion above already follows for its own guest
-// restriction. `route` is optional context only (the current screen), never
-// re-typed by the player. A 429 (per-user rate limit) and a 503 (GitHub API
-// itself failed) are both left to throw like any other failure here — the
-// caller shows the server's own detail text inline.
+// a real GitHub issue server-side (POST /incidents, IncidentEndpoints),
+// formatted into a consistent template from these separate fields rather
+// than one free-text blob (2026-08-10 structured-fields addition, requested
+// directly). A guest is rejected server-side with 403 ("Guest accounts
+// cannot file incident reports") regardless of what the client UI shows,
+// same "left to throw as an ApiError, UI already disables the entry point
+// first" convention submitSuggestion above already follows for its own
+// guest restriction. `title`/`screen` are mandatory (IncidentReportDialog's
+// own client-side checks are defense in depth, not the primary guard — the
+// server re-validates both). `environment` is computed by the caller
+// (IncidentReportDialog reads `window.location.origin`), never typed by the
+// player. A 429 (per-user rate limit) and a 503 (GitHub API itself failed)
+// are both left to throw like any other failure here — the caller shows
+// the server's own detail text inline.
 export async function reportIncident(
   accessToken: string,
+  title: string,
   description: string,
-  route?: string,
+  screen: string,
+  environment?: string,
 ): Promise<SubmitIncidentReportResponse> {
   const response = await fetch(`${API_BASE_URL}/incidents`, {
     method: 'POST',
@@ -932,7 +939,7 @@ export async function reportIncident(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ description, route }),
+    body: JSON.stringify({ title, description, screen, environment }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SubmitIncidentReportResponse;

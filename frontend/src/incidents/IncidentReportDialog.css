@@ -79,6 +79,27 @@
   color: var(--color-text-muted);
 }
 
+/* Title input and Screen select share the exact input treatment
+   SettingsScreen.css's .settings-screen__field input already established
+   — same tokens, same shape, no new values for the structured-fields
+   addition. */
+.incident-report-dialog__input,
+.incident-report-dialog__select {
+  min-height: var(--touch-target-min);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 16px;
+}
+
+.incident-report-dialog__input:disabled,
+.incident-report-dialog__select:disabled {
+  opacity: 0.6;
+}
+
 .incident-report-dialog__textarea {
   min-height: calc(var(--touch-target-min) * 2);
   padding: var(--space-3);
@@ -93,6 +114,15 @@
 
 .incident-report-dialog__textarea:disabled {
   opacity: 0.6;
+}
+
+/* REQ-903: read-only, never an editable field — see IncidentReportDialog
+   .tsx's own `environment` comment for why. Same muted-hint treatment as
+   .incident-report-dialog__hint above. */
+.incident-report-dialog__environment {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 .incident-report-dialog__error {

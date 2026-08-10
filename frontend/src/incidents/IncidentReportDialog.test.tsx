@@ -7,7 +7,10 @@ import { IncidentReportDialog } from './IncidentReportDialog';
 // (moved out of SettingsScreen.tsx, 2026-08-10, into this standalone
 // modal so it's reachable from whatever screen a player is actually
 // looking at) — App.test.tsx covers the footer button that opens this;
-// this file covers the dialog's own self-contained behavior.
+// this file covers the dialog's own self-contained behavior. Same-day
+// structured-fields addition: Title/Screen are now mandatory, separate
+// fields, and Environment is auto-captured from window.location.origin
+// rather than typed.
 function renderDialog(
   overrides: Partial<Parameters<typeof IncidentReportDialog>[0]> = {},
   fetchImpl: ReturnType<typeof vi.fn> = vi.fn(),
@@ -21,7 +24,7 @@ function renderDialog(
     <IncidentReportDialog
       accessToken="token-abc"
       isGuest={false}
-      route="grid"
+      currentScreen="grid"
       onClose={onClose}
       onAuthError={onAuthError}
       {...overrides}
@@ -37,6 +40,11 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     json: () => Promise.resolve(body),
   } as Response);
+}
+
+async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('Title'), 'Grid freezes on submit');
+  await user.type(screen.getByLabelText('What went wrong?'), 'The grid froze after I submitted a guess.');
 }
 
 describe('IncidentReportDialog', () => {
@@ -58,7 +66,7 @@ describe('IncidentReportDialog', () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     const { container } = render(
-      <IncidentReportDialog accessToken="token-abc" isGuest={false} route="grid" onClose={onClose} onAuthError={vi.fn()} />,
+      <IncidentReportDialog accessToken="token-abc" isGuest={false} currentScreen="grid" onClose={onClose} onAuthError={vi.fn()} />,
     );
 
     const backdrop = container.querySelector('.incident-report-dialog-backdrop');
@@ -99,7 +107,7 @@ describe('IncidentReportDialog', () => {
       return (
         <div>
           <button type="button">Report a problem</button>
-          {open && <IncidentReportDialog accessToken="t" isGuest={false} route="grid" onClose={vi.fn()} onAuthError={vi.fn()} />}
+          {open && <IncidentReportDialog accessToken="token-abc" isGuest={false} currentScreen="grid" onClose={vi.fn()} onAuthError={vi.fn()} />}
         </div>
       );
     }
@@ -116,57 +124,108 @@ describe('IncidentReportDialog', () => {
     expect(restoreFocusSpy).toHaveBeenCalled();
   });
 
-  // ---- REQ-903: guest gating ------------------------------------------
+  // ---- REQ-903: guest gating (now covering all three fields) ----------
 
   it('REQ-903: isGuest=false renders an enabled report form', () => {
     renderDialog({ isGuest: false });
 
-    expect(screen.getByRole('button', { name: 'Send report' })).toBeEnabled();
+    expect(screen.getByLabelText('Title')).toBeEnabled();
+    expect(screen.getByLabelText('Screen')).toBeEnabled();
     expect(screen.getByLabelText('What went wrong?')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Send report' })).toBeEnabled();
     expect(screen.queryByTestId('incident-report-guest-locked-copy')).not.toBeInTheDocument();
   });
 
-  it('REQ-903: isGuest=true renders the form present but disabled, alongside the guest-locked copy', () => {
+  it('REQ-903: isGuest=true renders every field disabled, alongside the guest-locked copy', () => {
     renderDialog({ isGuest: true });
 
-    expect(screen.getByRole('button', { name: 'Send report' })).toBeDisabled();
+    expect(screen.getByLabelText('Title')).toBeDisabled();
+    expect(screen.getByLabelText('Screen')).toBeDisabled();
     expect(screen.getByLabelText('What went wrong?')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send report' })).toBeDisabled();
     expect(screen.getByTestId('incident-report-guest-locked-copy')).toBeInTheDocument();
   });
 
-  // ---- REQ-903: example guidance in the textarea placeholder ----------
+  // ---- REQ-903: example guidance in the placeholders -------------------
 
-  it('REQ-903: the description field shows example guidance as placeholder text', () => {
+  it('REQ-903: the title and description fields show example guidance as placeholder text', () => {
     renderDialog();
 
-    const textarea = screen.getByLabelText('What went wrong?') as HTMLTextAreaElement;
-    expect(textarea.placeholder.length).toBeGreaterThan(0);
-    expect(textarea.placeholder).toMatch(/e\.g\./i);
+    const title = screen.getByLabelText('Title') as HTMLInputElement;
+    const description = screen.getByLabelText('What went wrong?') as HTMLTextAreaElement;
+    expect(title.placeholder.length).toBeGreaterThan(0);
+    expect(description.placeholder).toMatch(/steps to reproduce/i);
+  });
+
+  // ---- REQ-903: the Screen dropdown defaults to the current screen -----
+
+  it('REQ-903: the Screen dropdown defaults to the screen the dialog was opened from', () => {
+    renderDialog({ currentScreen: 'leaderboard' });
+
+    expect((screen.getByLabelText('Screen') as HTMLSelectElement).value).toBe('leaderboard');
+  });
+
+  it('REQ-903: the Screen dropdown falls back to "Something else / not sure" for an unrecognized current screen', () => {
+    renderDialog({ currentScreen: 'not-a-real-screen' });
+
+    expect((screen.getByLabelText('Screen') as HTMLSelectElement).value).toBe('other');
+  });
+
+  it('REQ-903: the player can change the Screen dropdown away from its default', async () => {
+    const user = userEvent.setup();
+    renderDialog({ currentScreen: 'grid' });
+
+    await user.selectOptions(screen.getByLabelText('Screen'), 'settings');
+
+    expect((screen.getByLabelText('Screen') as HTMLSelectElement).value).toBe('settings');
+  });
+
+  // ---- REQ-903: environment is shown, never editable -------------------
+
+  it('REQ-903: shows the current origin as a read-only environment value, not an editable field', () => {
+    renderDialog();
+
+    const environment = screen.getByTestId('incident-report-environment');
+    expect(environment).toHaveTextContent(window.location.origin);
+    expect(screen.queryByLabelText('Environment')).not.toBeInTheDocument();
   });
 
   // ---- REQ-903: validation ---------------------------------------------
+
+  it('REQ-903: rejects an empty title client-side, without calling the API', async () => {
+    const fetchMock = vi.fn();
+    const user = userEvent.setup();
+    renderDialog({}, fetchMock);
+
+    await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+    await user.click(screen.getByRole('button', { name: 'Send report' }));
+
+    expect(await screen.findByText('Please add a short title.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('REQ-903: rejects an empty description client-side, without calling the API', async () => {
     const fetchMock = vi.fn();
     const user = userEvent.setup();
     renderDialog({}, fetchMock);
 
+    await user.type(screen.getByLabelText('Title'), 'Grid freezes on submit');
     await user.click(screen.getByRole('button', { name: 'Send report' }));
 
     expect(await screen.findByText('Please describe the problem.')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // ---- REQ-903: happy path, including the current screen as `route` ---
+  // ---- REQ-903: happy path, including title/screen/environment ---------
 
-  it('REQ-903: submitting a valid report calls POST /incidents with the current route, and shows the created issue URL on success', async () => {
+  it('REQ-903: submitting a valid report calls POST /incidents with title, description, the selected screen, and the current origin as environment', async () => {
     const fetchMock = vi.fn().mockImplementation(() =>
       jsonResponse({ issueUrl: 'https://github.com/johanpearson/xg-arcade/issues/7' }),
     );
     const user = userEvent.setup();
-    renderDialog({ route: 'leaderboard' }, fetchMock);
+    renderDialog({ currentScreen: 'leaderboard' }, fetchMock);
 
-    await user.type(screen.getByLabelText('What went wrong?'), 'The grid froze after I submitted a guess.');
+    await fillValidForm(user);
     await user.click(screen.getByRole('button', { name: 'Send report' }));
 
     expect(await screen.findByText('Thanks — your report was filed.')).toBeInTheDocument();
@@ -179,7 +238,12 @@ describe('IncidentReportDialog', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'Bearer token-abc' }),
-        body: JSON.stringify({ description: 'The grid froze after I submitted a guess.', route: 'leaderboard' }),
+        body: JSON.stringify({
+          title: 'Grid freezes on submit',
+          description: 'The grid froze after I submitted a guess.',
+          screen: 'leaderboard',
+          environment: window.location.origin,
+        }),
       }),
     );
   });
@@ -194,7 +258,7 @@ describe('IncidentReportDialog', () => {
     const user = userEvent.setup();
     renderDialog({}, fetchMock);
 
-    await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+    await fillValidForm(user);
     await user.click(screen.getByRole('button', { name: 'Send report' }));
 
     expect(
@@ -207,7 +271,7 @@ describe('IncidentReportDialog', () => {
     const user = userEvent.setup();
     const { onAuthError } = renderDialog({}, fetchMock);
 
-    await user.type(screen.getByLabelText('What went wrong?'), 'Something broke.');
+    await fillValidForm(user);
     await user.click(screen.getByRole('button', { name: 'Send report' }));
 
     await waitFor(() => expect(onAuthError).toHaveBeenCalled());
