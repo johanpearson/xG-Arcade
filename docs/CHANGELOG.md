@@ -13,6 +13,39 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/requirements-document.md` (REQ-511, new, v1.65 →
+  v1.66), `docs/architecture-document.md` (COMP-13, new; §10 ADR table,
+  v0.91 → v0.92), `docs/design-document.md` (§7, new REQ-511
+  open-question entry, v0.70 → v0.71), `MVP-SCOPE.md` (Tier 1
+  pulled-forward entries for REQ-511 and the two queued follow-on
+  stories), `docs/backlog.md` (S-096 built, S-097/S-098 queued),
+  `docs/decisions/0065-site-wide-announcement-banner-shape.md` (new) —
+  admin-managed, site-wide announcement banner (REQ-511), requested
+  directly by the product owner alongside a separate ask for admin
+  notifications when a new player suggestion or in-app incident report
+  is posted. Run through `/orchestrate`: decomposed into three candidate
+  stories, the product owner picked the banner to build this session
+  (`AskUserQuestion`), the other two queued as S-097/S-098 rather than
+  bundled, per this file's one-story-per-PR rule. `AnnouncementBanner`
+  is a true singleton table (ADR-0065) behind an unauthenticated public
+  `GET /announcement-banner` (ADR-0065's other half — only the second
+  no-auth endpoint in the API, after `GET /health`) and an
+  `"Admin"`-policy-gated `PUT`/`activate`/`deactivate`/admin-`GET` quartet
+  — no new authorization policy introduced. Frontend banner mounts
+  outside every auth-gated branch in `App.tsx` so a logged-out visitor,
+  a guest, and a signed-in user all see it identically; admin management
+  is an inline `AnnouncementBannerSection` in `AdminScreen.tsx`. Full
+  `/quality-gate` run (architecture + quality review in parallel): no
+  boundary violations found; two blocking test-coverage findings (missing
+  cross-render-path coverage in `App.test.tsx`, a weak max-length
+  assertion) were routed back to `test-writer` and fixed; both reviewers
+  independently flagged the same doc gaps (this entry closes them).
+  Verified: 529/529 Vitest tests pass, `tsc -b`/`oxlint` clean, all
+  confirmed in this sandbox; backend suite hand-traced only, `dotnet` SDK
+  unavailable here — deferred to CI, same recurring constraint as every
+  other recent backend story in this repo. See `docs/backlog.md`'s S-096
+  entry for the full implementation shape.
+
 - 2026-08-10 — `docs/design-document.md` (v0.69 → v0.70, SCREEN-11 updated),
   `docs/requirements-document.md` (REQ-903, v1.64 → v1.65 — also corrects a
   pre-existing acceptance-criteria error, see below),

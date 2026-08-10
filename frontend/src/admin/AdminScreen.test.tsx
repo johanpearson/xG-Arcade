@@ -882,4 +882,191 @@ describe('AdminScreen', () => {
     // scoped to itself, same as AccountMetricsSection's own error handling.
     expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
   });
+
+  // ---- REQ-511: site-wide announcement banner section -------------------
+
+  const loadedActiveBanner = {
+    id: 'banner-1',
+    message: 'Scheduled maintenance tonight at 10pm UTC.',
+    isActive: true,
+    createdAt: '2026-08-01T00:00:00Z',
+    updatedAt: '2026-08-01T00:00:00Z',
+    lastUpdatedByAdminId: 'admin-1',
+  };
+
+  const loadedInactiveBanner = { ...loadedActiveBanner, isActive: false };
+
+  it('REQ-511: shows "No banner has been created yet" when the GET endpoint 404s (no-data-yet state)', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/announcement-banner': bareNotFound,
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Site-wide announcement banner')).toBeInTheDocument();
+    expect(
+      await screen.findByText('No banner has been created yet — write one below.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create banner' })).toBeInTheDocument();
+    // No banner exists yet, so the activate/deactivate action group must not render.
+    expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-511: shows the current message and "Active" status for a loaded, active banner', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/announcement-banner': () => jsonResponse(loadedActiveBanner),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Status: Active — visible to every visitor')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message);
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-511: shows "Inactive" status and an "Activate" button for a loaded, inactive banner', async () => {
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/announcement-banner': () => jsonResponse(loadedInactiveBanner),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('Status: Inactive — not shown to visitors')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-511: a 403 from the announcement-banner fetch hides the section without flipping the whole page to access-denied', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/announcement-banner': () => jsonResponse({ title: 'Forbidden', detail: 'Admins only.' }, 403),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    expect(await screen.findByText('No unverified data to review.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Site-wide announcement banner')).not.toBeInTheDocument());
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
+
+  it('REQ-511: a 401 from the announcement-banner fetch calls onAuthError', async () => {
+    const onAuthError = vi.fn();
+    stubFetch({
+      '/admin/player-data/unverified': () => jsonResponse([]),
+      '/admin/rounds/xg-grid/active': bareNotFound,
+      '/admin/announcement-banner': () => jsonResponse({ title: 'Unauthorized', detail: 'Session expired.' }, 401),
+    });
+
+    render(<AdminScreen accessToken="token" onAuthError={onAuthError} onOpenSuggestions={vi.fn()} />);
+
+    await waitFor(() => expect(onAuthError).toHaveBeenCalledTimes(1));
+  });
+
+  it('REQ-511: creating a banner (none exists yet) submits the typed message via PUT and shows the saved, inactive result', async () => {
+    // stubFetch's URL-substring routing can't tell GET /admin/announcement-banner
+    // apart from PUT /admin/announcement-banner (same URL, different verb) —
+    // a manual fetchMock checking init.method is used here instead, same as
+    // the existing "End round now"/"Delete user" confirm-step tests above.
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/announcement-banner')) {
+        if (init?.method === 'PUT') return jsonResponse(loadedInactiveBanner);
+        return bareNotFound(); // GET: no banner created yet
+      }
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('No banner has been created yet — write one below.');
+
+    await user.type(screen.getByLabelText('Message'), loadedInactiveBanner.message);
+    await user.click(screen.getByRole('button', { name: 'Create banner' }));
+
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([url, callInit]) => String(url).includes('/admin/announcement-banner') && (callInit as RequestInit)?.method === 'PUT',
+      );
+      expect(putCall).toBeDefined();
+      const body = JSON.parse((putCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ message: loadedInactiveBanner.message });
+    });
+
+    expect(await screen.findByText('Status: Inactive — not shown to visitors')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
+  });
+
+  it('REQ-511: "Activate" calls the activate endpoint and flips the shown status to Active', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/announcement-banner/activate')) {
+        return jsonResponse({ ...loadedInactiveBanner, isActive: true });
+      }
+      if (path.includes('/admin/announcement-banner')) return jsonResponse(loadedInactiveBanner);
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('Status: Inactive — not shown to visitors');
+
+    await user.click(screen.getByRole('button', { name: 'Activate' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/announcement-banner/activate'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(await screen.findByText('Status: Active — visible to every visitor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
+  });
+
+  it('REQ-511: "Deactivate" calls the deactivate endpoint, flips the shown status to Inactive, and keeps the saved message', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const path = String(url);
+      if (path.includes('/admin/player-data/unverified')) return jsonResponse([]);
+      if (path.includes('/admin/rounds/xg-grid/active')) return bareNotFound();
+      if (path.includes('/admin/announcement-banner/deactivate')) {
+        return jsonResponse({ ...loadedActiveBanner, isActive: false });
+      }
+      if (path.includes('/admin/announcement-banner')) return jsonResponse(loadedActiveBanner);
+      throw new Error(`Unexpected fetch: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
+    await screen.findByText('Status: Active — visible to every visitor');
+
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining('/admin/announcement-banner/deactivate'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+    expect(await screen.findByText('Status: Inactive — not shown to visitors')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message);
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
+  });
 });

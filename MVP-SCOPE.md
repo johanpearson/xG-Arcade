@@ -486,6 +486,49 @@ is written as something you can actually observe, not a vague feeling:
   why a PAT over a GitHub App, and why not a frontend-direct call) and
   REQ-903 for acceptance criteria.
 
+- **Admin-managed site-wide announcement banner** (REQ-511, new
+  `Core.Announcements` component COMP-13, ADR-0065) — trigger: none
+  fired; **pulled forward by deliberate product decision, 2026-08-10**,
+  same pattern as REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215/REQ-903's
+  own precedent (no observed need for out-of-band maintenance
+  communication — the product owner asked for it directly, alongside a
+  separate admin-notification request for new suggestions/incident
+  reports that was explicitly deferred, see below). A single,
+  admin-managed banner (maintenance notices, announcements), visible to
+  every visitor including a fully logged-out one, with no scheduling,
+  no per-user dismissal, and no multiple-concurrent-banners support —
+  see REQ-511's own "Out of scope" list for the full set of deliberately
+  deferred capabilities. **Built, 2026-08-10:** backend (`AnnouncementBanner`
+  singleton entity/table, public `GET /announcement-banner`, admin
+  `PUT`/`activate`/`deactivate`/`GET` endpoints under the existing
+  `"Admin"` policy) and frontend (`AnnouncementBanner.tsx` mounted
+  outside every auth-gated branch in `App.tsx`; inline
+  `AnnouncementBannerSection` in `AdminScreen.tsx`) — see REQ-511's own
+  status note (`docs/requirements-document.md`), COMP-13's entry
+  (`docs/architecture-document.md`), and ADR-0065 for the concrete
+  shape and the two structural choices it records (unauthenticated
+  public read; true-singleton table). Frontend verified: 529/529
+  Vitest tests pass, `tsc -b` and `oxlint` clean. Backend: `dotnet` SDK
+  unavailable in this sandbox (same recurring constraint as every other
+  recent backend change in this file) — hand-traced only, not compiled
+  or run; confirm with a real `dotnet build`/`dotnet test` pass in CI
+  before relying on this in production.
+- **Admin notification when a new player suggestion (REQ-215/509) or a
+  new in-app incident report (REQ-903) is posted** — requested in the
+  same session as the banner above, explicitly **not built yet**:
+  queued as two separate backlog stories (`docs/backlog.md`) rather than
+  bundled into this session's one-story-per-PR slot. A suggestion-count
+  badge is straightforward (the pending-suggestions data already exists,
+  REQ-509's `GET /admin/suggestions/pending`). An incident-report
+  notification is not — REQ-903/ADR-0064 deliberately keeps no in-app
+  record of a created incident ("no in-app moderation/review queue"), so
+  surfacing "a new one was filed" needs the admin UI to poll GitHub's
+  Issues API for open issues labeled `user-reported`, a genuinely new
+  capability (a live GitHub API read from the admin screen), confirmed
+  as the intended approach directly by the product owner, 2026-08-10 —
+  not a lightweight in-app persistence table, which would have
+  encroached on ADR-0064's existing boundary. Both queued, not started.
+
 ## Tier 2 — already deferred, unchanged
 
 - Club crests (`ClubCrest`, ADR-0008) — Phase 2, as already documented

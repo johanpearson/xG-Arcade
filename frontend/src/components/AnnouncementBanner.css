@@ -1,0 +1,25 @@
+/* REQ-511: the site-wide, admin-managed announcement banner — tokens
+   only, no new color/typeface/animation (see design-document.md §2/§7's
+   own status note recording this component). Deliberately the same
+   "quiet notice band" treatment App.css's `.app__guest-banner` already
+   established (`surface-sunken` background, `border-hairline` bottom
+   border, centered text) rather than inventing a second banner style —
+   the meaningful difference is placement (this one sits above <header>,
+   full-width across the very top of the page, so it's visible on every
+   render path, not only inside the authenticated app shell) and weight
+   (bold text, since an admin-authored site-wide notice is meant to read
+   as more prominent than the guest-session nudge). */
+.announcement-banner {
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border-hairline);
+  text-align: center;
+}
+
+.announcement-banner__message {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}

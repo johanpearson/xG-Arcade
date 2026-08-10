@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.65"
+version: "1.66"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -4525,6 +4525,91 @@ here).
 **Test level:** API (search triggers the same live-lookup mechanism as
 REQ-509; commit uses the identical write path; no suggestion record
 required or created), UI (admin)
+
+**REQ-511 – Site-wide announcement banner (admin-managed)**
+> As an admin, I want to post a notification/banner with information
+> visible to all users on the site (e.g. maintenance notices,
+> announcements), and be able to edit or take it down later, so I can
+> communicate with every visitor without needing a code deploy.
+
+**Creating and editing the banner:**
+- Given no banner exists yet, or a banner (active or inactive) already
+  exists with saved text
+- When an admin submits a non-blank message (with a reasonable max
+  length, exact limit left to implementation) via the same Admin-only
+  area used for the rest of §4.5's admin actions
+- Then the banner's message is created (if none existed) or the existing
+  banner's message is replaced with the new text — there is exactly one
+  banner record at a time, never a list or queue of concurrent banners
+- And a blank/empty message is rejected with a validation error and does
+  not change the stored banner
+
+**Activating and deactivating:**
+- Given a banner with saved text exists and is currently inactive (or has
+  never been activated)
+- When an admin activates it
+- Then it becomes visible to every visitor the next time they fetch it
+  (e.g. on page load or the frontend's next poll) — no push/real-time
+  delivery is required
+- Given a banner is currently active
+- When an admin deactivates it
+- Then it stops being visible to every visitor the next time they fetch
+  it, and deactivating does not delete the banner's saved message — an
+  admin can reactivate the same text later, or edit it first, without
+  retyping it from scratch
+- Given an admin edits the message text of a banner that is currently
+  active
+- Then the updated text is what subsequent visitors see on their next
+  fetch — an edit to an already-active banner does not require a
+  separate deactivate/reactivate step
+
+**Visibility to every user, including fully logged-out visitors:**
+- Given an active banner exists
+- When any visitor — logged-in, guest, or fully logged-out with no
+  session at all — fetches the current banner
+- Then they receive its message, and fetching it requires no
+  authentication of any kind, the same way a public health-check-style
+  endpoint would behave (maintenance notices must reach a logged-out
+  visitor too, not only signed-in players)
+- Given no banner exists, or the only banner on record is inactive
+- When any visitor fetches the current banner
+- Then the response indicates there is no active banner (not an error),
+  and no banner is shown
+
+**Authorization boundary on write actions:**
+- Given a request to create, edit, activate, or deactivate the banner
+- When the caller has no valid session
+- Then the request is rejected with `401`
+- Given a request to create, edit, activate, or deactivate the banner
+- When the caller is authenticated but is not in the `Admin:UserIds`
+  allowlist
+- Then the request is rejected with `403`, using the same "Admin"
+  authorization policy already enforced by `AdminEndpoints`/
+  `AdminManagementEndpoints`/`AdminAccountsEndpoints` — no new
+  authorization policy is introduced for this REQ
+- And in both rejection cases above, no banner state changes as a result
+  of the rejected request
+
+**Out of scope for this REQ:** multiple concurrent/queued banners (a
+second `POST`/edit replaces the single existing banner, it does not
+create an additional one); scheduled start/end times (an admin must
+activate and deactivate it manually — no "go live at" or "expire at"
+fields); per-user dismiss-and-remember (there is no per-user dismissed
+state — a banner that is active is shown to everyone who fetches it,
+including someone who dismissed an earlier version of it, since there is
+no dismissal to remember); severity/color levels or categorization (a
+single, unstyled message type); rich text or HTML formatting (plain text
+only for v1).
+
+**Test level:** Unit (blank-message validation), API (create/edit
+replaces the single banner rather than creating a second one;
+activate/deactivate flip visibility for subsequent reads; deactivating
+preserves the saved message; the read endpoint requires no
+authentication and returns a clear no-active-banner state when
+applicable; write actions reject `401`/`403` under the Admin policy with
+no state change on rejection), UI (an active banner is visible to a
+logged-in user, a guest, and a fully logged-out visitor; an admin can
+create/edit/activate/deactivate it from the existing admin area)
 
 ---
 
