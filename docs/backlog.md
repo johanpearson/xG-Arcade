@@ -4886,16 +4886,59 @@ site-wide-announcement-banner-shape.md` (new) all added/updated in this
 story.
 
 **S-097 · Admin notification badge for pending player suggestions
-(REQ-215/509) — queued, not started**
+(REQ-215/509/512) — implemented 2026-08-10**
 Decomposed alongside S-096 above but explicitly deferred to its own
 session per this file's one-story-per-PR rule. Low-risk relative to
 S-098 below: the pending-suggestions data already exists (REQ-509's `GET
-/admin/suggestions/pending`), so this is expected to be a count/badge
-read against data already being fetched by `SuggestionsScreen.tsx`/
-`AdminScreen.tsx`, not a new data source. No REQ drafted yet — start with
-`requirements-writer` per this repo's usual workflow (a feature with no
-REQ goes to requirements-writer before any code).
-*Deps:* none blocking — reuses REQ-509's existing endpoint.
+/admin/suggestions`), so this was a count/badge read against data
+already being fetched for `SuggestionsScreen.tsx`, not a new data
+source. `requirements-writer` drafted REQ-512 first per this repo's
+usual "no REQ, no code" workflow.
+*Accept:* REQ512-named tests: a positive pending count renders
+`Player suggestions (N)`; a zero count renders no badge (button text
+alone, not a `(0)` suffix); the count refreshes after navigating away to
+resolve a suggestion and back, with no polling; a non-admin/guest never
+sees a count (401 escalates via the existing `onAuthError`, 403 leaves
+the badge absent without erroring the page).
+*Deps:* none — reuses REQ-509's existing `GET /admin/suggestions`
+endpoint and existing `fetchPendingSuggestions()` API client function;
+no new backend endpoint or data source.
+
+**Built as:** Frontend only (`ui-implementer`) — no backend change, since
+this reuses REQ-509's existing endpoint end to end. A new
+`PlayerSuggestionsEntry` component in `frontend/src/admin/AdminScreen.tsx`
+wraps the existing "Player suggestions" button, fetching on mount via the
+already-existing `fetchPendingSuggestions()` and rendering the count as
+plain text (`Player suggestions (N)`), the same convention
+`UnverifiedDataSection`'s `Unverified data (N)` heading already uses in
+this file — deliberately not a colored pill/badge, since
+`design-document.md` §2 has no token for one and this avoids an ad-hoc
+value per CLAUDE.md's token rule (no `docs/design-document.md` change
+needed as a result). After a quality-gate finding, the component was
+corrected to distinguish 401 (escalates via `onAuthError`, matching
+every other admin section) from 403 (badge silently absent, button still
+usable — a non-admin case that should never happen from an already-gated
+screen but is handled the same defensive way as the rest of the file)
+from any other failure (surfaced inline via a `loadError` state, not
+swallowed as "zero pending" — the one failure mode this badge can't
+afford). Fetch-on-load only, no polling: `App.tsx`'s screen ternary
+already unmounts/remounts `AdminScreen` around a visit to
+`SuggestionsScreen`, so returning from resolving a suggestion naturally
+re-triggers the fetch with no extra plumbing. Tests (`test-writer`): 7
+new tests across `AdminScreen.test.tsx` (badge presence/absence,
+401/403/error-state handling in isolation) and `App.test.tsx` (one
+end-to-end navigation-round-trip test proving the remount-triggers-
+refetch claim, not just asserting it in a comment). **Quality-gate run**
+(`architecture-reviewer` + `quality-architect`): no new
+component/boundary/data-flow — REQ-509's existing endpoint and
+authorization policy are reused as-is, no ADR needed; one blocking
+finding (the missing 401/403/other-error distinction above) routed back
+and fixed. Full frontend suite (536/536) passing, `tsc -b`/oxlint clean;
+backend untouched by this story since it reuses REQ-509's existing
+endpoint. `docs/requirements-document.md` (REQ-512, new) and this
+backlog entry updated in this story; `docs/architecture-document.md` and
+`docs/design-document.md` confirmed unchanged (no new component,
+boundary, data flow, or design token introduced).
 
 **S-098 · Admin notification for new in-app incident reports
 (REQ-903) — queued, not started**
