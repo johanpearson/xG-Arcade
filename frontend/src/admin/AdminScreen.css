@@ -242,3 +242,19 @@
   font-size: 18px;
   color: var(--color-text-primary);
 }
+
+/* REQ-904: the only <a> element in this screen — an external "view on
+   GitHub" link-out (opens in a new tab), not a button, since it navigates
+   away from the app rather than triggering an in-app action. No existing
+   class in this file styles an anchor, so this is a genuinely new need;
+   tokens only, sized to the same --touch-target-min floor every button in
+   this file already uses (design-document.md §6's accessibility floor). */
+.admin-screen__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target-min);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+}
