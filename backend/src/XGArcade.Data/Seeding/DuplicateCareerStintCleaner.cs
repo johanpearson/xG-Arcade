@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using XGArcade.Data.Entities;
 
 namespace XGArcade.Data.Seeding;
 
