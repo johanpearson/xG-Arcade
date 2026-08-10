@@ -9,7 +9,7 @@ namespace XGArcade.Api.Internal;
 // from InternalRoundEndpoints (its original, only caller) so a second such
 // endpoint doesn't hand-duplicate this constant-time comparison, the same
 // "shared configuration helper, not hand-duplicated" discipline CLAUDE.md
-// requires for HttpClient configuration (ConfigureWikidataHttpClient).
+// requires for HttpClient configuration (WikidataHttpClientConfiguration).
 public static class InternalJobAuthorization
 {
     public static bool IsAuthorized(HttpRequest request, IConfiguration configuration)
