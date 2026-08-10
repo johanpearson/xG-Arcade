@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/backlog.md` (new Epic 7: S-099 through S-105) — added
+  a technical-debt-remediation epic from `CODEBASE_ANALYSIS.md`'s findings
+  (WikidataClient.cs duplication/size, Program.cs composition-root sprawl,
+  AdminScreen.tsx God Component, GridGameModule.cs nesting, a high-severity
+  transitive `undici` dev-dependency, and an optional comment-dedup pass).
+  Pure-refactor stories, no new REQ IDs — no requirements/architecture doc
+  changes accompany this entry since no behavior or boundary has changed
+  yet, only the plan to touch that code.
 - 2026-08-10 — `docs/coding-guidelines.md` (v0.5 → v0.6) — documented the
   new `useAdminSectionFetch` convention (`frontend/src/admin/AdminScreen.tsx`):
   a shared hook extracted from five previously hand-rolled fetch-on-mount +
