@@ -209,9 +209,13 @@ interface PlayerSuggestionsEntryProps {
 // Reuses REQ-509's existing GET /admin/suggestions data (fetchPendingSuggestions)
 // — no new endpoint, no second data source. Own fetch/state, same resilience
 // pattern as AccountMetricsSection/XGPathCycleSection below: a 401 escalates
-// via onAuthError, a 403 (or any other failure) just leaves the count absent
-// rather than erroring this section or the page — the button itself still
-// works regardless, since SuggestionsScreen enforces its own access checks.
+// via onAuthError, a 403 leaves the count absent silently (this section never
+// erroring or flipping the whole page to access-denied — the button itself
+// still works regardless, since SuggestionsScreen enforces its own access
+// checks), and anything else (500, network failure, parse error, etc.) is
+// surfaced inline via loadError rather than silently read as "nothing
+// pending" — the one failure mode this badge can't afford, since its whole
+// purpose is letting an admin trust it without opening the screen.
 // Fetch-on-load only, per REQ-512's "no polling/websocket" scope: App.tsx's
 // screen ternary unmounts AdminScreen while SuggestionsScreen is open and
 // remounts it on the way back, so returning from resolving a suggestion
@@ -223,6 +227,7 @@ interface PlayerSuggestionsEntryProps {
 // this avoids introducing an ad-hoc color per CLAUDE.md's token rule.
 function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggestions }: PlayerSuggestionsEntryProps) {
   const [pendingCount, setPendingCount] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -232,16 +237,22 @@ function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggestions }:
         const suggestions = await fetchPendingSuggestions(accessToken);
         if (cancelled) return;
         setPendingCount(suggestions.length);
+        setLoadError(null);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
           onAuthError();
           return;
         }
-        // 403 (non-admin) or any other failure: no badge/count is shown —
-        // REQ-512 treats a zero/unknown count identically (badge absence),
-        // and this section never flips the whole page to access-denied.
+        if (err instanceof ApiError && err.status === 403) {
+          // Non-admin: no badge/count is shown — REQ-512 treats a
+          // zero/unknown count identically (badge absence), and this
+          // section never flips the whole page to access-denied.
+          setPendingCount(null);
+          return;
+        }
         setPendingCount(null);
+        setLoadError(describeError(err));
       }
     }
 
@@ -257,6 +268,11 @@ function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggestions }:
       <button type="button" onClick={onOpenSuggestions}>
         Player suggestions{pendingCount !== null && pendingCount > 0 ? ` (${pendingCount})` : ''}
       </button>
+      {loadError && (
+        <p className="admin-screen__error" role="alert">
+          {loadError}
+        </p>
+      )}
     </section>
   );
 }
