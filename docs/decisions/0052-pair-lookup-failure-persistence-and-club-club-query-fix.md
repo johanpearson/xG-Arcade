@@ -204,7 +204,62 @@ its own, needs a forced re-check" logic as the other two tools; it's a
 narrower-grained way to trigger that re-check, not a different kind of
 invalidation.
 
+## Status note (2026-08-10, follow-up — `PairLookupFailure` gets a second reader)
+
+A player reported REQ-211's guess-time live-lookup fallback timing out
+"quite often" on guesses they expected to be straightforwardly incorrect.
+Investigation found `GridGameModule.RefreshCellFromLiveLookupAsync` never
+consulted `PairLookupFailure` at all — only `PlayerCacheWarmingService`
+read it, per this ADR's original Decision. So a Country×Club or Club×Club
+pair `PlayerCacheWarmingService` had already confirmed, independently and
+in advance, as a persistent technical failure (`ConsecutiveFailureCount >=
+PersistentFailureThreshold`) still paid the full guess-time-fallback
+timeout (currently 28s, ADR-0046) on every single guess against it — the
+guess-time path had no way to know cache-warming had already given up on
+that exact pair.
+
+Fixed by adding `IsPersistentTechnicalFailureAsync` as a second read call,
+now also from `GridGameModule.RefreshCellFromLiveLookupAsync`, before it
+calls `LookupLiveMatchesAsync`: if the pair is already a known persistent
+failure, it throws `LiveLookupUnavailableException` immediately instead of
+attempting (and waiting out) a live call already known to be doomed. This
+does not change REQ-211/ADR-0046's correctness guarantee — the pair is
+still reported as genuinely UNKNOWN, not "incorrect," and no REQ-210
+attempt is consumed either way; it only removes a redundant ~28s wait for
+a case the system already had a confident answer to. `GridGameModule`
+reaches `PairLookupFailure` the same sanctioned way `PlayerCacheWarmingService`
+already does — through `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync`,
+never a direct `DbContext` query — so this is a second consumer, not a new
+access path.
+
+`PlayerCacheWarmingService.PersistentFailureThreshold` was changed from
+`private` to `internal` so `GridGameModule` (same project, `Games.XGGrid`)
+can reference the identical value rather than duplicating it — unlike
+`PairLookupFailureCleaner`'s copy (this ADR's 2026-08-01 status note),
+which had to duplicate because `XGArcade.Data.Seeding` sits below
+`Games.XGGrid` in the project-reference graph; no such inversion applies
+here, both types already live in the same project.
+
+Only ever helps Country×Club/Club×Club — `PlayerCacheWarmingService.WarmAsync`
+does not iterate Trophy pairings (Country×Trophy, Club×Trophy, also served
+by this same fallback per ADR-0018/S-031), so `PairLookupFailure` never has
+rows for those; the new check is a guaranteed-false, effectively free read
+for a Trophy-pairing guess, never a false skip.
+
 ## For AI agents
+
+`PairLookupFailure` now has two readers: `PlayerCacheWarmingService`
+(original, decides whether to skip a pair during a warming run) and
+`GridGameModule.RefreshCellFromLiveLookupAsync` (2026-08-10, decides
+whether to skip a guess-time live call). Both go through
+`IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` — do not add a
+third reader that queries `DbContext.PairLookupFailures` directly. If you
+change `PersistentFailureThreshold`'s value, both readers pick it up
+automatically since `GridGameModule` references
+`PlayerCacheWarmingService.PersistentFailureThreshold` directly, not a
+duplicated copy — do not reintroduce a duplicate for this pair the way
+`PairLookupFailureCleaner` had to for its own, different (cross-project)
+reason.
 
 Do not reintroduce a same-run retry in `PlayerCacheWarmingService` without
 re-reading this ADR's evidence first — it was removed because it made a

@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.67"
+version: "0.68"
 status: draft
-last_updated: 2026-08-08
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -1154,8 +1154,11 @@ rather than left as unreviewed implementation-only detail:
   fills the text field only — never auto-submits — so the player always
   takes an explicit, separate "Submit guess" action regardless of how the
   name got into the field.
-- Debounced at 275ms after the last keystroke, once the trimmed query
-  reaches 2 characters; a failed suggestions fetch is swallowed
+- Debounced at 150ms after the last keystroke, once the trimmed query
+  reaches 2 characters — lowered from 275ms (2026-08-10) now that the
+  request is properly cancelled on a superseded keystroke (see REQ-207's
+  own test coverage), so a shorter debounce no longer risks piling up
+  redundant in-flight requests; a failed suggestions fetch is swallowed
   client-side (shows no suggestions, never blocks or errors the guess
   form) since autocomplete is a nice-to-have, not required to submit.
 - Standard combobox/listbox ARIA pattern (`role="combobox"` on the input,

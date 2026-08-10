@@ -128,6 +128,35 @@ existing `Reason`/`LockedByAdminId`/`LockedAt` columns.
   `Field` values, or by having `HasEffectiveAttributeAsync` warn/flag the
   conflict, whichever a real occurrence turns out to need.
 
+## Status note (2026-08-10, follow-up)
+
+`ValidateCommitRequest` originally required `Reason` unconditionally,
+regardless of which path(s) a commit actually wrote through. Combined with
+this ADR's own §Decision — `Reason` is only ever persisted (on
+`PlayerOverride`) for the nationality write; the additive `PlayerAttribute`
+club write carries no audit columns at all, per this ADR's own Consequences
+section — a clubs-only commit (no nationality) required an admin to type a
+reason that was then validated and silently discarded, satisfying no actual
+audit trail. Reported by a real admin user as unwanted friction with no
+apparent purpose, which is exactly what it was for that path.
+
+Fixed by making `Reason` conditionally required: still mandatory (and still
+persisted to `PlayerOverride.Reason`) whenever a commit includes a
+nationality; optional, and simply not collected as blocking, whenever a
+commit is clubs-only. This does not reopen the "add audit columns to
+`PlayerAttribute`" alternative rejected above — that remains a real gap
+(a committed club still can't be traced to an admin/reason later) worth
+revisiting only if a concrete need for it shows up, per this ADR's existing
+Follow-up note. This status note only stops the UI/API from demanding input
+that path had nowhere to put.
+
+`AdminSuggestionEndpoints.cs`'s `ValidateCommitRequest` and
+`SuggestionsScreen.tsx`'s `PlayerReviewPanel` (`canCommit`, the `Reason`
+field's `required` attribute) were both updated together so client- and
+server-side validation stay in sync, same as before this fix.
+REQ-509/REQ-510's "a reason recorded" acceptance criterion is updated
+alongside this note to say so explicitly, scoped to the nationality path.
+
 ## For AI agents
 
 If code you are about to write would contradict this decision, stop and

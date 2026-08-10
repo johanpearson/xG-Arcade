@@ -445,13 +445,14 @@ export async function fetchPlayerAutocomplete(
   accessToken: string,
   query: string,
   limit?: number,
+  signal?: AbortSignal,
 ): Promise<PlayerAutocompleteSuggestion[]> {
   const params = new URLSearchParams();
   params.set('query', query);
   if (limit !== undefined) params.set('limit', String(limit));
   const response = await fetch(
     `${API_BASE_URL}/players/autocomplete?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+    { headers: { Authorization: `Bearer ${accessToken}` }, signal },
   );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as PlayerAutocompleteSuggestion[];

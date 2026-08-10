@@ -58,7 +58,7 @@ export interface GuessInputProps {
 // short query returns an empty array" behavior.
 const MIN_QUERY_LENGTH = 2;
 // Simple setTimeout-based debounce — no new library needed for this.
-const DEBOUNCE_MS = 275;
+const DEBOUNCE_MS = 150;
 const SUGGESTION_LIMIT = 8;
 
 // SCREEN-02: bottom sheet on mobile / inline popover on desktop, switched
@@ -135,6 +135,11 @@ export function GuessInput({
   // list for a query that just got answered — this ref skips exactly that
   // one re-trigger without needing to touch the debounce timing itself.
   const justSelectedRef = useRef(false);
+  // Tracks the in-flight autocomplete request (if any) so a superseded
+  // keystroke aborts it instead of leaving it to resolve concurrently with
+  // a newer one — the previous "cancelled" local-flag approach only
+  // ignored the stale response, it never actually cancelled the request.
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // REQ-215 (S-089): once a submission has scored an outcome this render
   // (scoredResult), attemptCount/locked prefer that fresh response over the
@@ -163,27 +168,38 @@ export function GuessInput({
       return;
     }
 
-    let cancelled = false;
     const timer = setTimeout(() => {
-      fetchPlayerAutocomplete(accessToken, trimmed, SUGGESTION_LIMIT)
+      // Abort any still-in-flight request from a previous keystroke before
+      // starting this one, so fast typing never leaves multiple redundant
+      // requests hitting the DB concurrently.
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      fetchPlayerAutocomplete(accessToken, trimmed, SUGGESTION_LIMIT, controller.signal)
         .then((results) => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           setSuggestions(results);
           setShowSuggestions(results.length > 0);
           setHighlightedIndex(-1);
         })
-        .catch(() => {
+        .catch((err) => {
+          // An intentionally aborted request (superseded by a newer
+          // keystroke, or the effect cleaning up) is not a failure — it
+          // must never surface as an error or clear/replace suggestions
+          // that a later, still-in-flight request may still fill in.
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          if (controller.signal.aborted) return;
           // Autocomplete is a nice-to-have — a failed fetch never blocks or
           // errors the guess form, it just shows no suggestions.
-          if (cancelled) return;
           setSuggestions([]);
           setShowSuggestions(false);
         });
     }, DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
       clearTimeout(timer);
+      abortControllerRef.current?.abort();
     };
   }, [name, accessToken]);
 

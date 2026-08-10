@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.60"
+version: "1.62"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -1693,6 +1693,23 @@ an extra attempt), API
   ever runs for a guess that matched a real, indexed player, a wider budget
   for just that narrower case has none of the downside the rejected
   alternative had.
+- **Status note (2026-08-10, ADR-0052 follow-up) — known-doomed pairs now
+  fail fast instead of re-paying the full timeout:** a player reported the
+  guess-time fallback timing out "quite often." Root cause: a Country×Club
+  or Club×Club pair `PlayerCacheWarmingService` had already confirmed, on
+  its own independent runs, as a persistent technical failure
+  (`PairLookupFailure.ConsecutiveFailureCount >= PersistentFailureThreshold`)
+  still paid the full ~28s guess-time timeout on every guess against it —
+  the guess-time path never consulted that table. `GridGameModule
+  .RefreshCellFromLiveLookupAsync` now checks
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` before
+  attempting the live call; a known-doomed pair now throws
+  `LiveLookupUnavailableException` immediately. This is a latency
+  short-circuit only — the pair is still reported genuinely UNKNOWN, not
+  "incorrect," and no REQ-210 attempt is consumed either way, same as
+  before. Only benefits Country×Club/Club×Club — `PlayerCacheWarmingService`
+  doesn't track Trophy pairings, so this check is a guaranteed-false read
+  for those. See ADR-0052's matching status note for the full detail.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
@@ -4432,7 +4449,11 @@ suggestion may only ever write `PlayerAttribute`/`PlayerOverride`, never
   marks it correct
 - Then the corresponding `PlayerAttribute`/`PlayerOverride` data is
   written the same way REQ-501's manual-override path writes it today
-  (admin-authenticated, a reason recorded, audit fields set) — never
+  (admin-authenticated, audit fields set; a reason is required and recorded
+  whenever the commit includes a nationality, since that's the only path
+  with a column to persist it to — a clubs-only commit does not require a
+  reason, since `PlayerAttribute` carries no audit columns for it to be
+  written to; see ADR-0060's 2026-08-10 status note) — never
   through `PlayerNameIndex` (ADR-0007's autocomplete/correctness boundary
   applies here without exception: committing a suggestion changes
   correctness-checking data only, and must never be implemented as a

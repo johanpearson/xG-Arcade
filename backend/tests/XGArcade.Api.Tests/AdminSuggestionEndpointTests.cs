@@ -468,6 +468,34 @@ public class AdminSuggestionEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
     }
 
+    // ADR-0060's 2026-08-10 status note: a clubs-only commit has nowhere to
+    // persist a reason (PlayerAttribute carries no audit columns), so unlike
+    // the nationality case above, an empty reason must not be rejected.
+    [Test]
+    public async Task REQ509_Commit_SucceedsWithoutReason_WhenClubsOnly_NoNationality()
+    {
+        var submittingUserId = await SeedSubmittingUserAsync();
+        var suggestionId = await SeedPendingSuggestionAsync(submittingUserId);
+        var client = CreateAdminClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"/admin/suggestions/{suggestionId}/commit",
+            new CommitPlayerDataRequest("Q188207", "Clarence Seedorf", null, ["AC Milan"], ""));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<CommitPlayerDataResponse>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Nationality, Is.Null);
+        Assert.That(body.Clubs, Is.EquivalentTo(new[] { "AC Milan" }));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var player = await dbContext.Players.SingleAsync(p => p.WikidataQid == "Q188207");
+        Assert.That(await dbContext.PlayerOverrides.AnyAsync(o => o.PlayerId == player.Id), Is.False,
+            "a clubs-only commit must never write a PlayerOverride row");
+        Assert.That(await dbContext.PlayerAttributes.AnyAsync(a => a.PlayerId == player.Id && a.AttributeType == "club" && a.AttributeValue == "AC Milan"), Is.True);
+    }
+
     // ---- REQ-509: reject ------------------------------------------------
 
     [Test]
