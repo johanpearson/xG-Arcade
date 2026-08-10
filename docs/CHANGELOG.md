@@ -13,6 +13,15 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — new `docs/decisions/0064-backend-mediated-github-incident-reporting.md`,
+  `docs/requirements-document.md` (REQ-903), `docs/architecture-document.md`
+  (new COMP-12 Core.IncidentReporting), `MVP-SCOPE.md` (Tier 1 pull-forward
+  entry) — design-only exploration of letting a logged-in, non-guest player
+  file a bug report from inside the app that lands as a real GitHub issue,
+  without them needing a GitHub account. Backend holds a fine-grained PAT
+  scoped to `Issues: write` on this repo only, never exposed to the client;
+  guests rejected server-side `403`, same boundary REQ-215 already
+  established. No code written yet — REQ-903/ADR-0064 only.
 - 2026-08-10 — new `docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md`,
   `docs/decisions/0059-career-stint-club-name-canonicalization.md`
   ("For AI agents" section) — quality-gate follow-up on commit `237439c`

@@ -456,6 +456,20 @@ is written as something you can actually observe, not a vague feeling:
   wires this feature up for it yet. **REQ-509/REQ-510's admin
   review/commit half remains queued, not yet built** — `docs/backlog.md`
   S-090, blocked on no dependency other than session availability.
+- **In-app incident reporting to GitHub Issues** (REQ-903, new
+  Core.IncidentReporting component, ADR-0064) — trigger: none fired; **pulled
+  forward by deliberate product decision, 2026-08-10**, same pattern as
+  REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own precedent (no observed
+  volume of reports going out-of-band — the product owner asked for it
+  directly, reasoning that a logged-in player should be able to file a bug
+  report that lands as a real GitHub issue without needing a GitHub
+  account). A logged-in, non-guest player gets an in-app entry point;
+  the backend creates the issue server-side using a fine-grained GitHub
+  PAT scoped to `Issues: write` on this repo only — never exposed to the
+  client. Guests are rejected server-side (`403`), same boundary REQ-215
+  already established. **Design only — not yet built.** See ADR-0064 for
+  the full decision (including why a PAT over a GitHub App, and why not a
+  frontend-direct call) and REQ-903 for acceptance criteria.
 
 ## Tier 2 — already deferred, unchanged
 
