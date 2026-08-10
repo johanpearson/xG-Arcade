@@ -215,9 +215,9 @@ describe('PathGuessInput', () => {
 
     const field = screen.getByLabelText('Player name');
     await user.type(field, 'Th');
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(40);
     await user.type(field, 'ie');
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(40);
     await user.type(field, 'rry');
 
     // Still within the debounce window of the last keystroke — no request

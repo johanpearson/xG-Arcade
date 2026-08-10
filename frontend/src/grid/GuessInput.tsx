@@ -58,7 +58,7 @@ export interface GuessInputProps {
 // short query returns an empty array" behavior.
 const MIN_QUERY_LENGTH = 2;
 // Simple setTimeout-based debounce — no new library needed for this.
-const DEBOUNCE_MS = 275;
+const DEBOUNCE_MS = 150;
 const SUGGESTION_LIMIT = 8;
 
 // SCREEN-02: bottom sheet on mobile / inline popover on desktop, switched

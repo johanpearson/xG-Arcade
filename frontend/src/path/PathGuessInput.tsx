@@ -25,7 +25,7 @@ export interface PathGuessInputProps {
 // uses for the identical, shared autocomplete endpoint — no reason for this
 // screen to behave differently.
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 275;
+const DEBOUNCE_MS = 150;
 const SUGGESTION_LIMIT = 8;
 
 // User-testing fix (2026-08-02): submitting with an empty field used to be
