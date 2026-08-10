@@ -164,58 +164,44 @@ public class WikidataClient(
         PropertyNameCaseInsensitive = true,
     };
 
+    // S-100 (docs/backlog.md): thin wrapper over QueryIntersectionAsync's
+    // shared driver — the QID guard and query-building this used to do
+    // inline now live centrally, keyed off (CategoryType.Country,
+    // CategoryType.Club) via IntersectionQuerySpecs.ByCategoryPair.
+    // Signature and behavior are unchanged for every caller (GridGameModule,
+    // XGPathGameModule, WikidataLookupService, WikidataClientTests.cs).
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
         string countryWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(countryWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{countryWikidataQid}'", nameof(countryWikidataQid));
-        if (!WikidataQid.IsValid(clubWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
-
-        var query = BuildCountryClubIntersectionQuery(countryWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("country-club", countryWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.Country, CategoryType.Club, countryWikidataQid, clubWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland's P1532
     // counterpart of QueryCountryClubIntersectionAsync above.
+    // S-100: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
         string nationalTeamWikidataQid,
         string clubWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(nationalTeamWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{nationalTeamWikidataQid}'", nameof(nationalTeamWikidataQid));
-        if (!WikidataQid.IsValid(clubWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubWikidataQid}'", nameof(clubWikidataQid));
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.NationalTeam, CategoryType.Club, nationalTeamWikidataQid, clubWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
-        var query = BuildNationalTeamClubIntersectionQuery(nationalTeamWikidataQid, clubWikidataQid);
-        return await RunIntersectionQueryAsync("national-team-club", nationalTeamWikidataQid, clubWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
-
+    // S-100: thin wrapper over QueryIntersectionAsync — see
+    // QueryCountryClubIntersectionAsync's own comment above for the shape.
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
         string clubAWikidataQid,
         string clubBWikidataQid,
         bool throwOnTimeout = false,
         CancellationToken cancellationToken = default,
         Action? onTechnicalFailure = null,
-        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
-    {
-        if (!WikidataQid.IsValid(clubAWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubAWikidataQid}'", nameof(clubAWikidataQid));
-        if (!WikidataQid.IsValid(clubBWikidataQid))
-            throw new ArgumentException($"Not a valid Wikidata QID: '{clubBWikidataQid}'", nameof(clubBWikidataQid));
-
-        var query = BuildClubClubIntersectionQuery(clubAWikidataQid, clubBWikidataQid);
-        return await RunIntersectionQueryAsync("club-club", clubAWikidataQid, clubBWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
-    }
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        await QueryIntersectionAsync(CategoryType.Club, CategoryType.Club, clubAWikidataQid, clubBWikidataQid, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
 
     public async Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
         string trophyWikidataQid,
@@ -328,6 +314,46 @@ public class WikidataClient(
 
         var query = BuildTrophyNationalTeamIntersectionQuery(trophyWikidataQid, countryWikidataQid);
         return await RunIntersectionQueryAsync("trophy-national-team", trophyWikidataQid, countryWikidataQid, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
+    }
+
+    // S-100 (docs/backlog.md): the shared driver every spec-table-migrated
+    // Query*IntersectionAsync wrapper calls into — looks its spec up in
+    // IntersectionQuerySpecs.ByCategoryPair by (typeA, typeB), the same
+    // (CategoryType, CategoryType) key the spec table is built around, then
+    // centralizes the WikidataQid.IsValid guard that used to be duplicated
+    // per method (nine near-identical copies before this) — a spec-table
+    // entry can no longer skip it for a new pair the way a copy-pasted
+    // method could. Only the 3 non-trophy pairs (country-club,
+    // national-team-club, club-club) go through this driver so far; the
+    // remaining six trophy-involving Query*IntersectionAsync methods below
+    // still call their own Build*Query method and RunIntersectionQueryAsync
+    // directly, unchanged (S-101 migrates those onto this same driver, at
+    // which point ByCategoryPair gains their six entries too).
+    //
+    // The guard's ArgumentException.ParamName is now the generic "qidA"/
+    // "qidB" rather than each wrapper's own parameter name (e.g.
+    // "countryWikidataQid") — the one deliberate, harmless difference from
+    // centralizing a check that used to be able to name its own parameter
+    // per call site. No caller (production or WikidataClientTests.cs)
+    // asserts on ParamName or message text, only on the exception type.
+    private async Task<IReadOnlyList<WikidataPlayerMatch>> QueryIntersectionAsync(
+        CategoryType typeA,
+        CategoryType typeB,
+        string qidA,
+        string qidB,
+        bool throwOnTimeout,
+        CancellationToken cancellationToken,
+        Action? onTechnicalFailure,
+        WikidataQueryTimeoutTier timeoutTier)
+    {
+        if (!WikidataQid.IsValid(qidA))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{qidA}'", nameof(qidA));
+        if (!WikidataQid.IsValid(qidB))
+            throw new ArgumentException($"Not a valid Wikidata QID: '{qidB}'", nameof(qidB));
+
+        var spec = IntersectionQuerySpecs.ByCategoryPair[(typeA, typeB)];
+        var query = BuildIntersectionQuery(spec.BuildCandidateClauses(qidA, qidB));
+        return await RunIntersectionQueryAsync(spec.QueryKind, qidA, qidB, query, throwOnTimeout, cancellationToken, onTechnicalFailure, timeoutTier);
     }
 
     private async Task<IReadOnlyList<WikidataPlayerMatch>> RunIntersectionQueryAsync(
@@ -530,100 +556,16 @@ public class WikidataClient(
         }
         """;
 
-    // P54 deliberately uses the full statement path (p:P54/ps:P54,
-    // excluding only deprecated rank), NOT the truthy wdt:P54 shortcut
-    // BuildIntersectionQuery's shared predicates use — do not "simplify" it
-    // back. Wikidata's truthy wdt: graph contains only best-rank
-    // statements: the moment any P54 statement on a player is marked
-    // preferred rank (editors routinely mark the *current* club
-    // preferred), every normal-rank historical club silently vanishes from
-    // wdt:P54. That turned "ever played for this club" into "currently
-    // plays for this club" for exactly those players (e.g. Sandro Tonali x
-    // AC Milan), leaving the persisted answer key incomplete and correct
-    // guesses scored incorrect (REQ-113's ever-played-for semantics,
-    // REQ-101/REQ-203's correctness contract). Both grid generation and
-    // REQ-211's guess-time live lookup route through both builders below,
-    // so the statement path covers both.
-    private static string BuildCountryClubIntersectionQuery(string countryQid, string clubQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P27 wd:{{countryQid}}.
-              ?player p:P54 ?clubStatement.
-              ?clubStatement ps:P54 wd:{{clubQid}}.
-              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
-            """);
-
-    // REQ-114/ADR-0035: England/Scotland/Wales/Northern Ireland aren't
-    // sovereign states, so P27 ("country of citizenship") can't distinguish
-    // them — every English/Scottish/Welsh/Northern Irish player's P27 is
-    // uniformly United Kingdom (Q145). P1532 ("country for sport") is
-    // Wikidata's own property for "country represented in competition,"
-    // which is exactly what a football trivia game means by "England."
-    // Deliberately uses the truthy wdt:P1532 shortcut, unlike P54's full
-    // statement path above — P1532 doesn't have P54's "current club" rank-
-    // hiding problem: there's no Wikidata editorial convention of marking
-    // one P1532 statement "preferred rank" to mean "the country they
-    // currently represent" the way editors routinely do for a player's
-    // *current* club on P54 (see BuildCountryClubIntersectionQuery's own
-    // comment for that incident). A player either represented a given
-    // national team or they didn't — best-rank semantics and "represented
-    // this country at all" coincide here, the same reasoning
-    // BuildTrophyCountryIntersectionQuery's comment gives for P166's truthy
-    // shortcut. Same P54 full-statement-path club-membership half as every
-    // other club-involving query in this file — do not "simplify" that half
-    // to wdt:P54.
-    private static string BuildNationalTeamClubIntersectionQuery(string nationalTeamQid, string clubQid) =>
-        BuildIntersectionQuery($$"""
-              ?player wdt:P1532 wd:{{nationalTeamQid}}.
-              ?player p:P54 ?clubStatement.
-              ?clubStatement ps:P54 wd:{{clubQid}}.
-              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
-            """);
-
-    // S-030: "ever played for both clubs" — P54 checked twice instead of
-    // once against P27, same full-statement-path-not-truthy P54 rule as
-    // BuildCountryClubIntersectionQuery above (see its comment for why
-    // wdt:P54 is wrong here). Two distinct statement variables, one per
-    // club — a single shared variable could never bind (one statement
-    // can't point at two clubs).
-    //
-    // 2026-08-01 fix (ADR-0052): each club's match is wrapped in its own
-    // FILTER EXISTS block instead of a plain join. A plain join binds
-    // ?clubAStatement/?clubBStatement in the outer pattern, so a player
-    // with multiple non-deprecated P54 statements at club A (loan spells, a
-    // return transfer) times multiple at club B produces one result ROW PER
-    // (clubAStatement, clubBStatement) COMBINATION per player — on top of
-    // the per-alias multiplication BuildIntersectionQuery's OPTIONAL
-    // alt-label fetch already applies. For two clubs with a large,
-    // well-documented, historically-overlapping squad this combination
-    // produced a real 250,000+ row WDQS response that neither WDQS nor this
-    // client's JSON parser could finish inside any reasonable timeout, and
-    // the same doomed pair got re-attempted on every future
-    // warm-player-cache run since nothing persisted its failure (see
-    // PairLookupFailure, ADR-0052, for that half of the fix). FILTER EXISTS
-    // checks "does at least one qualifying statement exist" without binding
-    // ?clubAStatement/?clubBStatement in the outer pattern, so neither
-    // club's statement count can multiply rows — the result is exactly one
-    // row per matching player before the still-intentional per-alias
-    // multiplication. This is safe specifically because club-club never
-    // reads the shared footer's per-statement qualifiers (?clubStatement,
-    // singular — a different variable, never bound by this builder either
-    // way, see BuildIntersectionQuery's own qualifier comment); a builder
-    // that DOES need those qualifiers (country-club, national-team-club,
-    // trophy-club) cannot use this same trick without losing them. Never
-    // simplify this back to a plain join.
-    private static string BuildClubClubIntersectionQuery(string clubAQid, string clubBQid) =>
-        BuildIntersectionQuery($$"""
-              FILTER EXISTS {
-                ?player p:P54 ?clubAStatement.
-                ?clubAStatement ps:P54 wd:{{clubAQid}}.
-                MINUS { ?clubAStatement wikibase:rank wikibase:DeprecatedRank. }
-              }
-              FILTER EXISTS {
-                ?player p:P54 ?clubBStatement.
-                ?clubBStatement ps:P54 wd:{{clubBQid}}.
-                MINUS { ?clubBStatement wikibase:rank wikibase:DeprecatedRank. }
-              }
-            """);
+    // S-100 (docs/backlog.md): BuildCountryClubIntersectionQuery,
+    // BuildNationalTeamClubIntersectionQuery, and BuildClubClubIntersectionQuery
+    // used to live here as private static methods — moved, unchanged, to
+    // IntersectionQuerySpecs.cs as the BuildCandidateClauses delegates for
+    // IntersectionQuerySpecs.CountryClub/NationalTeamClub/ClubClub. Their own
+    // rationale comments (P54's full-statement-path vs. wdt:P54 shortcut,
+    // P1532 vs. P27, the ADR-0052 FILTER EXISTS fix) moved with them — see
+    // that file, not here, for those three. The other Build*Query methods
+    // below are unmigrated (S-101) and still called directly by their own
+    // Query*IntersectionAsync method above.
 
     // S-031/REQ-108: P166 ("award received") — deliberately uses the truthy
     // wdt:P166 shortcut, unlike P54 above. This is a real judgment call, not
