@@ -1,0 +1,25 @@
+.logo {
+  display: inline-flex;
+  align-items: baseline;
+  /* A flex container ignores a whitespace-only text-node child for layout
+     (unlike normal inline flow), so the literal space between the "xG" span
+     and "Arcade" (kept for the accessible name — see Logo.tsx) renders with
+     zero visual width on its own. This gap is what actually produces the
+     visible space between them. */
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+.logo__x {
+  color: var(--color-accent-green);
+}
+
+.logo__g {
+  color: var(--color-accent-gold-text);
+}
+
+.logo__arcade {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}

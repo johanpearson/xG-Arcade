@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, describeError, login, playAsGuest, signup } from '../lib/api';
-import { getTurnstileToken, resetTurnstileWidget } from '../lib/turnstile';
+import { getTurnstileToken, preloadTurnstileScript, resetTurnstileWidget } from '../lib/turnstile';
 import './AuthScreen.css';
 
 export interface AuthScreenProps {
@@ -30,7 +30,33 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   // one flag that could leave either control in the wrong state.
   const [guestSubmitting, setGuestSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sign-in latency fix (2026-07-25): true only during signup's second,
+  // follow-up-login getTurnstileToken() render (see handleSubmit below) --
+  // drives the "Verifying again to log you in…" status text so the
+  // checkbox-widget teardown/re-render the person just watched happen once
+  // doesn't repeat silently/unexplained a second time right after.
+  const [verifyingAgainForLogin, setVerifyingAgainForLogin] = useState(false);
   const busy = submitting || guestSubmitting;
+
+  // Sign-in latency fix (2026-07-25): each container is owned by this
+  // screen, not by turnstile.ts -- the widget must render inline, in the
+  // visual spot matching whichever action the person actually took, now
+  // that it's a visible checkbox rather than an invisible/hidden widget.
+  // Two separate containers (rather than one shared one) because login/
+  // signup and "Play as guest" are two distinct actions the person can see
+  // themselves choosing between -- the checkbox should appear next to
+  // whichever one they clicked, not in a single fixed spot unrelated to it.
+  const formTurnstileContainerRef = useRef<HTMLDivElement>(null);
+  const guestTurnstileContainerRef = useRef<HTMLDivElement>(null);
+
+  // Sign-in latency fix (2026-07-25): starts the Cloudflare script download
+  // in the background the moment this screen mounts, well before the
+  // person has typed anything or clicked a button -- see turnstile.ts's own
+  // top-of-file comment for why only the script download (never the widget
+  // render or token mint) is safe to move this early.
+  useEffect(() => {
+    preloadTurnstileScript();
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -71,18 +97,59 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setSubmitting(true);
     try {
       if (mode === 'signup') {
-        await signup(email, password, confirmPassword, displayName, ageConfirmed);
+        const signupCaptchaToken = await getTurnstileToken(formTurnstileContainerRef.current!);
+        await signup(email, password, confirmPassword, displayName, ageConfirmed, signupCaptchaToken);
         // Tier 0 UX: auto-login with the same credentials rather than
-        // forcing the player through the form twice.
-        const { accessToken, refreshToken } = await login(email, password);
+        // forcing the player through the form twice. A *second*
+        // getTurnstileToken() call is made here rather than reusing
+        // signupCaptchaToken above: a Cloudflare Turnstile token is
+        // single-use against Supabase's own server-side verification (the
+        // same reason resetTurnstileWidget exists at all — see its own
+        // comment) — reusing an already-verified token for this follow-up
+        // login would fail Supabase's captcha check on arrival, breaking
+        // auto-login for every signup once Supabase's captcha-protection
+        // toggle is on.
+        //
+        // Sign-in latency fix (2026-07-25): this comment used to justify the
+        // second render as "never visible — invisible/managed mode... not a
+        // UX cost worth avoiding." That's no longer true now that the widget
+        // is a real, visible checkbox: the person would otherwise watch the
+        // checkbox they just completed get torn down and silently replaced
+        // by a second, identical-looking one with no explanation. Rather
+        // than leave that unexplained, `verifyingAgainForLogin` drives a
+        // brief, explicit status line ("Verifying again to log you in…")
+        // for the duration of this second render, so the second
+        // checkbox is an intentional, legible step rather than a glitch.
+        setVerifyingAgainForLogin(true);
+        const loginCaptchaToken = await getTurnstileToken(formTurnstileContainerRef.current!);
+        setVerifyingAgainForLogin(false);
+        const { accessToken, refreshToken } = await login(email, password, loginCaptchaToken);
         onAuthenticated(accessToken, refreshToken);
       } else {
-        const { accessToken, refreshToken } = await login(email, password);
+        const captchaToken = await getTurnstileToken(formTurnstileContainerRef.current!);
+        const { accessToken, refreshToken } = await login(email, password, captchaToken);
         onAuthenticated(accessToken, refreshToken);
       }
     } catch (err) {
+      // REQ-701/REQ-717's 2026-07-25 addition, same reasoning as
+      // handlePlayAsGuest's identical branch below: on the backend's
+      // distinct captcha-rejection response (title === "Captcha
+      // verification failed"), the widget is reset so the *next* attempt
+      // (whether a resubmit of this same form or "Play as guest") obtains a
+      // genuinely fresh token rather than silently retrying with the one
+      // that was just rejected. This also guarantees the signup
+      // account-enumeration-safe fallback text below is never what's shown
+      // for a captcha rejection specifically — AuthController.Signup
+      // returns the distinct "Captcha verification failed" title/detail
+      // *before* ever reaching its generic "Signup could not be completed"
+      // fallback (see AuthController.cs), so describeError(err) here
+      // surfaces that distinct detail text, not the generic one.
+      if (err instanceof ApiError && err.title === 'Captcha verification failed') {
+        resetTurnstileWidget();
+      }
       setError(describeError(err));
     } finally {
+      setVerifyingAgainForLogin(false);
       setSubmitting(false);
     }
   }
@@ -94,12 +161,15 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   // handleAuthenticated) — a guest session is stored and treated
   // identically from this point on, no separate "guest mode" path.
   //
-  // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037: a
-  // Cloudflare Turnstile token is obtained first — POST /auth/guest is
-  // never called without first attempting to get one — and sent as the
-  // request body. If the backend's distinct captcha-rejection response
-  // comes back (title === "Captcha verification failed", never the generic
-  // "Guest sign-in failed"), the widget is reset so the *next* click
+  // REQ-717's 2026-07-21 "Bot-check (captcha)" addition / ADR-0037
+  // (amended 2026-07-25 — see turnstile.ts's top-of-file comment for the
+  // invisible-to-visible reversal): a Cloudflare Turnstile token is obtained
+  // first — POST /auth/guest is never called without first attempting to
+  // get one — rendered into `guestTurnstileContainerRef`'s container (its
+  // own visible checkbox, separate from the login/signup form's) and sent
+  // as the request body. If the backend's distinct captcha-rejection
+  // response comes back (title === "Captcha verification failed", never the
+  // generic "Guest sign-in failed"), the widget is reset so the *next* click
   // obtains a genuinely fresh token rather than silently retrying with the
   // one that was just rejected. Any other failure (including
   // getTurnstileToken() itself rejecting, e.g. a script load failure) shows
@@ -109,7 +179,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     setError(null);
     setGuestSubmitting(true);
     try {
-      const captchaToken = await getTurnstileToken();
+      const captchaToken = await getTurnstileToken(guestTurnstileContainerRef.current!);
       const { accessToken, refreshToken } = await playAsGuest(captchaToken);
       onAuthenticated(accessToken, refreshToken);
     } catch (err) {
@@ -236,6 +306,23 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           </p>
         )}
 
+        {/* Sign-in latency fix (2026-07-25): Turnstile now renders a real,
+            visible checkbox (ADR-0037 amendment) rather than an invisible
+            widget, so it needs an inline, in-layout spot rather than a
+            hidden body-level div — this container is empty until submit
+            (getTurnstileToken() renders into it then, never before), so
+            nothing appears here while the person is still filling in the
+            form above. `verifyingAgainForLogin` covers signup's second,
+            follow-up-login render specifically — see handleSubmit's own
+            comment on why that needs an explicit status line instead of a
+            silent second checkbox. */}
+        {verifyingAgainForLogin && (
+          <p className="auth-screen__turnstile-status" role="status">
+            Verifying again to log you in…
+          </p>
+        )}
+        <div className="auth-screen__turnstile" ref={formTurnstileContainerRef} />
+
         <button type="submit" className="auth-screen__submit" disabled={busy}>
           {submitting
             ? 'Working…'
@@ -263,6 +350,10 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       >
         {guestSubmitting ? 'Starting…' : 'Play as guest'}
       </button>
+      {/* Own container, separate from the form's above — this is a distinct
+          action with its own visible checkbox, empty until "Play as guest"
+          is actually clicked. */}
+      <div className="auth-screen__turnstile" ref={guestTurnstileContainerRef} />
       <p className="auth-screen__guest-hint">
         No email needed. You can save your progress and pick a real account
         any time from Settings.

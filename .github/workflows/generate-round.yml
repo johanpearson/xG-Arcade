@@ -1,6 +1,7 @@
 name: generate-round
 
-# Creates a new Round + game instance per the configured frequency (REQ-301).
+# Creates a new Round + game instance per the configured frequency (REQ-301),
+# once per GameKey ("xg-grid", "xg-path" — S-084/REQ-1202).
 # S-008 (docs/backlog.md): Core.Rounds' RoundGenerationService now backs
 # /internal/generate-round, so this cron is enabled.
 #
@@ -11,13 +12,26 @@ name: generate-round
 # under any RoundDurationHours >= 24 instead of an exact-equality cron match.
 # Full reasoning and the rejected `*/2` day-of-month alternative: ADR-0027.
 #
+# S-084 extends this SAME job to also generate an "xg-path" round, rather
+# than adding a second `on.schedule` entry or a matrix strategy: a second
+# cron would need ADR-0027's `RoundDuration >= cron's max gap` invariant
+# re-derived by hand for a new cadence, for no real benefit, since both
+# games can safely share the same daily-cron trigger even with independent
+# RoundDurations — see ADR-0027's "S-084" addendum. Each GameKey below gets
+# its own independent 3-attempt retry loop (generate_round, defined once,
+# called once per GameKey) so one GameKey's retries exhausting doesn't
+# block the other's attempt.
+#
 # workflow_dispatch accepts an optional round_duration_hours input for a
 # one-off manual override (passed through as /internal/generate-round's
-# roundDurationHours query param) — this does NOT change the configured
+# roundDurationHours query param), applied to BOTH GameKeys when supplied —
+# it's a manual one-off knob, not lasting per-game config, so one shared
+# value is simplest. This does NOT change either GameKey's configured
 # default and does NOT require touching this cron; only a *lasting* change
-# to the default needs RoundScheduling:RoundDurationHours (or the deployed
-# Container App's RoundScheduling__RoundDurationHours env var) changed
-# instead.
+# to a default needs RoundScheduling:RoundDurationHours (xg-grid) or
+# RoundScheduling:XGPath:RoundDurationHours (xg-path) — or the deployed
+# Container App's matching RoundScheduling__RoundDurationHours /
+# RoundScheduling__XGPath__RoundDurationHours env vars — changed instead.
 
 on:
   schedule:
@@ -25,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       round_duration_hours:
-        description: "One-off RoundDuration override (hours) for this generation call only. Leave blank to use the configured default."
+        description: "One-off RoundDuration override (hours) for this generation call only, applied to both xg-grid and xg-path. Leave blank to use each GameKey's own configured default."
         type: string
         required: false
 
@@ -33,21 +47,59 @@ jobs:
   generate-round:
     runs-on: ubuntu-latest
     steps:
+      # Bug-bundle follow-up (2026-07-27): a single failed attempt (e.g. a
+      # transient Wikidata hiccup during header-picking, ADR-0023) previously
+      # meant waiting for tomorrow's cron — REQ-301's "one round ahead" design
+      # tolerates that gap without players noticing, but there's no reason to
+      # accept it when a same-run retry is free and safe: RoundGenerationService
+      # is idempotent (this workflow's own top comment) and ADR-0023's
+      # MaxDuration abort happens before a Round is ever persisted, so a
+      # retried call can never create a duplicate or partial round. 3 attempts,
+      # 30s/60s backoff — generous relative to ADR-0023's own 90s per-attempt
+      # budget, cheap relative to a whole day's wait.
+      #
+      # S-084: this retry logic is now a function, called once per GameKey,
+      # so xg-grid and xg-path each get their own independent 3 attempts —
+      # a bash function's return code is scoped to that one call, so calling
+      # it twice below never lets one GameKey's exhausted retries short-circuit
+      # the other's.
       - name: Trigger round generation
         run: |
-          url="https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round"
-          if [ -n "${{ inputs.round_duration_hours }}" ]; then
-            url="${url}?roundDurationHours=${{ inputs.round_duration_hours }}"
-          fi
+          generate_round() {
+            local game_key="$1"
+            local url="https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/generate-round?gameKey=${game_key}"
+            if [ -n "${{ inputs.round_duration_hours }}" ]; then
+              url="${url}&roundDurationHours=${{ inputs.round_duration_hours }}"
+            fi
 
-          http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
-            "$url" \
-            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
+            local max_attempts=3
+            local http_status=""
+            for attempt in $(seq 1 "$max_attempts"); do
+              http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+                "$url" \
+                -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
 
-          echo "Response body:"
-          cat response.json
+              echo "[$game_key] Attempt $attempt/$max_attempts — response body:"
+              cat response.json
 
-          if [ "$http_status" -ge 400 ]; then
-            echo "::error::/internal/generate-round returned HTTP $http_status"
-            exit 1
-          fi
+              if [ "$http_status" -lt 400 ]; then
+                return 0
+              fi
+
+              echo "::warning::[$game_key] /internal/generate-round returned HTTP $http_status (attempt $attempt/$max_attempts)"
+
+              if [ "$attempt" -lt "$max_attempts" ]; then
+                sleep $((attempt * 30))
+              fi
+            done
+
+            echo "::error::[$game_key] /internal/generate-round failed after $max_attempts attempts (last status: $http_status)"
+            return 1
+          }
+
+          overall_status=0
+
+          generate_round "xg-grid" || overall_status=1
+          generate_round "xg-path" || overall_status=1
+
+          exit "$overall_status"

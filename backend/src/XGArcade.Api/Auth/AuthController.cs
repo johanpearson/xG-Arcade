@@ -88,6 +88,20 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
+        // REQ-701/ADR-0037's 2026-07-25 amendment: a missing token is
+        // treated exactly like an invalid one — same distinct rejection
+        // Guest's own identical check below returns, never ASP.NET Core's
+        // generic model-validation response (SignupRequest.CaptchaToken is
+        // nullable specifically so a missing/omitted field reaches this
+        // check instead). Placed here, alongside the other free,
+        // local-only checks and before the first DB round trip
+        // (DisplayNameExistsAsync just below) — no point spending a query
+        // on a request that's going to be rejected regardless.
+        if (string.IsNullOrWhiteSpace(request.CaptchaToken))
+        {
+            return CaptchaRejection();
+        }
+
         // REQ-701: uniqueness is case-insensitive only — spaces and
         // formatting stay exactly as entered, no username-style reshaping.
         // Checked before Supabase Auth is ever called, same discipline as
@@ -100,9 +114,25 @@ public class AuthController(
             return DisplayNameConflictProblem();
         }
 
-        var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, cancellationToken);
+        // Safe: the CaptchaToken null/empty check above already returned
+        // before this point otherwise.
+        var signUpResult = await authClient.SignUpAsync(request.Email, request.Password, request.CaptchaToken!, cancellationToken);
         if (!signUpResult.Success)
         {
+            logger.LogWarning("Signup rejected by Supabase Auth: {ErrorMessage}", signUpResult.ErrorMessage);
+
+            // REQ-701/ADR-0037's 2026-07-25 amendment: a captcha rejection
+            // must be carved out and reported distinctly BEFORE the generic
+            // account-enumeration-safe fallback below — otherwise it gets
+            // silently swallowed into "Check your email..." the way it did
+            // in production (see NOTES.md's 2026-07-25 entry), leaving the
+            // frontend with no way to tell "reset the Turnstile widget and
+            // retry" apart from an ordinary signup rejection.
+            if (signUpResult.IsCaptchaRejection)
+            {
+                return CaptchaRejection();
+            }
+
             // REQ-701 account-enumeration-safe error: Supabase's own
             // rejection reason (e.g. "User already registered") is
             // deliberately never passed through to the client, and — unlike
@@ -111,12 +141,12 @@ public class AuthController(
             // message just for "already registered" (while passing every
             // other Supabase rejection's own text through unchanged) would
             // itself leak which case occurred, exactly the enumeration this
-            // exists to prevent. So every Supabase signup rejection gets
-            // this same generic detail, worded to read sensibly whether or
-            // not an account already exists for this address — logged
-            // server-side (full reason, per docs/coding-guidelines.md) so a
-            // genuine misconfiguration is still diagnosable from logs.
-            logger.LogWarning("Signup rejected by Supabase Auth: {ErrorMessage}", signUpResult.ErrorMessage);
+            // exists to prevent. So every other Supabase signup rejection
+            // gets this same generic detail, worded to read sensibly
+            // whether or not an account already exists for this address —
+            // logged server-side (full reason, per
+            // docs/coding-guidelines.md) so a genuine misconfiguration is
+            // still diagnosable from logs.
             return Problem(
                 title: "Signup could not be completed",
                 detail: "Check your email to confirm your account, or reset your password if you already have one.",
@@ -126,6 +156,10 @@ public class AuthController(
         User user;
         try
         {
+            // REQ-718/ADR-0038: captured once so CreatedAt/LastActiveAt agree
+            // exactly at account creation rather than two independent
+            // DateTime.UtcNow calls that could differ by microseconds.
+            var now = DateTime.UtcNow;
             user = await userRepository.AddAsync(new User
             {
                 Id = Guid.NewGuid(),
@@ -135,7 +169,10 @@ public class AuthController(
                 Email = request.Email,
                 DisplayName = displayName,
                 EmailConfirmed = true, // Tier 0: Supabase's confirm-email requirement is off — see MVP-SCOPE.md
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                // REQ-718: a brand-new account's first 7-day inactivity
+                // window is measured from creation, never left undefined.
+                LastActiveAt = now,
             }, cancellationToken);
         }
         catch (DisplayNameAlreadyInUseException ex)
@@ -170,7 +207,18 @@ public class AuthController(
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
     {
-        var signInResult = await authClient.SignInWithPasswordAsync(request.Email, request.Password, cancellationToken);
+        // REQ-701/ADR-0037's 2026-07-25 amendment: same "missing token
+        // treated exactly like an invalid one" check as Signup/Guest above,
+        // checked before ever calling Supabase — no point spending that
+        // call on a request with nothing to verify.
+        if (string.IsNullOrWhiteSpace(request.CaptchaToken))
+        {
+            return CaptchaRejection();
+        }
+
+        // Safe: the CaptchaToken null/empty check above already returned
+        // before this point otherwise.
+        var signInResult = await authClient.SignInWithPasswordAsync(request.Email, request.Password, request.CaptchaToken!, cancellationToken);
 
         // ISupabaseAuthClient.Success only guarantees AuthProviderUserId is
         // set (see SupabaseAuthClient.PostAuthRequestAsync) — unlike Signup,
@@ -178,10 +226,34 @@ public class AuthController(
         // that's checked explicitly here rather than force-unwrapped.
         if (!signInResult.Success || signInResult.AccessToken is null)
         {
+            // REQ-701/ADR-0037's 2026-07-25 amendment: a captcha rejection
+            // must be distinguished from every other login failure (wrong
+            // password, unconfirmed account, etc.) so the frontend can
+            // reset the Turnstile widget and retry rather than treating it
+            // like an ordinary "Login failed" — same carve-out Signup above
+            // now does.
+            if (signInResult.IsCaptchaRejection)
+            {
+                return CaptchaRejection();
+            }
+
             return Problem(
                 title: "Login failed",
                 detail: signInResult.ErrorMessage,
                 statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        // REQ-718/ADR-0038: a successful login is one of the four
+        // activity-tracking events — resolved by AuthProviderUserId (Login
+        // has no other identifier for the local row yet) the same way every
+        // other authenticated endpoint here resolves it from a JWT claim.
+        // Best-effort: a user row somehow not existing yet (there is no
+        // known path to this today) doesn't fail an otherwise-successful
+        // login over a bookkeeping field.
+        var loggedInUser = await userRepository.GetByAuthProviderUserIdAsync(signInResult.AuthProviderUserId!.Value, cancellationToken);
+        if (loggedInUser is not null)
+        {
+            await userRepository.UpdateLastActiveAtAsync(loggedInUser.Id, cancellationToken);
         }
 
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
@@ -248,6 +320,11 @@ public class AuthController(
         User user;
         try
         {
+            // REQ-718/ADR-0038: same "captured once" reasoning as Signup
+            // above — a guest's own creation is also one of the four
+            // activity-tracking events, and its first 7-day inactivity
+            // window starts here.
+            var now = DateTime.UtcNow;
             user = await userRepository.AddAsync(new User
             {
                 Id = Guid.NewGuid(),
@@ -264,7 +341,8 @@ public class AuthController(
                 // rather than one that matters operationally yet.
                 EmailConfirmed = false,
                 IsGuest = true,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                LastActiveAt = now,
             }, cancellationToken);
         }
         catch (DisplayNameAlreadyInUseException ex)
@@ -293,10 +371,12 @@ public class AuthController(
         return Ok(new LoginResponse(signInResult.AccessToken, signInResult.RefreshToken));
     }
 
-    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition: the one, shared
-    // response shape for both the missing-token and rejected-token cases in
-    // Guest above, so the two call sites can never drift into slightly
-    // different title/detail/status values.
+    // REQ-717's 2026-07-21 "Bot-check (captcha)" addition, widened by
+    // REQ-701/REQ-717's 2026-07-25 scope-correction addition (ADR-0037's
+    // amendment): the one, shared response shape for both the
+    // missing-token and rejected-token cases across all three of
+    // Signup/Login/Guest above, so none of those call sites can ever drift
+    // into slightly different title/detail/status values.
     private ObjectResult CaptchaRejection() =>
         Problem(
             title: "Captcha verification failed",
@@ -523,6 +603,55 @@ public class AuthController(
         return Ok(new MeResponse(updated.Id, updated.Email, updated.DisplayName, updated.EmailConfirmed, isAdmin, updated.IsGuest));
     }
 
+    // REQ-718/ADR-0038 rule 1: the first backend logout call this system has
+    // ever had — REQ-715's own status note records that logout was, until
+    // now, entirely client-side (App.tsx's handleLogout just clears
+    // localStorage). This endpoint adds exactly one behavior on top of that:
+    // for an unclaimed guest (IsGuest && ClaimedAt is null), delete the
+    // account via the same IAccountDeletionService.DeleteAccountAsync path
+    // REQ-710's self-service DeleteAccount above and the scheduled purge job
+    // (InternalGuestCleanupEndpoints) both use — never a second deletion
+    // path. For a claimed or non-guest account this does nothing, same as
+    // REQ-715's existing behavior for those.
+    //
+    // Deliberately best-effort (REQ-718's own "Given ... And this is a
+    // best-effort deletion" clause): always responds 204 regardless of
+    // deletion outcome, logging a failure server-side rather than surfacing
+    // it — the frontend's own local logout (clearing localStorage) must
+    // never be blocked or delayed by this call succeeding or failing, and
+    // rule 3's 7-day inactivity purge independently catches any account this
+    // call fails to remove.
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        var authProviderUserId = User.GetAuthProviderUserId();
+        if (authProviderUserId is null)
+            return Unauthorized();
+
+        var user = await userRepository.GetByAuthProviderUserIdAsync(authProviderUserId.Value, cancellationToken);
+        if (user is null)
+        {
+            // Nothing to clean up — same best-effort, no-error-surfacing
+            // contract as every other outcome of this endpoint.
+            return NoContent();
+        }
+
+        if (user.IsGuest && user.ClaimedAt is null)
+        {
+            var result = await accountDeletionService.DeleteAccountAsync(user.Id, cancellationToken);
+            if (!result.Success)
+            {
+                // Logged, not surfaced (REQ-718 rule 1's best-effort clause)
+                // — rule 3's scheduled inactivity purge independently catches
+                // this account once its LastActiveAt is old enough.
+                logger.LogError("Best-effort guest deletion at logout failed for user {UserId}: {ErrorMessage}", user.Id, result.ErrorMessage);
+            }
+        }
+
+        return NoContent();
+    }
+
     // Shared by Claim above — the raw bearer token this request itself
     // carried in, needed because the claim/link Supabase call must
     // authenticate as the guest identity being converted, not the shared
@@ -576,15 +705,44 @@ public class AuthController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, cancellationToken);
+        // REQ-710/ADR-0037's second amendment: same "missing token treated
+        // exactly like an invalid one" check as Signup/Login/Guest above,
+        // checked before ever calling Supabase — no point spending that call
+        // on a request with nothing to verify. Placed after the guest check
+        // above since a guest can't reach this flow at all regardless of
+        // captcha.
+        if (string.IsNullOrWhiteSpace(request.CaptchaToken))
+        {
+            return CaptchaRejection();
+        }
+
+        // Safe: the CaptchaToken null/empty check above already returned
+        // before this point otherwise. Same SignInWithPasswordAsync call
+        // Login uses (ADR-0037's second amendment) — no new
+        // ISupabaseAuthClient method needed for this re-confirmation step.
+        var confirmation = await authClient.SignInWithPasswordAsync(user.Email, request.Password, request.CaptchaToken!, cancellationToken);
         if (!confirmation.Success)
         {
+            // REQ-710/ADR-0037's second amendment: a captcha rejection must
+            // be carved out and reported distinctly BEFORE the
+            // "Incorrect password" response below — otherwise a person with
+            // a perfectly correct password would be told it was wrong.
+            // Checked first, same ordering Signup/Login already use.
+            if (confirmation.IsCaptchaRejection)
+            {
+                return CaptchaRejection();
+            }
+
             // frontend/src/auth/DeleteAccountScreen.tsx string-matches this exact
             // title to tell "wrong password" (show inline, session still valid)
             // apart from any other 401 on this endpoint (expired/invalid JWT,
             // which has no ProblemDetails body at all and logs the user out
             // instead). If this title ever changes, update that check too —
             // there's no shared machine-readable error code between the two yet.
+            // The CaptchaRejection() check above guarantees this branch is
+            // never reached for a captcha failure, so it can never collide
+            // with this title (REQ-710's 2026-07-25 addition's load-bearing
+            // constraint).
             return Problem(
                 title: "Incorrect password",
                 detail: "Account deletion requires your current password to confirm.",

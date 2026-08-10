@@ -31,10 +31,12 @@ public class GridGameModule(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
     IWikidataLookupService wikidataLookupService,
+    IPlayerNameIndexRepository playerNameIndexRepository,
     GridGenerationOptions options,
     ILogger<GridGameModule> logger,
     Random? random = null,
-    TimeProvider? timeProvider = null) : IGameModule
+    TimeProvider? timeProvider = null,
+    IWikidataClient? wikidataClient = null) : IGameModule
 {
     public const string XGGridGameKey = "xg-grid";
 
@@ -45,6 +47,10 @@ public class GridGameModule(
     // constant of its own here (see MapAttributeType).
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
+
+    // ADR-0041: REQ-210's per-cell attempt cap for xG Grid — every cell gets
+    // the same fixed allowance, unconditionally. See GetMaxAttemptsForCellAsync.
+    private const int MaxAttemptsPerCell = 2;
 
     // SelectPairing's uniform-at-random choice among every feasible pairing
     // goes through this field — candidate-order shuffling still uses
@@ -79,7 +85,18 @@ public class GridGameModule(
     // ResolveCandidateAsync's single per-guess lookup doesn't have to
     // justify). Meaningless for Club/Trophy candidates — always false
     // there, never read for those types.
-    private readonly record struct CategoryCandidate(string Name, string? WikidataQid, bool UsesCountryForSportProperty = false);
+    //
+    // ADR-0061: `IsTeamTrophy` carries TrophyDefinition's own per-row query-
+    // shape flag through the same path, for exactly the same reason —
+    // without it, the throwaway TrophyDefinition LookupLiveMatchesAsync
+    // reconstructs at dispatch time would always default IsTeamTrophy to
+    // false, silently routing every live lookup for a team trophy (World
+    // Cup, Champions League) through the individual-award P166 query, which
+    // structurally can never match a team competition. Meaningless for
+    // Country/Club candidates — always false there, never read for those
+    // types.
+    private readonly record struct CategoryCandidate(
+        string Name, string? WikidataQid, bool UsesCountryForSportProperty = false, bool IsTeamTrophy = false);
 
     public async Task<GameInstance> GenerateInstanceAsync(RoundConfig config, CancellationToken cancellationToken = default)
     {
@@ -92,8 +109,11 @@ public class GridGameModule(
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid, c.UsesCountryForSportProperty)).ToList();
         var clubs = (await categoryValueRepository.GetClubsAsync(cancellationToken))
             .Select(c => new CategoryCandidate(c.Name, c.WikidataQid)).ToList();
+        // ADR-0061: t.IsTeamTrophy threaded through the same way
+        // c.UsesCountryForSportProperty is above — see CategoryCandidate's
+        // own doc comment.
         var trophies = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
-            .Select(t => new CategoryCandidate(t.Name, t.WikidataQid)).ToList();
+            .Select(t => new CategoryCandidate(t.Name, t.WikidataQid, IsTeamTrophy: t.IsTeamTrophy)).ToList();
 
         var (rowCategoryType, colCategoryType) = SelectPairing(template.Size, countries.Count, clubs.Count, trophies.Count);
 
@@ -146,14 +166,21 @@ public class GridGameModule(
     //
     // Non-obvious consequence, load-bearing for what actually ships (see
     // ReferenceDataSeeder and docs/backlog.md S-031): with only one trophy
-    // seeded (Ballon d'Or), trophyCount(1) is smaller than `size` for any
-    // realistic grid size, so every Trophy pairing below is infeasible in
-    // production — Trophy can never actually be selected yet. That's
-    // expected, not a bug: REQ-108 describes the trophy list as reference
-    // data meant to grow later ("a data change, not a code change"), so this
-    // mechanism only becomes live once more trophies are added — see this
-    // class's unit tests for proof the mechanism itself works, using a
-    // larger injected trophy pool.
+    // seeded (Ballon d'Or), trophyCount(1) used to be smaller than `size`
+    // for any realistic grid size, so every Trophy pairing below was
+    // infeasible in production — that was expected, not a bug (REQ-108
+    // describes the trophy list as reference data meant to grow later, "a
+    // data change, not a code change"), and this class's unit tests proved
+    // the mechanism itself worked using a larger injected trophy pool, ahead
+    // of production data actually triggering it.
+    //
+    // UPDATE (ADR-0061, 2026-08-09): ReferenceDataSeeder now seeds three
+    // trophies (Ballon d'Or, FIFA World Cup, UEFA Champions League), which
+    // makes trophyCount(3) >= size for the default GridSize = 3 — Country x
+    // Trophy and Club x Trophy are REACHABLE in production now, for the
+    // first time, not just a mechanism proven by tests. Trophy x Trophy
+    // still needs trophyCount >= size * 2 = 6, so it remains infeasible for
+    // now — this will need revisiting if/when the trophy pool grows further.
     private (string RowType, string ColType) SelectPairing(int size, int countryCount, int clubCount, int trophyCount)
     {
         var candidates = new (string RowType, string ColType, bool Feasible)[]
@@ -221,8 +248,7 @@ public class GridGameModule(
         if (result.IsCorrect || (result.DisambiguationCandidates?.Count ?? 0) > 0)
             return result;
 
-        // REQ-211 (Tier 0 simplified — no PlayerNameIndex prerequisite,
-        // ADR-0010's documented gap): grid generation's cached match count
+        // REQ-211 (2026-07-27 fix): grid generation's cached match count
         // (REQ-101/MinValidAnswers) only ever needed to prove this cell had
         // *some* valid answers, never to catalog every one, so a guess can
         // be genuinely correct even though nothing cached confirms it yet —
@@ -230,15 +256,24 @@ public class GridGameModule(
         // because they already exist with one category's attribute cached
         // (from an unrelated cell) but not this cell's other one. Re-running
         // this cell's own country x club intersection query is an upsert,
-        // not a fresh insert (WikidataLookupService.GetOrCreatePlayerAsync),
-        // so one call fixes both cases and completes the cell's whole
-        // answer key for later guesses too, not just this one name. Full
-        // REQ-211 gates this on a PlayerNameIndex match first (Tier 1, not
-        // built) to keep the trigger narrow against a scarce API budget;
-        // Wikidata alone isn't meaningfully capped (ADR-0011), so Tier 0
-        // skips that prerequisite and simply retries once per guess that
-        // didn't already resolve from cache — bounded by REQ-210's 2-attempt
-        // cap, same as every other guess-time cost.
+        // not a fresh insert (PlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync,
+        // via WikidataLookupService.PersistMatchesAsync), so one call fixes
+        // both cases and completes the cell's whole answer key for later
+        // guesses too, not just this one name.
+        //
+        // Gated on PlayerNameIndex first (REQ-207/S-032 built this, 2026-07-17
+        // — the "Tier 1, not built" gap this comment used to describe is
+        // closed): only a guess that matched a real PlayerNameIndex candidate
+        // is worth a live Wikidata round-trip — a name that matched nothing
+        // there at all can never be a real player, so paying for a live
+        // lookup (and the retry latency that comes with it, this bug
+        // bundle's original report) on every wrong guess was pure waste.
+        // Every other trigger condition is unchanged: bounded by REQ-210's
+        // 2-attempt cap, same as every other guess-time cost, and still a
+        // single retry, never a loop.
+        if (!await playerNameIndexRepository.ExistsByNormalizedNameAsync(normalized, cancellationToken))
+            return result;
+
         if (!await RefreshCellFromLiveLookupAsync(cell, cancellationToken))
             return result;
 
@@ -253,6 +288,98 @@ public class GridGameModule(
             ?? throw new GuessScoringException($"GridInstance '{instanceId}' not found.");
 
         return instance.Cells.Select(c => c.Id).ToList();
+    }
+
+    // ADR-0041: REQ-210's existing "2 guesses per cell" behavior, now
+    // reported through IGameModule instead of the deleted
+    // GuessRules.MaxAttemptsPerCell. Every xG Grid cell shares the same
+    // fixed allowance — no repository lookup, no branching on instanceId or
+    // cellId — deliberately identical to today's behavior, per ADR-0041's
+    // "pure extraction, not a rule change" mandate.
+    public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(MaxAttemptsPerCell);
+
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): SuggestionEndpoints'
+    // only path to a cell's row/col category types — the exact
+    // IGridInstanceRepository.GetCellByIdAsync call that endpoint used to
+    // make directly, now behind the IGameModule boundary (ADR-0003).
+    // instanceId is accepted (matching every other IGameModule method's
+    // shape) but unused, same as GetMaxAttemptsForCellAsync above —
+    // GridCell.Id is already globally unique (GetCellByIdAsync's own doc
+    // comment), so no instance-scoping lookup is needed to resolve it.
+    // Deliberately no check that cellId belongs to instanceId either —
+    // preserves the original endpoint's documented "no further validation
+    // of roundId/cellId's relationship" behavior unchanged; only the
+    // *caller* of this data moved, not what it validates.
+    public async Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default)
+    {
+        var cell = await gridInstanceRepository.GetCellByIdAsync(cellId, cancellationToken)
+            ?? throw new GuessScoringException($"Cell '{cellId}' not found.");
+
+        return new CellCategoryTypes(cell.RowCategoryType, cell.ColCategoryType);
+    }
+
+    // REQ-216/ADR-0057: called by GuessSubmissionService exactly once, only
+    // once it has already determined a cell just locked with its final
+    // guess still incorrect — see IGameModule.ResolveWrongGuessPlayerAsync's
+    // own doc comment for the full "when/how often" contract this method
+    // relies on its caller enforcing.
+    //
+    // PlayerNameIndex.FindByNormalizedNameAsync (COMP-10, ADR-0007) is the
+    // ONLY thing that can confirm submittedName names a real player at all —
+    // null here means REQ-216's "no identity to show" case, unchanged from
+    // today. Its PrimaryName is also this method's guaranteed fallback name:
+    // unlike the photo half below, resolving a canonical name never depends
+    // on any live lookup succeeding.
+    public async Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default)
+    {
+        var normalized = PlayerNameNormalizer.Normalize(submittedName);
+        var nameIndexEntry = await playerNameIndexRepository.FindByNormalizedNameAsync(normalized, cancellationToken);
+        if (nameIndexEntry is null)
+            return null;
+
+        // Cache-first, same exact-then-alias matching order FindMatchAsync
+        // already uses above — a wrong-but-real guess may already have a
+        // correctness-side Player row (FullName/PhotoUrl) cached from
+        // resolving some OTHER cell's answer key, in which case no live
+        // Wikidata round-trip is needed at all. Player.FullName is preferred
+        // here over PlayerNameIndex.PrimaryName when both are available —
+        // it's the same canonical-name source REQ-214's correct-guess reveal
+        // already trusts.
+        var cached = (await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken)).FirstOrDefault()
+            ?? (await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken)).FirstOrDefault();
+        if (cached is not null)
+            return new WrongGuessPlayerInfo(cached.FullName, cached.PhotoUrl);
+
+        // ADR-0057: Wikidata-only, never API-Football, never gated on any
+        // ExternalApiUsage threshold — a cosmetic display lookup for a guess
+        // already known to be wrong, not a correctness-critical retry. Any
+        // failure (timeout, HTTP error, parse error) is caught and swallowed
+        // right here — REQ-216 still requires showing PlayerNameIndex's own
+        // PrimaryName in that case (see this method's own doc comment: the
+        // name half never depends on this lookup succeeding), just with no
+        // photo. wikidataClient is nullable purely so tests that don't care
+        // about this path aren't forced to wire one up; production DI
+        // (Program.cs) always supplies the real client.
+        if (wikidataClient is not null)
+        {
+            try
+            {
+                var lookup = await wikidataClient.QueryPlayerPhotoByNameAsync(submittedName, cancellationToken);
+                if (lookup is not null)
+                    return new WrongGuessPlayerInfo(lookup.FullName, lookup.PhotoUrl);
+            }
+            catch (WikidataQueryException ex)
+            {
+                logger.LogInformation(ex,
+                    "REQ-216/ADR-0057: Wikidata-only wrong-guess photo lookup failed — showing " +
+                    "PlayerNameIndex's canonical name with no photo, never fail-closed (no correctness " +
+                    "verdict left to compute for a guess already known to be wrong).");
+            }
+        }
+
+        return new WrongGuessPlayerInfo(nameIndexEntry.PrimaryName, null);
     }
 
     // REQ-208's three-stage matching order — exact primary name, then
@@ -281,7 +408,7 @@ public class GridGameModule(
             // REQ-208: known aliases/stage names, matched via PlayerAlias —
             // an exact NormalizedAlias equality check, same normalization as
             // the primary-name path (PlayerNameNormalizer.Normalize applied
-            // at persist time, WikidataLookupService.PersistAliasesAsync).
+            // at persist time, WikidataLookupService.PersistMatchesAsync).
             var aliasCandidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
             matching = await FilterByCategoriesAsync(cell, aliasCandidates, cancellationToken);
         }
@@ -489,9 +616,60 @@ public class GridGameModule(
         if (row is null || col is null)
             return false;
 
-        var liveMatches = await LookupLiveMatchesAsync(
-            cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value,
-            WikidataLookupOrigin.GuessTimeFallback, cancellationToken);
+        // 2026-08-10 fix: PlayerCacheWarmingService already knows, from its
+        // own independent runs, when this exact pair's Wikidata query
+        // structurally fails/times out on 2+ consecutive runs
+        // (PairLookupFailure, ADR-0052) - before this fix, a guess against
+        // such a pair still paid the full guess-time-fallback timeout
+        // (currently 28s) live, every single guess, only to end up at the
+        // same LiveLookupUnavailableException below anyway. This is purely a
+        // latency short-circuit: the pair is still genuinely UNKNOWN, not
+        // "incorrect" (ADR-0046's guarantee is unchanged - no attempt is
+        // consumed either way), it just skips a live call already known to
+        // be doomed rather than waiting it out again. Only ever true for
+        // Country×Club/Club×Club pairs - PlayerCacheWarmingService doesn't
+        // track Trophy pairings (see its own WarmAsync scope), so this is a
+        // guaranteed-false, effectively free read for those, never a false
+        // positive that would wrongly skip a live check that could resolve.
+        if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
+                MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
+                PlayerCacheWarmingService.PersistentFailureThreshold, cancellationToken))
+        {
+            throw new LiveLookupUnavailableException(
+                $"Cell {cell.Id}'s category pair is a known persistent Wikidata lookup failure (ADR-0052) - skipping a repeat live call.");
+        }
+
+        IReadOnlyList<Player>? liveMatches;
+        try
+        {
+            liveMatches = await LookupLiveMatchesAsync(
+                cell.RowCategoryType, row.Value, cell.ColCategoryType, col.Value,
+                WikidataLookupOrigin.GuessTimeFallback, cancellationToken);
+        }
+        catch (WikidataQueryException ex)
+        {
+            // REQ-211 (2026-07-27 fix): a timeout here means this cell's
+            // correctness is genuinely UNKNOWN, not "no match" — the
+            // guess-time fallback asked WikidataClient to throw instead of
+            // its usual swallow-to-[] (see WikidataLookupService's
+            // throwOnTimeout comment), specifically so this case is
+            // distinguishable from a real "Wikidata answered, found
+            // nothing." GridGameModule is the one place a DataSync-specific
+            // exception is allowed to cross into Core's cross-boundary
+            // contract (LiveLookupUnavailableException, XGArcade.Core.Games)
+            // — Core itself never references WikidataQueryException or
+            // anything else DataSync-specific (ADR-0003). Left uncaught
+            // here, ScoreSubmissionAsync's caller (GuessSubmissionService)
+            // would otherwise silently fall through to the cache-only
+            // "incorrect" ScoreResult below and persist a wasted attempt for
+            // a guess that might well be correct (this bug bundle's
+            // reported "guessed Seedorf, got 'failed to fetch', retried,
+            // got 'incorrect'" symptom).
+            throw new LiveLookupUnavailableException(
+                $"Live Wikidata lookup for cell {cell.Id} did not complete in time: {ex.Message}");
+        }
+
         return liveMatches is not null;
     }
 
@@ -521,7 +699,10 @@ public class GridGameModule(
         {
             var trophy = (await categoryValueRepository.GetTrophiesAsync(cancellationToken))
                 .FirstOrDefault(t => t.Name == categoryValue);
-            return trophy is null ? null : new CategoryCandidate(trophy.Name, trophy.WikidataQid);
+            // ADR-0061: trophy.IsTeamTrophy threaded through, same as
+            // country.UsesCountryForSportProperty above — see
+            // CategoryCandidate's own doc comment.
+            return trophy is null ? null : new CategoryCandidate(trophy.Name, trophy.WikidataQid, IsTeamTrophy: trophy.IsTeamTrophy);
         }
 
         return null;
@@ -718,31 +899,34 @@ public class GridGameModule(
         // type in a mixed pairing (Country/Club always first) — only these
         // three orderings are ever produced, never Trophy first.
         //
-        // REQ-114/ADR-0035 scope note: unlike the Country x Club branch
-        // above, row.UsesCountryForSportProperty is deliberately NOT
-        // threaded through here — LookupAndPersistTrophyCountryAsync has no
-        // P1532-aware counterpart to BuildTrophyCountryIntersectionQuery
-        // yet, so a national-team country in a Country x Trophy pairing
-        // would silently fall back to (wrong) P27 semantics if it reached
-        // this branch. In practice it can't: SelectPairing's own comment
-        // notes trophyCount(1) never clears any realistic grid `size`, so
-        // this branch is unreachable in production today, same as Trophy x
-        // Trophy below. Extending P1532 support to this pairing is
-        // follow-up work for whenever the trophy pool actually grows enough
-        // to make it reachable.
+        // REQ-114/ADR-0035/ADR-0061: row.UsesCountryForSportProperty and
+        // col.IsTeamTrophy are now BOTH threaded through here, matching the
+        // Country x Club branch above's pattern exactly —
+        // LookupAndPersistTrophyCountryAsync's own dispatch (ADR-0061)
+        // branches on both flags together, so this call site needs no
+        // pairing-specific branching of its own, same precedent as Country x
+        // Club. Before ADR-0061, row.UsesCountryForSportProperty was
+        // deliberately NOT threaded through here (LookupAndPersistTrophyCountryAsync
+        // had no P1532-aware counterpart yet, and the branch was unreachable
+        // in production anyway with only one trophy seeded) — that gap is
+        // now closed; do not silently drop this threading again.
         if (rowCategoryType == CategoryPairingRules.Country && colCategoryType == CategoryPairingRules.Trophy)
         {
             return await wikidataLookupService.LookupAndPersistTrophyCountryAsync(
-                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
-                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid, IsTeamTrophy = col.IsTeamTrophy },
+                new CountryDefinition { Name = row.Name, WikidataQid = row.WikidataQid, UsesCountryForSportProperty = row.UsesCountryForSportProperty },
                 origin,
                 cancellationToken);
         }
 
+        // ADR-0061: col.IsTeamTrophy threaded through the same way as the
+        // Country x Trophy branch above — LookupAndPersistTrophyClubAsync's
+        // own dispatch branches on it (no club-side P27-vs-P1532 style split
+        // needed, see that method's own doc comment).
         if (rowCategoryType == CategoryPairingRules.Club && colCategoryType == CategoryPairingRules.Trophy)
         {
             return await wikidataLookupService.LookupAndPersistTrophyClubAsync(
-                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid },
+                new TrophyDefinition { Name = col.Name, WikidataQid = col.WikidataQid, IsTeamTrophy = col.IsTeamTrophy },
                 new ClubDefinition { Name = row.Name, WikidataQid = row.WikidataQid },
                 origin,
                 cancellationToken);
@@ -753,9 +937,10 @@ public class GridGameModule(
             // Trophy x Trophy has no dedicated IWikidataLookupService method
             // (S-031 scoped the two new methods to Country/Club x Trophy
             // only, per docs/backlog.md — a live-lookup fallback for this
-            // pairing is unreachable in practice anyway, see SelectPairing's
-            // own comment on trophyCount(1) never clearing `size`). Falls
-            // through to `return null` below, same as any other
+            // pairing remains unreachable in practice, see SelectPairing's
+            // own comment: it needs trophyCount >= size * 2, which the
+            // ADR-0061 trophy-pool expansion to 3 still doesn't clear).
+            // Falls through to `return null` below, same as any other
             // not-yet-handled pairing — fails closed, never throws.
             return null;
         }

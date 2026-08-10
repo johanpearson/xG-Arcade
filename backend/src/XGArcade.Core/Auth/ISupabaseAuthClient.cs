@@ -5,9 +5,30 @@ namespace XGArcade.Core.Auth;
 // through to Supabase, which owns them.
 public interface ISupabaseAuthClient
 {
-    Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default);
+    // captchaToken (REQ-701/REQ-717's 2026-07-25 "scope correction" addition
+    // / ADR-0037's amendment): passed straight through, unmodified, as
+    // gotrue_meta_security.captcha_token on this same signup call — same
+    // pass-through contract SignInAnonymouslyAsync's own doc comment below
+    // already documents for the guest flow, now applying here too because
+    // Supabase's "Enable Captcha Protection" dashboard toggle turned out to
+    // be project-wide, not per-endpoint (see ADR-0037's amendment and
+    // NOTES.md's 2026-07-25 entry for the full root cause). This backend
+    // performs no independent Cloudflare Turnstile verification of its own,
+    // Supabase's own server-side verification is the only check. A
+    // missing/expired/invalid token is expected to surface as a
+    // distinguishable rejection in the returned SupabaseAuthResult (see
+    // IsCaptchaRejection below), not a special exception path. NOT
+    // independently verified against a live Supabase project from this
+    // environment — same caveat SignInAnonymouslyAsync's own comment
+    // already carries.
+    Task<SupabaseAuthResult> SignUpAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default);
 
-    Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default);
+    // captchaToken: same pass-through contract as SignUpAsync above, this
+    // time on Supabase's auth/v1/token?grant_type=password call (ADR-0037's
+    // 2026-07-25 amendment) — forwarded unmodified as
+    // gotrue_meta_security.captcha_token, never verified independently by
+    // this backend.
+    Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default);
 
     // REQ-715: exchanges a stored refresh token for a new access token
     // (and, if Supabase's own rotation returns one, a new refresh token) —

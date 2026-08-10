@@ -70,6 +70,73 @@ public class PlayerNameIndexRepositoryTests
         Assert.That(results, Is.Empty);
     }
 
+    // REQ-208's 2026-07-26 correction: a surname-only query must match via
+    // PlayerNameIndexWord's per-word index, not just the whole-name prefix.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_MatchesSurnameOnlyQuery_ViaIndividualWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic"), BuildEntry("Lionel Messi")]);
+
+        var results = await _repository.SearchByPrefixAsync("ibrah", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Zlatan Ibrahimovic" }));
+    }
+
+    // Both directions (whole-name prefix and per-word prefix) must keep
+    // working at once — this is additive, not a replacement.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_WholeNamePrefixQuery_StillMatches_AlongsideWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic")]);
+
+        var results = await _repository.SearchByPrefixAsync("zlat", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Zlatan Ibrahimovic" }));
+    }
+
+    // A player matching via both branches at once (e.g. a query matching a
+    // single-word name, where the whole name IS the only word) must not
+    // appear twice in the result.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_PlayerMatchingBothBranches_ReturnedOnce()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Pele")]);
+
+        var results = await _repository.SearchByPrefixAsync("pel", 10);
+
+        Assert.That(results, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_QueryMatchingUnrelatedWordPrefix_DoesNotMatch()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Zlatan Ibrahimovic")]);
+
+        // "brah" is a substring of "ibrahimovic" but not a prefix of either
+        // word — must NOT match (this repository is prefix-only, never
+        // Contains()/substring, per REQ-208's correction and its performance
+        // rationale).
+        var results = await _repository.SearchByPrefixAsync("brah", 10);
+
+        Assert.That(results, Is.Empty);
+    }
+
+    // REQ-208's 2026-07-26 correction: the existing word-match tests above
+    // only cover 2-word names where the matching word is the first or the
+    // (only) second word. This covers a realistic 3-word name (a double
+    // surname, "Mbappe Lottin") where the matching word is neither first nor
+    // last, to confirm the per-word branch isn't accidentally only checking
+    // the first/last split segment.
+    [Test]
+    public async Task REQ208_SearchByPrefixAsync_MatchesMiddleWordOfThreeWordName_ViaIndividualWordPrefix()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Kylian Mbappe Lottin"), BuildEntry("Robert Lewandowski")]);
+
+        var results = await _repository.SearchByPrefixAsync("mbap", 10);
+
+        Assert.That(results.Select(r => r.PrimaryName), Is.EquivalentTo(new[] { "Kylian Mbappe Lottin" }));
+    }
+
     // REQ-207's explicit acceptance criterion: a PlayerNameIndex row must
     // come back as a suggestion regardless of whether the same player has
     // any PlayerAttribute rows at all — this is the structural separation
@@ -87,6 +154,77 @@ public class PlayerNameIndexRepositoryTests
         var results = await _repository.SearchByPrefixAsync("someone", 10);
 
         Assert.That(results.Select(r => r.PlayerId), Does.Contain(entry.PlayerId));
+    }
+
+    // ---- REQ-211 (2026-07-27 fix): ExistsByNormalizedNameAsync -------------
+
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_ExactNormalizedMatch_ReturnsTrue()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("clarence seedorf");
+
+        Assert.That(exists, Is.True);
+    }
+
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_NoMatch_ReturnsFalse()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("someone else entirely");
+
+        Assert.That(exists, Is.False);
+    }
+
+    // This is the gate's whole point: a PREFIX match must never count as an
+    // "exists" — SearchByPrefixAsync's looser contract belongs to
+    // autocomplete, not to this correctness-narrowing gate (see this
+    // method's own interface doc comment).
+    [Test]
+    public async Task ExistsByNormalizedNameAsync_PartialPrefixOnly_ReturnsFalse()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var exists = await _repository.ExistsByNormalizedNameAsync("clarence");
+
+        Assert.That(exists, Is.False, "a prefix match must never satisfy this exact-match gate");
+    }
+
+    // ---- REQ-216/ADR-0057: FindByNormalizedNameAsync -----------------------
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_ExactNormalizedMatch_ReturnsTheMatchedEntry()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("clarence seedorf");
+
+        Assert.That(found, Is.Not.Null);
+        Assert.That(found!.PrimaryName, Is.EqualTo("Clarence Seedorf"));
+    }
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_NoMatch_ReturnsNull()
+    {
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("someone else entirely");
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test]
+    public async Task FindByNormalizedNameAsync_PartialPrefixOnly_ReturnsNull()
+    {
+        // Same exact-match-only contract as ExistsByNormalizedNameAsync — a
+        // prefix match must never satisfy this gate either.
+        await _repository.UpsertManyAsync([BuildEntry("Clarence Seedorf")]);
+
+        var found = await _repository.FindByNormalizedNameAsync("clarence");
+
+        Assert.That(found, Is.Null, "a prefix match must never satisfy this exact-match gate");
     }
 
     [Test]
@@ -114,6 +252,97 @@ public class PlayerNameIndexRepositoryTests
         var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync(p => p.PlayerId == playerId);
         Assert.That(stored.PrimaryName, Is.EqualTo("Corrected Name"));
         Assert.That(stored.BirthYear, Is.EqualTo(1990));
+    }
+
+    // A re-import that changes a player's name must reconcile
+    // PlayerNameIndexWord in place too — a stale word from the old name must
+    // no longer match, and a word from the new name must.
+    [Test]
+    public async Task REQ208_UpsertManyAsync_NameChange_ReconcilesWordIndex()
+    {
+        var playerId = Guid.NewGuid();
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Old Surname",
+            NormalizedName = PlayerNameNormalizer.Normalize("Old Surname"),
+        }]);
+
+        await _repository.UpsertManyAsync([new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "New Surname",
+            NormalizedName = PlayerNameNormalizer.Normalize("New Surname"),
+        }]);
+
+        Assert.That((await _repository.SearchByPrefixAsync("surname", 10)).Select(r => r.PlayerId),
+            Does.Contain(playerId), "shared word across both names must still match");
+        Assert.That((await _repository.SearchByPrefixAsync("old", 10)).Select(r => r.PlayerId),
+            Does.Not.Contain(playerId), "stale word from the previous name must no longer match");
+        Assert.That((await _repository.SearchByPrefixAsync("new", 10)).Select(r => r.PlayerId),
+            Does.Contain(playerId), "new word must match after the re-import");
+    }
+
+    // REQ-208's 2026-07-26 correction / ADR-0044: ReconcileWords splits
+    // NormalizedName into a HashSet before diffing against existing words —
+    // this exercises that dedup directly. "Zztest Zztest" is a deliberately
+    // synthetic, clearly-not-a-real-player name (not a mistake) whose only
+    // purpose is to make the same word appear twice in one normalized name:
+    // without the ToHashSet() dedup, Split would yield ["zztest", "zztest"]
+    // and the reconcile loop would call Add(...) twice with the same
+    // (PlayerId, Word) composite key, which EF's change tracker rejects as
+    // soon as the second Add happens (before SaveChangesAsync is even
+    // reached).
+    [Test]
+    public async Task REQ208_UpsertManyAsync_NameWithRepeatedWord_DedupesWordRows_AndDoesNotThrow()
+    {
+        var entry = BuildEntry("Zztest Zztest");
+
+        Assert.DoesNotThrowAsync(async () => await _repository.UpsertManyAsync([entry]));
+
+        var wordRows = await _dbContext.PlayerNameIndexWords.Where(w => w.PlayerId == entry.PlayerId).ToListAsync();
+        Assert.That(wordRows, Has.Count.EqualTo(1), "a repeated word within one name must produce exactly one deduplicated PlayerNameIndexWord row");
+        Assert.That(wordRows.Single().Word, Is.EqualTo("zztest"));
+
+        var results = await _repository.SearchByPrefixAsync("zzt", 10);
+        Assert.That(results.Select(r => r.PlayerId), Does.Contain(entry.PlayerId), "the repeated word must still be usable for autocomplete matching");
+    }
+
+    // 2026-08-02 fix: import-player-name-index crashed live on a real batch
+    // that contained the same PlayerId twice (see NOTES.md's 2026-08-02
+    // entry) — ReconcileWords tried to re-Add the same {PlayerId, Word} rows
+    // the first occurrence in the same unsaved batch had already staged.
+    // "Last one wins" matches UpsertManyAsync_ExistingPlayerId_UpdatesInPlace's
+    // last-write-wins rule for a repeat across separate runs, applied here
+    // within a single run's own batch instead.
+    [Test]
+    public async Task UpsertManyAsync_SamePlayerIdTwiceInOneBatch_DoesNotThrow_LastEntryWins()
+    {
+        var playerId = Guid.NewGuid();
+        var first = new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "First Variant",
+            NormalizedName = PlayerNameNormalizer.Normalize("First Variant"),
+        };
+        var second = new PlayerNameIndex
+        {
+            PlayerId = playerId,
+            PrimaryName = "Second Variant",
+            NormalizedName = PlayerNameNormalizer.Normalize("Second Variant"),
+        };
+
+        Assert.DoesNotThrowAsync(async () => await _repository.UpsertManyAsync([first, second]));
+
+        var rowCount = await _dbContext.PlayerNameIndexEntries.CountAsync(p => p.PlayerId == playerId);
+        Assert.That(rowCount, Is.EqualTo(1), "a duplicate PlayerId within one batch must never produce two rows");
+
+        var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync(p => p.PlayerId == playerId);
+        Assert.That(stored.PrimaryName, Is.EqualTo("Second Variant"), "the later entry in the same batch wins");
+
+        var wordRows = await _dbContext.PlayerNameIndexWords.Where(w => w.PlayerId == playerId).ToListAsync();
+        Assert.That(wordRows.Select(w => w.Word), Is.EquivalentTo(new[] { "second", "variant" }),
+            "the word index must reflect only the winning entry's name, not a leftover from the discarded one");
     }
 
     [Test]

@@ -131,7 +131,8 @@ public class PlayerNameIndexImporterTests
     {
         // A player with two P569 statements in different years legitimately
         // appears in both years' slices — the deterministic QID-derived
-        // PlayerId makes the second slice update the first's row in place.
+        // PlayerId makes the second slice update the first's row in place,
+        // still landing as one row (never a duplicate).
         _wikidataClient.SetYear(1976, [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1976, "France")]);
         _wikidataClient.SetYear(1977, [new WikidataNameIndexEntry("Q1519", "Thierry Henry", 1977, "France")]);
 
@@ -139,7 +140,37 @@ public class PlayerNameIndexImporterTests
 
         var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync();
         Assert.That(stored.PrimaryName, Is.EqualTo("Thierry Henry"));
-        Assert.That(stored.BirthYear, Is.EqualTo(1977), "the later slice's upsert corrects the row in place");
+    }
+
+    // Bug fix (2026-08-03, user-tester report): a real report showed
+    // Michael Owen's (the footballer, actually born 1979) autocomplete
+    // suggestion carrying BirthYear 1976 — this scenario's own shape.
+    // wdt:P569 already collapses to one preferred-rank statement whenever
+    // Wikidata has one, so a real player appearing in two DIFFERENT years'
+    // slices with a DIFFERENT birth year each time means Wikidata itself has
+    // more than one non-deprecated, non-preferred P569 statement with no
+    // stated preference between them — this importer has no way to know
+    // which one is correct. The OLD behavior ("the later slice's upsert
+    // corrects the row in place" — this test's own previous assertion)
+    // simply took whichever slice happened to run last (i.e. whichever
+    // birth year is numerically higher, since ImportAsync's loop runs
+    // ascending) with no correctness signal behind that choice at all — for
+    // Michael Owen specifically it would have gotten the right answer by
+    // coincidence (1979 > 1976), which is exactly why the bug wasn't caught
+    // by this pre-existing test. The new, principled behavior nulls out the
+    // ambiguous value instead of guessing either way.
+    [Test]
+    public async Task ImportAsync_SameQidWithConflictingBirthYearsAcrossSlices_NullsOutBirthYear_RatherThanGuessing()
+    {
+        _wikidataClient.SetYear(1976, [new WikidataNameIndexEntry("Q184895", "Michael Owen", 1976, "England")]);
+        _wikidataClient.SetYear(1979, [new WikidataNameIndexEntry("Q184895", "Michael Owen", 1979, "England")]);
+
+        await _importer.ImportAsync();
+
+        var stored = await _dbContext.PlayerNameIndexEntries.SingleAsync();
+        Assert.That(stored.PrimaryName, Is.EqualTo("Michael Owen"));
+        Assert.That(stored.BirthYear, Is.Null,
+            "neither conflicting value is trustworthy, so the ambiguous birth year is dropped rather than guessed");
     }
 
     [Test]
@@ -215,6 +246,17 @@ public class PlayerNameIndexImporterTests
     {
         public Task<IReadOnlyList<PlayerNameIndex>> SearchByPrefixAsync(
             string normalizedQuery, int limit, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
+
+        // Bug-bundle fix (2026-07-27): same "not exercised" reasoning as
+        // SearchByPrefixAsync above — this fake is only used for
+        // UpsertManyAsync's throw-propagation test.
+        public Task<bool> ExistsByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
+
+        // REQ-216/ADR-0057: same "not exercised" reasoning as the two methods
+        // above.
+        public Task<PlayerNameIndex?> FindByNormalizedNameAsync(string normalizedName, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException("not exercised by ImportAsync_RepositoryUpsertThrows_PropagatesException_NotSwallowed");
 
         public Task UpsertManyAsync(IEnumerable<PlayerNameIndex> entries, CancellationToken cancellationToken = default) =>

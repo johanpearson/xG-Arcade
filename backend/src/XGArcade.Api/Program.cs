@@ -12,8 +12,10 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
 using XGArcade.Api.Leagues;
+using XGArcade.Api.Path;
 using XGArcade.Api.Players;
 using XGArcade.Api.Rounds;
+using XGArcade.Api.Suggestions;
 using XGArcade.Core.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.Leagues;
@@ -22,8 +24,10 @@ using XGArcade.Core.Scoring;
 using XGArcade.Data;
 using XGArcade.Data.Repositories;
 using XGArcade.Data.Seeding;
+using XGArcade.DataSync;
 using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
 // server start) used by ci.yml's local E2E stack. Applies pending EF Core
@@ -55,6 +59,21 @@ if (args is ["migrate-and-seed"])
     // REQ-401's auto-enrollment-at-signup — see LeagueMembershipBackfiller's
     // own doc comment.
     await LeagueMembershipBackfiller.BackfillAsync(migrationDbContext);
+    // Bug-bundle fix (2026-07-27): backfills PlayerNameIndexWord for any
+    // PlayerNameIndex row imported before that table existed — see
+    // PlayerNameIndexWordBackfiller's own doc comment.
+    await PlayerNameIndexWordBackfiller.BackfillAsync(migrationDbContext);
+    // Bug-bundle fix (2026-08-02): backfills PlayerAlias.NormalizedAlias for
+    // any row persisted before PlayerNameNormalizer's non-decomposable-
+    // Latin-letter fix (Ø/Æ/Œ/Đ/Ł/ß/Þ) — see
+    // PlayerAliasNormalizedAliasBackfiller's own doc comment. Note:
+    // Player.NormalizedFullName needs no equivalent new wiring here —
+    // PlayerNormalizedFullNameBackfiller above already re-derives it from
+    // Player.FullName under whatever PlayerNameNormalizer.Normalize
+    // currently does, so this same fix is picked up for free on the very
+    // next migrate-and-seed run (which deploy.yml already runs on every
+    // push to main).
+    await PlayerAliasNormalizedAliasBackfiller.BackfillAsync(migrationDbContext);
 
     Console.WriteLine("migrate-and-seed: migrations applied, reference data seeded.");
     return;
@@ -212,6 +231,120 @@ if (args is ["backfill-player-photos"])
     return;
 }
 
+// REQ-1207 backfill (bug-bundle fix, 2026-08-02): `dotnet run --
+// backfill-player-position-birthyear` — same shape as backfill-player-photos
+// above (builds its dependencies directly rather than the full DI
+// container), run manually via its own workflow
+// (backfill-player-position-birthyear.yml, workflow_dispatch only). See
+// PlayerPositionBirthYearBackfillService's own doc comment for the full "why
+// a CLI verb, not an HTTP endpoint or background task" reasoning — squarely
+// inside ADR-0024's existing decision, not a new one.
+if (args is ["backfill-player-position-birthyear"])
+{
+    var positionBirthYearBackfillConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var positionBirthYearBackfillConnectionString = positionBirthYearBackfillConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var positionBirthYearBackfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(positionBirthYearBackfillConnectionString)
+        .Options;
+
+    using var positionBirthYearBackfillLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var positionBirthYearBackfillDbContext = new XGArcadeDbContext(positionBirthYearBackfillDbContextOptions);
+    var positionBirthYearBackfillPlayerStoreRepository = new PlayerStoreRepository(positionBirthYearBackfillDbContext);
+
+    using var positionBirthYearBackfillHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(positionBirthYearBackfillHttpClient);
+    var positionBirthYearBackfillWikidataClient = new WikidataClient(
+        positionBirthYearBackfillHttpClient, logger: positionBirthYearBackfillLoggerFactory.CreateLogger<WikidataClient>());
+
+    var positionBirthYearBackfillService = new PlayerPositionBirthYearBackfillService(
+        positionBirthYearBackfillPlayerStoreRepository, positionBirthYearBackfillWikidataClient,
+        positionBirthYearBackfillLoggerFactory.CreateLogger<PlayerPositionBirthYearBackfillService>());
+
+    var positionBirthYearBackfillResult = await positionBirthYearBackfillService.BackfillAsync();
+
+    Console.WriteLine(
+        $"backfill-player-position-birthyear: complete — {positionBirthYearBackfillResult.BatchesProcessed} batch(es) processed, " +
+        $"{positionBirthYearBackfillResult.PlayersBackfilled} player(s) backfilled, {positionBirthYearBackfillResult.BatchesFailed} batch(es) failed.");
+    return;
+}
+
+// ADR-0055: `dotnet run -- prefetch-player-careers` — same shape as
+// warm-player-cache/backfill-player-photos above (builds its dependencies
+// directly rather than the full DI container, since it runs before
+// WebApplication.CreateBuilder), run via its own workflow
+// (prefetch-player-careers.yml, workflow_dispatch only for now — new and
+// unproven, unlike warm-player-cache/import-player-name-index which just
+// moved to a recurring cron on the same date; put this on a schedule too
+// once a real run has confirmed its cost/runtime). See
+// PlayerCareerPrefetchService's own doc comment for the full "why" —
+// squarely inside ADR-0024's existing "bulk job is a CLI verb" decision, not
+// a new one.
+if (args is ["prefetch-player-careers"])
+{
+    var prefetchConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var prefetchConnectionString = prefetchConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var prefetchDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(prefetchConnectionString)
+        .Options;
+
+    using var prefetchLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
+    var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
+    var prefetchPlayerStoreRepository = new PlayerStoreRepository(prefetchDbContext);
+
+    using var prefetchHttpClient = new HttpClient();
+    ConfigureWikidataHttpClient(prefetchHttpClient);
+    // 60s, same reasoning as import-player-name-index's own standalone
+    // client override just above: WikidataClient's 15s default is tuned
+    // (ADR-0011) for the narrow per-cell intersection queries, not this
+    // job's 200-QID VALUES-clause career-stint batches. Confirmed live
+    // (2026-08-02, this job's first real run): 4 of many 200-player
+    // career-fetch batches hit the 15s default and timed out — every
+    // country's own pool query and the vast majority of career-fetch
+    // batches easily finished well under 15s, so this genuinely was the
+    // client default being too tight for the occasional heavier batch, not
+    // WDQS's ~60s server-side cap (ADR-0055's own flagged risk, and a
+    // different failure mode from this one — don't conflate the two next
+    // time this job's log is read). 60s is still the right ceiling per
+    // that same server-cap lesson: no reason to guess higher.
+    var prefetchWikidataClient = new WikidataClient(
+        prefetchHttpClient, queryTimeout: TimeSpan.FromSeconds(60),
+        logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
+
+    var prefetchService = new PlayerCareerPrefetchService(
+        prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchWikidataClient,
+        prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
+
+    // Deliberately unhandled — PrefetchAsync throws only after every seeded
+    // country has been attempted (see its own doc comment), so the process
+    // exits nonzero and the workflow run goes red exactly when something
+    // needs a re-run, same fail-loud-at-the-end contract as
+    // import-player-name-index.
+    var prefetchResult = await prefetchService.PrefetchAsync();
+
+    Console.WriteLine(
+        $"prefetch-player-careers: complete — {prefetchResult.CountriesProcessed} countr" +
+        $"{(prefetchResult.CountriesProcessed == 1 ? "y" : "ies")} processed, " +
+        $"{prefetchResult.PlayersTouched} player(s) touched, {prefetchResult.StintsAdded} stint(s) added.");
+    return;
+}
+
 // ADR-0029: `dotnet run -- verify-wikidata-player-data` is a one-time
 // backlog cleanup, run once after deploying the Confidence-by-origin change
 // (WikidataLookupOrigin) so the admin review queue (REQ-503) doesn't stay
@@ -247,6 +380,45 @@ if (args is ["verify-wikidata-player-data"])
         .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.Confidence, "verified"));
 
     Console.WriteLine($"verify-wikidata-player-data: marked {verifiedCount} PlayerData row(s) verified.");
+    return;
+}
+
+// `dotnet run -- audit-club-gaps` — a one-off, read-only diagnostic (no
+// REQ/ADR; see ClubGapAuditService's own doc comment for why) to help scope
+// a future seed-list widening decision, run via its own workflow
+// (audit-club-gaps.yml, workflow_dispatch only, no schedule). Same shape as
+// verify-wikidata-player-data above (builds its dependencies directly
+// rather than the full DI container, since it runs before
+// WebApplication.CreateBuilder ever runs) but needs an ILoggerFactory too,
+// since ClubGapAuditService logs its ranked candidate list via ILogger
+// rather than a single Console.WriteLine summary line — same
+// LoggerFactory.Create pattern warm-player-cache uses above. Read-only: no
+// SaveChangesAsync call anywhere on this path.
+if (args is ["audit-club-gaps"])
+{
+    var auditConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var auditConnectionString = auditConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var auditDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(auditConnectionString)
+        .Options;
+
+    using var auditLoggerFactory = LoggerFactory.Create(b => b
+        .AddConsole()
+        .SetMinimumLevel(LogLevel.Information));
+
+    await using var auditDbContext = new XGArcadeDbContext(auditDbContextOptions);
+    var auditPlayerStoreRepository = new PlayerStoreRepository(auditDbContext);
+
+    var auditService = new ClubGapAuditService(auditPlayerStoreRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
+
+    await auditService.RunAsync();
+
+    Console.WriteLine("audit-club-gaps: complete.");
     return;
 }
 
@@ -329,6 +501,88 @@ if (args is ["clean-stale-club-attributes", ..])
     return;
 }
 
+// 2026-08-01 live-incident follow-up to ADR-0052: `dotnet run --
+// clear-pair-lookup-failures` is a seventh distinct CLI verb — see
+// PairLookupFailureCleaner's own doc comment for the full reasoning (why
+// this exists as a narrower, pair-scoped alternative to
+// clean-stale-club-attributes above, which is club-name-scoped and would
+// wipe far more cached data than intended for this specific incident).
+//
+// No required argument, unlike clean-stale-club-attributes: the whole point
+// of this tool is that it reads the stuck-pair list from the database
+// itself (every PairLookupFailure row at/above
+// PlayerCacheWarmingService.PersistentFailureThreshold), rather than
+// requiring an operator to hand-derive it — GitHub Actions log text only
+// ever names pairs that were queried and failed, never ones that were
+// skipped for already being past the threshold, so no log ever contains the
+// true full list.
+//
+// Matched on the verb alone (not exact-length) for the same reason as
+// clean-stale-club-attributes above: a malformed invocation should fail
+// loudly via an explicit exception rather than silently falling through to
+// WebApplication.CreateBuilder and starting the full server. This verb
+// takes no arguments, so any extra argument is itself the malformed case.
+if (args is ["clear-pair-lookup-failures", ..])
+{
+    if (args.Length > 1)
+        throw new InvalidOperationException(
+            $"clear-pair-lookup-failures takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
+
+    var clearFailuresConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var clearFailuresConnectionString = clearFailuresConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var clearFailuresDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(clearFailuresConnectionString)
+        .Options;
+
+    await using var clearFailuresDbContext = new XGArcadeDbContext(clearFailuresDbContextOptions);
+
+    var clearedPairNames = await PairLookupFailureCleaner.ClearPersistentFailuresAsync(clearFailuresDbContext);
+
+    Console.WriteLine(clearedPairNames.Count > 0
+        ? $"clear-pair-lookup-failures: removed {clearedPairNames.Count} PairLookupFailure row(s): {string.Join(", ", clearedPairNames)}."
+        : "clear-pair-lookup-failures: removed 0 PairLookupFailure row(s) — nothing was at or above the persistent-failure threshold.");
+    return;
+}
+
+// Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+// ADR-0059): `dotnet run -- clean-duplicate-career-stints` — see
+// DuplicateCareerStintCleaner's own doc comment for the full "why this
+// exists and why it's a narrow, provable-only cleanup rather than a full
+// purge-and-reseed." No required argument, same "reads its own scope from
+// the database" shape as clear-pair-lookup-failures above — an already-
+// canonical ClubDefinition-vs-PlayerCareerStint comparison, not an
+// operator-supplied club list.
+if (args is ["clean-duplicate-career-stints", ..])
+{
+    if (args.Length > 1)
+        throw new InvalidOperationException(
+            $"clean-duplicate-career-stints takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
+
+    var cleanDuplicateStintsConfig = new ConfigurationBuilder()
+        .AddEnvironmentVariables()
+        .Build();
+
+    var cleanDuplicateStintsConnectionString = cleanDuplicateStintsConfig.GetConnectionString("Database")
+        ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+    var cleanDuplicateStintsDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
+        .UseNpgsql(cleanDuplicateStintsConnectionString)
+        .Options;
+
+    await using var cleanDuplicateStintsDbContext = new XGArcadeDbContext(cleanDuplicateStintsDbContextOptions);
+
+    var removedDuplicateStintCount = await DuplicateCareerStintCleaner.CleanAsync(cleanDuplicateStintsDbContext);
+
+    Console.WriteLine($"clean-duplicate-career-stints: removed {removedDuplicateStintCount} PlayerCareerStint row(s) " +
+        "provably duplicating an already-canonical row for the same player/stint.");
+    return;
+}
+
 // S-038 (ADR-0025): `dotnet run -- purge-player-pool "delete all player data"`
 // is a fourth CLI verb — deletes every Player row (and, via ON DELETE
 // CASCADE, every PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias row
@@ -348,6 +602,22 @@ if (args is ["clean-stale-club-attributes", ..])
 // XGArcadeDbContext.cs's OnModelCreating), so an old Guess whose answer was
 // one of the purged players keeps its already-computed IsCorrect/score, it
 // just can no longer display which player that answer was.
+//
+// REQ-110 (2026-07-28 "persisted confirmed-low signal" extension): also
+// clears every ConfirmedLowMatchPair row — same hard invariant as
+// clean-stale-club-attributes above (a "purge and re-warm" cycle must force
+// a real, full re-check, never a warm run trusting a stale confirmed-low
+// marker), just unscoped here since this verb's own purge is unscoped too.
+// ConfirmedLowMatchPair has no FK to Player (see its own doc comment — a
+// confirmed-low pair often has no Player rows to reference at all), so
+// deleting Players above doesn't cascade into it; it needs its own explicit
+// delete.
+//
+// REQ-110 (2026-08-01 "persistent technical-failure tracking" extension,
+// ADR-0052): same reasoning again for PairLookupFailure — a "purge and
+// re-warm" cycle must force a real, full re-check, never a warm run
+// trusting a stale skip marker (confirmed-low OR persistent-failure) left
+// over from before the purge.
 if (args is ["purge-player-pool", ..])
 {
     const string requiredConfirmationPhrase = "delete all player data";
@@ -369,8 +639,16 @@ if (args is ["purge-player-pool", ..])
 
     await using var purgeDbContext = new XGArcadeDbContext(purgeDbContextOptions);
     var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
+    // Same established exception as purge-player-pool's own Players
+    // ExecuteDeleteAsync above (see this verb's own doc comment referencing
+    // it) — a standalone operational CLI verb never exercised by the
+    // InMemory-provider unit tests that load-then-SaveChangesAsync exists to
+    // protect.
+    var purgedConfirmedLowCount = await purgeDbContext.ConfirmedLowMatchPairs.ExecuteDeleteAsync();
+    var purgedLookupFailureCount = await purgeDbContext.PairLookupFailures.ExecuteDeleteAsync();
 
-    Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows).");
+    Console.WriteLine($"purge-player-pool: deleted {purgedPlayerCount} Player row(s) (and their cascaded PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias rows), " +
+        $"{purgedConfirmedLowCount} ConfirmedLowMatchPair row(s), and {purgedLookupFailureCount} PairLookupFailure row(s).");
     return;
 }
 
@@ -549,11 +827,55 @@ builder.Services.AddScoped<ILeagueService, LeagueService>();
 builder.Services.AddHttpClient<IWikidataClient, WikidataClient>(ConfigureWikidataHttpClient);
 builder.Services.AddScoped<IWikidataLookupService, WikidataLookupService>();
 
-// COMP-05 (Games.XGGrid) — S-007's grid generation.
-builder.Services.AddSingleton(new GridGenerationOptions());
+// COMP-05 (Games.XGGrid) — S-007's grid generation. GridSize now lives here
+// (S-084/REQ-1202 follow-up), not on Core.Rounds' RoundSchedulingOptions —
+// see that type's own doc comment for why.
+builder.Services.AddSingleton(new GridGenerationOptions { GridSize = 3 });
 builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
 builder.Services.AddScoped<IGameModule, GridGameModule>();
+// COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202),
+// S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
+// endpoint (REQ-1203, GET /path/current). Registered here so
+// IGameModuleResolver.Resolve("xg-path") returns a real module, same as xG
+// Grid above. S-084 adds the RoundSchedulingOptions registration below (a
+// second instance, keyed by GameKey via IRoundSchedulingOptionsResolver) so
+// "xg-path" rounds are now actually generated on a schedule, same as
+// "xg-grid"'s.
+builder.Services.AddScoped<IPathInstanceRepository, PathInstanceRepository>();
+// ADR-0054: XGPathGameModule.GenerateInstanceAsync's own direct Wikidata
+// career fetch — a Games.XGPath-only dependency, registered here rather than
+// alongside IWikidataLookupService above since it's XGPathGameModule's own
+// concern, not a general-purpose lookup service other callers share.
+builder.Services.AddScoped<IPlayerCareerStintRefreshService, PlayerCareerStintRefreshService>();
+// ADR-0056: xG Path's familiarity filter (REQ-1201's target-player
+// eligibility, "would a casual player recognize this name" half) — same
+// Games.XGPath-only, registered-alongside-its-sibling-service reasoning as
+// IPlayerCareerStintRefreshService immediately above.
+builder.Services.AddScoped<IPlayerFamiliarityService, PlayerFamiliarityService>();
+builder.Services.AddScoped<IGameModule, XGPathGameModule>();
+// S-084/REQ-1202: PathTemplateResolver's puzzle-count source — mirrors
+// GridGenerationOptions' role/precedent above for xG Path's own generation
+// config (deliberately not a field on RoundSchedulingOptions; see that
+// type's own doc comment).
+builder.Services.AddSingleton(new PathGenerationOptions());
 builder.Services.AddScoped<IGameModuleResolver, GameModuleResolver>();
+// ADR-0040: xG Grid's REQ-204/205 uniqueness formula, extracted into
+// Core.Scoring's IScoringStrategy abstraction. GameKey is supplied here
+// (the composition root), never hardcoded inside XGArcade.Core — same
+// boundary reason as RoundSchedulingOptions.GameKey below (ADR-0003).
+builder.Services.AddScoped<IScoringStrategy>(_ => new UniquenessScoringStrategy
+{
+    GameKey = GridGameModule.XGGridGameKey,
+});
+// S-083/REQ-1206/ADR-0040 follow-up: xG Path's clue-efficiency formula,
+// registered against "xg-path" the same way UniquenessScoringStrategy is
+// registered against "xg-grid" above — GameKey supplied here, never
+// hardcoded inside XGArcade.Core (ADR-0003).
+builder.Services.AddScoped<IScoringStrategy>(_ => new ClueEfficiencyScoringStrategy
+{
+    GameKey = XGPathGameModule.XGPathGameKey,
+});
+builder.Services.AddScoped<IScoringStrategyResolver, ScoringStrategyResolver>();
 
 // COMP-03 (Core.Rounds) — S-008's round generation/scheduling (REQ-301) and
 // round-close (EndTime pull-forward). RoundCloseService's REQ-205 score
@@ -578,6 +900,24 @@ builder.Services.AddSingleton(new RoundSchedulingOptions
     GameKey = GridGameModule.XGGridGameKey,
     RoundDuration = TimeSpan.FromHours(roundDurationHours),
 });
+// S-084/REQ-1202: xG Path's own RoundSchedulingOptions instance, resolved
+// independently of xG Grid's via IRoundSchedulingOptionsResolver
+// (registered below) — a distinct config key
+// (RoundScheduling:XGPath:RoundDurationHours) so a lasting change to one
+// game's RoundDuration never affects the other's. Existing
+// RoundScheduling:RoundDurationHours (xG Grid's) is left untouched for
+// back-compat with any already-deployed Container App env var. Default is
+// also 48h — no product reason yet for xG Path to run on a different
+// cadence than xG Grid; change independently via this key (or the
+// deployed Container App's RoundScheduling__XGPath__RoundDurationHours env
+// var) if that changes.
+var xgPathRoundDurationHours = builder.Configuration.GetValue<double?>("RoundScheduling:XGPath:RoundDurationHours") ?? 48;
+builder.Services.AddSingleton(new RoundSchedulingOptions
+{
+    GameKey = XGPathGameModule.XGPathGameKey,
+    RoundDuration = TimeSpan.FromHours(xgPathRoundDurationHours),
+});
+builder.Services.AddScoped<IRoundSchedulingOptionsResolver, RoundSchedulingOptionsResolver>();
 builder.Services.AddScoped<IRoundRepository, RoundRepository>();
 builder.Services.AddScoped<IRoundGenerationService, RoundGenerationService>();
 builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
@@ -588,6 +928,10 @@ builder.Services.AddScoped<IRoundCloseService, RoundCloseService>();
 builder.Services.AddScoped<IGuessRepository, GuessRepository>();
 builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
 builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
+// REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository — see that
+// interface's own doc comment for why this is never folded into
+// IPlayerStoreRepository above.
+builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionRepository>();
 // REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
 // Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)
 // and exposes standalone (REQ-407) — recomputed on every call, never
@@ -763,14 +1107,38 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapInternalGridEndpoints();
 app.MapInternalRoundEndpoints();
+// REQ-718/ADR-0038: the scheduled-purge half of guest account cleanup, same
+// bearer-token /internal/* pattern as MapInternalRoundEndpoints above.
+app.MapInternalGuestCleanupEndpoints();
 app.MapRoundEndpoints();
+// REQ-1203/S-082: xg-path's own read-only display endpoint (GET
+// /path/current) — POST /rounds/{roundId}/cells/{cellId}/guesses below
+// remains the only write path for both games (already game-agnostic, see
+// PathEndpoints.cs's own doc comment).
+app.MapPathEndpoints();
 app.MapGuessEndpoints();
+// REQ-215 (S-089): the submission-only half — REQ-509/510's admin review/
+// commit/reject half is MapAdminSuggestionEndpoints below.
+app.MapSuggestionEndpoints();
 app.MapLeaderboardEndpoints();
 app.MapLeagueEndpoints();
 app.MapAdminEndpoints();
+// REQ-509/REQ-510 (S-090): suggestion review/commit/reject + the standalone
+// manual search-and-add path — its own file/registration, never folded into
+// MapAdminEndpoints above (ADR-0053, see AdminSuggestionEndpoints.cs's own
+// doc comment).
+app.MapAdminSuggestionEndpoints();
+// REQ-507/508: guest/user metrics + bulk guest force-clear, registered
+// unconditionally (including Production) — see that file's own doc comment
+// for why these are kept separate from MapAdminManagementEndpoints below.
+app.MapAdminAccountsEndpoints();
 // S-026: REQ-505/506, non-Production only — see that file's own doc comment
 // for why these are kept separate from MapAdminEndpoints above.
 app.MapAdminManagementEndpoints();
+// REQ-1209/ADR-0058: xG Path's cycle-state admin read, registered
+// unconditionally (including Production) — see that file's own doc comment
+// for why it's kept separate from MapAdminManagementEndpoints above.
+app.MapAdminXGPathEndpoints();
 app.MapPlayerAutocompleteEndpoints();
 
 app.Run();

@@ -46,4 +46,51 @@ internal class FakeGameModule(string gameKey) : IGameModule
 
     public Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId, CancellationToken cancellationToken = default) =>
         Task.FromResult(GetCellIdsResult(instanceId));
+
+    // ADR-0041/S-077: defaults to DefaultMaxAttempts, matching
+    // GridGameModule's own constant and today's pre-extraction behavior —
+    // every existing test that doesn't explicitly override this keeps
+    // passing unmodified. Overridable per test via MaxAttemptsForCellResult
+    // (e.g. to prove a caller reads this value through IGameModule rather
+    // than a hardcoded literal).
+    public const int DefaultMaxAttempts = 2;
+
+    public int MaxAttemptsForCellCallCount { get; private set; }
+
+    public Func<Guid, Guid, int> MaxAttemptsForCellResult { get; set; } = (_, _) => DefaultMaxAttempts;
+
+    public Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default)
+    {
+        MaxAttemptsForCellCallCount++;
+        return Task.FromResult(MaxAttemptsForCellResult(instanceId, cellId));
+    }
+
+    // REQ-215/ADR-0052 (S-089, architecture-review fix): not exercised by
+    // this fake's existing callers (RoundGenerationService/RoundCloseService
+    // tests, which never resolve suggestion category types) — throws by
+    // default, same "not exercised by round-generation/close tests" pattern
+    // ScoreSubmissionResult's default already uses above, rather than
+    // silently returning a fabricated pair of category strings.
+    public Func<Guid, Guid, CellCategoryTypes> CellCategoryTypesResult { get; set; } =
+        (_, _) => throw new NotImplementedException("Not exercised by round-generation/close tests.");
+
+    public Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid instanceId, Guid cellId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(CellCategoryTypesResult(instanceId, cellId));
+
+    // REQ-216/ADR-0057: GuessSubmissionServiceTests asserts this fires
+    // exactly once (never for state 2/an unlocked incorrect guess, never
+    // more than once for the same locked-incorrect cell) by reading this
+    // count — defaults to null/never-called, same "not exercised unless a
+    // test explicitly configures it" pattern as ScoreSubmissionResult above.
+    public int ResolveWrongGuessPlayerAsyncCallCount { get; private set; }
+
+    public Func<Guid, string, WrongGuessPlayerInfo?> ResolveWrongGuessPlayerResult { get; set; } =
+        (_, _) => null;
+
+    public Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync(
+        Guid instanceId, string submittedName, CancellationToken cancellationToken = default)
+    {
+        ResolveWrongGuessPlayerAsyncCallCount++;
+        return Task.FromResult(ResolveWrongGuessPlayerResult(instanceId, submittedName));
+    }
 }

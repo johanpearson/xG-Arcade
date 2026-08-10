@@ -10,6 +10,7 @@ using XGArcade.Api.Auth;
 using XGArcade.Api.Guesses;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
+using XGArcade.DataSync.Wikidata;
 using XGArcade.Games.XGGrid;
 
 namespace XGArcade.Api.Tests;
@@ -458,6 +459,91 @@ public class GuessEndpointTests
         Assert.That(body.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, unchanged from REQ-212's rule for names");
     }
 
+    // ---- REQ-216/ADR-0057: wrong-guess photo on a locked, final-incorrect
+    // cell --------------------------------------------------------------
+    // Seeds a PlayerNameIndex entry PLUS an already-cached Player row for
+    // the wrong-but-real guess (distinct from the cell's own correct
+    // answer) — GridGameModule.ResolveWrongGuessPlayerAsync's cache-first
+    // branch then returns without ever calling the live Wikidata client, so
+    // these tests never depend on real network (docs/coding-guidelines.md).
+
+    private async Task SeedMatchablePlayerAsync(string name, string? photoUrl)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        dbContext.PlayerNameIndexEntries.Add(new PlayerNameIndex
+        {
+            PlayerId = Guid.NewGuid(),
+            PrimaryName = name,
+            NormalizedName = PlayerNameNormalizer.Normalize(name),
+        });
+        dbContext.Players.Add(new Player { Id = Guid.NewGuid(), FullName = name, PhotoUrl = photoUrl });
+        await dbContext.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_IncorrectWithAttemptsRemaining_ReturnsNullIncorrectGuessMatchedPlayerFields()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        await SeedMatchablePlayerAsync("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Clarence Seedorf"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.False, "state 2 (incorrect, attempts remaining) — this REQ never applies");
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_FinalAttemptStillIncorrect_MatchesRealPlayer_ReturnsCanonicalNameAndPhoto()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        await SeedMatchablePlayerAsync("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("First Wrong Guess"));
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Clarence Seedorf"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.True);
+        Assert.That(body.IsCorrect, Is.False);
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_Guess_Post_FinalAttemptStillIncorrect_NoPlayerNameIndexMatch_ReturnsNullFields()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedUserAsync(authProviderUserId);
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+        await client.PostAsJsonAsync($"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("First Wrong Guess"));
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Totally Made Up Name"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        var body = await response.Content.ReadFromJsonAsync<SubmitGuessResponse>();
+        Assert.That(body!.Locked, Is.True);
+        Assert.That(body.IncorrectGuessMatchedPlayerName, Is.Null,
+            "a guess matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+        Assert.That(body.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
     // ---- REQ-210: two guesses per cell, locked immediately on correct -----
 
     [Test]
@@ -579,5 +665,201 @@ public class GuessEndpointTests
         var stored = await dbContext.Guesses.SingleAsync(g => g.RoundId == roundId && g.CellId == cellId && g.UserId == userId);
         Assert.That(stored.AttemptCount, Is.EqualTo(1));
         Assert.That(stored.IsCorrect, Is.False);
+    }
+
+    // ---- REQ-718/ADR-0038: a submitted guess is one of the four
+    // LastActiveAt activity-tracking events, updated unconditionally
+    // regardless of scoring outcome (see GuessEndpoints' own comment). ----
+
+    [Test]
+    public async Task REQ718_Guess_Post_UpdatesSubmittingUsersLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var seededUser = await seedDbContext.Users.SingleAsync(u => u.Id == userId);
+            seededUser.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await seedDbContext.SaveChangesAsync();
+        }
+        var (roundId, cellId, correctAnswer) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest(correctAnswer));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    // Even a rejected/incorrect guess still means the account genuinely
+    // engaged with an active round — LastActiveAt updates unconditionally,
+    // before the eventual scoring outcome is even known.
+    [Test]
+    public async Task REQ718_Guess_Post_UpdatesLastActiveAt_EvenForAnIncorrectGuess()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var userId = await SeedUserAsync(authProviderUserId);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var seedDbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var seededUser = await seedDbContext.Users.SingleAsync(u => u.Id == userId);
+            seededUser.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await seedDbContext.SaveChangesAsync();
+        }
+        var (roundId, cellId, _) = await SeedRoundWithCellAsync(
+            DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(1), allowGuessChange: true);
+        var client = CreateAuthenticatedClient(authProviderUserId);
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Definitely Not The Answer"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == userId);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    // ---- REQ-211 (2026-07-27 fix): live-lookup-unavailable outcome --------
+
+    // Hand-rolled fake, not a mocking-framework double (docs/coding-
+    // guidelines.md "don't over-mock") — overrides the real
+    // WikidataLookupService for exactly one test below, simulating a
+    // guess-time-fallback timeout without any real HTTP/timeout machinery.
+    private sealed class ThrowingWikidataLookupService : IWikidataLookupService
+    {
+        public Task<IReadOnlyList<Player>> LookupAndPersistAsync(
+            CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+            throw new WikidataQueryException("simulated Wikidata timeout");
+
+        public Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
+            ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+            Action? onTechnicalFailure = null,
+            WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+            throw new WikidataQueryException("simulated Wikidata timeout");
+
+        public Task<IReadOnlyList<Player>> LookupAndPersistTrophyCountryAsync(
+            TrophyDefinition trophy, CountryDefinition country, WikidataLookupOrigin origin, CancellationToken cancellationToken = default) =>
+            throw new WikidataQueryException("simulated Wikidata timeout");
+
+        public Task<IReadOnlyList<Player>> LookupAndPersistTrophyClubAsync(
+            TrophyDefinition trophy, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default) =>
+            throw new WikidataQueryException("simulated Wikidata timeout");
+    }
+
+    // The full stack, end to end: GridGameModule catches WikidataQueryException
+    // and re-throws LiveLookupUnavailableException (Core.Games);
+    // GuessSubmissionService catches that and rejects with
+    // GuessSubmissionOutcome.LiveLookupUnavailable; GuessEndpoints maps it to
+    // a 503. Reproduces the bug bundle's reported "guessed Seedorf, got
+    // 'failed to fetch', retried, got 'incorrect'" symptom being fixed, not
+    // reproduced — this asserts the correct 503, never a scored "incorrect."
+    [Test]
+    public async Task REQ211_Guess_Post_LiveLookupTimesOut_ReturnsServiceUnavailable_AndPersistsNoGuessRow()
+    {
+        // A derived factory with its own separate in-memory database (same
+        // "WithWebHostBuilder builds its own separate host" pattern as
+        // GridEndpointTests/AdminAccountsEndpointTests) — swaps the real
+        // WikidataLookupService for one that always throws
+        // WikidataQueryException, so this test never depends on a real
+        // Wikidata HTTP call.
+        var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IWikidataLookupService>();
+                services.AddScoped<IWikidataLookupService, ThrowingWikidataLookupService>();
+            }));
+
+        var authProviderUserId = Guid.NewGuid();
+        var roundId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            dbContext.Users.Add(new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = $"{authProviderUserId}@example.com",
+                DisplayName = "Test Player",
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+
+            dbContext.CountryDefinitions.Add(new CountryDefinition { Id = Guid.NewGuid(), Name = "France", WikidataQid = "Q142" });
+            dbContext.ClubDefinitions.Add(new ClubDefinition { Id = Guid.NewGuid(), Name = "Arsenal", WikidataQid = "Q9617" });
+            // REQ-211's PlayerNameIndex gate (2026-07-27 fix) must pass for
+            // the live-lookup fallback to be attempted at all — without
+            // this row, ScoreSubmissionAsync would return a plain incorrect
+            // result before ever reaching the (throwing) lookup service.
+            dbContext.PlayerNameIndexEntries.Add(new PlayerNameIndex
+            {
+                PlayerId = Guid.NewGuid(),
+                PrimaryName = "Clarence Seedorf",
+                NormalizedName = PlayerNameNormalizer.Normalize("Clarence Seedorf"),
+            });
+
+            var instanceId = Guid.NewGuid();
+            dbContext.GridInstances.Add(new GridInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Cells =
+                [
+                    new GridCell
+                    {
+                        Id = cellId,
+                        GridInstanceId = instanceId,
+                        Row = 0,
+                        Col = 0,
+                        RowCategoryType = CategoryPairingRules.Country,
+                        RowCategoryValue = "France",
+                        ColCategoryType = CategoryPairingRules.Club,
+                        ColCategoryValue = "Arsenal",
+                    },
+                ],
+            });
+
+            // Deliberately no cached PlayerAttribute rows at all for this
+            // cell — a genuine cache miss, forcing ScoreSubmissionAsync down
+            // the live-lookup fallback path.
+            dbContext.Rounds.Add(new Round
+            {
+                Id = roundId,
+                GameKey = GridGameModule.XGGridGameKey,
+                GameInstanceId = instanceId,
+                StartTime = DateTime.UtcNow.AddDays(-1),
+                EndTime = DateTime.UtcNow.AddDays(1),
+                AllowGuessChange = true,
+            });
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsJsonAsync(
+            $"/rounds/{roundId}/cells/{cellId}/guesses", new SubmitGuessRequest("Clarence Seedorf"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+
+        using var assertScope = factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var stored = await assertDbContext.Guesses.SingleOrDefaultAsync(g => g.RoundId == roundId && g.CellId == cellId);
+        Assert.That(stored, Is.Null,
+            "a live-lookup-unavailable outcome must never persist a Guess row — the player gets a genuine retry, not a wasted one");
     }
 }

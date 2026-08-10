@@ -345,4 +345,72 @@ describe('GridCell', () => {
     expect(cell).toHaveAttribute('aria-disabled', 'true');
     expect(cell).not.toHaveAttribute('aria-expanded');
   });
+
+  // REQ-216/ADR-0057 (2026-08-03): end-to-end wiring check that GridCell
+  // actually forwards incorrectGuessMatchedPlayerName/
+  // incorrectGuessMatchedPlayerPhotoUrl down to CellState — mirrors the
+  // REQ-214 photo-forwarding test above. CellState.test.tsx covers the
+  // rendering/fallback rules themselves via constructed props directly;
+  // this just confirms GridCell doesn't drop these fields on the way
+  // through for a locked, incorrect cell (still non-interactive either
+  // way).
+  it('REQ-216: a locked, incorrect cell with incorrectGuessMatchedPlayerName/PhotoUrl shows the matched player\'s photo and name — still a non-interactive aria-disabled div, never a click target', () => {
+    const { container } = render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: false,
+            attemptCount: 2,
+            locked: true,
+            submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
+            uniquePercent: null,
+            livePoints: null,
+            incorrectGuessMatchedPlayerName: 'Clarence Seedorf',
+            incorrectGuessMatchedPlayerPhotoUrl: 'https://example.test/seedorf.jpg',
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    const cell = screen.getByTestId('grid-cell-cell-1');
+    expect(cell.tagName).toBe('DIV');
+    expect(cell).toHaveAttribute('role', 'group');
+    expect(cell).toHaveAttribute('aria-disabled', 'true');
+
+    const img = container.querySelector('.cell-state__photo-img');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.test/seedorf.jpg');
+    expect(screen.getByText('Clarence Seedorf')).toBeInTheDocument();
+  });
+
+  it('REQ-216: a locked, incorrect cell with a matched name but no photo shows the placeholder avatar instead, never a broken-image icon', () => {
+    const { container } = render(
+      <GridCell
+        cell={{
+          ...baseCell,
+          guess: {
+            isCorrect: false,
+            attemptCount: 2,
+            locked: true,
+            submittedName: 'Wrong Guess',
+            resolvedPlayerName: null,
+            uniquePercent: null,
+            livePoints: null,
+            incorrectGuessMatchedPlayerName: 'Clarence Seedorf',
+            incorrectGuessMatchedPlayerPhotoUrl: null,
+          },
+        }}
+        roundStatus="active"
+        onOpenGuess={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('.cell-state__photo-img')).not.toBeInTheDocument();
+    expect(container.querySelector('.cell-state__placeholder-avatar-slot')).toBeInTheDocument();
+    expect(screen.getByText('Clarence Seedorf')).toBeInTheDocument();
+  });
 });

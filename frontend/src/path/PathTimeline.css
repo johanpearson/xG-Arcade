@@ -1,0 +1,250 @@
+/* design-document.md SCREEN-10: "clues stack as nodes on a vertical
+   connecting line — the literal career path being drawn as it's revealed."
+   A plain <ol> with each node relatively positioned so a single continuous
+   line (::before, on the list itself) can run behind every dot — simpler
+   and less fragile than a per-node connector segment, and it still reads as
+   "one continuous line" regardless of how many nodes exist. */
+.path-timeline {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.path-timeline__node {
+  position: relative;
+  display: flex;
+  gap: var(--space-3);
+  padding-left: var(--space-6);
+}
+
+/* The connecting line itself — one continuous strip behind every dot,
+   deliberately drawn per-node (not once on the whole list) so it only ever
+   spans between dots that actually exist, never past the last revealed
+   clue. */
+.path-timeline__node:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 20px;
+  bottom: calc(-1 * var(--space-4));
+  width: 2px;
+  background: var(--color-border-hairline);
+}
+
+.path-timeline__dot {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface-card);
+  border: 2px solid var(--color-accent-green-text);
+  flex-shrink: 0;
+}
+
+.path-timeline__node--solved .path-timeline__dot {
+  border-color: var(--color-accent-gold-text);
+  background: var(--color-accent-gold);
+}
+
+/* User-testing fix (2026-08-02): the locked-but-never-solved reveal node
+   (FailedRevealNode, PathTimeline.tsx) — deliberately not gold (that's
+   reserved for an actual correct guess, §2 "gold means settled/correct").
+   Uses accent-red, the same "incorrect states" token CellState.css already
+   uses directly for text/icon color on a light surface (no darkened
+   -text variant needed for accent-red, unlike gold/green — see
+   design-document.md §2's accent-red row). */
+.path-timeline__node--failed .path-timeline__dot {
+  border-color: var(--color-accent-red);
+  background: var(--color-surface-card);
+}
+
+.path-timeline__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.path-timeline__clubs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.path-timeline__club {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.path-timeline__club-name {
+  font-family: var(--font-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.path-timeline__club-apps {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* User-testing fix (2026-08-02): was a single inline <p> with every club's
+   year range joined by " · " — dense and hard to scan once it wrapped on
+   mobile (confirmed by a real screenshot from testing). Now a stacked block,
+   one line per club/year-range pair, mirroring .path-timeline__clubs'
+   existing "stack items within one turn" pattern directly above — same
+   --space-1 gap already used for the .path-timeline__content column these
+   turns sit in, no new spacing value. */
+.path-timeline__year-ranges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.path-timeline__year-range,
+.path-timeline__text-clue {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  overflow-wrap: anywhere;
+}
+
+.path-timeline__text-clue-label {
+  color: var(--color-text-muted);
+}
+
+/* §6: gold is always paired with text ("Solved"), never a color-only
+   signal. */
+.path-timeline__solved-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent-gold-text);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.path-timeline__solved-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+.path-timeline__solved-photo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent-gold-text);
+}
+
+/* REQ-1206: plain, final point value shown on the trailing solved/failed
+   reveal node — mirrors CellState.css's own `.cell-state__meta` convention
+   for a locked cell's points text: colored to match the node's own outcome
+   accent (gold-text for solved, red for failed — see
+   `.cell-state--correct .cell-state__meta`/
+   `.cell-state--incorrect .cell-state__meta` in CellState.css), not a
+   separate muted tone. `--color-text-muted` here is only the pre-state
+   fallback (never actually shown unmodified, since every render of this
+   element sits inside either `.path-timeline__node--solved` or
+   `.path-timeline__node--failed`). */
+.path-timeline__points {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.path-timeline__node--solved .path-timeline__points {
+  color: var(--color-accent-gold-text);
+}
+
+.path-timeline__node--failed .path-timeline__points {
+  color: var(--color-accent-red);
+}
+
+/* User-testing fix (2026-08-02): FailedRevealNode's own styling — same
+   structure as .path-timeline__solved-label/-name/-photo above (deliberate
+   reuse, see PathTimeline.tsx's own comment on why), red instead of gold so
+   it's never mistaken for the correct-guess treatment. §6: red is always
+   paired with text ("Out of attempts"), never a color-only signal. */
+.path-timeline__failed-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-accent-red);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.path-timeline__failed-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+.path-timeline__failed-photo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent-red);
+}
+
+/* design-document.md SCREEN-10 "Motion": each new node fades and rises into
+   place (~400ms, ease-out) — the same *settle* character as the grid's
+   badge-dock reveal (CellState.css's cell-state-badge-dock-in-row/col
+   keyframes), reimplemented here under this screen's own keyframe/class
+   names rather than importing grid's CSS, per that spec's own instruction.
+   Applied only once, at mount (see PathTimeline.tsx's own comment on why no
+   replay token is needed here, unlike the badge dock). */
+.path-timeline__node--animate-in {
+  animation: path-node-in 0.4s ease-out;
+}
+
+@keyframes path-node-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Quality-gate fix (S-086 follow-up): prefers-reduced-motion is handled
+   entirely here, in CSS — `.path-timeline__node--animate-in` is now applied
+   unconditionally by PathTimeline.tsx, and this override is what actually
+   cancels the animation for a player with the OS preference set. This
+   matches CellState.css's own reduced-motion pattern (no JS
+   matchMedia hook there either) rather than duplicating the same gate in
+   both JS and CSS — a prior version of this file also gated the class in JS
+   (`usePrefersReducedMotion`, lib/motion.ts, since removed), reasoned as
+   needed because SCREEN-10's "no partial-motion state, nodes just appear"
+   requirement is stricter than the badge dock's own fallback (which plays a
+   brief color flash instead of nothing). In practice `animation: none` here
+   produces the exact same end state as never applying the class at all — a
+   static, already-settled node — so the JS layer was pure duplication, not
+   a materially different fallback; removed for that reason. */
+@media (prefers-reduced-motion: reduce) {
+  .path-timeline__node--animate-in {
+    animation: none;
+  }
+}

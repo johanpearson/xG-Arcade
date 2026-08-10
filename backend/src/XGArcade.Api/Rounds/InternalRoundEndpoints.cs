@@ -1,11 +1,12 @@
-using System.Security.Cryptography;
-using System.Text;
 using XGArcade.Api.Grid;
+using XGArcade.Api.Internal;
+using XGArcade.Api.Path;
 using XGArcade.Core.Games;
 using XGArcade.Core.Rounds;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.Games.XGGrid;
+using XGArcade.Games.XGPath;
 
 namespace XGArcade.Api.Rounds;
 
@@ -24,13 +25,23 @@ public static class InternalRoundEndpoints
             HttpContext httpContext,
             IConfiguration configuration,
             IGridInstanceRepository gridInstanceRepository,
+            IPathInstanceRepository pathInstanceRepository,
             IRoundGenerationService roundGenerationService,
-            RoundSchedulingOptions options,
+            GridGenerationOptions gridGenerationOptions,
+            PathGenerationOptions pathGenerationOptions,
             ILogger<RoundGenerationLogCategory> logger,
             double? roundDurationHours,
-            CancellationToken cancellationToken) =>
+            // S-084/REQ-1202: defaults to xG Grid's GameKey when omitted so
+            // any existing caller that doesn't pass it keeps today's
+            // behavior unchanged — generate-round.yml (updated in this same
+            // story) always passes it explicitly for both GameKeys going
+            // forward, but a stray/older manual call (e.g. a bookmarked
+            // workflow_dispatch run) must not silently start generating an
+            // unexpected game's rounds.
+            string gameKey = GridGameModule.XGGridGameKey,
+            CancellationToken cancellationToken = default) =>
         {
-            if (!IsAuthorized(httpContext.Request, configuration))
+            if (!InternalJobAuthorization.IsAuthorized(httpContext.Request, configuration))
                 return Results.Unauthorized();
 
             // Optional per-call override (e.g. generate-round.yml's
@@ -58,27 +69,68 @@ public static class InternalRoundEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
+            // S-084/REQ-1202 (quality-gate follow-up): an unrecognized
+            // gameKey is malformed caller input (a bad query-string value),
+            // not a round-generation failure — validated up front via
+            // Results.Problem at 400, the same discipline the
+            // roundDurationHours check above already uses, rather than
+            // relying on the switch below's defensive throw to fall through
+            // into the generic 500 catch-all.
+            if (gameKey is not (GridGameModule.XGGridGameKey or XGPathGameModule.XGPathGameKey))
+            {
+                return Results.Problem(
+                    title: "Invalid gameKey",
+                    detail: $"Unknown gameKey '{gameKey}'.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+
             var roundDurationOverride = roundDurationHours is { } hours ? TimeSpan.FromHours(hours) : (TimeSpan?)null;
 
             try
             {
-                // Tier 0 has no admin-driven template management yet — same
-                // find-or-create-by-size pattern /internal/grid/generate
-                // uses. Moved inside the try (previously ran unguarded
-                // before it) so a DB failure here gets the same
-                // problem-details treatment as everything below instead of
-                // an opaque, empty 500.
-                var template = await GridTemplateResolver.GetOrCreateBySizeAsync(
-                    gridInstanceRepository, options.GridSize, cancellationToken);
+                // Tier 0 has no admin-driven template management yet for
+                // either game — same find-or-create-by-config-value pattern
+                // /internal/grid/generate uses. Moved inside the try
+                // (previously ran unguarded before it) so a DB failure here
+                // gets the same problem-details treatment as everything
+                // below instead of an opaque, empty 500.
+                //
+                // S-084/REQ-1202: this switch is the ONLY place that branches
+                // on gameKey in this handler — its sole job is producing the
+                // opaque TemplateId RoundConfig carries; everything else
+                // below (auth, duration validation, calling
+                // roundGenerationService, exception handling, response
+                // shape) is unchanged and generic across every GameKey. The
+                // guard above already rules out any unrecognized gameKey
+                // reaching here, so this default arm is defensive only
+                // ("should never happen"), not a real "unrecognized value"
+                // path.
+                var templateId = gameKey switch
+                {
+                    GridGameModule.XGGridGameKey => (await GridTemplateResolver.GetOrCreateBySizeAsync(
+                        gridInstanceRepository, gridGenerationOptions.GridSize, cancellationToken)).Id,
+                    XGPathGameModule.XGPathGameKey => (await PathTemplateResolver.GetOrCreateByPuzzleCountAsync(
+                        pathInstanceRepository, pathGenerationOptions.PuzzleCount, cancellationToken)).Id,
+                    _ => throw new ArgumentException($"Unknown gameKey '{gameKey}'."),
+                };
 
                 var round = await roundGenerationService.GenerateNextRoundIfNeededAsync(
-                    new RoundConfig { TemplateId = template.Id }, roundDurationOverride, cancellationToken);
+                    gameKey, new RoundConfig { TemplateId = templateId }, roundDurationOverride, cancellationToken);
 
                 return Results.Ok(new GenerateRoundResponse(round.Id, round.GameKey, round.StartTime, round.EndTime));
             }
-            catch (GridGenerationException ex)
+            catch (Exception ex) when (ex is GridGenerationException or PathGenerationException)
             {
-                // REQ-101's abort path, surfacing through round generation.
+                // REQ-101/REQ-1202's abort paths, surfacing through round
+                // generation — GridGenerationException (xg-grid) and
+                // PathGenerationException (xg-path) don't share a base type
+                // (unlike GameEntityNotFoundException, which only covers the
+                // scoring-side "id doesn't resolve" failure mode), so both are
+                // caught here via a type-pattern filter rather than two
+                // near-identical catch blocks — same precedent as
+                // XGArcade.DataSync.Wikidata.WikidataClient's
+                // `catch (Exception ex) when (ex is HttpRequestException or
+                // JsonException)`.
                 logger.LogError(ex, "Round generation aborted.");
 
                 return Results.Problem(
@@ -189,11 +241,8 @@ public static class InternalRoundEndpoints
             // players hermetic; every caller reads the actual generated name
             // back from this response rather than assuming a literal, so no
             // test file needed to change.
-            var nameTag = Guid.NewGuid().ToString("N")[..8];
-            var correctPlayerName = $"Thierry Henry {nameTag}";
-            var player = await playerStoreRepository.AddPlayerAsync(
-                new Player { Id = Guid.NewGuid(), FullName = correctPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
-                cancellationToken);
+            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Thierry Henry", cancellationToken);
+            var correctPlayerName = player.FullName;
             await playerStoreRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
@@ -208,11 +257,8 @@ public static class InternalRoundEndpoints
             // sharing the one and only valid answer). A second, equally
             // real Arsenal/France player added here so S-011's E2E suite can
             // have two players each pick a different correct answer.
-            var alternateNameTag = Guid.NewGuid().ToString("N")[..8];
-            var alternateCorrectPlayerName = $"Robert Pires {alternateNameTag}";
-            var alternatePlayer = await playerStoreRepository.AddPlayerAsync(
-                new Player { Id = Guid.NewGuid(), FullName = alternateCorrectPlayerName, WikidataQid = $"Qtest-{Guid.NewGuid()}" },
-                cancellationToken);
+            var alternatePlayer = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Robert Pires", cancellationToken);
+            var alternateCorrectPlayerName = alternatePlayer.FullName;
             await playerStoreRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
@@ -232,26 +278,100 @@ public static class InternalRoundEndpoints
 
             return Results.Ok(new SeedGuessableRoundResponse(round.Id, cellId, correctPlayerName, alternateCorrectPlayerName));
         });
+
+        // S-088/REQ-807 extension: the xg-path counterpart to
+        // seed-guessable-round above — REQ-807's own doc text ("only
+        // grid/round content is seeded this way") was true only because no
+        // second game existed yet to need it. S-088's E2E coverage for xG
+        // Path's full loop (generation -> clue reveal -> guess -> round
+        // close -> leaderboard) needs a deterministic, guessable xg-path
+        // round the same way S-011's grid E2E suite needed
+        // seed-guessable-round — same reasoning, same repository-only write
+        // discipline (ADR-0006 boundary rule 4), just against
+        // IPathInstanceRepository instead of IGridInstanceRepository.
+        //
+        // This bypasses XGPathGameModule.GenerateInstanceAsync entirely
+        // (writes PathInstance/PathPuzzle directly), so REQ-1201's
+        // seeded-club/appearance-count eligibility rules never apply here —
+        // same "bypass the module's own generation-time eligibility logic"
+        // reasoning the grid seed endpoint above already relies on for
+        // GridGameModule.
+        app.MapPost("/internal/test-data/seed-guessable-path-round", async (
+            IPathInstanceRepository pathInstanceRepository,
+            IPlayerStoreRepository playerStoreRepository,
+            IRoundRepository roundRepository,
+            TimeProvider timeProvider,
+            CancellationToken cancellationToken) =>
+        {
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+
+            // Same unique-tag-per-call convention as seed-guessable-round
+            // above (REQ-209 fallout) — keeps repeated/concurrent test runs
+            // hermetic against a shared CI Postgres instance.
+            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Path Test Player", cancellationToken);
+            var correctPlayerName = player.FullName;
+
+            // At least 3 chronologically distinct, non-overlapping stints so
+            // PathClueSequenceBuilder.BuildSequence (via GET /path/current)
+            // has real content for all 3 club-reveal turns — SequenceOrder
+            // here is illustrative only; AddCareerStintsAsync recomputes it
+            // for the player's full stint set by (StartYear, EndYear), never
+            // trusting the caller's own value.
+            await playerStoreRepository.AddCareerStintsAsync(
+                player.Id,
+                [
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Ajax", StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Juventus", StartYear = 2013, EndYear = 2016, SequenceOrder = 1 },
+                    new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Real Madrid", StartYear = 2016, EndYear = 2019, SequenceOrder = 2 },
+                ],
+                cancellationToken);
+
+            var instanceId = Guid.NewGuid();
+            var puzzleId = Guid.NewGuid();
+            var instance = await pathInstanceRepository.AddInstanceAsync(new PathInstance
+            {
+                Id = instanceId,
+                TemplateId = Guid.NewGuid(),
+                Puzzles =
+                [
+                    new PathPuzzle
+                    {
+                        Id = puzzleId,
+                        PathInstanceId = instanceId,
+                        TargetPlayerId = player.Id,
+                    },
+                ],
+            }, cancellationToken);
+
+            var round = await roundRepository.AddAsync(new Round
+            {
+                Id = Guid.NewGuid(),
+                GameKey = XGPathGameModule.XGPathGameKey,
+                GameInstanceId = instance.Id,
+                StartTime = now.AddMinutes(-1),
+                EndTime = now.AddHours(1),
+                AllowGuessChange = true,
+            }, cancellationToken);
+
+            return Results.Ok(new SeedGuessablePathRoundResponse(round.Id, puzzleId, correctPlayerName));
+        });
     }
 
-    private static bool IsAuthorized(HttpRequest request, IConfiguration configuration)
+    // Shared boilerplate for the three test-data seed call sites above
+    // (seed-guessable-round's two players, seed-guessable-path-round's one)
+    // — same unique-tag-per-call convention (REQ-209 fallout) and
+    // WikidataQid uniqueness, differing only by the caller's own name
+    // prefix. Each call site still owns its own attribute/stint writes,
+    // since those differ by game.
+    private static async Task<Player> CreateUniqueTestPlayerAsync(
+        IPlayerStoreRepository playerStoreRepository,
+        string namePrefix,
+        CancellationToken cancellationToken)
     {
-        var expectedToken = configuration["Internal:JobToken"];
-        if (string.IsNullOrEmpty(expectedToken))
-            return false;
-
-        if (!request.Headers.TryGetValue("Authorization", out var authHeader))
-            return false;
-
-        var expectedBytes = Encoding.UTF8.GetBytes($"Bearer {expectedToken}");
-        var actualBytes = Encoding.UTF8.GetBytes(authHeader.ToString());
-
-        // FixedTimeEquals rejects a length mismatch immediately on its own —
-        // this token authorizes a real write action, so constant-time
-        // comparison is used rather than a plain ==, not for any extra
-        // protection the explicit length check below would add.
-        return expectedBytes.Length == actualBytes.Length
-            && CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+        var nameTag = Guid.NewGuid().ToString("N")[..8];
+        return await playerStoreRepository.AddPlayerAsync(
+            new Player { Id = Guid.NewGuid(), FullName = $"{namePrefix} {nameTag}", WikidataQid = $"Qtest-{Guid.NewGuid()}" },
+            cancellationToken);
     }
 }
 
@@ -260,6 +380,13 @@ public record GenerateRoundResponse(Guid RoundId, string GameKey, DateTime Start
 public record ForceCloseRoundResponse(Guid RoundId, DateTime EndTime);
 
 public record SeedGuessableRoundResponse(Guid RoundId, Guid CellId, string CorrectPlayerName, string AlternateCorrectPlayerName);
+
+// S-088/REQ-807 extension: PuzzleId is the "cell id" an E2E test submits
+// guesses against via the existing game-agnostic
+// POST /rounds/{roundId}/cells/{cellId}/guesses (XGArcade.Api.Guesses.
+// GuessEndpoints) — same PathPuzzle.Id-is-the-cell-id contract
+// IGameModule.GetCellIdsAsync already documents for xg-path.
+public record SeedGuessablePathRoundResponse(Guid RoundId, Guid PuzzleId, string CorrectPlayerName);
 
 // Pure log-category marker for ILogger<T> — same pattern as
 // InternalGridEndpoints.GridGenerationLogCategory.

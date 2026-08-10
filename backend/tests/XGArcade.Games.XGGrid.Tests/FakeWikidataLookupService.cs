@@ -40,6 +40,41 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
 
     private readonly Dictionary<(string Country, string Club), List<Player>> _matches = new();
     private readonly Dictionary<(string Country, string Club), int> _callCounts = new();
+    // REQ-211 (2026-07-27 fix): simulates the real WikidataLookupService's
+    // guess-time-fallback-only "throw instead of swallow on timeout"
+    // contract (WikidataQueryException) — lets GridGameModuleTests exercise
+    // its catch-and-translate-to-LiveLookupUnavailableException behavior
+    // without any real HTTP/timeout machinery. Only wired up for the
+    // Country x Club pair (the only pairing this bug bundle's tests need to
+    // cover); extend to the other three dictionaries below if a future test
+    // needs it for Club x Club/Trophy pairings.
+    private readonly HashSet<(string Country, string Club)> _timeoutFailures = new();
+    // REQ-110 (2026-07-28): simulates WikidataClient's throwOnTimeout=false
+    // technical-failure path (WDQS timeout, HTTP error, or JSON parse
+    // error) — distinct from _timeoutFailures above, which simulates the
+    // throwOnTimeout=true (guess-time fallback) path that throws instead.
+    // A configured pair returns an empty match list (same shape as a
+    // genuine zero-match success) but invokes onTechnicalFailure, mirroring
+    // the real WikidataLookupService/WikidataClient contract this fake
+    // stands in for.
+    private readonly HashSet<(string Country, string Club)> _technicalFailures = new();
+    private readonly HashSet<(string ClubA, string ClubB)> _clubClubTechnicalFailures = new();
+    // REQ-110 (2026-07-28 "cache-warming-specific timeout + same-run retry"
+    // extension): a COUNTDOWN, distinct from the "always fails" HashSets
+    // above — lets a test script "the next N calls for this pair fail, then
+    // the call after that succeeds" (e.g. PlayerCacheWarmingServiceTests'
+    // same-run-retry coverage), which _technicalFailures/_clubClubTechnicalFailures
+    // alone can't express (they never stop failing once added).
+    private readonly Dictionary<(string Country, string Club), int> _remainingTechnicalFailureAttempts = new();
+    private readonly Dictionary<(string ClubA, string ClubB), int> _clubClubRemainingTechnicalFailureAttempts = new();
+    // REQ-110 (2026-07-28): the most recent WikidataQueryTimeoutTier each
+    // pair's LookupAndPersistAsync/LookupAndPersistClubClubAsync call was
+    // made with — lets a test assert PlayerCacheWarmingService passes
+    // WikidataQueryTimeoutTier.CacheWarming while REQ-103/REQ-211's own
+    // callers (GridGameModule) keep passing (or omitting, which defaults to)
+    // WikidataQueryTimeoutTier.Default, mirroring _lastOrigin's own pattern.
+    private readonly Dictionary<(string Country, string Club), WikidataQueryTimeoutTier> _lastTimeoutTier = new();
+    private readonly Dictionary<(string ClubA, string ClubB), WikidataQueryTimeoutTier> _clubClubLastTimeoutTier = new();
     // ADR-0029: the most recent WikidataLookupOrigin each pair was called
     // with — lets a test assert GetMatchCountAsync (generation-time) and
     // RefreshCellFromLiveLookupAsync (REQ-211 guess-time fallback) each pass
@@ -69,9 +104,49 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     private readonly Dictionary<(string Trophy, string Club), List<Player>> _trophyClubMatches = new();
     private readonly Dictionary<(string Trophy, string Club), int> _trophyClubCallCounts = new();
     private readonly Dictionary<(string Trophy, string Club), WikidataLookupOrigin> _trophyClubLastOrigin = new();
+    // ADR-0061: the most recent TrophyDefinition.IsTeamTrophy/
+    // CountryDefinition.UsesCountryForSportProperty each Trophy x Country
+    // pair's LookupAndPersistTrophyCountryAsync call was made with — lets a
+    // test assert GridGameModule threads both flags through
+    // CategoryCandidate/LookupLiveMatchesAsync correctly, mirroring
+    // _lastUsesCountryForSportProperty's own precedent for Country x Club.
+    private readonly Dictionary<(string Trophy, string Country), bool> _trophyCountryLastIsTeamTrophy = new();
+    private readonly Dictionary<(string Trophy, string Country), bool> _trophyCountryLastUsesCountryForSportProperty = new();
+    // ADR-0061: the Trophy x Club counterpart of _trophyCountryLastIsTeamTrophy
+    // above.
+    private readonly Dictionary<(string Trophy, string Club), bool> _trophyClubLastIsTeamTrophy = new();
 
     public void SetMatches(string countryName, string clubName, IReadOnlyList<Player> players) =>
         _matches[(countryName, clubName)] = players.ToList();
+
+    // REQ-211 (2026-07-27 fix): the next LookupAndPersistAsync call for this
+    // pair throws WikidataQueryException instead of returning a result —
+    // simulates a guess-time-fallback timeout.
+    public void FailWithTimeout(string countryName, string clubName) =>
+        _timeoutFailures.Add((countryName, clubName));
+
+    // REQ-110: the next LookupAndPersistAsync call for this pair invokes
+    // onTechnicalFailure and returns an empty match list, instead of
+    // whatever SetMatches configured — see _technicalFailures' own comment.
+    public void FailWithTechnicalFailure(string countryName, string clubName) =>
+        _technicalFailures.Add((countryName, clubName));
+
+    // REQ-110: the Club x Club counterpart of FailWithTechnicalFailure above.
+    public void FailClubClubWithTechnicalFailure(string clubAName, string clubBName) =>
+        _clubClubTechnicalFailures.Add((clubAName, clubBName));
+
+    // REQ-110 (2026-07-28): the next `attempts` LookupAndPersistAsync calls
+    // for this pair invoke onTechnicalFailure and return an empty match
+    // list; the call after that (and every one thereafter) returns
+    // whatever SetMatches configured (or empty if nothing was configured) —
+    // distinct from FailWithTechnicalFailure's "every call fails forever."
+    // Lets a test express "fails once, succeeds on same-run retry."
+    public void FailWithTechnicalFailureForAttempts(string countryName, string clubName, int attempts) =>
+        _remainingTechnicalFailureAttempts[(countryName, clubName)] = attempts;
+
+    // REQ-110: the Club x Club counterpart of FailWithTechnicalFailureForAttempts above.
+    public void FailClubClubWithTechnicalFailureForAttempts(string clubAName, string clubBName, int attempts) =>
+        _clubClubRemainingTechnicalFailureAttempts[(clubAName, clubBName)] = attempts;
 
     public void SetClubClubMatches(string clubAName, string clubBName, IReadOnlyList<Player> players) =>
         _clubClubMatches[(clubAName, clubBName)] = players.ToList();
@@ -101,6 +176,13 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public WikidataLookupOrigin? GetClubClubLastOrigin(string clubAName, string clubBName) =>
         _clubClubLastOrigin.TryGetValue((clubAName, clubBName), out var origin) ? origin : null;
 
+    // REQ-110 (2026-07-28): see _lastTimeoutTier's own comment above.
+    public WikidataQueryTimeoutTier? GetLastTimeoutTier(string countryName, string clubName) =>
+        _lastTimeoutTier.TryGetValue((countryName, clubName), out var tier) ? tier : null;
+
+    public WikidataQueryTimeoutTier? GetClubClubLastTimeoutTier(string clubAName, string clubBName) =>
+        _clubClubLastTimeoutTier.TryGetValue((clubAName, clubBName), out var tier) ? tier : null;
+
     public int GetTrophyCountryCallCount(string trophyName, string countryName) =>
         _trophyCountryCallCounts.TryGetValue((trophyName, countryName), out var count) ? count : 0;
 
@@ -113,16 +195,51 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     public WikidataLookupOrigin? GetTrophyClubLastOrigin(string trophyName, string clubName) =>
         _trophyClubLastOrigin.TryGetValue((trophyName, clubName), out var origin) ? origin : null;
 
+    // ADR-0061: see _trophyCountryLastIsTeamTrophy's own comment above.
+    public bool? GetTrophyCountryLastIsTeamTrophy(string trophyName, string countryName) =>
+        _trophyCountryLastIsTeamTrophy.TryGetValue((trophyName, countryName), out var flag) ? flag : null;
+
+    public bool? GetTrophyCountryLastUsesCountryForSportProperty(string trophyName, string countryName) =>
+        _trophyCountryLastUsesCountryForSportProperty.TryGetValue((trophyName, countryName), out var flag) ? flag : null;
+
+    public bool? GetTrophyClubLastIsTeamTrophy(string trophyName, string clubName) =>
+        _trophyClubLastIsTeamTrophy.TryGetValue((trophyName, clubName), out var flag) ? flag : null;
+
     public async Task<IReadOnlyList<Player>> LookupAndPersistAsync(
-        CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+        CountryDefinition country, ClubDefinition club, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         onCalled?.Invoke();
         _callCounts[(country.Name, club.Name)] = GetCallCount(country.Name, club.Name) + 1;
         _lastOrigin[(country.Name, club.Name)] = origin;
         _lastUsesCountryForSportProperty[(country.Name, club.Name)] = country.UsesCountryForSportProperty;
+        _lastTimeoutTier[(country.Name, club.Name)] = timeoutTier;
+
+        if (_timeoutFailures.Contains((country.Name, club.Name)))
+            throw new WikidataQueryException($"simulated guess-time-fallback timeout for {country.Name}/{club.Name}");
 
         if (country.WikidataQid is null || club.WikidataQid is null)
             return [];
+
+        // REQ-110 (2026-07-28): the countdown-based failure takes priority
+        // over the "always fails" HashSet below — a test configuring both
+        // would be a test bug, but if it happens, "fails N times then
+        // succeeds" is the more specific/intentional configuration.
+        if (_remainingTechnicalFailureAttempts.TryGetValue((country.Name, club.Name), out var remainingAttempts) && remainingAttempts > 0)
+        {
+            _remainingTechnicalFailureAttempts[(country.Name, club.Name)] = remainingAttempts - 1;
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
+
+        // REQ-110: mirrors WikidataClient's throwOnTimeout=false contract —
+        // a technical failure still returns an empty list, but observably so.
+        if (_technicalFailures.Contains((country.Name, club.Name)))
+        {
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
 
         if (!_matches.TryGetValue((country.Name, club.Name), out var players))
             return [];
@@ -137,14 +254,33 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     }
 
     public async Task<IReadOnlyList<Player>> LookupAndPersistClubClubAsync(
-        ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default)
+        ClubDefinition clubA, ClubDefinition clubB, WikidataLookupOrigin origin, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default)
     {
         onCalled?.Invoke();
         _clubClubCallCounts[(clubA.Name, clubB.Name)] = GetClubClubCallCount(clubA.Name, clubB.Name) + 1;
         _clubClubLastOrigin[(clubA.Name, clubB.Name)] = origin;
+        _clubClubLastTimeoutTier[(clubA.Name, clubB.Name)] = timeoutTier;
 
         if (clubA.WikidataQid is null || clubB.WikidataQid is null)
             return [];
+
+        // REQ-110: see LookupAndPersistAsync's own comment on this same
+        // countdown-takes-priority check.
+        if (_clubClubRemainingTechnicalFailureAttempts.TryGetValue((clubA.Name, clubB.Name), out var remainingAttempts) && remainingAttempts > 0)
+        {
+            _clubClubRemainingTechnicalFailureAttempts[(clubA.Name, clubB.Name)] = remainingAttempts - 1;
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
+
+        // REQ-110: see LookupAndPersistAsync's own comment on this same check.
+        if (_clubClubTechnicalFailures.Contains((clubA.Name, clubB.Name)))
+        {
+            onTechnicalFailure?.Invoke();
+            return [];
+        }
 
         if (!_clubClubMatches.TryGetValue((clubA.Name, clubB.Name), out var players))
             return [];
@@ -164,6 +300,9 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         onCalled?.Invoke();
         _trophyCountryCallCounts[(trophy.Name, country.Name)] = GetTrophyCountryCallCount(trophy.Name, country.Name) + 1;
         _trophyCountryLastOrigin[(trophy.Name, country.Name)] = origin;
+        // ADR-0061.
+        _trophyCountryLastIsTeamTrophy[(trophy.Name, country.Name)] = trophy.IsTeamTrophy;
+        _trophyCountryLastUsesCountryForSportProperty[(trophy.Name, country.Name)] = country.UsesCountryForSportProperty;
 
         if (trophy.WikidataQid is null || country.WikidataQid is null)
             return [];
@@ -186,6 +325,8 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
         onCalled?.Invoke();
         _trophyClubCallCounts[(trophy.Name, club.Name)] = GetTrophyClubCallCount(trophy.Name, club.Name) + 1;
         _trophyClubLastOrigin[(trophy.Name, club.Name)] = origin;
+        // ADR-0061.
+        _trophyClubLastIsTeamTrophy[(trophy.Name, club.Name)] = trophy.IsTeamTrophy;
 
         if (trophy.WikidataQid is null || club.WikidataQid is null)
             return [];

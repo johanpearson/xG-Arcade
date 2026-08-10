@@ -1,0 +1,42 @@
+name: prefetch-player-careers
+
+# ADR-0055 (2026-08-02): proactively fills PlayerCareerStint for every seeded
+# country's full eligible player pool, independent of whatever xG Grid's own
+# country/club lookups have happened to query so far (ADR-0042's byproduct
+# model) — this is what actually widens xG Path's target-player pool
+# (XGPathGameModule.GetEligiblePlayerIdsAsync), not just enriches an
+# already-selected target the way PlayerCareerStintRefreshService (ADR-0054)
+# does.
+#
+# A plain CLI job (`dotnet run -- prefetch-player-careers`,
+# PlayerCareerPrefetchService's own doc comment has the full reasoning), not
+# an HTTP endpoint against the deployed backend — same ADR-0024 "long-running
+# bulk job is a CLI verb, never a fire-and-forget background task or a long
+# HTTP endpoint" reasoning as warm-player-cache.yml/import-player-name-index.yml.
+#
+# Manual trigger only, deliberately NOT on the same weekly cron
+# warm-player-cache/import-player-name-index just moved to (ADR-0055) — this
+# is a brand-new, unproven query shape (a single seeded country's full
+# unsliced player pool; ADR-0055's own "Open questions" flags that a large
+# country like Brazil/England could plausibly be large enough to strain
+# WDQS's ~60s server-side cap the way import-player-name-index's original
+# unsliced design once did). Confirm a real run's cost/runtime/failure
+# pattern manually first; put this on a recurring schedule only once that's
+# actually confirmed, not before.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  prefetch-player-careers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Prefetch player careers
+        run: dotnet run --project backend/src/XGArcade.Api -- prefetch-player-careers
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

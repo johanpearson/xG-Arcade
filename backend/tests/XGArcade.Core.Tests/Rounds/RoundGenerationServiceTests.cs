@@ -38,11 +38,15 @@ public class RoundGenerationServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
+    // Real RoundSchedulingOptionsResolver, not a fake — it's a trivial
+    // find-by-GameKey lookup (same reasoning ScoringStrategyResolverTests
+    // uses the real ScoringStrategyResolver rather than a hand-rolled fake).
     private RoundGenerationService BuildService(DateTimeOffset now, TimeSpan roundDuration, bool allowGuessChange = true) =>
         new(_roundRepository,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
-            new RoundSchedulingOptions { GameKey = GameKey, RoundDuration = roundDuration, AllowGuessChange = allowGuessChange },
+            new RoundSchedulingOptionsResolver(
+                [new RoundSchedulingOptions { GameKey = GameKey, RoundDuration = roundDuration, AllowGuessChange = allowGuessChange }]),
             new FixedTimeProvider(now));
 
     private async Task<Round> SeedRoundAsync(DateTime startTime, DateTime endTime)
@@ -67,7 +71,7 @@ public class RoundGenerationServiceTests
         var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
         var service = BuildService(now, TimeSpan.FromDays(3));
 
-        var round = await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        var round = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(round.StartTime, Is.EqualTo(now.UtcDateTime));
         Assert.That(round.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromDays(3)));
@@ -82,7 +86,7 @@ public class RoundGenerationServiceTests
         _gameModule.GenerateInstanceResult = _ => new GameInstance { Id = instanceId };
         var service = BuildService(DateTimeOffset.UtcNow, TimeSpan.FromDays(3));
 
-        var round = await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        var round = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(round.GameInstanceId, Is.EqualTo(instanceId));
     }
@@ -96,7 +100,7 @@ public class RoundGenerationServiceTests
             endTime: now.UtcDateTime.AddDays(2));
         var service = BuildService(now, TimeSpan.FromDays(3));
 
-        var nextRound = await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        var nextRound = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(nextRound.Id, Is.Not.EqualTo(activeRound.Id));
         Assert.That(nextRound.StartTime, Is.EqualTo(activeRound.EndTime));
@@ -115,7 +119,7 @@ public class RoundGenerationServiceTests
         var upcomingRound = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(1), endTime: now.UtcDateTime.AddDays(4));
         var service = BuildService(now, TimeSpan.FromDays(3));
 
-        var result = await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        var result = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(result.Id, Is.EqualTo(upcomingRound.Id));
         Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.Zero, "already one round ahead — generation must not run again");
@@ -132,7 +136,7 @@ public class RoundGenerationServiceTests
         await SeedRoundAsync(startTime: now.UtcDateTime, endTime: now.UtcDateTime.AddDays(3));
         var service = BuildService(now, TimeSpan.FromDays(3));
 
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1));
     }
@@ -144,6 +148,7 @@ public class RoundGenerationServiceTests
         var service = BuildService(now, TimeSpan.FromDays(3));
 
         var round = await service.GenerateNextRoundIfNeededAsync(
+            GameKey,
             new RoundConfig { TemplateId = Guid.NewGuid() },
             roundDurationOverride: TimeSpan.FromHours(12));
 
@@ -177,10 +182,11 @@ public class RoundGenerationServiceTests
             _roundRepository,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
-            options,
+            new RoundSchedulingOptionsResolver([options]),
             new FixedTimeProvider(now));
 
         var roundA = await service.GenerateNextRoundIfNeededAsync(
+            GameKey,
             new RoundConfig { TemplateId = Guid.NewGuid() },
             roundDurationOverride: TimeSpan.FromHours(12));
         Assert.That(roundA.EndTime, Is.EqualTo(now.UtcDateTime + TimeSpan.FromHours(12)));
@@ -198,10 +204,10 @@ public class RoundGenerationServiceTests
             _roundRepository,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
-            options,
+            new RoundSchedulingOptionsResolver([options]),
             new FixedTimeProvider(later));
 
-        var roundB = await serviceAtLaterTime.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        var roundB = await serviceAtLaterTime.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(roundB.StartTime, Is.EqualTo(roundA.EndTime));
         Assert.That(roundB.EndTime, Is.EqualTo(roundA.EndTime + TimeSpan.FromDays(3)),
@@ -210,18 +216,98 @@ public class RoundGenerationServiceTests
             "the shared RoundSchedulingOptions instance itself must never be mutated by an override");
     }
 
+    // ---- S-084/REQ-1202: two GameKeys, each with a genuinely distinct -------
+    // configured RoundDuration, resolved through the SAME
+    // RoundSchedulingOptionsResolver/RoundGenerationService instance — this is
+    // the test that actually proves "independent of xG Grid's own round
+    // timing/duration" end-to-end at this layer, not just an assumption from
+    // the code shape. Uses a second GameKey ("xg-path" — the real second
+    // GameKey this story wires up) rather than an arbitrary placeholder, so a
+    // reader doesn't have to squint to see this is REQ-1202's own scenario.
+
+    private const string OtherGameKey = "xg-path";
+
+    private (RoundGenerationService Service, FakeGameModule OtherGameModule) BuildServiceWithTwoGameKeys(
+        DateTimeOffset now, TimeSpan gameKeyRoundDuration, TimeSpan otherGameKeyRoundDuration)
+    {
+        var otherGameModule = new FakeGameModule(OtherGameKey);
+        var service = new RoundGenerationService(
+            _roundRepository,
+            new GameModuleResolver([_gameModule, otherGameModule]),
+            _roundCloseService,
+            new RoundSchedulingOptionsResolver(
+            [
+                new RoundSchedulingOptions { GameKey = GameKey, RoundDuration = gameKeyRoundDuration },
+                new RoundSchedulingOptions { GameKey = OtherGameKey, RoundDuration = otherGameKeyRoundDuration },
+            ]),
+            new FixedTimeProvider(now));
+        return (service, otherGameModule);
+    }
+
+    [Test]
+    public async Task REQ1202_GenerateNextRoundIfNeeded_TwoGameKeysRegistered_EachGeneratedRoundUsesItsOwnConfiguredRoundDuration()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 6, 0, 0, TimeSpan.Zero);
+        var (service, _) = BuildServiceWithTwoGameKeys(
+            now, gameKeyRoundDuration: TimeSpan.FromDays(3), otherGameKeyRoundDuration: TimeSpan.FromHours(30));
+
+        var gridRound = await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+        var pathRound = await service.GenerateNextRoundIfNeededAsync(OtherGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(gridRound.EndTime - gridRound.StartTime, Is.EqualTo(TimeSpan.FromDays(3)),
+            "xg-grid's own configured RoundDuration must land on its generated Round, never xg-path's");
+        Assert.That(pathRound.EndTime - pathRound.StartTime, Is.EqualTo(TimeSpan.FromHours(30)),
+            "xg-path's own configured RoundDuration must land on its generated Round, never xg-grid's");
+    }
+
+    [Test]
+    public async Task REQ1202_GenerateNextRoundIfNeeded_TwoGameKeysRegistered_GeneratingForOneGameKeyNeverTouchesTheOthersRounds()
+    {
+        var now = new DateTimeOffset(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
+        // xg-grid already has an active round with nothing scheduled after it
+        // — if GameKey scoping were broken, generating xg-path's round could
+        // wrongly chain off this, close it, or otherwise disturb it.
+        var gridActive = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-1), endTime: now.UtcDateTime.AddDays(2));
+        var (service, otherGameModule) = BuildServiceWithTwoGameKeys(
+            now, gameKeyRoundDuration: TimeSpan.FromDays(3), otherGameKeyRoundDuration: TimeSpan.FromHours(30));
+
+        var pathRound = await service.GenerateNextRoundIfNeededAsync(OtherGameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
+
+        Assert.That(pathRound.GameKey, Is.EqualTo(OtherGameKey));
+        Assert.That(pathRound.StartTime, Is.EqualTo(now.UtcDateTime),
+            "xg-path has no round of its own yet — it must start now, never chained off xg-grid's EndTime");
+        Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.Zero,
+            "generating xg-path's round must never invoke xg-grid's own game module");
+        Assert.That(otherGameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1));
+        Assert.That(_roundCloseService.Calls, Is.Empty,
+            "xg-grid's active round has no predecessor to close and must not be touched by an xg-path generation call");
+
+        var gridRoundsAfter = await _dbContext.Rounds.Where(r => r.GameKey == GameKey).ToListAsync();
+        Assert.That(gridRoundsAfter, Has.Count.EqualTo(1), "xg-grid's own round set must be unaffected by generating xg-path's round");
+        Assert.That(gridRoundsAfter[0].Id, Is.EqualTo(gridActive.Id));
+        Assert.That(gridRoundsAfter[0].EndTime, Is.EqualTo(gridActive.EndTime), "xg-grid's round must not be closed/modified by generating xg-path's round");
+    }
+
     [Test]
     public void GenerateNextRoundIfNeeded_UnknownGameKey_ThrowsInvalidOperationException()
     {
+        // "some-other-game" resolves fine against IRoundSchedulingOptionsResolver
+        // (registered below) but has no matching IGameModule (only _gameModule,
+        // keyed "xg-grid", is registered) — this proves
+        // IGameModuleResolver.Resolve's own not-found failure still surfaces
+        // through RoundGenerationService, distinct from
+        // RoundSchedulingOptionsResolverTests' own coverage of the
+        // "no RoundSchedulingOptions registered for this GameKey" failure mode.
         var service = new RoundGenerationService(
             _roundRepository,
             new GameModuleResolver([_gameModule]),
             _roundCloseService,
-            new RoundSchedulingOptions { GameKey = "some-other-game", RoundDuration = TimeSpan.FromDays(3) },
+            new RoundSchedulingOptionsResolver(
+                [new RoundSchedulingOptions { GameKey = "some-other-game", RoundDuration = TimeSpan.FromDays(3) }]),
             new FixedTimeProvider(DateTimeOffset.UtcNow));
 
         Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() }));
+            await service.GenerateNextRoundIfNeededAsync("some-other-game", new RoundConfig { TemplateId = Guid.NewGuid() }));
     }
 
     // ---- ADR-0022: round closing runs inside this job ----------------------
@@ -238,7 +324,7 @@ public class RoundGenerationServiceTests
         var roundB = await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-4), endTime: now.UtcDateTime.AddHours(-1));
         var service = BuildService(now, TimeSpan.FromDays(4));
 
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(_roundCloseService.Calls, Has.Count.EqualTo(1));
         Assert.That(_roundCloseService.Calls[0].RoundId, Is.EqualTo(roundA.Id));
@@ -255,7 +341,7 @@ public class RoundGenerationServiceTests
         await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(1), endTime: now.UtcDateTime.AddDays(5));
         var service = BuildService(now, TimeSpan.FromDays(4));
 
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(_roundCloseService.Calls, Is.Empty);
     }
@@ -267,7 +353,7 @@ public class RoundGenerationServiceTests
         await SeedRoundAsync(startTime: now.UtcDateTime.AddDays(-1), endTime: now.UtcDateTime.AddHours(-1));
         var service = BuildService(now, TimeSpan.FromDays(3));
 
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(_roundCloseService.Calls, Is.Empty, "the very first round ever generated has no predecessor to close");
     }
@@ -290,7 +376,7 @@ public class RoundGenerationServiceTests
 
         // First run: closes A (B's predecessor) and generates C, B's successor,
         // starting at B's future EndTime — so C is itself still upcoming.
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
         Assert.That(_roundCloseService.Calls, Has.Count.EqualTo(1));
         Assert.That(_roundCloseService.Calls[0].RoundId, Is.EqualTo(roundA.Id));
         Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1));
@@ -299,7 +385,7 @@ public class RoundGenerationServiceTests
         // Second run, same clock, same repository state: "latest" is now C,
         // which hasn't started yet — the one-round-ahead early return applies,
         // so nothing further should be closed or generated.
-        await service.GenerateNextRoundIfNeededAsync(new RoundConfig { TemplateId = Guid.NewGuid() });
+        await service.GenerateNextRoundIfNeededAsync(GameKey, new RoundConfig { TemplateId = Guid.NewGuid() });
 
         Assert.That(_roundCloseService.Calls, Has.Count.EqualTo(1), "a repeated call must not close anything a second time");
         Assert.That(_gameModule.GenerateInstanceAsyncCallCount, Is.EqualTo(1), "a repeated call must not generate a second successor");

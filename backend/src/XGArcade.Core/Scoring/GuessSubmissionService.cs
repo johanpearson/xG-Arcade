@@ -8,12 +8,14 @@ namespace XGArcade.Core.Scoring;
 // COMP-04 (Core.Scoring): REQ-201/202/210's guess-acceptance rules.
 //
 // REQ-210's lock-on-correct and attempt-cap checks are resolved here, using
-// only the existing Guess row — *before* the owning IGameModule is ever
-// called (architecture-document.md §6.2's flow: "reject immediately ...
-// checked before any name resolution work, not after"). Name resolution
-// itself (REQ-207/208/209/211) is entirely the owning game module's
-// responsibility (GridGameModule.ScoreSubmissionAsync for xg-grid) — Core
-// never inspects a candidate player or a cell's categories directly.
+// only the existing Guess row plus the cell's own max-attempts value
+// (ADR-0041, IGameModule.GetMaxAttemptsForCellAsync) — *before* the owning
+// IGameModule's ScoreSubmissionAsync (name resolution) is ever called
+// (architecture-document.md §6.2's flow: "reject immediately ... checked
+// before any name resolution work, not after"). Name resolution itself
+// (REQ-207/208/209/211) is entirely the owning game module's responsibility
+// (GridGameModule.ScoreSubmissionAsync for xg-grid) — Core never inspects a
+// candidate player or a cell's categories directly.
 public class GuessSubmissionService(
     IRoundRepository roundRepository,
     IGuessRepository guessRepository,
@@ -36,11 +38,20 @@ public class GuessSubmissionService(
 
         var existingGuess = await guessRepository.GetAsync(roundId, userId, cellId, cancellationToken);
 
+        // ADR-0041: resolved before the REQ-210 checks below so the cap
+        // itself can be read per-cell through the module — but this is only
+        // module *resolution* plus a GetMaxAttemptsForCellAsync call, never
+        // ScoreSubmissionAsync (name-resolution work), which still happens
+        // only after every REQ-210/REQ-202 check below passes.
+        var gameModule = gameModuleResolver.Resolve(round.GameKey);
+        var maxAttemptsForCell = await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, cellId, cancellationToken);
+
         // REQ-210: checked before any name resolution work, not after — no
-        // call to IGameModule happens until we know an attempt is allowed.
+        // call to IGameModule.ScoreSubmissionAsync happens until we know an
+        // attempt is allowed.
         if (existingGuess is not null && existingGuess.IsCorrect)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.CellAlreadySolved);
-        if (existingGuess is not null && existingGuess.AttemptCount >= GuessRules.MaxAttemptsPerCell)
+        if (existingGuess is not null && existingGuess.AttemptCount >= maxAttemptsForCell)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.NoAttemptsRemaining);
 
         // REQ-202: guess-change policy — subordinate to REQ-210's lock/cap
@@ -48,9 +59,21 @@ public class GuessSubmissionService(
         if (existingGuess is not null && existingGuess.AttemptCount >= 1 && !round.AllowGuessChange)
             return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.GuessChangeNotAllowed);
 
-        var gameModule = gameModuleResolver.Resolve(round.GameKey);
-        var scoreResult = await gameModule.ScoreSubmissionAsync(
-            round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName, chosenPlayerId), cancellationToken);
+        ScoreResult scoreResult;
+        try
+        {
+            scoreResult = await gameModule.ScoreSubmissionAsync(
+                round.GameInstanceId, userId, new GuessSubmission(cellId, submittedName, chosenPlayerId), cancellationToken);
+        }
+        catch (LiveLookupUnavailableException)
+        {
+            // REQ-211: a live-lookup timeout means "we don't know yet," not
+            // "wrong" — return before ever touching guessRepository, same
+            // shape as REQ-209's disambiguation branch below (no
+            // AddAsync/UpdateAsync, no attempt-count increment, no lock
+            // check). The player gets a genuine retry, not a consumed one.
+            return GuessSubmissionResult.Rejected(GuessSubmissionOutcome.LiveLookupUnavailable);
+        }
 
         // REQ-209/REQ-210: showing a disambiguation prompt is part of the
         // same attempt that triggered it, not a separate one — return
@@ -63,6 +86,32 @@ public class GuessSubmissionService(
             return GuessSubmissionResult.NeedsDisambiguation(scoreResult.DisambiguationCandidates);
 
         var attemptCount = (existingGuess?.AttemptCount ?? 0) + 1;
+
+        // REQ-210: locks immediately on a correct answer, even if only 1 of
+        // the 2 attempts was used; otherwise locks once the cell's own
+        // max-attempts (ADR-0041) is used. Computed here, before the Guess
+        // row is written below, so REQ-216's wrong-guess resolution (next)
+        // can be persisted in the SAME write — never a second/batched
+        // update.
+        var locked = scoreResult.IsCorrect || attemptCount >= maxAttemptsForCell;
+
+        // REQ-216/ADR-0057: fires exactly once, only on the submission that
+        // just locked this cell with its final guess still incorrect — never
+        // for state 2 (incorrect, attempts remaining), which this condition
+        // excludes outright. A second call for the same cell can never
+        // happen: once locked, the REQ-210 checks above (CellAlreadySolved/
+        // NoAttemptsRemaining) reject any further guess before this point is
+        // ever reached again. Wikidata-only, never API-Football, never
+        // gated on any ExternalApiUsage threshold — see
+        // IGameModule.ResolveWrongGuessPlayerAsync's own doc comment. Any
+        // failure (timeout, error, no PlayerNameIndex match) surfaces here as
+        // a plain null, never an exception — ADR-0057's silent, graceful
+        // fallback; there is no correctness verdict left to compute for a
+        // guess already known to be wrong.
+        var wrongGuessPlayer = locked && !scoreResult.IsCorrect
+            ? await gameModule.ResolveWrongGuessPlayerAsync(round.GameInstanceId, submittedName, cancellationToken)
+            : null;
+
         if (existingGuess is null)
         {
             await guessRepository.AddAsync(new Guess
@@ -76,6 +125,8 @@ public class GuessSubmissionService(
                 IsCorrect = scoreResult.IsCorrect,
                 AttemptCount = attemptCount,
                 CreatedAt = now,
+                MatchedPlayerName = wrongGuessPlayer?.PlayerName,
+                MatchedPlayerPhotoUrl = wrongGuessPlayer?.PhotoUrl,
             }, cancellationToken);
         }
         else
@@ -84,12 +135,10 @@ public class GuessSubmissionService(
             existingGuess.PlayerAnswerId = scoreResult.PlayerAnswerId;
             existingGuess.IsCorrect = scoreResult.IsCorrect;
             existingGuess.AttemptCount = attemptCount;
+            existingGuess.MatchedPlayerName = wrongGuessPlayer?.PlayerName;
+            existingGuess.MatchedPlayerPhotoUrl = wrongGuessPlayer?.PhotoUrl;
             await guessRepository.UpdateAsync(existingGuess, cancellationToken);
         }
-
-        // REQ-210: locks immediately on a correct answer, even if only 1 of
-        // the 2 attempts was used; otherwise locks once both are used.
-        var locked = scoreResult.IsCorrect || attemptCount >= GuessRules.MaxAttemptsPerCell;
 
         // Frontend name-display fix: a correct guess's canonical, properly-
         // cased name — never the raw as-typed submittedName, which stays
@@ -104,6 +153,7 @@ public class GuessSubmissionService(
             : null;
 
         return GuessSubmissionResult.Accepted(
-            scoreResult.IsCorrect, attemptCount, locked, resolvedPlayer?.FullName, resolvedPlayer?.PhotoUrl);
+            scoreResult.IsCorrect, attemptCount, locked, resolvedPlayer?.FullName, resolvedPlayer?.PhotoUrl,
+            wrongGuessPlayer?.PlayerName, wrongGuessPlayer?.PhotoUrl);
     }
 }

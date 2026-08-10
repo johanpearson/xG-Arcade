@@ -32,6 +32,12 @@ public class WikidataLookupServiceTests
     {
         Id = Guid.NewGuid(), Name = "England", WikidataQid = "Q21", UsesCountryForSportProperty = true,
     };
+    // ADR-0061: same QID as ReferenceDataSeeder, NOT independently verified
+    // against a live Wikidata page this session.
+    private static readonly TrophyDefinition WorldCup = new()
+    {
+        Id = Guid.NewGuid(), Name = "FIFA World Cup", WikidataQid = "Q19317", IsTeamTrophy = true,
+    };
 
     private const string SingleHenryMatchJson = """
         {
@@ -56,6 +62,79 @@ public class WikidataLookupServiceTests
 
     private const string NoMatchJson = """{ "results": { "bindings": [] } }""";
 
+    // ---- ADR-0042/S-079: PlayerCareerStint fixtures ------------------------
+
+    // A single P54 statement's P580/P582/P1350 qualifiers alongside the
+    // usual player binding.
+    private const string SingleHenryMatchWithCareerStintJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "alias": { "type": "literal", "value": "Titi" },
+                "startTime": { "type": "literal", "value": "2010-08-01T00:00:00Z" },
+                "endTime": { "type": "literal", "value": "2015-06-30T00:00:00Z" },
+                "numberOfMatches": { "type": "literal", "value": "100" }
+              }
+            ]
+          }
+        }
+        """;
+
+    // Same shape, no "numberOfMatches" binding (P1350 not present on this
+    // statement).
+    private const string SingleHenryMatchWithCareerStintNoAppearanceCountJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "startTime": { "type": "literal", "value": "2010-08-01T00:00:00Z" },
+                "endTime": { "type": "literal", "value": "2015-06-30T00:00:00Z" }
+              }
+            ]
+          }
+        }
+        """;
+
+    // Two distinct stints for the same player, returned in REVERSE
+    // chronological order (the later stint's row comes first) — proves
+    // SequenceOrder is resolved by date, not by response row order.
+    private const string TwoCareerStintsOutOfResponseOrderJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "startTime": { "type": "literal", "value": "2012-08-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2014-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "40" }
+              },
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "startTime": { "type": "literal", "value": "1999-08-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "254" }
+              }
+            ]
+          }
+        }
+        """;
+
+    // A single, chronologically EARLIER stint for the same player (Q1519)
+    // than SingleHenryMatchWithCareerStintJson's 2010-2015 — used to prove
+    // the re-sequencing behavior when a later-discovered stint precedes an
+    // already-persisted one.
+    private const string SingleHenryEarlierCareerStintJson = """
+        {
+          "results": {
+            "bindings": [
+              {
+                "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" },
+                "startTime": { "type": "literal", "value": "1999-08-01T00:00:00Z" }, "endTime": { "type": "literal", "value": "2007-06-30T00:00:00Z" }, "numberOfMatches": { "type": "literal", "value": "254" }
+              }
+            ]
+          }
+        }
+        """;
+
     // REQ-214: same single-match shape as SingleHenryMatchJson, plus a P18
     // photo binding.
     private const string SingleHenryMatchWithPhotoJson = """
@@ -63,6 +142,37 @@ public class WikidataLookupServiceTests
           "results": {
             "bindings": [
               { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "photo": { "type": "uri", "value": "http://commons.wikimedia.org/wiki/Special:FilePath/Thierry%20Henry.jpg" } }
+            ]
+          }
+        }
+        """;
+
+    // REQ-1207/S-082: same single-match shape as SingleHenryMatchJson, plus
+    // P413 (position) and a P569 (dateOfBirth) binding to derive BirthYear
+    // from. "positionLabel", not "position" (bug fix, 2026-08-02) — see
+    // WikidataClient.BuildIntersectionQuery's own comment for why ?position
+    // alone is a raw QID URI, never the human-readable string ParseBindings
+    // actually reads.
+    private const string SingleHenryMatchWithPositionAndBirthYearJson = """
+        {
+          "results": {
+            "bindings": [
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "positionLabel": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1977-08-17T00:00:00Z" } }
+            ]
+          }
+        }
+        """;
+
+    // REQ-1207: a DIFFERENT position/birth year for the SAME player
+    // (Q1519) — used only by the set-once test below, to prove a later sync
+    // never overwrites an already-persisted Player row's Position/BirthYear,
+    // even when the later sync's own response disagrees with what's already
+    // stored.
+    private const string SingleHenryMatchWithDifferentPositionAndBirthYearJson = """
+        {
+          "results": {
+            "bindings": [
+              { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q1519" }, "playerLabel": { "type": "literal", "value": "Thierry Henry" }, "alias": { "type": "literal", "value": "Titi" }, "positionLabel": { "type": "literal", "value": "midfielder" }, "dateOfBirth": { "type": "literal", "value": "1980-01-01T00:00:00Z" } }
             ]
           }
         }
@@ -178,6 +288,74 @@ public class WikidataLookupServiceTests
         Assert.That(player.PhotoUrl, Is.Null);
     }
 
+    // ---- REQ-1207/S-082: Player.Position/BirthYear sourced from Wikidata --
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_HitWithPositionAndDateOfBirth_PersistsPositionAndBirthYearOnNewPlayer()
+    {
+        var service = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.EqualTo("forward"));
+        Assert.That(player.BirthYear, Is.EqualTo(1977));
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_HitWithoutPosition_PlayerPositionIsNull()
+    {
+        // SingleHenryMatchJson has no "position" binding at all — the
+        // normal, error-free "no Wikidata P413 statement" case.
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_ExistingPlayer_LaterSyncWithDifferentPositionAndBirthYear_LeavesOriginalValuesCompletelyUntouched()
+    {
+        // The set-once contract: Position/BirthYear are written only at
+        // Player-row creation, mirroring PhotoUrl's own "never re-synced on
+        // a later lookup" rule (PlayerStoreRepository.
+        // GetOrCreatePlayersByWikidataQidAsync). Two genuinely separate
+        // LookupAndPersistAsync calls for the SAME player (Q1519), the
+        // second one's response disagreeing with the first — the second
+        // call's Position/BirthYear must be silently ignored.
+        var firstSyncService = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+        var secondSyncService = BuildService(SingleHenryMatchWithDifferentPositionAndBirthYearJson);
+
+        await firstSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await secondSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        Assert.That(await _dbContext.Players.CountAsync(p => p.WikidataQid == "Q1519"), Is.EqualTo(1), "still exactly one Player row, upserted, not duplicated");
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.EqualTo("forward"), "the SECOND sync's 'midfielder' must never overwrite the value set at creation");
+        Assert.That(player.BirthYear, Is.EqualTo(1977), "the SECOND sync's 1980 must never overwrite the value set at creation");
+    }
+
+    [Test]
+    public async Task REQ1207_LookupAndPersistAsync_ExistingPlayerCreatedWithNullPositionAndBirthYear_LaterSyncWithRealValues_LeavesThemNull()
+    {
+        // The set-once rule applies regardless of whether the existing row's
+        // current value is null or already set (REQ-1207's own text) — a
+        // player first synced with no P413/dateOfBirth data stays null
+        // forever unless a future dedicated backfill is built, the same way
+        // PhotoUrl does.
+        var firstSyncService = BuildService(SingleHenryMatchJson);
+        var secondSyncService = BuildService(SingleHenryMatchWithPositionAndBirthYearJson);
+
+        await firstSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await secondSyncService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(player.Position, Is.Null, "a null set at creation is never backfilled by a later sync");
+        Assert.That(player.BirthYear, Is.Null, "a null set at creation is never backfilled by a later sync");
+    }
+
     [Test]
     public async Task REQ103_LookupAndPersistAsync_ReRunningSameQuery_CreatesZeroDuplicatePlayers()
     {
@@ -290,6 +468,48 @@ public class WikidataLookupServiceTests
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
     }
 
+    // REQ-211 (2026-07-27 fix): the guess-time fallback's own opt-in —
+    // unlike REQ103_LookupAndPersistAsync_WhenWikidataTimesOut_ReturnsEmptyWithoutThrowing
+    // above (Sync origin, unaffected), a GuessTimeFallback-origin call must
+    // THROW on a timeout instead of swallowing to [], so
+    // GridGameModule.RefreshCellFromLiveLookupAsync can distinguish "we
+    // don't know yet" from a genuine no-match.
+    [Test]
+    public void REQ211_LookupAndPersistAsync_GuessTimeFallback_WhenWikidataTimesOut_ThrowsWikidataQueryException()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        // ADR-0046 follow-up: GuessTimeFallback uses guessTimeFallbackQueryTimeout,
+        // not queryTimeout — must be set here too, or this test would wait
+        // out the real (28s default) budget.
+        var wikidataClient = new WikidataClient(
+            httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.GuessTimeFallback));
+    }
+
+    // S-030 mirror of the test above — the Club x Club dispatch path
+    // (RefreshCellFromLiveLookupAsync's other Tier-0-handled pairing) needs
+    // its own coverage rather than assuming symmetry with Country x Club.
+    [Test]
+    public void REQ211_LookupAndPersistClubClubAsync_GuessTimeFallback_WhenWikidataTimesOut_ThrowsWikidataQueryException()
+    {
+        var httpClient = new HttpClient(FakeHttpMessageHandler.NeverResponding())
+        {
+            BaseAddress = new Uri("https://query.wikidata.org/"),
+        };
+        var wikidataClient = new WikidataClient(
+            httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
+        var service = new WikidataLookupService(wikidataClient, _playerStore);
+
+        Assert.ThrowsAsync<WikidataQueryException>(async () =>
+            await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.GuessTimeFallback));
+    }
+
     [Test]
     public async Task REQ103_LookupAndPersistAsync_WhenNoMatch_ReturnsEmptyWithoutThrowing()
     {
@@ -339,6 +559,190 @@ public class WikidataLookupServiceTests
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ---- LookupAndPersistAsync: PlayerCareerStint persistence (ADR-0042/S-079) -
+    // Only LookupAndPersistAsync (country/nationality x club) wires this up —
+    // see that method's own comment and its scope note on the other three
+    // Lookup*Async callers.
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_HitWithCareerStintQualifiers_PersistsOneOrderedPlayerCareerStintRow()
+    {
+        var service = BuildService(SingleHenryMatchWithCareerStintJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1));
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stints[0].StartYear, Is.EqualTo(2010));
+        Assert.That(stints[0].EndYear, Is.EqualTo(2015));
+        Assert.That(stints[0].AppearanceCount, Is.EqualTo(100));
+        Assert.That(stints[0].SequenceOrder, Is.EqualTo(0));
+
+        // Confirm-by-inspection (S-079's accept criteria): PlayerAttribute's
+        // existing "club"/"nationality" rows are unaffected — populated
+        // alongside, never instead of, PlayerCareerStint.
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Count.EqualTo(2));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "France"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_CareerStintMissingP1350_AppearanceCountIsNullNeverZero()
+    {
+        var service = BuildService(SingleHenryMatchWithCareerStintNoAppearanceCountJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stint = await _dbContext.PlayerCareerStints.SingleAsync(s => s.PlayerId == player.Id);
+        Assert.That(stint.AppearanceCount, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_HitWithNoCareerStintQualifiers_PersistsNoPlayerCareerStintRow()
+    {
+        // SingleHenryMatchJson has no startTime/endTime/numberOfMatches
+        // bindings at all — the normal "this Wikidata statement has no
+        // qualifiers" case, not an error.
+        var service = BuildService(SingleHenryMatchJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == player.Id), Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_SequenceOrderReflectsChronologicalOrder_RegardlessOfResponseRowOrder()
+    {
+        // TwoCareerStintsOutOfResponseOrderJson returns the LATER stint
+        // (2012-2014) as the first binding row and the EARLIER stint
+        // (1999-2007) second — SequenceOrder must still be resolved by date.
+        var service = BuildService(TwoCareerStintsOutOfResponseOrderJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stints = await _dbContext.PlayerCareerStints
+            .Where(s => s.PlayerId == player.Id)
+            .OrderBy(s => s.SequenceOrder)
+            .ToListAsync();
+
+        Assert.That(stints, Has.Count.EqualTo(2));
+        Assert.That(stints[0].StartYear, Is.EqualTo(1999));
+        Assert.That(stints[0].SequenceOrder, Is.EqualTo(0));
+        Assert.That(stints[1].StartYear, Is.EqualTo(2012));
+        Assert.That(stints[1].SequenceOrder, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_ReRunningSameQuery_CreatesZeroDuplicateCareerStintRows()
+    {
+        var service = BuildService(SingleHenryMatchWithCareerStintJson);
+
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+        await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1));
+    }
+
+    // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
+    // ADR-0059): the cross-writer half of the fix. LookupAndPersistAsync
+    // (xG Grid's country x club byproduct path, this test's first call)
+    // always writes ClubDefinition.Name directly and needed no change.
+    // PlayerCareerStintRefreshService (xG Path's full-career-fetch path,
+    // this test's second call) used to write Wikidata's own raw
+    // (suffix-normalized-only) ?clubLabel — which, for the SAME real club
+    // (same WikidataQid), can legitimately differ from the seeded name by
+    // more than a legal suffix (e.g. "Arsenal" vs. a hypothetical
+    // "Arsenal Football Club" alternate label). Once
+    // PlayerCareerStintRefreshService canonicalizes by QID, both writers
+    // converge on the exact same ClubName for the exact same real stint,
+    // so the second writer's dedup check (against what LookupAndPersistAsync
+    // already persisted) recognizes it as already-known rather than
+    // creating a second, differently-named row.
+    [Test]
+    public async Task REQ1203_TwoWriterPathsForSameRealStint_ConvergeOnIdenticalClubName_NoCrossWriterDuplicate()
+    {
+        var categoryValueRepository = new CategoryValueRepository(_dbContext);
+        await categoryValueRepository.AddClubAsync(Arsenal); // Name="Arsenal", WikidataQid="Q9617".
+
+        // Writer 1: xG Grid's own country x club byproduct lookup — always
+        // persists ClubDefinition.Name ("Arsenal") directly.
+        var lookupService = BuildService(SingleHenryMatchWithCareerStintJson);
+        await lookupService.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+
+        // Writer 2: xG Path's full-career fetch — same real stint (same
+        // dates/appearance count), same underlying QID, but Wikidata's own
+        // raw label differs from the seeded name.
+        var fakeWikidataClient = new FakeWikidataClient();
+        fakeWikidataClient.SetCareerStints("Q1519",
+            new WikidataCareerStintEntry("Arsenal Football Club", 2010, 2015, 100, ClubQid: "Q9617"));
+        var refreshService = new PlayerCareerStintRefreshService(
+            fakeWikidataClient, _playerStore, categoryValueRepository,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PlayerCareerStintRefreshService>.Instance);
+
+        await refreshService.RefreshCareerStintsAsync([player.Id]);
+
+        var stints = await _dbContext.PlayerCareerStints.Where(s => s.PlayerId == player.Id).ToListAsync();
+        Assert.That(stints, Has.Count.EqualTo(1),
+            "the two writer paths must converge on the exact same ClubName for the same real stint, not create a second row");
+        Assert.That(stints[0].ClubName, Is.EqualTo("Arsenal"));
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistAsync_PlayerGainsChronologicallyEarlierStintLater_ResequencesWholeSet()
+    {
+        // First cell (France x Arsenal) discovers the 2010-2015 stint;
+        // second cell (France x Barcelona) later discovers a chronologically
+        // EARLIER stint (1999-2007) for the same real player (Q1519). The
+        // already-persisted Arsenal row's SequenceOrder must shift from 0 to
+        // 1, not stay stuck at 0.
+        var cell1Service = BuildService(SingleHenryMatchWithCareerStintJson);
+        await cell1Service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var arsenalStintBefore = await _dbContext.PlayerCareerStints.SingleAsync(s => s.PlayerId == player.Id);
+        Assert.That(arsenalStintBefore.SequenceOrder, Is.EqualTo(0));
+
+        var cell2Service = BuildService(SingleHenryEarlierCareerStintJson);
+        await cell2Service.LookupAndPersistAsync(France, Barcelona, WikidataLookupOrigin.Sync);
+
+        var stints = await _dbContext.PlayerCareerStints
+            .Where(s => s.PlayerId == player.Id)
+            .OrderBy(s => s.SequenceOrder)
+            .ToListAsync();
+
+        Assert.That(stints, Has.Count.EqualTo(2));
+        Assert.That(stints[0].ClubName, Is.EqualTo("Barcelona"));
+        Assert.That(stints[0].StartYear, Is.EqualTo(1999));
+        Assert.That(stints[0].SequenceOrder, Is.EqualTo(0));
+        Assert.That(stints[1].ClubName, Is.EqualTo("Arsenal"));
+        Assert.That(stints[1].StartYear, Is.EqualTo(2010));
+        Assert.That(stints[1].SequenceOrder, Is.EqualTo(1),
+            "the already-persisted Arsenal row must be re-sequenced, not left at its original SequenceOrder");
+    }
+
+    [Test]
+    public async Task REQ103_LookupAndPersistClubClubAsync_DoesNotPersistPlayerCareerStint()
+    {
+        // Scope decision (ADR-0042/S-079): only the country/nationality x
+        // club path persists career stints in this story.
+        var service = BuildService(SingleHenryMatchWithCareerStintJson);
+
+        await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == player.Id), Is.EqualTo(0));
     }
 
     // ---- LookupAndPersistAsync: national-team query path (REQ-114/ADR-0035) -
@@ -792,5 +1196,155 @@ public class WikidataLookupServiceTests
 
         Assert.That(result, Is.Empty);
         Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(0));
+    }
+
+    // ADR-0042/S-079 scope decision: unlike LookupAndPersistClubClubAsync/
+    // LookupAndPersistTrophyCountryAsync (where match.CareerStints can never
+    // be non-empty — their query shapes structurally never bind the shared
+    // ?clubStatement variable the qualifier OPTIONALs key off), this query
+    // DOES share that variable name (BuildTrophyClubIntersectionQuery), so
+    // match.CareerStints CAN be genuinely non-empty here. Uses
+    // SingleHenryMatchWithCareerStintJson (real P580/P582/P1350 bindings) —
+    // not SingleHenryMatchJson — specifically so this proves the qualifier
+    // data was available and still deliberately not written, rather than
+    // passing vacuously because there was nothing to persist either way.
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_DoesNotPersistPlayerCareerStint_EvenWhenCareerStintQualifiersAreBound()
+    {
+        var service = BuildService(SingleHenryMatchWithCareerStintJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        Assert.That(await _dbContext.PlayerCareerStints.CountAsync(s => s.PlayerId == player.Id), Is.EqualTo(0));
+    }
+
+    // ---- ADR-0061: team-competition trophy dispatch -------------------------
+    // LookupAndPersistTrophyCountryAsync/LookupAndPersistTrophyClubAsync now
+    // branch on TrophyDefinition.IsTeamTrophy (and, for Country, ALSO on
+    // CountryDefinition.UsesCountryForSportProperty) — these tests assert the
+    // actual SPARQL query sent for every combination, the same
+    // BuildServiceWithHandler technique REQ114_LookupAndPersistAsync_* uses
+    // above for the Country x Club P27-vs-P1532 split.
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophyOrdinaryCountry_SentQuery_UsesTeamCompetitionShapeWithP27()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(WorldCup, France, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Not.Contain("P166"), "a team trophy must never dispatch through the individual-award P166 query");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophyFlaggedCountry_SentQuery_UsesTeamCompetitionShapeWithP1532()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(WorldCup, England, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        // Both the player-side and winner-side joins use P1532 for a
+        // flagged country, so a bare count is the meaningful assertion here
+        // rather than a single Contains.
+        Assert.That(sentQuery.Split("wdt:P1532").Length - 1, Is.EqualTo(2),
+            "a flagged country's team-trophy query must use P1532 on both the player side and the winner side");
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Not.Contain("P166"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"));
+    }
+
+    [Test]
+    public async Task REQ114_LookupAndPersistTrophyCountryAsync_IndividualAwardFlaggedCountry_SentQuery_UsesP166AndP1532NotP27()
+    {
+        // The pre-existing S-031 P166 individual-award path must ALSO honor
+        // UsesCountryForSportProperty, per ADR-0035's follow-up note
+        // (resolved by ADR-0061) — this is the regression this fix closes.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, England, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("wdt:P1532 wd:Q21"));
+        Assert.That(sentQuery, Does.Not.Contain("P27"),
+            "a flagged country must never silently fall back to P27 for the individual-award path either");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_IndividualAwardOrdinaryCountry_SentQuery_StillUsesP166AndP27()
+    {
+        // Regression: the existing S-031 path for an ordinary (non-flagged)
+        // country must stay completely unaffected by this feature.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("wdt:P27 wd:Q142"));
+        Assert.That(sentQuery, Does.Not.Contain("P1532"));
+        Assert.That(sentQuery, Does.Not.Contain("P1344"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyCountryAsync_TeamTrophy_HitPersistsPlayersUnderTrophyAndNationalityAttributeTypes()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyCountryAsync(WorldCup, France, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "FIFA World Cup"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "nationality" && a.AttributeValue == "France"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_TeamTrophy_SentQuery_UsesTeamCompetitionShapeWithP54()
+    {
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(WorldCup, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Contain("wdt:P1344 ?edition"));
+        Assert.That(sentQuery, Does.Contain("wd:Q8682")); // Real Madrid's QID, matched directly as the edition winner
+        Assert.That(sentQuery, Does.Not.Contain("P166"), "a team trophy must never dispatch through the individual-award P166 query");
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_IndividualAward_SentQuery_StillUsesP166AndP54()
+    {
+        // Regression: the existing S-031 Trophy x Club path must stay
+        // completely unaffected.
+        var (service, handler) = BuildServiceWithHandler(NoMatchJson);
+
+        await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync);
+
+        var sentQuery = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.That(sentQuery, Does.Contain("wdt:P166 wd:Q166177"));
+        Assert.That(sentQuery, Does.Contain("?player p:P54 ?clubStatement."));
+        Assert.That(sentQuery, Does.Not.Contain("P1344"));
+    }
+
+    [Test]
+    public async Task REQ108_LookupAndPersistTrophyClubAsync_TeamTrophy_HitPersistsPlayersUnderTrophyAndClubAttributeTypes()
+    {
+        var service = BuildService(SingleHenryMatchJson);
+
+        var result = await service.LookupAndPersistTrophyClubAsync(WorldCup, RealMadrid, WikidataLookupOrigin.Sync);
+
+        Assert.That(result, Has.Count.EqualTo(1));
+        var player = await _dbContext.Players.SingleAsync(p => p.WikidataQid == "Q1519");
+        var attributes = await _dbContext.PlayerAttributes.Where(a => a.PlayerId == player.Id).ToListAsync();
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "trophy" && a.AttributeValue == "FIFA World Cup"));
+        Assert.That(attributes, Has.Some.Matches<PlayerAttribute>(a => a.AttributeType == "club" && a.AttributeValue == "Real Madrid"));
     }
 }

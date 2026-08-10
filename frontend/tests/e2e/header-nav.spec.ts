@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { stubTurnstile } from './turnstile-stub'
 
 // REQ-712: the header nav's mobile-collapse behavior only actually applies
 // at real viewport widths — HeaderNav.css's `@media (max-width: 480px)`
@@ -20,7 +21,14 @@ async function signUpNewPlayer(page: Page): Promise<void> {
   const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
   const email = `test-nav-${tag}@test.invalid`
 
+  // REQ-717/ADR-0037 follow-up: handleSubmit calls the real
+  // getTurnstileToken() unconditionally -- stub window.turnstile before
+  // this signup form ever submits (see turnstile-stub.ts).
+  await stubTurnstile(page)
   await page.goto('/')
+  // REQ-719: a fresh, unauthenticated visit now lands on the splash screen
+  // first, not AuthScreen directly — its call-to-action is the way in.
+  await page.getByRole('button', { name: 'Log in or sign up' }).click()
   await page.getByRole('tab', { name: 'Sign up' }).click()
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password', { exact: true }).fill('password123')
@@ -150,6 +158,66 @@ test.describe('REQ-712: header nav collapses behind a menu toggle below the mobi
   })
 })
 
+// REQ-720: the header nav's "Games" entry — a disclosure listing xG Grid
+// (Tier 0's only game) — reaches the grid screen, and the "xG Arcade" title
+// still reaches GameSelectScreen unchanged alongside it. HeaderNav.test.tsx
+// already covers the component's own aria-expanded/aria-current/
+// non-navigating behavior in isolation (jsdom); this is the real-browser
+// half: the actual navigation destination, and that the nested disclosure
+// doesn't reintroduce the header-row wrapping/overflow REQ-712 already
+// guards against at a real narrow viewport.
+test.describe('REQ-720: header nav "Games" entry', () => {
+  test('REQ-720: nav → Games → xG Grid reaches the grid screen; the "xG Arcade" title still reaches GameSelectScreen unchanged', async ({
+    page,
+  }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT)
+    await signUpNewPlayer(page)
+
+    const nav = page.getByRole('navigation')
+    await nav.getByRole('button', { name: 'Games' }).click()
+    await nav.getByRole('button', { name: 'xG Grid' }).click()
+
+    // GET /rounds/current has no active round to seed against in this
+    // spec (no round-seeding here, unlike play-grid.spec.ts) — the "empty"
+    // state is still proof the grid screen itself was reached.
+    await expect(page.getByText('No round to play right now')).toBeVisible()
+    await expect(page.getByText('Choose a game')).not.toBeVisible()
+
+    // REQ-720: both affordances kept deliberately — the title still routes
+    // back to the full landing/picker screen from inside the grid screen
+    // "Games" just reached.
+    await page.getByRole('button', { name: 'xG Arcade' }).click()
+    await expect(page.getByText('Choose a game')).toBeVisible()
+  })
+
+  test('REQ-720: below 480px, expanding "Games" inside the outer nav menu never reintroduces header wrapping/overflow', async ({
+    page,
+  }) => {
+    await page.setViewportSize(NARROW_VIEWPORT)
+    await signUpNewPlayer(page)
+
+    const toggle = page.getByTestId('header-nav-toggle')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const gamesToggle = page.getByTestId('header-nav-games-toggle')
+    await expect(gamesToggle).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+
+    await gamesToggle.click()
+    await expect(gamesToggle).toHaveAttribute('aria-expanded', 'true')
+    // Scoped to the nav's own games list: signUpNewPlayer leaves the player
+    // on the game-select screen, which already renders its own "xG Grid"
+    // tile in <main> — an unscoped getByRole would match both and fail with
+    // a strict-mode violation.
+    await expect(
+      page.locator('#header-nav-games-list').getByRole('button', { name: 'xG Grid' }),
+    ).toBeVisible()
+
+    await expectNoHorizontalOverflow(page)
+  })
+})
+
 // REQ-402/403: create a custom league and join one via its real invite code
 // — the API-level equivalent (backend/tests/XGArcade.Api.Tests/
 // LeagueEndpointTests.cs) already covers request validation/response shape;
@@ -235,12 +303,10 @@ test.describe('REQ-716: dark mode toggle', () => {
       .poll(() => page.evaluate(() => document.documentElement.dataset.theme))
       .toBe('dark')
 
-    // App.tsx's `screen` state resets to its 'game-select' default on
-    // reload even though the session (access token in localStorage)
-    // itself survived — navigate back to Settings to flip the preference
-    // back to Light.
-    await expect(page.getByText('Choose a game')).toBeVisible()
-    await page.getByRole('button', { name: 'Settings' }).click()
+    // REQ-721: the URL (#/settings) restores the same screen on reload
+    // now, rather than always resetting to game-select — still on
+    // Settings already, so flip the preference back to Light directly.
+    await expect(page.getByRole('radiogroup', { name: 'Color theme' })).toBeVisible()
     await page.getByRole('radio', { name: 'Light' }).check()
     await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked()
     await expect

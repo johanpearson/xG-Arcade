@@ -1,7 +1,26 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App'
+
+// REQ-701/REQ-717's 2026-07-25 scope-correction addition / ADR-0037's
+// amendment: logIn() below drives the real AuthScreen login form, which now
+// calls getTurnstileToken() for real (AuthScreen.tsx's handleSubmit) — no
+// live Cloudflare site key exists in this sandbox, so the token-acquisition
+// step is mocked wholesale here, same pattern/mock-token convention
+// frontend/src/auth/AuthScreen.test.tsx already uses.
+const getTurnstileTokenMock = vi.fn()
+const resetTurnstileWidgetMock = vi.fn()
+// Sign-in latency fix (2026-07-25): AuthScreen.tsx/DeleteAccountScreen.tsx
+// now also call preloadTurnstileScript() from a mount-only effect -- stubbed
+// here as a no-op so mounting either component under test doesn't throw on
+// an undefined import from this wholesale module mock.
+const preloadTurnstileScriptMock = vi.fn()
+vi.mock('../../src/lib/turnstile', () => ({
+  getTurnstileToken: (...args: unknown[]) => getTurnstileTokenMock(...args),
+  resetTurnstileWidget: (...args: unknown[]) => resetTurnstileWidgetMock(...args),
+  preloadTurnstileScript: (...args: unknown[]) => preloadTurnstileScriptMock(...args),
+}))
 
 function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve({
@@ -45,12 +64,19 @@ function stubAuthenticatedFetch(extraRoutes: Record<string, () => Promise<Respon
       if (path.endsWith('/rounds/current')) {
         return jsonResponse({ title: 'No active round' }, 404)
       }
+      if (path.endsWith('/path/current')) {
+        return jsonResponse({ title: 'No active round' }, 404)
+      }
       throw new Error(`Unexpected fetch: ${path}`)
     }),
   )
 }
 
 async function logIn(user: ReturnType<typeof userEvent.setup>) {
+  // REQ-719: a fresh, unauthenticated render now shows the splash screen
+  // first — its call-to-action is what reveals AuthScreen's actual
+  // login/signup form used below.
+  await user.click(await screen.findByRole('button', { name: 'Log in or sign up' }))
   await user.type(screen.getByLabelText('Email'), 'player@example.com')
   await user.type(screen.getByLabelText('Password'), 'password123')
   await user.click(screen.getByRole('button', { name: 'Log in' }))
@@ -60,8 +86,21 @@ async function logIn(user: ReturnType<typeof userEvent.setup>) {
 // no REQ-xxx exists for the health check itself (pure infra, not user-facing
 // behavior), so these are named descriptively rather than REQ-prefixed.
 describe('App', () => {
+  beforeEach(() => {
+    // logIn() below always submits the real login form, which now always
+    // needs a resolved Turnstile token to get past AuthScreen.tsx's
+    // handleSubmit — a single shared default here means none of the
+    // existing REQ-303/REQ-710/REQ-504/REQ-712/REQ-713 tests below (whose
+    // own point is unrelated to captcha behavior) need to configure it
+    // individually.
+    getTurnstileTokenMock.mockResolvedValue('app-test-turnstile-token')
+  })
+
   afterEach(() => {
     vi.unstubAllGlobals()
+    getTurnstileTokenMock.mockReset()
+    resetTurnstileWidgetMock.mockReset()
+    preloadTurnstileScriptMock.mockReset()
   })
 
   it('shows the API health status once the health check resolves', async () => {
@@ -127,7 +166,13 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-303: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen — nav no longer has separate "Games"/"Grid" links', async () => {
+  // REQ-720 (2026-07-25) reverses S-029's "no separate Games/Grid nav
+  // entry" call now that a second game is planned — see that
+  // requirement's own "deliberate reversal, not a silent contradiction"
+  // note. This test's title/body previously asserted the opposite; kept
+  // in the same place (still exercises the title returning to
+  // game-selection) with its outdated assertion replaced.
+  it('REQ-303/REQ-720: the header\'s "xG Arcade" title returns from the grid to the game-selection (landing) screen, unchanged alongside the header nav\'s new "Games" entry', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -139,8 +184,12 @@ describe('App game-selection routing', () => {
       expect(screen.getByText('No round to play right now')).toBeInTheDocument(),
     )
 
-    expect(screen.queryByRole('button', { name: 'Games' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Grid' })).not.toBeInTheDocument()
+    // REQ-720: "Games" is now a real, reachable disclosure entry (not
+    // removed as S-029 previously had it) — selecting "xG Grid" from it
+    // reaches the same grid screen the title/GameSelectScreen tile already
+    // do.
+    await user.click(screen.getByRole('button', { name: 'Games' }))
+    expect(screen.getByRole('button', { name: 'xG Grid' })).toHaveAttribute('aria-current', 'page')
 
     await user.click(screen.getByRole('button', { name: 'xG Arcade' }))
 
@@ -148,7 +197,12 @@ describe('App game-selection routing', () => {
     expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
   })
 
-  it('REQ-303/REQ-712/REQ-713: the nav offers Leaderboard, Settings, and Log out once authenticated', async () => {
+  // REQ-303/S-086 (SCREEN-10): xG Path's tile now routes to the real
+  // clue-reveal screen (PathScreen) — S-085's "coming soon" placeholder is
+  // gone, superseded by this story. stubAuthenticatedFetch's default
+  // /path/current route (404) exercises PathScreen's own calm empty state,
+  // the same "no active round" idiom GridScreen already has.
+  it('REQ-303: selecting xG Path from the game-selection screen navigates to the real xG Path screen', async () => {
     stubAuthenticatedFetch()
     const user = userEvent.setup()
 
@@ -156,6 +210,22 @@ describe('App game-selection routing', () => {
     await logIn(user)
     await screen.findByText('Choose a game')
 
+    await user.click(screen.getByRole('button', { name: 'xG Path' }))
+
+    expect(await screen.findByText('No puzzle to play right now')).toBeInTheDocument()
+    expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
+    expect(screen.queryByText('No round to play right now')).not.toBeInTheDocument()
+  })
+
+  it('REQ-303/REQ-712/REQ-713/REQ-720: the nav offers Games, Leaderboard, Settings, and Log out once authenticated', async () => {
+    stubAuthenticatedFetch()
+    const user = userEvent.setup()
+
+    render(<App />)
+    await logIn(user)
+    await screen.findByText('Choose a game')
+
+    expect(screen.getByRole('button', { name: 'Games' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Leaderboard' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument()
@@ -228,7 +298,7 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     expect(screen.queryByText('Choose a game')).not.toBeInTheDocument()
   })
 
-  it('REQ-710: a successful deletion returns to the logged-out AuthScreen and clears the stored access token', async () => {
+  it('REQ-710/REQ-719: a successful deletion returns to the splash screen (not directly to AuthScreen) and clears the stored access token', async () => {
     stubAuthenticatedFetch({ '/auth/account': () => jsonResponse(null, 204) })
     const user = userEvent.setup()
 
@@ -241,7 +311,8 @@ describe('App delete-account routing (via Settings, REQ-713)', () => {
     await user.type(screen.getByLabelText('Current password'), 'correct-password')
     await user.click(screen.getByRole('button', { name: 'Delete my account permanently' }))
 
-    expect(await screen.findByRole('tab', { name: 'Log in' })).toBeInTheDocument()
+    expect(await screen.findByTestId('splash-screen')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Log in' })).not.toBeInTheDocument()
     expect(window.localStorage.getItem('xg-arcade-access-token')).toBeNull()
   })
 })

@@ -43,6 +43,38 @@
   font-size: 13px;
 }
 
+/* REQ-410/ADR-0043 (S-087): the game switcher — same underline-tab
+   treatment as .leaderboard-screen__scope-tabs/__scope-tab directly below
+   (identical declarations, same tokens), copied rather than shared because
+   it's a visually distinct row above the scope tabs, not the same DOM row —
+   reusing the scope tabs' own class names here would make the CSS
+   ambiguous between two different rows. design-document.md's SCREEN-03
+   "Game switcher" note is explicit that this is "the same plain
+   underline-tab pattern used everywhere else on this screen, not a new
+   control type." */
+.leaderboard-screen__game-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.leaderboard-screen__game-tab {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.leaderboard-screen__game-tab--active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent-green);
+}
+
 /* REQ-406/407/408: the scope selector — same tab-underline treatment as
    .auth-screen__tabs/.auth-screen__tab (accent-green underline on the
    active tab, §2's "tab underline" use of accent-green), reused rather than

@@ -90,8 +90,23 @@
    reference the way a real browser's pending-substitution-value handling
    does, which would make this un-assertable from a Vitest test; the
    `background-color` longhand alone doesn't have that problem and renders
-   identically in a real browser either way. */
-.cell-state--photo {
+   identically in a real browser either way.
+
+   REQ-216 (2026-08-03): `.cell-state--incorrect-photo` shares this exact
+   rule (same selector list) — a locked-incorrect cell showing either a real
+   matched-player photo or the placeholder avatar (CellState.tsx) needs the
+   identical full-bleed-against-`.grid-table__cell`, fixed-footprint
+   mechanism REQ-214 already built for the correct-cell photo case, not a
+   re-derived one. Deliberately NOT the same class as `.cell-state--photo`
+   itself (a distinct modifier instead) — this element also always carries
+   `.cell-state--incorrect`, and giving it `.cell-state--photo` too would tie
+   for specificity against `.cell-state--incorrect .cell-state__meta`'s red
+   text color below via source order, silently painting this overlay's text
+   in whichever of the two happened to be declared later — see this file's
+   own `.cell-state--incorrect-photo .cell-state__meta` rule further down for
+   the color this branch actually needs instead. */
+.cell-state--photo,
+.cell-state--incorrect-photo {
   position: absolute;
   inset: 0;
   width: auto;
@@ -234,12 +249,45 @@
    the tie.
 
    S-047: font-size drops to 10px here (from the base .cell-state__meta's
-   11px above) — one of this story's overlay-coverage reductions (design
-   doc's SCREEN-01a S-047 status note); the no-photo case keeps the base
-   11px unchanged. Color is unaffected by this addition. */
+   11px above, shared with `.cell-state--incorrect-photo` below, REQ-216) —
+   one of this story's overlay-coverage reductions (design doc's SCREEN-01a
+   S-047 status note); the no-photo case keeps the base 11px unchanged.
+
+   REQ-216 (2026-08-03): `.cell-state--incorrect-photo .cell-state__meta`
+   shares this rule's font-size (a locked-incorrect cell showing a real
+   matched-player photo or the placeholder avatar needs the identical
+   scrim-legible reduction) but NOT its `accent-gold` color, declared
+   separately below — `accent-gold` already means "correct/settled"
+   everywhere in this file, which would be actively wrong on an incorrect
+   cell. Neither accent-red variant clears WCAG AA's 4.5:1 text floor
+   against this same scrim either — light theme's --color-accent-red
+   measures ~2.44:1 there, dark theme's own --color-accent-red variant
+   ~3.62:1, both fail (see design-document.md §2's REQ-216 status note for
+   the derivation) — so, like the correct-photo overlay's revealed name
+   below, the incorrect variant reuses --color-surface-card (white), the
+   lightest neutral already in this table, rather than inventing and
+   re-verifying a new accent-red-on-scrim token for a decorative-adjacent
+   piece of text this REQ never asked to be red specifically (the
+   persistent red border, Grid.css's .grid-table__cell--incorrect, is what
+   actually signals "incorrect" here). That separate color rule is declared
+   after both `.cell-state--incorrect .cell-state__meta` (red) and this rule
+   (gold) so it wins the same-specificity (0,2,0) source-order tie against
+   the former — same tie-breaking technique this comment already documents
+   for this rule's own tie against `.cell-state--correct .cell-state__meta`;
+   it can never actually tie against this rule itself, since no single
+   element ever carries both `.cell-state--photo` and
+   `.cell-state--incorrect-photo`. */
+.cell-state--photo .cell-state__meta,
+.cell-state--incorrect-photo .cell-state__meta {
+  font-size: 10px;
+}
+
 .cell-state--photo .cell-state__meta {
   color: var(--color-accent-gold);
-  font-size: 10px;
+}
+
+.cell-state--incorrect-photo .cell-state__meta {
+  color: var(--color-surface-card);
 }
 
 /* S-048 removal note (2026-07-19): this file used to carry two photo-variant
@@ -296,8 +344,17 @@
    enough to actually fit alongside the points line in every case observed
    (S-048, 2026-07-19: that points line no longer shares this overlay with
    a checkmark at all — see the removal note above this section — but the
-   clamp/fit reasoning here is otherwise unchanged). */
-.cell-state--photo .cell-state__name {
+   clamp/fit reasoning here is otherwise unchanged).
+
+   REQ-216 (2026-08-03): `.cell-state--incorrect-photo .cell-state__name`
+   shares this rule outright (no color split needed, unlike `__meta` above)
+   — the matched-player's name on a locked-incorrect cell's photo/
+   placeholder-avatar overlay has no correct/incorrect semantic color of its
+   own either (same reasoning as the correct-photo case's own comment
+   above), so it reuses the identical --color-surface-card/font-size/
+   line-clamp treatment rather than a separate, redundant rule. */
+.cell-state--photo .cell-state__name,
+.cell-state--incorrect-photo .cell-state__name {
   color: var(--color-surface-card);
   font-size: 12px;
   line-height: 1.2;
@@ -316,20 +373,29 @@
    same proportion S-047 scaled them down, not reverted to the pre-S-047
    uniform --space-2 padding (there's no coverage-percentage problem to
    re-solve here, only a legibility one) — the mobile (<960px) sizes below
-   this block are completely unaffected. */
+   this block are completely unaffected.
+
+   REQ-216 (2026-08-03): `.cell-state--incorrect-photo`'s own overlay/name/
+   meta share this same desktop scale-up (selectors extended below) — a
+   locked-incorrect cell's photo/placeholder-avatar overlay is the identical
+   full-bleed treatment as the correct-photo case, so it needs the same
+   desktop legibility bump, not a separately-tuned one. */
 @media (min-width: 960px) {
-  .cell-state--photo .cell-state__overlay {
+  .cell-state--photo .cell-state__overlay,
+  .cell-state--incorrect-photo .cell-state__overlay {
     padding-top: var(--space-2);
     padding-bottom: var(--space-2);
     padding-left: var(--space-3);
     padding-right: var(--space-3);
   }
 
-  .cell-state--photo .cell-state__name {
+  .cell-state--photo .cell-state__name,
+  .cell-state--incorrect-photo .cell-state__name {
     font-size: 15px;
   }
 
-  .cell-state--photo .cell-state__meta {
+  .cell-state--photo .cell-state__meta,
+  .cell-state--incorrect-photo .cell-state__meta {
     font-size: 12px;
   }
 }
@@ -470,4 +536,35 @@
   .cell-state--shake {
     animation: cell-state-incorrect-flash 0.6s ease-out;
   }
+}
+
+/* REQ-216 (2026-08-03 placeholder-avatar amendment) — design-document.md
+   §2's new "Placeholder avatar" entry. Sits in the same full-bleed slot
+   CellPhoto's own <img> occupies (.cell-state--incorrect-photo above), so
+   it can never change the cell's footprint — a second absolutely-positioned
+   layer, same as .cell-state__photo-img, removed from the flex flow
+   entirely and sized purely by `inset: 0`. z-index: 0 keeps it behind
+   .cell-state__overlay, same stacking as the real photo. --color-
+   surface-sunken (the slot's own background) and --color-text-muted (the
+   silhouette's fill) are both reused, not new tokens — the same
+   "recessed/inactive" and "quiet, secondary content" roles those two
+   tokens already carry everywhere else in this file's token table;
+   deliberately not --color-accent-red, since the persistent red border
+   (Grid.css's .grid-table__cell--incorrect) already carries the "this is
+   wrong" signal on its own — see design-document.md §2's entry for the
+   full reasoning against painting the avatar itself red too. */
+.cell-state__placeholder-avatar-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-surface-sunken);
+  z-index: 0;
+}
+
+.cell-state__placeholder-avatar {
+  width: 40%;
+  height: 40%;
+  color: var(--color-text-muted);
 }

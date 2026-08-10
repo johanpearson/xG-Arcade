@@ -1,0 +1,184 @@
+/* design-document.md SCREEN-10: "The guess input is pinned below the
+   timeline, not inside its scroll area" — a plain inline block (not a modal
+   sheet the way GuessInput.css's grid version is), always reachable
+   regardless of how many clues have been revealed above it. */
+.path-guess-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-hairline);
+}
+
+.path-guess-input__form {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* REQ-207 (S-091): positions the suggestion list against the field itself,
+   the same way GuessInput.css's version does (that one doesn't need a
+   wrapper since the field is the only thing in its own column already —
+   here the field shares a row with the Guess button, so this wrapper keeps
+   the list's absolute positioning scoped to just the field's width). */
+.path-guess-input__field-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.path-guess-input__field {
+  width: 100%;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.path-guess-input__field:disabled {
+  opacity: 0.6;
+}
+
+/* REQ-207/ADR-0007 (S-091): mirrors GuessInput.css's
+   .guess-input__suggestions treatment — neutral tokens only, deliberately,
+   since this list must never look like it's vouching for a name being the
+   correct answer (see PathGuessInput.tsx's own comment). Positioned to drop
+   below the field rather than pushing the rest of the form down. */
+.path-guess-input__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-card);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.path-guess-input__suggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--touch-target-min);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.path-guess-input__suggestion:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.path-guess-input__suggestion--highlighted {
+  background: var(--color-surface-sunken);
+}
+
+.path-guess-input__suggestion-name {
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--color-text-primary);
+}
+
+.path-guess-input__suggestion-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.path-guess-input__submit {
+  min-height: var(--touch-target-min);
+  min-width: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.path-guess-input__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.path-guess-input__error {
+  margin: 0;
+  color: var(--color-accent-red);
+  font-size: 13px;
+}
+
+.path-guess-input__locked,
+.path-guess-input__solved-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* design-document.md SCREEN-10 "Attempt/clue counter": "Clue N of M" in
+   --font-mono/tabular figures, directly under the guess input. */
+.path-guess-input__counter {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* design-document.md SCREEN-10 "Rejected guess": reuses SCREEN-02's
+   existing shake cue verbatim (frontend/src/grid/CellState.css's
+   .cell-state--shake/cell-state-shake/cell-state-incorrect-flash) — same
+   exact timings/transform/color values, reimplemented here under this
+   screen's own class/keyframe names since this is a different element (the
+   guess input row, not a grid cell), not a literal shared import. */
+.path-guess-input--shake {
+  animation:
+    path-guess-input-shake 0.4s ease-in-out,
+    path-guess-input-incorrect-flash 0.4s ease-in-out;
+}
+
+@keyframes path-guess-input-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-4px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes path-guess-input-incorrect-flash {
+  0% {
+    background-color: var(--color-accent-red);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* prefers-reduced-motion fallback (design-document.md §2/§6, same fallback
+   pattern CellState.css's own shake cue already establishes): flash only,
+   no shake. */
+@media (prefers-reduced-motion: reduce) {
+  .path-guess-input--shake {
+    animation: path-guess-input-incorrect-flash 0.6s ease-out;
+  }
+}

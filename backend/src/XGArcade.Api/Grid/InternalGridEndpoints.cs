@@ -20,10 +20,19 @@ public static class InternalGridEndpoints
         app.MapPost("/internal/grid/generate", async (
             GenerateGridRequest request,
             IGridInstanceRepository gridInstanceRepository,
-            IGameModule gameModule,
+            IGameModuleResolver gameModuleResolver,
             ILogger<GridGenerationLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
+            // S-080: resolved by GameKey rather than an ambient `IGameModule`
+            // injection now that a second IGameModule (XGPathGameModule) is
+            // registered — a raw `IGameModule` parameter would resolve
+            // whichever implementation was registered last (an ASP.NET Core
+            // DI implementation detail, not a documented guarantee), silently
+            // pointing this xG-Grid-only debug endpoint at the wrong game.
+            // See IGameModuleResolver's own doc comment.
+            var gameModule = gameModuleResolver.Resolve(GridGameModule.XGGridGameKey);
+
             if (request.Size is < 3 or > 5)
             {
                 return Results.Problem(

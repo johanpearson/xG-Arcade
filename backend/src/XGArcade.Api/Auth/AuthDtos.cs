@@ -6,12 +6,25 @@ namespace XGArcade.Api.Auth;
 // another player — collected here rather than derived from Email so a
 // public leaderboard never has to expose an email address. ConfirmPassword
 // (added S-016) must match Password or signup is rejected the same way,
-// before Supabase Auth is ever called.
-public record SignupRequest(string Email, string Password, string ConfirmPassword, string DisplayName, bool AgeConfirmed);
+// before Supabase Auth is ever called. CaptchaToken (REQ-701/REQ-717's
+// 2026-07-25 "scope correction" addition / ADR-0037's amendment) is the
+// same Cloudflare Turnstile token GuestRequest.CaptchaToken below already
+// documents, now required here too — same reasoning applies: nullable
+// (rather than a plain, non-nullable `string`) so a request body that omits
+// the field reaches AuthController.Signup's own explicit check instead of
+// short-circuiting into ASP.NET Core's generic model-validation 400, which
+// would defeat REQ-701's requirement that a missing token gets the same
+// distinct "Captcha verification failed" response as an invalid one.
+public record SignupRequest(string Email, string Password, string ConfirmPassword, string DisplayName, bool AgeConfirmed, string? CaptchaToken);
 
 public record SignupResponse(Guid Id, string Email, string DisplayName);
 
-public record LoginRequest(string Email, string Password);
+// CaptchaToken (REQ-701's 2026-07-25 "scope correction" addition /
+// ADR-0037's amendment): same Cloudflare Turnstile token/nullability
+// reasoning as SignupRequest.CaptchaToken above — required here too, and
+// nullable for the same "must reach AuthController.Login's own check, not
+// ASP.NET Core's generic model-validation 400" reason.
+public record LoginRequest(string Email, string Password, string? CaptchaToken);
 
 public record LoginResponse(string AccessToken, string? RefreshToken);
 
@@ -52,8 +65,15 @@ public record MeResponse(Guid Id, string? Email, string DisplayName, bool EmailC
 // requires — the caller's current password, re-verified against Supabase
 // Auth before anything is deleted (AuthController.DeleteAccount), rather
 // than a bare confirmation flag a client could set without the user
-// actually re-affirming intent.
-public record DeleteAccountRequest(string Password);
+// actually re-affirming intent. CaptchaToken (REQ-710's 2026-07-25 addition
+// / ADR-0037's second amendment) is the same Cloudflare Turnstile token
+// SignupRequest/LoginRequest/GuestRequest's own CaptchaToken fields already
+// document — nullable for the same reason: it must reach
+// AuthController.DeleteAccount's own explicit check instead of
+// short-circuiting into ASP.NET Core's generic model-validation 400, which
+// would defeat the requirement that a missing token gets the same distinct
+// "Captcha verification failed" response as an invalid one.
+public record DeleteAccountRequest(string Password, string? CaptchaToken);
 
 // REQ-714: edit an existing account's DisplayName from Settings. Reuses
 // REQ-701's exact 1-30 character bound and case-insensitive uniqueness

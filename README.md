@@ -5,8 +5,9 @@ games. The first game is **xG Grid** — an NxN grid where players combine
 two categories (club × club, club × country) to guess a matching player,
 scored on how unique their answer is compared to other players.
 
-"xG Arcade" is a working name — see `docs/decisions/0003-generic-round-game-reference.md`
-for why renaming it again later is a clean find-and-replace, not a redesign.
+"xG Arcade" is the product's name — see `docs/decisions/0003-generic-round-game-reference.md`
+for why the architecture would still make a future rename a clean
+find-and-replace, not a redesign, if that ever became necessary.
 
 ## Start here
 

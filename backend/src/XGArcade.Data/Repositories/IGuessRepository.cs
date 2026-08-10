@@ -65,8 +65,14 @@ public interface IGuessRepository
     // (formerly-guest) User's rounds closed before User.ClaimedAt don't
     // either — only rounds closed after claiming do. See the
     // implementation's own doc comment for the full rationale.
+    //
+    // REQ-410/ADR-0043 (2026-07-27): gained a required gameKey parameter,
+    // filtering the existing Guess-Round join to round.GameKey == gameKey —
+    // no schema change and no new join, since the query already joins to
+    // Round for round.ClosedAt. A round belonging to a different game
+    // contributes no entry here at all, same as an active/unlocked round.
     Task<IReadOnlyDictionary<Guid, IReadOnlyList<int>>> GetPerRoundFinalPointsByUserIdsAsync(
-        IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken = default);
+        IReadOnlyCollection<Guid> userIds, string gameKey, CancellationToken cancellationToken = default);
 
     Task<Guess> AddAsync(Guess guess, CancellationToken cancellationToken = default);
 

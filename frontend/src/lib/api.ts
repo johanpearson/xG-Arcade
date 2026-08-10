@@ -1,20 +1,30 @@
 import type {
+  AdminAccountMetrics,
   AdminActiveRound,
   AdminRound,
+  AdminXGPathCycleState,
   ApprovePlayerDataResponse,
+  ClearGuestAccountsResponse,
   ClosedRoundListResponse,
+  CommitPlayerDataPayload,
+  CommitPlayerDataResult,
+  CurrentPathResponse,
   CurrentRoundResponse,
   CurrentUser,
   CustomLeague,
+  GuestAccountCountResponse,
   LeaderboardResponse,
   LoginResponse,
+  PendingSuggestion,
   PlayerAutocompleteSuggestion,
   PlayerOverride,
   RemovePlayerDataResponse,
   SignupResponse,
   SubmitGuessResponse,
+  SubmitSuggestionResponse,
   UnverifiedPlayerData,
   UpdateDisplayNameResponse,
+  WikidataPlayerLookupResult,
 } from './types';
 
 // Reuses the exact pattern established in App.tsx by S-002.
@@ -56,27 +66,53 @@ export function describeError(error: unknown): string {
   return 'Something went wrong. Check your connection and try again.';
 }
 
+// REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
+// amendment: Supabase's captcha-protection toggle is project-wide (see
+// NOTES.md's 2026-07-25 entry), not scoped to `POST /auth/guest` alone, so
+// signup now requires a `captchaToken` the exact same way playAsGuest below
+// already does — a Cloudflare Turnstile token the caller obtains
+// client-side via `lib/turnstile.ts`'s `getTurnstileToken()` *before* ever
+// calling this function. This function forwards the token unmodified; it
+// performs no captcha verification of its own (same "mediate, don't
+// reimplement" boundary as playAsGuest — Supabase verifies it against
+// Cloudflare server-side). A captcha-specific rejection comes back as a
+// distinct 400 with `title === 'Captcha verification failed'` (vs. the
+// generic account-enumeration-safe "Signup could not be completed" for any
+// other rejection reason) — left to throw as an ApiError like any other
+// failure here; the caller (AuthScreen.tsx) branches on `error.title` to
+// decide whether to reset the Turnstile widget.
 export async function signup(
   email: string,
   password: string,
   confirmPassword: string,
   displayName: string,
   ageConfirmed: boolean,
+  captchaToken: string,
 ): Promise<SignupResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, confirmPassword, displayName, ageConfirmed }),
+    body: JSON.stringify({ email, password, confirmPassword, displayName, ageConfirmed, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as SignupResponse;
 }
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
+// REQ-701/REQ-717's 2026-07-25 "scope correction" addition / ADR-0037's
+// amendment: same `captchaToken` requirement and reasoning as signup above
+// — Supabase's captcha-protection toggle covers `token?grant_type=password`
+// (the endpoint this mediates) just as much as anonymous sign-in, so a
+// Turnstile token obtained client-side via `getTurnstileToken()` is now
+// required here too. A captcha-specific rejection comes back as the same
+// distinct 400 (`title === 'Captcha verification failed'`) as signup/guest,
+// vs. the generic 401 "Login failed" for a wrong password or any other
+// rejection reason — left to throw as an ApiError; the caller branches on
+// `error.title` the same way it does for signup/playAsGuest.
+export async function login(email: string, password: string, captchaToken: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captchaToken }),
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as LoginResponse;
@@ -169,6 +205,26 @@ export async function fetchCurrentRound(
   return (await response.json()) as CurrentRoundResponse;
 }
 
+// REQ-1201/1202/1203 (S-086): mirrors fetchCurrentRound's exact pattern —
+// same 404-as-null idiom (no active xg-path round is a real, expected empty
+// state, not an error) and the same bearer-auth header handling. Returns the
+// whole round's puzzle list at once, each puzzle carrying only the clue
+// turns unlocked so far for the requesting player — GET /path/current is
+// also what PathScreen re-calls after every guess submission to pick up the
+// newly-revealed turn, since POST .../guesses' own response carries no clue
+// data (see PathScreen.tsx's own comment on why a re-fetch, not a local
+// patch, is the mechanism here).
+export async function fetchCurrentPath(
+  accessToken: string,
+): Promise<CurrentPathResponse | null> {
+  const response = await fetch(`${API_BASE_URL}/path/current`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CurrentPathResponse;
+}
+
 // REQ-209: `chosenPlayerId` is only ever sent on a resubmission answering a
 // disambiguation prompt (the player GUID they picked from
 // SubmitGuessResponse.candidates) — omitted entirely (not sent as
@@ -199,18 +255,60 @@ export async function submitGuess(
   return (await response.json()) as SubmitGuessResponse;
 }
 
-// REQ-401/404/607: the global leaderboard (SCREEN-03) — the only league
-// Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `cursor`/
+// REQ-215 (S-089): submits a player-suggested correction for a specific
+// cell/round — the entry point only ever appears (GuessInput.tsx) after
+// that cell's triggering guess was scored incorrect or hit REQ-211's live
+// lookup timeout. `playerName` is the name already known from that
+// triggering guess (or the disambiguation candidate's own name, when the
+// trigger followed a REQ-209 resolution) — never re-typed by the player in
+// this form. Follows submitGuess's exact fetch/ApiError/auth-header
+// convention above. A guest is rejected server-side with 403 ("Guest
+// accounts cannot submit suggestions") regardless of what the client UI
+// shows (REQ-215's server-enforced guest restriction) — left to throw as an
+// ApiError like any other failure here, same as every other call in this
+// file; GuessInput/SuggestionEntry never special-case that status since the
+// UI already disables the entry point for a guest before this call could
+// ever be made through it.
+export async function submitSuggestion(
+  accessToken: string,
+  roundId: string,
+  cellId: string,
+  playerName: string,
+  clubs: string[],
+  nationality: string,
+): Promise<SubmitSuggestionResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/rounds/${roundId}/cells/${cellId}/suggestions`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ playerName, clubs, nationality }),
+    },
+  );
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as SubmitSuggestionResponse;
+}
+
+// REQ-401/404/607/410 (S-087): the global leaderboard (SCREEN-03) — the only
+// league Tier 0 has (custom leagues are deferred, MVP-SCOPE.md). `gameKey`
+// is optional (the backend defaults to xg-grid when omitted, ADR-0043) but
+// the leaderboard screen now always passes one explicitly once it has a
+// selected game — see SCREEN-03's "Game switcher" addition. `cursor`/
 // `pageSize` are optional and only appended as query params when provided —
 // omitting both fetches the first page at the backend's default pageSize,
 // which is what the initial load and the 15s poll both do; SCREEN-03's
 // "Load more" passes the previous response's `nextCursor` explicitly.
 export async function fetchLeaderboard(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -233,10 +331,12 @@ export async function fetchLeaderboard(
 // `error instanceof ApiError && error.status === 401` check elsewhere).
 export async function fetchActiveRoundLeaderboard(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -254,10 +354,12 @@ export async function fetchActiveRoundLeaderboard(
 // above (REQ-408's explicit "one pagination convention, not two" resolution).
 export async function fetchClosedRounds(
   accessToken: string,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<ClosedRoundListResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -274,7 +376,10 @@ export async function fetchClosedRounds(
 // A 404 ("Round not found") and a 409 ("Round not closed yet") are two
 // distinct, real states the caller must tell apart — both are left to throw
 // as an ApiError so the caller can branch on `error.status`, same reasoning
-// as fetchActiveRoundLeaderboard's 404 above.
+// as fetchActiveRoundLeaderboard's 404 above. Deliberately has no `gameKey`
+// param (S-087): unlike the other four leaderboard reads, this one resolves
+// by `roundId` alone — a round already belongs to exactly one game, so
+// there's no ambiguity a gameKey filter could resolve.
 export async function fetchClosedRoundLeaderboard(
   accessToken: string,
   roundId: string,
@@ -303,9 +408,10 @@ export async function fetchClosedRoundLeaderboard(
 export type WindowResolution = 'round' | 'week' | 'month' | 'year';
 
 // REQ-405 (S-027): one calendar-aligned time-window's leaderboard
-// (SCREEN-03's "Time Windows" scope) — same cursor/pageSize/response shape as
-// fetchLeaderboard/fetchActiveRoundLeaderboard/fetchClosedRoundLeaderboard
-// above, summing only locked `FinalPoints` (never live/provisional points,
+// (SCREEN-03's "Time Windows" scope) — same optional `gameKey`/cursor/
+// pageSize/response shape as fetchLeaderboard/fetchActiveRoundLeaderboard/
+// fetchClosedRoundLeaderboard above (REQ-410/S-087), summing only locked
+// `FinalPoints` (never live/provisional points,
 // unlike fetchActiveRoundLeaderboard). An empty ranked list is a real,
 // expected state (nothing has happened in that window yet) — the response
 // still resolves normally with `rows: []`, not a 404, so there's no
@@ -314,10 +420,12 @@ export type WindowResolution = 'round' | 'week' | 'month' | 'year';
 export async function fetchWindowedLeaderboard(
   accessToken: string,
   resolution: WindowResolution,
+  gameKey?: string,
   cursor?: number,
   pageSize?: number,
 ): Promise<LeaderboardResponse> {
   const params = new URLSearchParams();
+  if (gameKey !== undefined) params.set('gameKey', gameKey);
   if (cursor !== undefined) params.set('cursor', String(cursor));
   if (pageSize !== undefined) params.set('pageSize', String(pageSize));
   const query = params.toString();
@@ -337,13 +445,14 @@ export async function fetchPlayerAutocomplete(
   accessToken: string,
   query: string,
   limit?: number,
+  signal?: AbortSignal,
 ): Promise<PlayerAutocompleteSuggestion[]> {
   const params = new URLSearchParams();
   params.set('query', query);
   if (limit !== undefined) params.set('limit', String(limit));
   const response = await fetch(
     `${API_BASE_URL}/players/autocomplete?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+    { headers: { Authorization: `Bearer ${accessToken}` }, signal },
   );
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as PlayerAutocompleteSuggestion[];
@@ -352,14 +461,50 @@ export async function fetchPlayerAutocomplete(
 // REQ-710 (S-039): the server re-verifies `password` against Supabase Auth
 // before deleting anything — a wrong password throws (401, title "Incorrect
 // password") rather than resolving. Success is 204 No Content, nothing to parse.
-export async function deleteAccount(accessToken: string, password: string): Promise<void> {
+//
+// REQ-710's 2026-07-25 addition / ADR-0037's second amendment: this
+// re-verification call is the same `SignInWithPasswordAsync` call `login`
+// above uses, so it now requires a `captchaToken` too — a Cloudflare
+// Turnstile token the caller obtains client-side via `lib/turnstile.ts`'s
+// `getTurnstileToken()` *before* ever calling this function. This function
+// forwards the token unmodified; it performs no captcha verification of its
+// own (same "mediate, don't reimplement" boundary as login/signup/
+// playAsGuest — Supabase verifies it against Cloudflare server-side). A
+// captcha-specific rejection comes back as the same distinct 400 with
+// `title === 'Captcha verification failed'` used by every other call site —
+// checked server-side before the password check, so it can never collide
+// with the 401 "Incorrect password" response above — left to throw as an
+// ApiError like any other failure here; the caller (DeleteAccountScreen.tsx)
+// branches on `error.title` to decide whether to reset the Turnstile widget.
+export async function deleteAccount(
+  accessToken: string,
+  password: string,
+  captchaToken: string,
+): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/auth/account`, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, captchaToken }),
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+// REQ-718/ADR-0038: the first backend logout call this app has ever made —
+// deletes the caller's account only if it's an unclaimed guest, a no-op for
+// every other account (mirrors REQ-715's existing frontend-only logout
+// behavior for those). App.tsx's handleLogout treats this as fire-and-forget
+// best-effort: never awaited in a way that would delay or block the
+// existing instant local logout (clearing localStorage), and any failure
+// here is caught and logged rather than surfaced to the person logging
+// out — rule 3's 7-day inactivity purge (ADR-0038) is the safety net if
+// this call never completes.
+export async function logout(accessToken: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) await throwApiError(response);
 }
@@ -583,6 +728,186 @@ export async function joinLeague(accessToken: string, inviteCode: string): Promi
   });
   if (!response.ok) await throwApiError(response);
   return (await response.json()) as CustomLeague;
+}
+
+// REQ-507: always registered, in every environment (including Production) —
+// no 404-as-hidden handling needed here the way fetchActiveAdminRound has for
+// its own Non-Production-only probe, since this endpoint's whole point is
+// live visibility into real account counts, not test-data management. A 403
+// (non-admin token) is left to throw like any other admin endpoint; the
+// caller decides how to degrade (AdminScreen's AccountMetricsSection hides
+// itself rather than flipping the whole page to access-denied, since
+// REQ-501/502/503's unverified-data fetch already owns that page-level
+// decision).
+export async function fetchAdminAccountMetrics(accessToken: string): Promise<AdminAccountMetrics> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/metrics`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminAccountMetrics;
+}
+
+// REQ-508 step 1: the dry-run count shown before the bulk force-clear-guests
+// action's confirm step — a live count, not an estimate, of every account
+// currently matching IsGuest = true. Left to throw on any failure (401/403/
+// other), same as every other admin call in this file.
+export async function fetchGuestAccountCount(accessToken: string): Promise<number> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/count`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  const body = (await response.json()) as GuestAccountCountResponse;
+  return body.count;
+}
+
+// REQ-508 step 2: deletes every account currently matching IsGuest = true,
+// each via IAccountDeletionService.DeleteAccountAsync (ADR-0038 — no second/
+// raw bulk-delete path). No request body — the dry-run count from
+// fetchGuestAccountCount above is a separate call, not a parameter re-sent
+// here (the endpoint re-selects matching ids fresh at execution time). Always
+// resolves (never throws for a partial failure) with one result per matching
+// account, same per-row-outcome discipline as approvePlayerData/
+// removePlayerData above.
+export async function clearGuestAccounts(accessToken: string): Promise<ClearGuestAccountsResponse> {
+  const response = await fetch(`${API_BASE_URL}/admin/accounts/guests/clear`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as ClearGuestAccountsResponse;
+}
+
+// REQ-1209/ADR-0058: always registered, in every environment (including
+// Production) — mirrors fetchAdminAccountMetrics's own reasoning, this
+// reads real, always-relevant operational state (REQ-1208's persisted
+// xG Path cycle), not seeded/test data, so there's no 404-as-hidden probe
+// the way fetchActiveAdminRound has for the Non-Production-only
+// round-control feature. `hasData: false` is a normal 200 body (REQ-1209's
+// "no xG Path round has ever generated yet" case) — never a thrown error.
+// A 403 (non-admin token) is left to throw like every other admin call in
+// this file; the caller (AdminScreen's XGPathCycleSection) decides how to
+// degrade, mirroring AccountMetricsSection's own hide-not-page-wide-deny
+// choice.
+export async function fetchAdminXGPathCycle(accessToken: string): Promise<AdminXGPathCycleState> {
+  const response = await fetch(`${API_BASE_URL}/admin/xg-path/cycle`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as AdminXGPathCycleState;
+}
+
+// REQ-509 (S-090)/ADR-0053: the pending-suggestion queue for
+// SuggestionsScreen — its own endpoint, deliberately never merged with
+// fetchUnverifiedPlayerData above (see that ADR's "never a shared row shape"
+// rule). Always registered, same as every other admin call in this file; a
+// 403 (non-admin token) is left to throw like every other admin endpoint.
+export async function fetchPendingSuggestions(accessToken: string): Promise<PendingSuggestion[]> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as PendingSuggestion[];
+}
+
+// REQ-509: triggers a fresh, admin-initiated Wikidata lookup for one pending
+// suggestion's own player name (the suggestion, not any caller-supplied
+// name, is the source of truth for which name gets looked up — this call
+// takes no name parameter). A 409 (another admin already resolved this
+// suggestion) and a 503 (ADR-0046's "lookup unavailable, try again" —
+// distinct from a normal `found: false` no-match result) are both left to
+// throw as an ApiError so the caller (SuggestionsScreen's review panel) can
+// branch on `error.status` and render each as its own distinct state, never
+// conflated with one another or with a generic failure.
+export async function lookupSuggestionPlayer(
+  accessToken: string,
+  suggestionId: string,
+): Promise<WikidataPlayerLookupResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/lookup`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as WikidataPlayerLookupResult;
+}
+
+// REQ-509: commits the admin's reviewed/confirmed values for one pending
+// suggestion — writes only through PlayerAttribute/PlayerOverride
+// (ADR-0007/ADR-0053: never PlayerNameIndex) and moves the suggestion's own
+// state to Committed server-side. A 400 (missing wikidataQid/fullName/reason,
+// or neither nationality nor clubs provided) and a 409 (already resolved) are
+// both left to throw so the caller shows the server's own detail text
+// inline, same convention as createPlayerOverride above.
+export async function commitSuggestion(
+  accessToken: string,
+  suggestionId: string,
+  payload: CommitPlayerDataPayload,
+): Promise<CommitPlayerDataResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/commit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CommitPlayerDataResult;
+}
+
+// REQ-509: rejects one pending suggestion — no request body (mirrors
+// approvePlayerData/removePlayerData's own "no reason field" precedent for
+// a non-Correct admin action), no PlayerAttribute/PlayerOverride/
+// PlayerNameIndex write of any kind. Success is 204 No Content. A 409
+// (already resolved by another admin) is left to throw, same as every other
+// suggestion-review call above.
+export async function rejectSuggestion(accessToken: string, suggestionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/admin/suggestions/${suggestionId}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) await throwApiError(response);
+}
+
+// REQ-510/ADR-0053: the standalone variant of lookupSuggestionPlayer above —
+// identical live-fetch mechanism, but keyed on a name the admin types
+// directly rather than an existing suggestion's own PlayerName, and touches
+// no PlayerSuggestion row at all. A 400 (blank playerName) is left to throw;
+// the caller (ManualSearchSection) also disables the search action
+// client-side on an empty/whitespace-only name, so this is defense in depth,
+// not the primary guard.
+export async function lookupPlayerByName(
+  accessToken: string,
+  playerName: string,
+): Promise<WikidataPlayerLookupResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-search/lookup`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ playerName }),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as WikidataPlayerLookupResult;
+}
+
+// REQ-510/ADR-0053: the standalone variant of commitSuggestion above —
+// identical write path (PlayerAttribute/PlayerOverride only, same 400/omit
+// validation), but never reads, creates, or touches a PlayerSuggestion row.
+export async function commitPlayerSearch(
+  accessToken: string,
+  payload: CommitPlayerDataPayload,
+): Promise<CommitPlayerDataResult> {
+  const response = await fetch(`${API_BASE_URL}/admin/player-search/commit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await throwApiError(response);
+  return (await response.json()) as CommitPlayerDataResult;
 }
 
 // This story's "simple list" of the caller's own custom leagues

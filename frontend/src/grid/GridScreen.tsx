@@ -3,7 +3,6 @@ import { ApiError, describeError, fetchCurrentRound, submitGuess } from '../lib/
 import type {
   CurrentRoundCell,
   CurrentRoundResponse,
-  DisambiguationCandidate,
   SubmitGuessResponse,
 } from '../lib/types';
 import { MAX_POINTS_PER_CELL } from '../lib/scoringRules';
@@ -18,6 +17,12 @@ export interface GridScreenProps {
   // Called when the round fetch itself finds the token invalid (401) — the
   // caller owns logging the user out, GridScreen only reports it.
   onAuthError: () => void;
+  // REQ-215 (S-089): threaded down to GuessInput's suggestion entry point —
+  // mirrors `currentUser?.isGuest` the same way App.tsx already threads it
+  // to SettingsScreen. Optional/defaulting to false so existing test call
+  // sites that don't exercise guest gating (GridScreen.test.tsx) don't need
+  // updating just to satisfy this prop.
+  isGuest?: boolean;
 }
 
 type LoadState =
@@ -36,7 +41,7 @@ type LoadState =
 // "closed" state is exercised via CellState's own props/test instead.
 const ROUND_STATUS = 'active' as const;
 
-export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
+export function GridScreen({ accessToken, onAuthError, isGuest = false }: GridScreenProps) {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   const [activeCell, setActiveCell] = useState<CurrentRoundCell | null>(null);
   // REQ-213 (S-041): independent of activeCell/GuessInput on purpose — an
@@ -107,43 +112,55 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
     [],
   );
 
-  // REQ-209/REQ-210: returns the disambiguation candidates (never undefined
-  // for that case, always a non-empty array per the API contract) when the
-  // submission needs a follow-up choice — GuessInput renders the picker for
-  // that case instead of closing. Deliberately does NOT write anything into
+  // REQ-209/REQ-210/REQ-215 (S-089 revision): returns the full, unmodified
+  // SubmitGuessResponse for every submission that actually reaches the
+  // server — GuessInput now decides what to render from the response's own
+  // fields (candidates non-null renders the picker; isCorrect decides
+  // whether to close immediately or show REQ-215's "not a match" outcome
+  // view), rather than this handler pre-deciding "candidates or close" the
+  // way it did before this story. Deliberately does NOT write anything into
   // cell state when candidates come back: nothing was scored, no attempt was
   // consumed, and the grid must keep showing this cell as unanswered/
   // in-progress until a real scored response (either an unambiguous
-  // submission or the chosenPlayerId resubmission below) arrives.
+  // submission or the chosenPlayerId resubmission below) arrives. Resolves
+  // to `undefined` only for the defensive "no active cell" guard clause
+  // (should be unreachable while GuessInput is actually mounted) — never a
+  // real scored outcome; GuessInput treats that case as "close, nothing to
+  // show" per its own prop doc comment.
   const handleSubmitGuess = useCallback(
-    async (submittedName: string): Promise<DisambiguationCandidate[] | undefined> => {
+    async (submittedName: string): Promise<SubmitGuessResponse | undefined> => {
       if (!activeCell || state.phase !== 'ready') return undefined;
       const cellId = activeCell.cellId;
       const roundId = state.round.roundId;
 
       const result = await submitGuess(accessToken, roundId, cellId, submittedName);
-      if (result.candidates) return result.candidates;
-
-      applyScoredGuess(cellId, submittedName, result);
-      return undefined;
+      if (!result.candidates) {
+        applyScoredGuess(cellId, submittedName, result);
+      }
+      return result;
     },
     [accessToken, activeCell, state, applyScoredGuess],
   );
 
-  // REQ-209/REQ-210: resolves a disambiguation prompt by resubmitting the
-  // same endpoint with the chosen candidate's playerId — always a normal,
-  // scored response (never candidates again), and per REQ-210 this is part
-  // of the same attempt that triggered the prompt, not a second one; no
-  // extra attempt-tracking logic is needed here beyond the same
-  // applyScoredGuess path every ordinary scored submission already uses.
+  // REQ-209/REQ-210/REQ-215 (S-089 revision): resolves a disambiguation
+  // prompt by resubmitting the same endpoint with the chosen candidate's
+  // playerId — always a normal, scored response (never candidates again),
+  // and per REQ-210 this is part of the same attempt that triggered the
+  // prompt, not a second one; no extra attempt-tracking logic is needed
+  // here beyond the same applyScoredGuess path every ordinary scored
+  // submission already uses. Returns the full response (same "GuessInput
+  // decides from the response" contract as handleSubmitGuess above) rather
+  // than resolving to void — GuessInput now needs isCorrect to decide
+  // whether to close or show REQ-215's outcome view.
   const handleResolveDisambiguation = useCallback(
-    async (chosenPlayerId: string, submittedName: string) => {
-      if (!activeCell || state.phase !== 'ready') return;
+    async (chosenPlayerId: string, submittedName: string): Promise<SubmitGuessResponse | undefined> => {
+      if (!activeCell || state.phase !== 'ready') return undefined;
       const cellId = activeCell.cellId;
       const roundId = state.round.roundId;
 
       const result = await submitGuess(accessToken, roundId, cellId, submittedName, chosenPlayerId);
       applyScoredGuess(cellId, submittedName, result);
+      return result;
     },
     [accessToken, activeCell, state, applyScoredGuess],
   );
@@ -245,7 +262,9 @@ export function GridScreen({ accessToken, onAuthError }: GridScreenProps) {
       {activeCell && (
         <GuessInput
           cell={activeCell}
+          roundId={state.round.roundId}
           accessToken={accessToken}
+          isGuest={isGuest}
           onSubmit={handleSubmitGuess}
           onResolveDisambiguation={handleResolveDisambiguation}
           onClose={() => setActiveCell(null)}

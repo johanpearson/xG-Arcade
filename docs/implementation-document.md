@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.65"
+version: "0.93"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -17,15 +17,16 @@ update_when:
   - "Test strategy or tooling changes"
 ---
 
-# Implementation Document – xG Arcade (working title)
+# Implementation Document – xG Arcade
 
 Version 0.60 · 2026-07-20
 References: `requirements-document.md`, `architecture-document.md`
 
-> **Naming note:** "xG Arcade" is a placeholder for the overall product name.
-> xG Grid is the first game hosted on it — see `requirements-document.md`
-> §0. The root solution/repo is named after the xG Arcade; xG Grid lives
-> in its own `XGArcade.Games.XGGrid` project, not the root namespace.
+> **Naming note:** "xG Arcade" is the overall product name (users, leagues,
+> rounds, scoring — everything shared across games). xG Grid is the first
+> game hosted on it — see `requirements-document.md` §0. The root
+> solution/repo is named after the xG Arcade; xG Grid lives in its own
+> `XGArcade.Games.XGGrid` project, not the root namespace.
 
 > **For AI agents:** this document defines HOW the system in
 > `architecture-document.md` is concretely built (languages, frameworks, data
@@ -129,6 +130,13 @@ public interface IGameModule
     // (and penalize) a round participant's unattempted cells, without
     // Core reaching into a game-specific instance table directly.
     Task<IReadOnlyList<Guid>> GetCellIdsAsync(Guid instanceId);
+    // ADR-0041 (S-077): a given cell's own max-attempts value, replacing
+    // the old GuessRules.MaxAttemptsPerCell global constant — not every
+    // game shares xG Grid's cap (xG Path's is a fixed 7, REQ-1203, not
+    // xG Grid's 2), so this is resolved per cell through the owning
+    // module rather than one shared constant. xG Grid's implementation
+    // returns 2 unconditionally, identical to the constant it replaced.
+    Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId);
 }
 ```
 
@@ -200,8 +208,51 @@ misconfigured per-endpoint. See ADR-0006.
 /backend
   /src
     /XGArcade.Api              -> Controllers, DTOs, Program.cs
-    /XGArcade.Core             -> User, League, Round, Scoring, Notifications (shared domain)
-    /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator
+    /XGArcade.Core             -> User, League, Round, Scoring, Notifications
+                                   (shared domain). S-084 added
+                                   Rounds/IRoundSchedulingOptionsResolver
+                                   (REQ-1202, ADR-0051), resolving one
+                                   RoundSchedulingOptions per GameKey
+                                   ("xg-grid", "xg-path") instead of a single
+                                   directly-injected singleton; GridSize moved
+                                   off RoundSchedulingOptions
+    /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator.
+                                   S-084 added GridGenerationOptions.GridSize
+                                   (moved off Core.Rounds.RoundSchedulingOptions,
+                                   ADR-0051) — xG-Grid-specific generation
+                                   config, not a generic scheduling concern
+    /XGArcade.Games.XGPath       -> XGPathGameModule (COMP-11). S-081 built
+                                   GenerateInstanceAsync/GetCellIdsAsync
+                                   (REQ-1201/1202, ADR-0045); S-082 built
+                                   ScoreSubmissionAsync/GetMaxAttemptsForCellAsync
+                                   (REQ-1204/1205) plus PathClueSequenceBuilder/
+                                   PathClueTurn (REQ-1203's clue-reveal sequence)
+                                   and PathScoringException (now derives from
+                                   Core.Games.GameEntityNotFoundException, shared
+                                   with Games.XGGrid's GuessScoringException).
+                                   S-083 built ClueEfficiencyScoringStrategy
+                                   (Core.Scoring, REQ-1206), registered against
+                                   this module's own GameKey in Program.cs.
+                                   S-084 added PathGenerationOptions.PuzzleCount
+                                   (default 4), xG Path's own equivalent of
+                                   GridGenerationOptions.GridSize, feeding the
+                                   new PathTemplateResolver
+                                   (XGArcade.Api.Path) used by
+                                   POST /internal/generate-round?gameKey=xg-path.
+                                   Bug fix (2026-08-08, REQ-1203) added
+                                   PathCareerStintFilter — a read-time-only
+                                   filter excluding leftover pre-2026-08-02
+                                   national-team PlayerCareerStint rows,
+                                   applied at both PathEndpoints.cs's GET
+                                   /path/current and
+                                   GetEligiblePlayerIdsAsync's REQ-1201 check.
+                                   Originally scoped to youth/age-grade teams
+                                   only (IsYouthNationalTeam); widened
+                                   2026-08-10 to IsNationalTeam, matching any
+                                   national team (senior included) per a bug
+                                   report showing a senior team leaking
+                                   through — see REQ-1203's 2026-08-10 status
+                                   note in requirements-document.md
     /XGArcade.Data             -> EF Core DbContext, migrations, repositories
     /XGArcade.DataSync         -> Wikidata/API-Football clients, sync jobs
     /XGArcade.Email            -> Resend API client, shared by Core.Notifications
@@ -214,9 +265,25 @@ misconfigured per-endpoint. See ADR-0006.
   /tests
     /XGArcade.Core.Tests       -> NUnit unit tests (scoring, override merge)
     /XGArcade.Games.XGGrid.Tests -> NUnit unit tests (grid generation, validation)
+    /XGArcade.Games.XGPath.Tests -> NUnit unit tests. S-081 added real
+                                   REQ1201-/REQ1202-named tests against
+                                   InMemory-backed repositories (no fakes,
+                                   same pattern as GridGameModule.Tests);
+                                   S-082 added PathClueSequenceBuilderTests
+                                   (REQ-1203) and REQ1204-/REQ1205-named
+                                   XGPathGameModuleTests coverage; GameKey
+                                   tests are unchanged. Bug fix (2026-08-08)
+                                   added PathCareerStintFilterTests and
+                                   REQ1203-named XGPathGameModuleTests
+                                   coverage for the youth-national-team
+                                   junk-row exclusion
     /XGArcade.Data.Tests       -> NUnit unit tests (repositories, EF Core model config)
-    /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP)
-    /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB)
+    /XGArcade.DataSync.Tests   -> NUnit unit tests (sync clients, mocked HTTP).
+                                   S-082 extended WikidataClientTests/
+                                   WikidataLookupServiceTests for REQ-1207's
+                                   P413/P569 sourcing
+    /XGArcade.Api.Tests        -> API tests (WebApplicationFactory + in-memory/testcontainer DB).
+                                   S-082 added PathEndpointTests (GET /path/current, REQ-1203)
 
 /frontend
   /src                          -> feature folders, not the layer folders this
@@ -233,13 +300,39 @@ misconfigured per-endpoint. See ADR-0006.
                                      S-039)
     /games                        -> GameSelectScreen (REQ-303's S-021 UX
                                      addition: post-login/post-signup landing
-                                     screen, one static tile for xG Grid —
-                                     no backend "list games" endpoint;
-                                     Tier 0 only ever has one game)
+                                     screen; SCREEN-09, S-085 — two static
+                                     tiles, xG Grid then xG Path, still no
+                                     backend "list games" endpoint since both
+                                     game keys remain client-side constants)
     /grid                        -> GridScreen, Grid, GridCell, CellState,
-                                     GuessInput, CategoryLabel,
-                                     ScoringExplainer (SCREEN-01/01a/02/06,
-                                     S-041)
+                                     GuessInput, ScoringExplainer
+                                     (SCREEN-01/01a/02/06, S-041).
+                                     CategoryLabel/CategoryGlyph moved out to
+                                     /components (below) by S-086's
+                                     quality-gate follow-up, since xG Path's
+                                     /path module needed the same component
+                                     and importing it from a peer game
+                                     module's own directory isn't allowed
+    /path                         -> PathScreen, PathTimeline, PathGuessInput
+                                     (SCREEN-10, S-086) — mirrors /grid's
+                                     structure for xG Path's own screen.
+                                     S-086 shipped with no disambiguation
+                                     picker, autocomplete, or suggestion
+                                     entry point (all explicitly out of
+                                     scope for that story). S-091
+                                     (2026-08-01) wired PathGuessInput.tsx
+                                     into the same GET /players/autocomplete
+                                     endpoint GuessInput.tsx already used
+                                     (REQ-207) — no new file, no backend
+                                     change. Disambiguation picker (REQ-209)
+                                     and REQ-215's suggestion entry point
+                                     remain out of scope
+    /components                   -> CategoryLabel, CategoryGlyph (S-086) —
+                                     the one shared component used by both
+                                     /grid and /path; relocated here from
+                                     /grid specifically so xG Path's own
+                                     module never imports from a peer game
+                                     module's directory
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
                                      Tier 0 slice — added S-011, global league only)
     /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
@@ -256,7 +349,16 @@ misconfigured per-endpoint. See ADR-0006.
                                      (REQ-303's 2026-07-21 addition: pure
                                      formatter for GridScreen's round
                                      end-time indicator, computed once per
-                                     fetch, no live ticking)
+                                     fetch, no live ticking), pathRules.ts
+                                     (S-086: MAX_CLUES_PER_PUZZLE, xG Path's
+                                     own equivalent of guessRules.ts's
+                                     MAX_ATTEMPTS_PER_CELL, kept as a
+                                     separate constant/file rather than
+                                     merged). types.ts/api.ts also gained
+                                     CurrentPathResponse/fetchCurrentPath
+                                     (S-086), mirroring the existing
+                                     CurrentRoundResponse/fetchCurrentRound
+                                     pattern
   /tests
     /unit                       -> Vitest — mostly the pre-S-010 App/health-check
                                    test; App.tsx's own top-level routing tests
@@ -264,7 +366,15 @@ misconfigured per-endpoint. See ADR-0006.
                                    cases, S-021) also live here since App.tsx
                                    itself isn't under a feature folder. Newer
                                    component tests live under /src (see above)
-    /e2e                        -> Playwright (full user flows)
+    /e2e                        -> Playwright (full user flows). turnstile-stub.ts
+                                   (added 2026-07-25, ADR-0037's signup/login
+                                   widening) stubs window.turnstile via
+                                   page.addInitScript() so specs that only need
+                                   an authenticated session aren't blocked by a
+                                   captcha widget that can't mint a real token
+                                   in CI (no VITE_TURNSTILE_SITE_KEY there) —
+                                   it does not itself test captcha
+                                   accept/reject behavior
 
 /infra
   /github-workflows             -> ci.yml, sync-players.yml, generate-round.yml
@@ -303,6 +413,23 @@ public class Player
     // per-player scalar has no natural "which row owns it" answer there.
     // Migration: AddPlayerPhotoUrl.
     public string PhotoUrl { get; set; }
+    // REQ-1207/S-082: Wikidata's P413 ("position played on team /
+    // speciality"), carried through the same five intersection queries
+    // that already resolve FullName/WikidataQid/PhotoUrl and set once at
+    // player creation — same "never re-synced on a later lookup" rule as
+    // PhotoUrl above. A single scalar, not a PlayerAttribute row, for the
+    // same reason PhotoUrl isn't (no natural per-player multiplicity).
+    // Null whenever Wikidata has no P413 statement — never an error; xG
+    // Path's clue-reveal sequence (REQ-1203) renders a null Position as an
+    // explicit "not available" clue, never a skipped turn. Migration:
+    // AddPlayerPositionAndBirthYear.
+    public string? Position { get; set; }
+    // REQ-1207/S-082: derived from the P569 ("date of birth") binding
+    // those same five queries already require for the male/born-1939-or-
+    // later pool filter (ADR-0025) — extracting just the year, no new
+    // SPARQL binding added for this field. Same set-once-at-creation rule
+    // as Position/PhotoUrl above. Migration: AddPlayerPositionAndBirthYear.
+    public int? BirthYear { get; set; }
 }
 
 // PlayerData, PlayerOverride, and PlayerAttribute below each carry a
@@ -349,6 +476,44 @@ public class PlayerAttribute      // effective, denormalized for fast querying
     public string AttributeValue { get; set; }
 }
 
+// Built S-079 (ADR-0042), COMP-06, alongside PlayerAttribute above — xG
+// Path's (COMP-11, REQ-1201-REQ-1206) ordered, dated career-stint log.
+// Structurally different from PlayerAttribute's flat membership set: a
+// surrogate Id primary key (not a natural composite key), because this is
+// an ordered, potentially-repeating log — a player can have two separate
+// stints at the same club (e.g. a loan, then a later permanent return),
+// which must be two distinct rows.
+//
+// Populated only by WikidataLookupService.LookupAndPersistAsync (the
+// country/nationality x club path) from the P580/P582/P1350 qualifiers on
+// the same P54 club-membership statement PlayerAttribute's "club" rows
+// already come from — alongside those rows, never instead of them. The
+// other three Lookup*Async callers (club-club, trophy-country, trophy-club)
+// deliberately do not populate this table as of S-079; extending that is a
+// separate future decision, not assumed here.
+//
+// xG Grid's correctness-checking path (HasEffectiveAttributeAsync or
+// anything upstream of it) must never read this table. Only xG Path's
+// puzzle generation/clue-reveal reads it, and never reads PlayerAttribute
+// for club data — see ADR-0042's "For AI agents" section.
+public class PlayerCareerStint
+{
+    public Guid Id { get; set; }
+    public Guid PlayerId { get; set; }
+    public string ClubName { get; set; }
+    public int StartYear { get; set; }
+    public int? EndYear { get; set; }        // null = an ongoing stint (no P582 qualifier yet)
+    // Chronological position (0-based) among this player's FULL stint set,
+    // resolved at write time by IPlayerStoreRepository.AddCareerStintsAsync
+    // — re-numbered across every row for the player (existing and
+    // newly-added) whenever a new stint is persisted, not just the new ones.
+    public int SequenceOrder { get; set; }
+    // Null, NEVER 0, when Wikidata's P1350 qualifier isn't present for this
+    // statement — REQ-1201-REQ-1206 renders this as "count unknown," which a
+    // placeholder 0 would misleadingly contradict.
+    public int? AppearanceCount { get; set; }
+}
+
 // Broad, bulk-imported, deliberately separate from PlayerAttribute above —
 // see ADR-0007. Used ONLY for autocomplete and name matching, NEVER for
 // correctness-checking. Refreshed periodically as a whole, not built
@@ -378,6 +543,20 @@ public class PlayerNameIndex
     // re-add it without a new, real autocomplete-photo requirement.
 }
 
+// Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per
+// space-separated word in PlayerNameIndex.NormalizedName, so
+// SearchByPrefixAsync can match a surname-only query as a genuine,
+// index-backed StartsWith on Word — never a leading-wildcard/Contains()
+// scan against NormalizedName, which can't use a B-tree index at this
+// table's bulk-imported scale. Keyed/cascade-deleted against
+// PlayerNameIndex.PlayerId, not Player — same "no FK into Player's id
+// space" rule PlayerNameIndex itself follows.
+public class PlayerNameIndexWord
+{
+    public Guid PlayerId { get; set; }
+    public required string Word { get; set; }  // already normalized; never re-normalized here
+}
+
 public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
 {
     public Guid PlayerId { get; set; }
@@ -385,16 +564,109 @@ public class PlayerAlias          // known nicknames/stage names, e.g. "Kaká"
     public string NormalizedAlias { get; set; }
 }
 
+// Added 2026-07-28 (REQ-110's "persisted confirmed-low signal" extension,
+// ADR-0050), COMP-06 — Migration AddConfirmedLowMatchPair. Closes the gap
+// PlayerCacheWarmingService.WarmAsync (COMP-05) had no way to close on its
+// own: a pair cached BELOW MinValidAnswers was, until this table existed,
+// indistinguishable from a never-checked pair, because
+// WikidataLookupService.PersistMatchesAsync persists nothing at all when a
+// query finds truly zero matches — so a genuinely-confirmed-zero pair left
+// no trace anywhere. One row per checked-and-confirmed-low pair, deliberately
+// a new table rather than a column on PlayerAttribute/PlayerData — see
+// ADR-0050's alternatives-considered table for why a sentinel row on either
+// of those would corrupt their existing "a real match was found" meaning.
+// Deliberately no FK into Player (the zero-match case has none to reference).
+// Composite PK mirrors IPlayerStoreRepository.CountPlayersWithBothAttributesAsync's
+// own four-argument shape exactly, since that's the read this table's
+// presence/absence short-circuits.
+//
+// Read/written only through IPlayerStoreRepository.IsConfirmedLowAsync
+// (read) / RecordConfirmedLowAsync (write, upsert) — never a direct
+// DbContext query from Games.XGGrid (boundary rule 1,
+// architecture-document.md §5). Written only after a live query returns a
+// real (possibly zero-match) answer still below MinValidAnswers — never
+// after a technical failure (WikidataClient timeout/HTTP/parse error),
+// which is a separate signal (onTechnicalFailure) that must not be
+// conflated with a genuine low-match confirmation.
+//
+// Not self-expiring: cleared by StaleClubAttributeCleaner (REQ-111, both
+// named-club and --all-clubs modes) and the purge-player-pool CLI verb
+// (REQ-112/S-038) alongside the PlayerAttribute/PlayerData rows they
+// already clear, so a "purge and re-warm" cycle stays a real full
+// re-check. Not eligible for infra/scripts/lib/game-data-tables.sh's
+// prod/dev sync allowlist (ADR-0009) — see ADR-0050 for why.
+public class ConfirmedLowMatchPair
+{
+    public required string FirstAttributeType { get; set; }
+    public required string FirstAttributeValue { get; set; }
+    public required string SecondAttributeType { get; set; }
+    public required string SecondAttributeValue { get; set; }
+    // The real match count observed at confirmation time (0 for the
+    // genuine-zero case) — diagnostic only, not read by the skip check
+    // itself (row presence is the only signal that matters).
+    public int MatchCount { get; set; }
+    public DateTime ConfirmedAt { get; set; }
+}
+
+// Added 2026-08-01 (REQ-110's "persistent technical-failure tracking"
+// extension, ADR-0052), COMP-06 — Migration AddPairLookupFailure. Mirrors
+// ConfirmedLowMatchPair's shape exactly (same composite PK, no FK into
+// Player, same invalidation surface) but records a DIFFERENT kind of fact:
+// not "Wikidata confirmed this pair is genuinely below MinValidAnswers"
+// but "this codebase's own query for this pair has technically failed on
+// ConsecutiveFailureCount separate cache-warming runs." The distinction
+// matters because a technical failure might resolve on its own (a WDQS
+// outage recovering, a query-shape fix) in a way a genuine confirmed-low
+// answer never will — see ADR-0052's incident: a same-run retry plus
+// "nothing persists a technical failure" combination meant
+// warm-player-cache.yml re-fought the same structurally-doomed club-club
+// pairs, at doubled cost, on every single run, and never completed.
+//
+// Read/written only through IPlayerStoreRepository.IsPersistentTechnicalFailureAsync
+// (read, threshold-parameterized) / RecordTechnicalFailureAsync (write,
+// upsert-increment) / ClearTechnicalFailureAsync (write, delete-if-exists)
+// — never a direct DbContext query from Games.XGGrid. RecordTechnicalFailureAsync
+// is called once per pair per run that ends in a technical failure;
+// ClearTechnicalFailureAsync is called once a pair gets a real answer
+// (match, or genuine confirmed-low), so a recovered pair isn't
+// permanently starved. PlayerCacheWarmingService skips a pair once
+// ConsecutiveFailureCount reaches its own PersistentFailureThreshold (2) —
+// two consecutive RUNS, not attempts, since the same-run retry that used
+// to exist here was removed in the same extension (see
+// PlayerCacheWarmingService's own comment).
+//
+// Not self-expiring: cleared by StaleClubAttributeCleaner (REQ-111) and
+// purge-player-pool (REQ-112/S-038) alongside ConfirmedLowMatchPair, same
+// "purge and re-warm forces a real re-check" invariant. Not eligible for
+// infra/scripts/lib/game-data-tables.sh's prod/dev sync allowlist
+// (ADR-0009) — see ADR-0052 for why.
+public class PairLookupFailure
+{
+    public required string FirstAttributeType { get; set; }
+    public required string FirstAttributeValue { get; set; }
+    public required string SecondAttributeType { get; set; }
+    public required string SecondAttributeValue { get; set; }
+    public int ConsecutiveFailureCount { get; set; }
+    public DateTime LastFailedAt { get; set; }
+}
+
 // v1 category types are Country, Club, Trophy (REQ-108). Trophy is
 // reference data, not hardcoded — adding a new recognized trophy is a row
-// insert, not a code change.
+// insert, not a code change. Shipped for individual awards in S-031 and
+// extended to team competitions in ADR-0061 (2026-08-09).
 public class TrophyDefinition
 {
     public Guid Id { get; set; }
     public string Name { get; set; }          // e.g. "FIFA World Cup", "Ballon d'Or"
     public bool IsTeamTrophy { get; set; }    // team competition vs. individual award —
-                                                // informs display copy, not matching logic
-    public string WikidataQid { get; set; }   // nullable; resolved manually, small table (ADR-0012)
+                                                // ADR-0061: DRIVES query dispatch (P166
+                                                // individual-award vs. P1344/P3450/P1346
+                                                // team-competition join), not just display copy
+    public string WikidataQid { get; set; }   // nullable; resolved manually, small table
+                                                // (ADR-0012). Dual meaning per ADR-0061: the
+                                                // award item itself when IsTeamTrophy = false,
+                                                // the competition SERIES item (never a specific
+                                                // edition) when IsTeamTrophy = true
 }
 
 // Category value reference tables (ADR-0012, REQ-109) — the source of
@@ -503,6 +775,45 @@ public class GridCell
     public string ColCategoryValue { get; set; }
 }
 
+// --- xG Path game entities (owned by Games.XGPath, COMP-11) ---
+// Built S-081 (REQ-1201/1202, ADR-0045). Same "conceptually owned by the
+// game module, physically defined in XGArcade.Data" note as the xG Grid
+// entities above (ADR-0014).
+//
+// Unlike GridCell, PathPuzzle.TargetPlayerId IS a real foreign key into
+// Player (COMP-06) — an xG Path puzzle has exactly one correct answer,
+// fixed at generation time, unlike a GridCell's dynamically-checked
+// category pair. This crosses from Games.XGPath into Player's table but is
+// NOT the boundary ADR-0003 protects (that ADR is specifically about
+// Round/Core never holding a game-specific FK) — see ADR-0045.
+
+public class PathTemplate
+{
+    public Guid Id { get; set; }
+    public int PuzzleCount { get; set; }      // 3-5 (REQ-1202)
+}
+
+public class PathInstance
+{
+    public Guid Id { get; set; }              // this is the value stored as Round.GameInstanceId
+    public Guid TemplateId { get; set; }
+    public List<PathPuzzle> Puzzles { get; set; }
+}
+
+public class PathPuzzle
+{
+    public Guid Id { get; set; }              // the "cell" GetCellIdsAsync returns
+    public Guid PathInstanceId { get; set; }
+    public Guid TargetPlayerId { get; set; }  // FK to Player — see this section's own note above
+    // No clue/reveal fields stored here — REQ-1203's 7-turn clue sequence
+    // (S-082) is computed on every GET /path/current read
+    // (Games.XGPath.PathClueSequenceBuilder, from PlayerCareerStint +
+    // Player.Position/BirthYear + PlayerAttribute's "nationality" row),
+    // never persisted, the same "compute live on read" precedent
+    // UniquenessCalculator already establishes for xG Grid (§6.2's
+    // GET /rounds/current note).
+}
+
 // --- Core (xG Arcade) entities (XGArcade.Core) ---
 // Game-agnostic. Round deliberately holds no foreign key to GridInstance or
 // any other game-specific table — see ADR-0003. Like User below and the xG
@@ -540,15 +851,27 @@ public class User
     public string NormalizedDisplayName { get; private set; }
     public bool EmailConfirmed { get; set; }       // mirrors Supabase Auth's confirmed state; see REQ-702
     // Added S-069 (REQ-717/ADR-0036): true only for a row created via
-    // POST /auth/guest. Consulted in exactly one place outside AuthController
-    // itself — REQ-409's qualifying-rounds query — never branched on
-    // anywhere else (REQ-201-210/204/406/407/408 are unmodified).
+    // POST /auth/guest. Never branched on inside REQ-201-210/204/406/
+    // 407/408's own logic (ADR-0036's "For AI agents" instruction) —
+    // consulted only by REQ-409's qualifying-rounds query, S-072's two
+    // purge-selection queries (GetUnclaimedGuestsOlderThanAsync/
+    // GetInactiveGuestsOlderThanAsync), and S-073's admin-facing
+    // CountGuestsAsync/GetAllGuestIdsAsync (REQ-507/508).
     public bool IsGuest { get; set; }
     // Added S-069 (REQ-717/ADR-0036): set once, the moment a guest claims a
     // real account (POST /auth/claim) — null until then. REQ-409's
-    // qualifying-rounds query excludes any round closed before this instant.
+    // qualifying-rounds query excludes any round closed before this instant;
+    // S-073's CountClaimedGuestsAsync (REQ-507) also reads it directly, to
+    // report a live "claimed guest" count.
     public DateTime? ClaimedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    // Added S-072 (REQ-718/ADR-0038): non-nullable, initialized to CreatedAt
+    // at insert time. Updated on exactly four events (login, guest
+    // provisioning, claim, a submitted guess) with no IsGuest branch in any
+    // of those paths — consulted (alongside IsGuest) only by the guest
+    // cleanup purge job's own selection queries, never inside
+    // REQ-201-210/204/406/407/408.
+    public DateTime LastActiveAt { get; set; }
 }
 
 // Deferred to Phase 2 alongside REQ-706 — included now so the shape exists
@@ -644,8 +967,11 @@ public class LeagueMembership
 | `LeagueMembership` | `(LeagueId, UserId)` composite/unique (also the primary key) | Leaderboard queries filter by league; also enforces no duplicate membership |
 | `League` | `(Type)` filtered unique, `WHERE Type = 'global'` | Built S-011: guards `LeagueRepository.GetOrCreateGlobalLeagueAsync`'s check-then-insert against a concurrent double-create of the singleton global league (REQ-401) |
 | `PlayerAttribute` | `(AttributeType, AttributeValue)` | Grid generation's candidate-matching query (REQ-101) |
+| `PlayerCareerStint` | `(PlayerId)` | Built S-079 (ADR-0042): the "all of this player's stints" hot-path query every future reader (xG Path's puzzle generation, S-081+) needs |
+| `PathPuzzle` | `(PathInstanceId, TargetPlayerId)` unique | Built S-081 (REQ-1202): "no two puzzles in the same round instance target the same player," enforced at the DB level — same precedent as `GridCell`'s `(GridInstanceId, Row, Col)` unique index |
 | `Player` | `(NormalizedFullName)` | Built in S-009, beyond this table's original scope: REQ-208's Tier 0 guess-time name matching looks this up directly (no `PlayerNameIndex` in Tier 0 — see REQ-208's status note) |
 | `PlayerNameIndex` | `(NormalizedName)` | Built S-032 — `HasIndex(NormalizedName)` on `PlayerNameIndexEntries` (the EF Core table name, keyed by `PlayerId`), backing `IPlayerNameIndexRepository.SearchByPrefixAsync`'s autocomplete prefix search (REQ-207). REQ-208's "every guess submission normalizes and looks up against this first" is still not built — S-032 only wired autocomplete, not guess-time name matching, to this table |
+| `PlayerNameIndexWord` | `(Word)`, plus `(PlayerId, Word)` composite primary key | Added by REQ-208's 2026-07-26 correction (ADR-0044): one row per space-separated word in `PlayerNameIndex.NormalizedName`, cascade-deleted from `PlayerNameIndexEntries`. Lets `SearchByPrefixAsync` also match a surname-only query as a genuine, index-backed `StartsWith` on `Word`, instead of a leading-wildcard/`Contains()` scan against `NormalizedName` that couldn't use a B-tree index at this table's bulk-imported scale. `PlayerNameIndexRepository.UpsertManyAsync` reconciles each player's word rows in place on every re-import |
 | `PlayerAlias` | `(NormalizedAlias)` | Alias lookup on the fallback path when the primary name doesn't match (REQ-208) |
 | `ExternalApiUsage` | `(Source, Date)` unique | Checked on every guess-time live-lookup candidacy check (REQ-211); must be fast since it's in the hot guess-submission path |
 | `CountryDefinition` / `ClubDefinition` / `TrophyDefinition` | `(Name)` unique | Grid generation picks from these directly (REQ-109); uniqueness also prevents an admin accidentally adding the same club twice under slightly different casing |
@@ -840,13 +1166,14 @@ Country (rows) × Club (columns), Club × Club (S-030), Country × Trophy,
 Club × Trophy, or Trophy × Trophy (S-031, REQ-108, Trophy always kept
 second in a mixed pairing) — never a mixed axis *within* one grid, so the
 "whichever category types this GridTemplate allows" line above still
-doesn't vary within a single grid, only across grids. In production,
-Trophy pairings are mechanically wired up but structurally never chosen —
-`ReferenceDataSeeder` seeds only one trophy (Ballon d'Or), and
-`trophyCount(1)` can never clear `size` for any realistic grid (see
-`SelectPairing`'s own comment and REQ-108's status note) — proven as a
-mechanism via a larger faked trophy pool in `GridGameModuleTests`, not by
-anything production data triggers yet.
+doesn't vary within a single grid, only across grids. **Updated (2026-08-09,
+ADR-0061):** `ReferenceDataSeeder` now seeds three trophies (Ballon d'Or,
+FIFA World Cup, UEFA Champions League), so `trophyCount(3)` clears `size`
+for the default `GridSize = 3` — Country × Trophy and Club × Trophy are now
+REACHABLE and actually chosen in production, not just mechanically wired
+up (see `SelectPairing`'s own comment and REQ-108's status note). Trophy ×
+Trophy still needs `trophyCount >= size * 2 = 6` and remains structurally
+infeasible for now.
 
 **REQ-110 (S-036):** `PlayerCacheWarmingService` (`XGArcade.Games.XGGrid`)
 iterates every Country × Club and Club × Club pair the reference tables can
@@ -857,13 +1184,43 @@ invoked via a second `dotnet run --` CLI verb in `Program.cs`
 run by its own `warm-player-cache.yml` workflow — deliberately not an HTTP
 endpoint, and deliberately not a fire-and-forget background task inside
 the deployed app: this job can take a long time (every reference pair, up
-to a real ~15-27s live Wikidata call each per ADR-0011), which would hit
+to a real ~15-45s live Wikidata call each — see §6a's 2026-07-28 addition
+for the third, cache-warming-specific timeout tier), which would hit
 the same ~240s ingress wall ADR-0023 fixed round generation against if run
 synchronously inside a request, and this Container App's `minReplicas: 0`
 scale-to-zero (NOTES.md, 2026-07-09) would silently drop a background
 task's progress on a scale-down mid-run. A plain foreground CI-runner
 process, bounded only by the workflow's own job timeout, has neither
 problem.
+
+**2026-07-28 extensions (ADR-0050), same verb:** `WarmAsync`'s run summary
+(`CacheWarmingResult`) now also reports `PairsWithTechnicalFailure`/
+`FailingPairs` (a live-queried pair whose Wikidata lookup ended in a
+technical failure — timeout, HTTP error, or parse error — after one
+same-run retry, distinct from a successful zero-match answer) and
+`PairsSkippedConfirmedLow` (a pair skipped without any live query because
+`IPlayerStoreRepository.IsConfirmedLowAsync` reports it as already
+confirmed genuinely below `MinValidAnswers`, per the new
+`ConfirmedLowMatchPair` table, §5). See §6a's 2026-07-28 addition for the
+`WikidataQueryTimeoutTier`/`onTechnicalFailure` mechanics this relies on.
+
+**2026-08-01 extension (REQ-110, ADR-0052) — supersedes the same-run retry
+mentioned above:** the same-run retry is removed (`LookupWithSameRunRetryAsync`
+deleted) — it only ever helps a transient failure, and doubled the cost of
+a structural one, which is what pushed `warm-player-cache.yml` past its
+90-minute CI budget on every run once a structural query-shape issue
+started dominating the failure count (NOTES.md, 2026-08-01). Each pair is
+now attempted exactly once per run. `CacheWarmingResult` gains
+`PairsSkippedPersistentFailure`: a pair skipped without any live query
+because `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` reports
+`ConsecutiveFailureCount` (per the new `PairLookupFailure` table, §5) has
+reached `PlayerCacheWarmingService.PersistentFailureThreshold` (2
+consecutive runs). `RecordTechnicalFailureAsync` is called on every
+technical failure; `ClearTechnicalFailureAsync` is called on every real
+answer (match or confirmed-low), so a recovered pair isn't permanently
+skipped. See §6a's 2026-08-01 addition for the `BuildClubClubIntersectionQuery`
+query-shape fix this pairs with, and this same section's `WikidataClient`
+log-level note (per-pair failure logs moved from `Warning` to `Debug`).
 
 **REQ-109 correction/recovery path (S-037):** `ReferenceDataSeeder.SeedAsync`
 (`XGArcade.Data.Seeding`) is no longer purely additive — a `Countries`/
@@ -893,7 +1250,16 @@ given names, querying `XGArcadeDbContext` directly rather than through
 `IPlayerStoreRepository` — acceptable here because this code lives inside
 `XGArcade.Data` itself (COMP-06), the same direct-DbContext precedent
 `ReferenceDataSeeder` already sets for reference tables, not an external
-caller reaching around COMP-06's interface. Unlike `migrate-and-seed`'s
+caller reaching around COMP-06's interface. **2026-07-28 addition
+(REQ-110, ADR-0050):** it also deletes every `ConfirmedLowMatchPair` row
+naming one of the given clubs on either side — the same hard invariant
+this table's own doc comment calls out: a "purge and re-warm" cycle must
+force a real, full re-check, never a warm run trusting a confirmed-low
+marker left over from before the correction. **2026-08-01 addition
+(REQ-110, ADR-0052):** same reasoning again for `PairLookupFailure` — a
+stale persistent-failure marker for a corrected club must not silently
+keep `PlayerCacheWarmingService` skipping that pair after the fix.
+Unlike `migrate-and-seed`'s
 other backfillers (`PlayerNormalizedFullNameBackfiller`,
 `UserDisplayNameBackfiller`, `LeagueMembershipBackfiller`), this is
 deliberately **not** wired into `migrate-and-seed`'s automatic,
@@ -950,11 +1316,23 @@ filters. Reference tables (`CountryDefinition`/`ClubDefinition`/
 `XGArcadeDbContext.cs`'s `OnModelCreating`), so an old `Guess` whose
 answer was a since-purged player keeps its already-computed
 `IsCorrect`/score, it just can no longer display which player that was.
+**2026-07-28 addition (REQ-110, ADR-0050):** the verb also runs an
+unscoped `ConfirmedLowMatchPairs.ExecuteDeleteAsync()` — `Player`'s
+cascade delete doesn't reach this table (it has no FK into `Player`, see
+its own doc comment in §5), so it needs its own explicit clear, for the
+same "a purge-and-rewarm cycle must be a real full re-check" reason
+`clean-stale-club-attributes` above now clears it too. **2026-08-01
+addition (REQ-110, ADR-0052):** same reasoning again — the verb also runs
+an unscoped `PairLookupFailures.ExecuteDeleteAsync()`.
 
 **REQ-214 backfill (S-045):** `Player.PhotoUrl` is only ever set at the
-moment a `Player` row is first created
-(`WikidataLookupService.GetOrCreatePlayerAsync`, see §6/REQ-214's own note
-above) — a row created by an earlier `warm-player-cache` run, before the
+moment a `Player` row is first created (`IPlayerStoreRepository
+.GetOrCreatePlayersByWikidataQidAsync`, called from `WikidataLookupService
+.PersistMatchesAsync` — a 2026-07-27 batching fix replaced the original
+single-player `WikidataLookupService.GetOrCreatePlayerAsync` this note
+referred to, batching the whole match set into a fixed number of round
+trips instead of one per player; see §6/REQ-214's own note above) — a row
+created by an earlier `warm-player-cache` run, before the
 `P18` addition shipped, has `PhotoUrl` permanently `NULL` with no other
 code path that will ever revisit it. `PlayerPhotoBackfillService`
 (`XGArcade.DataSync.Wikidata`, same project as `WikidataLookupService`/
@@ -1026,6 +1404,189 @@ Two deliberate, documented judgment calls (both in
   checked." Accepted because this job is meant to run occasionally, not on
   a tight recurring schedule.
 
+**REQ-1207 backfill (bug-bundle fix, 2026-08-02):** `Player.Position`/
+`Player.BirthYear` have the exact same "set only at row creation, never
+backfilled" gap `PhotoUrl` had before REQ-214's backfill above — real xG
+Path user testing surfaced it as "Position: not available"/"Age: not
+available" on essentially every puzzle, since most `Player` rows predate
+migration `20260727140000_AddPlayerPositionAndBirthYear`.
+`PlayerPositionBirthYearBackfillService` (`XGArcade.DataSync.Wikidata`) is
+a near-exact mirror of `PlayerPhotoBackfillService` immediately above —
+same `BatchSize` (200), same log-and-continue-per-batch/malformed-QID-
+skip/idempotent-re-run judgment calls, same `excludingPlayerIds`
+run-termination mechanism — not repeated here to avoid the two
+descriptions silently drifting apart. Two differences from the photo
+backfill worth calling out: (1) the read side,
+`IPlayerStoreRepository.GetPlayersMissingPositionOrBirthYearAsync`, matches
+on `Position IS NULL OR BirthYear IS NULL` (either field missing), not a
+single-field check — widened 2026-08-10 to also match a `Position` value
+that is itself a raw Wikidata entity URI (e.g.
+`"http://www.wikidata.org/entity/Q8025128"`), since a pre-2026-08-02 row
+persisted under the position-URI bug described below is NOT `NULL` and was
+therefore permanently skipped by every backfill run until this widening;
+`UpdatePlayerPositionsAndBirthYearsAsync` now overwrites that one bad-
+sentinel shape as its only exception to "never clobber an already-set
+field" below; (2) the write side,
+`UpdatePlayerPositionsAndBirthYearsAsync`, takes a
+`PlayerPositionBirthYearUpdate(Position, BirthYear)` per player rather than
+a single scalar, and only writes a field when the update supplies a
+non-null value AND the existing column is still null — a batch response
+that resolved only one of the two fields must never clobber the other
+field's already-correct state (whether that's an existing value or a
+still-unresolved null waiting for a future run). New `IWikidataClient
+.QueryPlayerPositionsAndBirthYearsByQidsAsync` mirrors
+`QueryPlayerPhotosByQidsAsync`'s VALUES-clause-by-QID shape
+(`SELECT ?player ?positionLabel ?dateOfBirth WHERE { VALUES ?player { wd:Q1
+wd:Q2 ... } OPTIONAL { ?player wdt:P413 ?position. } OPTIONAL { ?player
+wdt:P569 ?dateOfBirth. } SERVICE wikibase:label { bd:serviceParam
+wikibase:language "en". } }`), same throw-on-failure error contract, grouped
+by QID with "first non-null value seen per field" dedup (a player can have
+more than one P413/P569 binding row). **Bug fix (2026-08-02, bug-bundle):**
+this query originally requested the raw `?position` binding (a bare
+Wikidata entity URI, e.g. `"http://www.wikidata.org/entity/Q336286"`) with
+no `SERVICE wikibase:label` block at all — real xG Path play surfaced
+`Player.Position` values persisting as literal QID URIs instead of names
+like "midfielder." Fixed by adding the label service and requesting
+`?positionLabel` instead, same fix applied to the five intersection query
+builders' shared `?position` binding (see REQ-1207's status note in
+`requirements-document.md`). Seventh `dotnet run --` CLI verb,
+`backfill-player-position-birthyear`, same shape as every verb above, run
+manually via `backfill-player-position-birthyear.yml` (`workflow_dispatch`
+only).
+
+**xG Path's own direct career fetch (2026-08-02, ADR-0054):** unlike the two
+backfill services above (one-time, bulk, run via a CLI verb against the
+whole backlog), this one runs inline, every round generation, against a tiny
+batch (N = `PathTemplate.PuzzleCount`) — `XGPathGameModule.GenerateInstanceAsync`
+calls the new `IPlayerCareerStintRefreshService.RefreshCareerStintsAsync`
+with exactly the target players it just picked, immediately after selecting
+them. New `IWikidataClient.QueryPlayerCareerStintsByQidsAsync` is a third
+VALUES-clause-by-QID query, but a structurally different one from the two
+above: it has no caller-supplied club to filter by at all — `?club`/
+`?clubLabel` are themselves part of the `SELECT`, discovered from the
+response (`SELECT ?player ?clubLabel ?startTime ?endTime ?numberOfMatches
+WHERE { VALUES ?player { wd:Q1 wd:Q2 ... } ?player p:P54 ?clubStatement.
+?clubStatement ps:P54 ?club. MINUS { ?clubStatement wikibase:rank
+wikibase:DeprecatedRank. } MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593. }
+OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+OPTIONAL { ?clubStatement pq:P582 ?endTime. } OPTIONAL { ?clubStatement
+pq:P1350 ?numberOfMatches. } SERVICE wikibase:label { ... } }`). Uses the
+full `p:P54`/`ps:P54` statement path excluding deprecated rank, same as
+every other P54 query in this codebase (never the truthy `wdt:P54`
+shortcut — see `BuildCountryClubIntersectionQuery`'s own comment for why
+that would silently drop historical clubs) — the whole point of this query
+is completeness, so it can't reuse the cheaper shortcut the way
+`P106`/`P21`/`P569`/`P413` safely do elsewhere. **Bug fix (2026-08-02,
+bug-bundle, REQ-1203):** the `MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593.
+}` clause is new — Wikidata models national-team caps under this same P54
+property, so without it a target's national team (Q6979593 = "national
+association football team," checked transitively via P279 subclass since a
+specific team's own P31 is typically a narrower subclass of that class) came
+back as a "club" stint, directly violating REQ-1203's "national team caps
+are never revealed as a clue" acceptance criterion.
+
+Same throw-on-failure client contract as `QueryPlayerPhotosByQidsAsync`, but
+the *caller* (`PlayerCareerStintRefreshService`) never lets that propagate:
+it catches `WikidataQueryException`, logs a warning, and returns — a failed
+refresh leaves whatever `PlayerCareerStint` rows a player already had
+untouched, rather than failing the whole round generation (REQ-103's "never
+block generation on a Wikidata failure," applied to xG Path). The service
+dedupes fetched stints against `IPlayerStoreRepository
+.GetCareerStintsByPlayerIdsAsync`'s existing rows via the same
+`(ClubName, StartYear, EndYear, AppearanceCount)` tuple-set reconciliation
+`WikidataLookupService.PersistCareerStintsAsync` already uses, then writes
+only the new ones through the existing `AddCareerStintsBatchAsync` — no new
+write path, no wipe-and-replace. `Games.XGPath` gained a `ProjectReference`
+to `XGArcade.DataSync` for this (mirroring `Games.XGGrid`'s existing one) —
+COMP-11's first dependency on COMP-07.
+
+Deliberately scoped to enrichment only: `XGPathGameModule
+.GetEligiblePlayerIdsAsync` (REQ-1201's candidate pool) is unchanged and
+still reads only already-persisted `PlayerCareerStint` rows — this fetch
+runs *after* eligibility is decided, so it can complete an already-selected
+target's own clues but can never make a previously-ineligible player newly
+eligible for the round being generated right now. See ADR-0054's own
+Follow-up section for the larger, explicitly-deferred "widen the candidate
+pool itself" and "build up the player-data cache proactively rather than
+reactively" decisions.
+
+**Proactive player-data buildout (2026-08-02, ADR-0055):** three follow-up
+moves, all shipped the same session as the fix above. (1) `ReferenceDataSeeder.Clubs`
+gained Celtic (`Q19593`, flagged unverified from this sandbox — the
+established S-036-style pattern). (2) `warm-player-cache.yml`/
+`import-player-name-index.yml` moved from `workflow_dispatch`-only to a
+weekly cron (Sunday 03:00/04:30 UTC respectively), alongside their existing
+manual trigger. (3) A new bulk job, `prefetch-player-careers`
+(`PlayerCareerPrefetchService`, eighth `dotnet run --` CLI verb,
+`prefetch-player-careers.yml`, `workflow_dispatch` only for now — see
+below), iterates every seeded `CountryDefinition` row via a new
+`IWikidataClient.QueryPlayerPoolByNationalityAsync` (the nationality-scoped
+sibling of `QueryPlayerPoolBirthYearAsync` — same bounded shape, filtered by
+P27 or P1532 per `UsesCountryForSportProperty` instead of sliced by birth
+year, same throw-on-failure contract). Each country's pool is get-or-created
+as `Player` rows (`GetOrCreatePlayersByWikidataQidAsync`, `CareerBatchSize`
+= 200 per batch, same size as the two backfill services) and run through
+ADR-0054's `QueryPlayerCareerStintsByQidsAsync`, writing new stints via the
+existing `AddCareerStintsBatchAsync`. `PlayerCareerStintRefreshService`'s own
+tuple-dedup logic (ADR-0054) was extracted into an `internal static`
+`BuildNewStintsByPlayerId` helper so this job and the per-round refresh
+share one reconciliation path rather than risking two copies drifting apart.
+
+Failure handling mirrors `PlayerNameIndexImporter`'s "keep going, fail loud
+at the end" shape, not the two backfill services' pure log-and-continue: a
+country whose pool query fails, or a career-fetch batch within a country
+that fails, is logged and skipped, but `PrefetchAsync` still throws once
+every country has been attempted if anything failed — so the workflow run
+goes red (signaling "something needs a re-run," the job is idempotent)
+without losing whatever succeeded. `prefetch-player-careers.yml`
+deliberately stays `workflow_dispatch`-only, unlike the two jobs (2) just
+moved to a cron: this is a brand-new, unproven query shape — a single seeded
+country's full unsliced player pool — and it's not yet confirmed whether a
+large football nation (Brazil, England, ...) stays safely inside WDQS's
+~60s server-side cap the way a single `QueryPlayerPoolBirthYearAsync`
+birth-year slice does. See ADR-0055's own Consequences/Follow-up sections.
+
+**Correction worth flagging for future reference:** ADR-0055 originally
+proposed sourcing move (3)'s candidate pool from `PlayerNameIndex`
+(COMP-10's ~90k-row bulk import) rather than `CountryDefinition`. That
+turned out to be unworkable — `PlayerNameIndex` deliberately has no
+`WikidataQid` column at all (ADR-0007), only a one-way deterministic hash of
+it, so it cannot actually supply the QIDs `QueryPlayerCareerStintsByQidsAsync`
+needs. Iterating `CountryDefinition` directly, discovered during
+implementation, turned out to be the better fit anyway — see ADR-0055's own
+"Correction from this ADR's original proposal" note.
+
+**xG Path target-familiarity filter (2026-08-02, ADR-0056):** a real player
+complaint ("I got this Austrian guy I had no idea who he is") exposed that
+REQ-1201's eligibility check had zero fame/recognizability signal — every
+structural check (stint count, orderable dates, seeded-club appearance
+threshold) says nothing about whether a target is one a casual player would
+recognize, and ADR-0055's own pool-widening work above only made picking an
+obscure target more likely, not less. New `IWikidataClient
+.QuerySitelinkCountsByQidsAsync` is a fourth VALUES-clause-by-QID query,
+same bounded/batched shape as the photo and position/birth-year backfill
+queries (`SELECT ?player ?sitelinks WHERE { VALUES ?player { wd:Q1 wd:Q2
+... } OPTIONAL { ?player wikibase:sitelinks ?sitelinks. } }`) — `wikibase
+:sitelinks` is WDQS's own computed predicate (count of Wikipedia/sister-
+project pages linked to the item), not a stored P-number statement. A new
+service, `PlayerFamiliarityService`/`IPlayerFamiliarityService`
+(`XGArcade.DataSync.Wikidata`), batches the structurally-eligible candidate
+pool in groups of 200, and judges a candidate familiar when its sitelink
+count resolves to at least `MinSitelinkCount` (15, an untuned starting
+value — see ADR-0056's Follow-up). `XGPathGameModule
+.GetEligiblePlayerIdsAsync` runs this filter on top of the existing
+structural checks, before `PickDistinct` selects targets — same "Games.XGPath
+depends on a narrow, purpose-built service, never `IWikidataClient` directly"
+shape `IPlayerCareerStintRefreshService` already established (ADR-0054).
+Fails open — returns the candidate pool unfiltered — on a
+`WikidataQueryException` from any batch, or when no candidate in the pool
+has a resolvable `WikidataQid` at all, mirroring
+`PlayerCareerStintRefreshService`'s own "never block round generation on a
+Wikidata failure" catch (REQ-103). A candidate that CAN be checked but whose
+sitelink count doesn't resolve, or resolves below the threshold, is
+excluded — an unverifiable candidate is never given the benefit of the
+doubt once checking is actually possible.
+
 Note on live lookups in practice: since most external sources are
 player/club-centric rather than intersection-queryable, a live lookup for a
 missing combination typically means fetching a club's squad history (a
@@ -1092,8 +1653,10 @@ at Round.EndTime (scheduled job):
 `XGArcade.Core.Scoring`) — no document specified an exact value for "how
 many points is the worst-case (fully common, incorrect, or unanswered)
 outcome worth"; this is the Tier 0 default, chosen and recorded here
-(S-011), same non-appsettings-bound, plain-constant pattern as
-`GuessRules.MaxAttemptsPerCell`. The `round((1 - uniqueScore) *
+(S-011), a plain constant not bound to appsettings. Unlike REQ-210's
+attempt cap (ADR-0041, S-077: resolved per-cell through `IGameModule`
+since it isn't the same value for every game), this points scale is a
+genuine platform-wide constant. The `round((1 - uniqueScore) *
 MAX_POINTS_PER_CELL)` computation itself is written in exactly one place,
 `ScoringRules.PointsFromUniqueScore(double uniqueScore)` (extracted S-018,
 inverted S-028/ADR-0021) — both the "at Round.EndTime" `FinalPoints`
@@ -1147,6 +1710,55 @@ the pre-existing, documented concurrent-call race in
 `MaterializeUnansweredCellsAsync` is now reachable from this real scheduled
 path too, still not fixed). The non-Production force-close-round endpoint
 still exists, unchanged, for manual/E2E use.
+
+**S-076 correction (ADR-0040 — pure extraction, no formula change):**
+`ScoreLockingService.LockRoundScoresAsync` no longer calls
+`UniquenessCalculator.Calculate`/`ScoringRules.PointsFromUniqueScore`
+directly for a correct guess. It now resolves an `IScoringStrategy` via a
+new `IScoringStrategyResolver` (`XGArcade.Core.Scoring`), keyed by
+`Round.GameKey`, mirroring `IGameModuleResolver`'s existing resolution
+shape exactly. xG Grid's formula is unchanged, just relocated into
+`UniquenessScoringStrategy` (a pure wrap of the same two calls, same
+order of operations), registered against
+`GridGameModule.XGGridGameKey` in `Program.cs` — the composition root, not
+`XGArcade.Core` itself, per ADR-0003. `MaterializeUnansweredCellsAsync`'s
+unanswered-cell penalty (immediately above) is untouched: it runs before
+any strategy is consulted and stays `FinalPoints = MaxPointsPerCell`/
+`FinalUniquenessScore = null` regardless of `GameKey`. Every existing
+REQ-204/205 acceptance criterion still holds for xG Grid unchanged — this
+groundwork exists so a second game (xG Path, ADR-0040's motivating case)
+can register its own `IScoringStrategy` without editing this file's
+control flow at all.
+
+**S-083 correction (ADR-0049 — resolves ADR-0040's own deferred
+parameter-shape follow-up):** `IScoringStrategy.ScoreCorrectGuess`'s
+signature changed from `(IReadOnlyCollection<Guess>
+correctGuessesForCell, Guid myAnswerPlayerId)` to `(Guess guess,
+IReadOnlyCollection<Guess> correctGuessesForCell, int
+maxAttemptsForCell)`. `ScoreLockingService` now resolves
+`maxAttemptsForCell` once per cell present in the round's correct-guess
+population (not once per guess) via the existing `IGameModule
+.GetMaxAttemptsForCellAsync` (ADR-0041) before invoking whichever strategy
+is resolved. `UniquenessScoringStrategy` was adapted to the new signature
+with no formula change; `ClueEfficiencyScoringStrategy` (xG Path,
+REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
+`guess.AttemptCount` and computes `round(cluesUsed / maxAttemptsForCell *
+MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
+in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
+on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
+
+**2026-08-08 addition (REQ-1206):** `PathEndpoints.cs`'s `GET /path/current`
+handler (`XGArcade.Api.Path`) now also resolves `IScoringStrategyResolver`
+directly — the first Api-layer caller of this resolver besides
+`ScoreLockingService` itself, same per-`GameKey` resolve-from-the-Api-layer
+shape `IGameModuleResolver` already has in this same handler — to compute a
+new `CurrentPathGuessResponse.Points` field (`int?`, non-null only when
+`Locked` is true): `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` called
+directly on a correct guess, or `ScoringRules.MaxPointsPerCell` read
+directly for a locked-but-unsolved puzzle — never a reimplemented copy of
+the formula, so the value is arithmetically identical to what
+`ScoreLockingService` separately persists as `FinalPoints`. See
+`docs/architecture-document.md` §6.2b for the full data-flow diagram.
 
 **Leaderboard pagination (REQ-607)**
 
@@ -1208,6 +1820,32 @@ outright; no other caller referenced them. `GET
 architecture-document.md §6.2a for the corrected full flow, including the
 new `/window/{resolution}` route (REQ-405, S-027), which keeps its own
 plain within-window sum and is likewise unaffected by the median change.
+
+**2026-07-27/S-078, REQ-410/ADR-0043 — adds a required `gameKey` filter on
+top of the above, formula unchanged:** `GetGlobalLeaderboardAsync` and
+`GetPerRoundFinalPointsByUserIdsAsync` both gained a required `gameKey`
+parameter; the per-round query's existing `Guess`-`Round` join (still the
+same database-side `GROUP BY`) gained a `round.GameKey == gameKey`
+predicate — no new join, no schema change. `GET
+/leagues/global/leaderboard` passes `GridGameModule.XGGridGameKey`
+explicitly (the Api-layer composition-root pattern ADR-0003 already
+establishes for every other route in this file), so behavior for xG
+Grid, the only shipped game, is unchanged. No route query parameter
+exists yet for a caller to request a second game's ranking — that's
+S-087's frontend game-switcher, tracked separately.
+
+**2026-08-02/S-087, REQ-410 — the deferred query parameter above now
+exists:** `GET /leagues/global/leaderboard`, `/active-round`,
+`/closed-rounds` (list), and `/window/{resolution}` each accept an
+optional `gameKey` query parameter (the single-round
+`/closed-rounds/{roundId}` route does not — it resolves by `roundId`
+alone). Omitted defaults to `GridGameModule.XGGridGameKey`, unchanged
+from the paragraph above; an unrecognized value 400s via a
+`ValidateGameKey` helper matching the inline-tuple-check
+`InternalRoundEndpoints.cs` already used for the same purpose. This is
+the same `gameKey` parameter `GetGlobalLeaderboardAsync`/
+`GetPerRoundFinalPointsByUserIdsAsync` have accepted since S-078 — this
+change is only in the Api/composition-root layer, not Core.Leagues.
 
 Two deliberate MVP-scale choices, not gaps, both still true post-REQ-409:
 (1) ranking/median computation and the `cursor`/`pageSize` slice happen in
@@ -1404,8 +2042,77 @@ deliberate and load-bearing:
 - `QueryPlayerPoolBirthYearAsync` **throws** (`WikidataQueryException`) on
   timeout/HTTP/parse failure instead of returning `[]` — an empty list
   means exactly "no eligible players born this year" (real for sparse
-  early years). The intersection queries' never-throw contract is
-  untouched (REQ-103 depends on it).
+  early years). The intersection queries' never-throw-by-default contract
+  is untouched (REQ-103 depends on it) — **as of a 2026-07-27 bug-fix
+  bundle (ADR-0046)**, each intersection query method gained an opt-in
+  `throwOnTimeout` parameter, `false` by default, so REQ-103's own call
+  path (grid generation) is unaffected; only REQ-211's guess-time fallback
+  sets it `true`, to distinguish a timeout from a genuine no-match on that
+  one call site. See REQ-211's 2026-07-27 status notes and ADR-0046 for why.
+- **2026-07-28 addition (REQ-110's cache-warming extensions, ADR-0050):**
+  a third timeout budget, `WikidataQueryTimeoutTier.CacheWarming` (45s),
+  now sits alongside `throwOnTimeout`'s existing two-way split
+  (15s/`_queryTimeout` for REQ-103's `Sync` origin, 28s/
+  `_guessTimeFallbackQueryTimeout` for ADR-0046's guess-time fallback).
+  `RunIntersectionQueryAsync`'s timeout resolution changed from a plain
+  `throwOnTimeout ? 28s : 15s` ternary to a `timeoutTier` switch (`Default`
+  preserves that exact ternary; `CacheWarming` — always paired with
+  `throwOnTimeout: false`, since cache warming's fail-open/swallow contract
+  is unchanged — selects 45s instead), because `throwOnTimeout` alone could
+  no longer double as the tier selector once a caller needed the longer
+  budget *without* throwing. 45s follows the same ADR-0011 9-27s WDQS
+  evidence the 28s guess-time budget already leans on, with a wider margin
+  since nothing is synchronously waiting on a cache-warming run (a CLI verb
+  inside a bounded GitHub Actions job, ADR-0024) the way a real player waits
+  on REQ-211's fallback. Every intersection query method also gained an
+  optional `onTechnicalFailure` callback (`Action?`, additive/backward
+  compatible, defaults to a no-op), invoked from both the timeout branch and
+  the `HttpRequestException`/`JsonException` branch of
+  `RunIntersectionQueryAsync`'s catch handling — this is how
+  `PlayerCacheWarmingService` (COMP-05) distinguishes a genuine technical
+  failure from a successful-but-empty response for its `PairsWithTechnicalFailure`/
+  `FailingPairs` run-summary fields, without changing the swallow-to-`[]`
+  return value any caller sees. `PlayerCacheWarmingService.WarmAsync` also
+  now retries a technical failure once within the same run
+  (`LookupWithSameRunRetryAsync`, `MaxAttemptsPerPair = 2`, colocated in
+  `PlayerCacheWarmingService` itself rather than in `WikidataClient`/
+  `WikidataLookupService`, which stay single-attempt and stateless per
+  call), and skips a pair entirely — no live query at all — when
+  `IPlayerStoreRepository.IsConfirmedLowAsync` reports it was already
+  confirmed genuinely below `MinValidAnswers` on a prior run (new
+  `ConfirmedLowMatchPair` table, §5, ADR-0050).
+- **2026-08-01 addition (REQ-110, ADR-0052) — supersedes the same-run
+  retry mentioned above:** `LookupWithSameRunRetryAsync`/`MaxAttemptsPerPair`
+  are removed from `PlayerCacheWarmingService`. Diagnosed cause: the retry
+  doubled every technical failure's cost, and nothing persisted a failure
+  across runs, so the same doomed pairs got retried, at that doubled cost,
+  on every run forever — `warm-player-cache.yml` stopped completing within
+  its 90-minute CI budget (NOTES.md, 2026-08-01). A real, confirmed
+  contributor: `BuildClubClubIntersectionQuery`'s plain join on two
+  independent P54 statement-path patterns could produce a combinatorial
+  row explosion (one measured case: 250,000+ WDQS binding rows) for two
+  clubs with a large, overlapping squad — fixed by wrapping each club's
+  match in its own `FILTER EXISTS { }` block, which checks existence
+  without binding the statement variable in the outer pattern, so neither
+  club's statement count can multiply result rows. Scoped to this one
+  builder only — `BuildCountryClubIntersectionQuery`/
+  `BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+  still need their club statement variable bound for the shared query
+  footer's `pq:P580`/`pq:P582`/`pq:P1350` career-stint qualifier fetch
+  (ADR-0042/S-079) and cannot use the same trick. `PlayerCacheWarmingService`
+  now also skips a pair — no live query — once `IPlayerStoreRepository
+  .IsPersistentTechnicalFailureAsync` reports `ConsecutiveFailureCount`
+  (new `PairLookupFailure` table, §5, ADR-0052) has reached 2 consecutive
+  RUN-level failures (`PersistentFailureThreshold`), and clears that
+  pair's marker (`ClearTechnicalFailureAsync`) the moment it gets a real
+  answer. Also: `RunIntersectionQueryAsync`'s two per-pair failure logs
+  (the timeout branch, and the `HttpRequestException`/`JsonException`
+  branch) moved from `LogWarning` to `LogDebug` — at `Warning`, a run with
+  a few hundred failures produced thousands of lines (some 15-20 line
+  stack traces for a JSON parse error) that buried the one
+  `Information`-level summary line that actually matters; `Debug` is
+  filtered out by this project's default `Information` log level
+  (`appsettings.json`), so a normal run's console stays readable.
 - `PlayerNameIndexImporter` retries a failed slice (3 attempts, short
   backoff), finishes the remaining years (each successful slice is
   upserted immediately), then **fails the whole run loudly** if any slice
@@ -1622,6 +2329,13 @@ split and sync approach.
   against production, respects overrides (REQ-501)
 - **`generate-round.yml`**: scheduled per the configured frequency
   (REQ-301), calls a backend endpoint to create a new Round
+- **`purge-guest-accounts.yml`** (REQ-718/ADR-0038): scheduled daily
+  (07:00 UTC, offset from `generate-round.yml`'s 06:00), calls
+  `POST /internal/purge-guest-accounts` (same bearer-token pattern as
+  `/internal/generate-round`) to delete unclaimed guests older than 30 days
+  and inactive guests older than 7 days — the safety net for
+  `AuthController.Logout`'s best-effort delete-at-logout, which is a plain
+  authenticated endpoint, not a scheduled job
 - **`deploy.yml`**: on push to `main` — builds and pushes the backend image
   to GHCR, deploys the Bicep templates to production, and deploys the
   frontend build to Azure Static Web Apps. This is effectively a promotion
@@ -1631,6 +2345,15 @@ split and sync approach.
 - **`promote-dev-to-prod.yml`**: manual-only, the recommended game-data
   promotion direction
 - **`sync-prod-to-dev.yml`**: manual-only, the fallback game-data sync direction
+- **`promote-dev-to-prod-dry-run.yml`** (2026-08-08, ADR-0009's addendum):
+  weekly-scheduled (plus `workflow_dispatch`), runs
+  `promote-dev-to-prod.sh --dry-run` and writes the per-table dev/prod
+  row-count diff to the job summary. Read-only — never writes to prod and
+  adds no non-interactive flag to the real (writing) promote path, which
+  still requires a human to run the script directly and type the
+  confirmation phrase. Exits cleanly (not a failing run) when
+  `PROD_DATABASE_CONNECTION_STRING` isn't set, since prod doesn't exist
+  yet (Tier 1, `MVP-SCOPE.md`)
 - **`backup-database.yml`**: scheduled daily — Supabase's free tier includes
   no automated backups at all (confirmed directly against their docs,
   2026-07-05), so this is not optional. Runs `pg_dump` against production

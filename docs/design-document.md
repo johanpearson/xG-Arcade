@@ -1,9 +1,9 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.45"
+version: "0.68"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -17,7 +17,7 @@ update_when:
   - "A component's states or copy change in a way that affects other screens"
 ---
 
-# UX & Design Document – xG Arcade (working title)
+# UX & Design Document – xG Arcade
 
 Version 0.40 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
@@ -54,8 +54,19 @@ distinctive move here isn't inventing a new color language — it's getting
 out of the way and letting those symbols do the work, on a clean light
 surface that doesn't compete with them.
 
-**Imagery note:** flags are rendered as standard flag emoji/Unicode — safe,
-universal, no licensing concern, shipped in v1. Club crests are **deferred
+**Imagery note:** flags are rendered as small bundled SVGs (simplified flat
+bands/crosses/a plain circle per country — no coats of arms, stars, or other
+fine detail), safe and license-free the same way the original Unicode-emoji
+approach was. **Changed 2026-08-03 (user-tester bug report)**: v1 originally
+shipped flags as literal Unicode flag emoji; that degrades badly on Windows,
+where Chrome/Edge render emoji through the host OS font and Windows dropped
+color flag glyphs from its system font, so a flag emoji fell back to its two
+bare Regional Indicator Symbol letters (e.g. "GB") with no flag graphic at
+all — Firefox alone avoided this because it bundles its own emoji font
+(Twemoji Mozilla) rather than asking the OS to render the glyph. The bundled-
+SVG approach needs no host font support, so it renders identically on every
+platform/browser. See `frontend/src/lib/countryFlags.tsx`'s own top-of-file
+comment for the full reasoning. Club crests are **deferred
 to Phase 2** — v1 ships with the placeholder circular initial-badges shown
 throughout this document as the actual design, not a temporary stand-in.
 Real crest sourcing via API-Football (`ClubCrest` caching, see
@@ -266,6 +277,151 @@ and never touches the badge-dock elements or its keyframes. Fires on
 every rejected guess (whether or not an attempt remains afterward), never
 on a page load that shows a cell already incorrect. Respects
 `prefers-reduced-motion`: flash only, no shake.
+
+**Brand mark (2026-07-26, revised same day).** A small icon/logo pair
+replaces the plain "xG Arcade" text on `SplashScreen` (REQ-719 shipped
+without one, "to be handled separately" — this is that follow-up): an "xG"
+monogram on a rounded-square badge — xG (expected goals) is the term the
+whole product name is built on, so it's the mark's entire content, not a
+supporting detail beside a separate pictorial symbol. **First attempt used a
+2x2-grid glyph instead of the monogram; direct feedback the same day asked
+for xG itself to be the visual center, not a grid icon — the grid version
+was replaced outright, not kept as an alternate.** Implemented as
+`frontend/src/splash/Logo.tsx` (`LogoMark` is the badge alone, `Logo` pairs
+it with the word "Arcade" — not the full "xG Arcade" repeated next to its
+own monogram) and, as a static asset, `frontend/public/favicon.svg`. Colors
+are fixed rather than theme-driven: `accent-green` is already the same hex
+across light/dark theme (see this section's dark-theme table), and the
+monogram text is a literal white for the same "self-contained badge, not
+page chrome" reasoning already applied to `overlay-scrim`'s foreground
+pairings above — so the mark needs no dark-mode variant of its own. The
+"Arcade" word next to it still uses `--font-display`/`text-primary` as
+normal, so it adapts with theme like any other heading text. No new token
+was added.
+
+**2026-07-26, same-day extension:** `Logo` moved from `frontend/src/splash/`
+to `frontend/src/components/Logo.tsx` (a genuine second consumer now
+existed, not a speculative move) and replaced the header's own plain-text
+"xG Arcade" title in `App.tsx` (both the authenticated button and
+unauthenticated `<h1>` variant). Same mark, same accessible-name mechanism,
+so every existing `getByRole('button'|'heading', { name: 'xG Arcade' })`
+query kept passing with no test changes.
+
+**2026-07-26, second same-day revision — user-supplied inspiration.** The
+user shared reference logos (bold two-tone "xG," a soccer ball worked into
+the lettering, a motion-swoosh trail, gradient shading, a tagline pill) and
+asked for xG itself to be more the visual center. Adopted selectively rather
+than wholesale — see the direction question this was resolved with:
+- **Adopted, because it fits the existing flat/token system:** two-tone
+  letters (`x` in `accent-green`, `G` in `accent-gold-text`) and a flat
+  (no gradient/shading) ball glyph — a plain circle with one pentagon,
+  not a textured illustration — tucked against the G.
+- **Not adopted, because it conflicts with §1's own settled direction:**
+  the gradient shading, motion-swoosh trail, and dissolving-pixel effect.
+  §1 already rejected a "broadcast-graphics" look in favor of flat and
+  quiet; §2 defines no gradient tokens at all. Revisit only via a real
+  token-system update, not as an icon-only exception.
+- `Logo` (the in-app lockup — `SplashScreen`'s `<h1>`, `App.tsx`'s header)
+  is now badge-less: "x", "G", and "Arcade" are plain text sitting directly
+  on `bg-base`, using `accent-gold-text` (not raw `accent-gold`) for the G
+  specifically, since design-document.md §2 already measured raw
+  `accent-gold` too low-contrast for text/icon use on a light surface —
+  `accent-gold-text` already resolves to the right per-theme value via
+  index.css's existing `data-theme` override, the same mechanism
+  `SettingsScreen`/`CellState` already rely on, so no new CSS was needed
+  for the dark-theme case.
+- `LogoMark` (the self-contained icon — `favicon.svg` and any future
+  app-icon use) deliberately did **not** switch to two-tone letters: raw
+  `accent-gold` measures too close in lightness to `accent-green` to read
+  reliably as G-on-green at small icon sizes, so it keeps the original
+  white-on-green monogram, with the same flat ball glyph (inverted
+  fill — white circle, green pentagon, so it reads against the green
+  badge) added as a corner accent for visual continuity with `Logo`.
+- **Accessible-name implementation note, worth recording because it's easy
+  to get wrong again:** splitting "x" and "G" into separate sibling
+  elements (needed for independent coloring) changes the computed
+  accessible name from "xG" to "x G" — the accessible-name algorithm
+  inserts a joiner space between *each child element's own contribution*
+  when accumulating a parent's name, not just between literal whitespace
+  in the markup. Fixed with `aria-label="xG"` on the wrapping span so it
+  contributes as one atomic string. A second, unrelated gotcha found the
+  same day: a flex container (`.logo` is `display: inline-flex`) ignores a
+  whitespace-only text-node child for *layout* purposes even though it's
+  still read for the *accessible name* — so the literal space kept between
+  the "xG" span and "Arcade" (for the name) rendered with zero visual
+  width, and the visible gap had to come from `gap` on `.logo` instead.
+
+**2026-07-26, third same-day revision — ball accent dropped.** Direct
+feedback after seeing the ball glyph live: "too much" and didn't look
+good. Removed outright (`.logo__ball`/`BallAccent` in `Logo.tsx`, and the
+matching corner glyph in `LogoMark`/`favicon.svg`), not kept as a toggle —
+the two-tone "xG" letters alone were already reading well and are what
+remains. `Logo` is back to just `x`/`G`/`Arcade` as plain sibling text
+(still needing the same `aria-label="xG"` wrapper for the accessible-name
+reason above, since that's independent of whether a ball accent exists);
+`LogoMark`/`favicon.svg` are back to the plain white-on-green monogram
+with no corner glyph.
+
+**Placeholder avatar (REQ-216, 2026-08-03 amendment).** A new, generic
+graphic — flagged as a gap by `requirements-document.md`'s REQ-216 (the
+"2026-08-03 status note" amending its original no-photo-fallback wording)
+and added here, per CLAUDE.md's "Frontend visual consistency" rule, before
+`ui-implementer` wrote any code against it. Shown on a locked, incorrect
+cell (SCREEN-01a states 3/4's incorrect branch) in place of a real photo
+whenever one isn't available — either the guess matched no
+`PlayerNameIndex` candidate at all, or it matched a real player but
+ADR-0057's Wikidata-only lookup didn't resolve a photo (timeout, error, or
+genuinely no image). Never shown on a *correct* cell — REQ-214's own
+no-photo fallback there stays genuinely nothing, an intentional asymmetry
+recorded (not re-litigated) in REQ-216's own status note.
+
+- **Shape:** a flat, single-tone generic person silhouette (a circle for
+  the head, a simple rounded shoulder shape beneath it) — no gradient,
+  texture, or literal likeness, consistent with §1's flat/quiet direction
+  and the same "no textured illustration" restraint the brand mark's ball
+  glyph note above already applies. It is deliberately generic/anonymous:
+  this graphic never implies a specific player, real or fictional — it
+  means "no confirmed image," nothing more.
+- **Color tokens — both reused, no new color added:** the silhouette
+  itself uses `text-muted` (the same "quiet, secondary content" role that
+  token already carries everywhere else in this table — a placeholder
+  glyph is exactly that, not a status signal); its containing slot's
+  background uses `surface-sunken` (the same "recessed/inactive" role that
+  token already documents for empty/inactive cells and input backgrounds —
+  a placeholder avatar's backdrop is conceptually the same "nothing here
+  yet" recess). Deliberately **not** `accent-red`: the locked-incorrect
+  cell's persistent red border (below) already carries the "this is
+  wrong" signal on its own — painting the avatar itself red as well would
+  make the avatar read as a second, redundant incorrect-cue rather than
+  the neutral "no image" cue it's meant to be, and would need its own
+  fresh contrast derivation the way `accent-green-scrim` needed one for
+  its own narrow exception, which nothing about this graphic warrants.
+- **Footprint:** fills the cell's whole box using the exact same full-bleed
+  mechanism REQ-214's photo already established — absolutely positioned
+  against `.grid-table__cell` (the `<td>`), `inset: 0`, so it can never
+  grow or shrink the cell regardless of viewport, matching every other
+  state's fixed-footprint guarantee. See `CellState.css`'s
+  `.cell-state--incorrect-photo` rule (shared with `.cell-state--photo`
+  where the properties are identical) for the implementation.
+- **Accessibility:** decorative only, same pairing rule §6 already applies
+  to every other glyph in this file (flag/badge glyphs, the correct/
+  incorrect check/cross icons) — the graphic itself carries no accessible
+  name of its own; the cell's own accessible text (its aria-label, or the
+  guessed player's name when one is shown alongside it) is what a screen
+  reader actually announces.
+- **Persistent incorrect-cell border, extended (2026-08-03):** the
+  correct-cell-only persistent border this section documents further below
+  (SCREEN-01a's "Persistent correct-cell border" note) is joined by a
+  matching persistent `accent-red` border on a locked-incorrect cell
+  (states 3/4's incorrect branch) — REQ-216's own acceptance criteria
+  requires a red border on all three of its combinations, including the
+  "no match at all" case that previously had no border at all. Same
+  mechanism, same element (`.grid-table__cell`, not `.grid-cell` or
+  anything inside `CellState.tsx`), same reasoning (a full-bleed photo/
+  placeholder layer can now appear on an incorrect cell too, exactly the
+  scenario the correct-cell border was already built to survive
+  regardless of stacking order) — see SCREEN-01a's own status note for the
+  full detail and Grid.css's `.grid-table__cell--incorrect` rule.
 
 ## 3. Key screens
 
@@ -509,19 +665,78 @@ actionable information, not a redundant status label.
 by default), not 0 — xG Arcade is scored like golf, so 0 is the *best*
 possible score and must never be free just for guessing wrong.
 
+**REQ-216 status note (2026-08-03, direct product-owner sign-off — narrowly
+supersedes the S-029 "no name shown" rule above, but only for states 3/4's
+incorrect branch, never state 2):** a cell that locks with its final guess
+still incorrect now shows some feedback about who was actually guessed,
+instead of a bare ✕. Three combinations, all sharing the same full-bleed
+"photo slot" mechanism REQ-214's own photo cell already established
+(`CellState.css`'s `.cell-state--incorrect-photo`, reusing the identical
+positioning rule `.cell-state--photo` uses) — a red border (§2's persistent-
+border note, extended) is common to all three:
+
+```
+(1) Guess matched a real player, photo resolved (ADR-0057)
+┌─────────────────────────┐
+│▒▒▒▒▒▒[ matched player's ▒│   ← red border around the whole cell
+│▒▒▒▒▒▒ photo, fills cell]▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Seedorf                  │   ← canonical name, always shown here
+│▓ 100 pts                  │
+└─────────────────────────┘
+
+(2) Guess matched a real player, no photo resolved (timeout/error/no image)
+┌─────────────────────────┐
+│▒▒▒▒[ placeholder avatar ▒│   ← red border; §2's new "Placeholder avatar"
+│▒▒▒▒  — muted silhouette]▒│     graphic in place of the photo
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ Seedorf                  │   ← name still shown — only the photo failed
+│▓ 100 pts                  │
+└─────────────────────────┘
+
+(3) Guess matched no PlayerNameIndex candidate at all (typo/gibberish)
+┌─────────────────────────┐
+│▒▒▒▒[ placeholder avatar ▒│   ← red border; same graphic as (2)
+│▒▒▒▒  — muted silhouette]▒│
+│▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+│▓ 100 pts                  │   ← no name — nothing resolved to a real
+└─────────────────────────┘        player, so none is shown
+```
+
+Never shown for state 2 (an attempt remains) — that state is completely
+unaffected by this note, still exactly the plain "✕ + N attempt(s) left"
+mock above, no image, no name, no border. No checkmark/cross icon is
+rendered in any of the three combinations above either — mirroring REQ-214/
+S-048's own established "the photo overlay shows only name + points, never
+a status glyph" pattern; the red border is what signals "incorrect" here
+instead, the same way the green border now signals "correct" for a photo
+cell that has none of its own status glyph either. **Asymmetry, recorded
+plainly rather than resolved (see `requirements-document.md`'s REQ-216
+status note for the full reasoning):** this is a direct, deliberate
+inconsistency with REQ-214's own no-photo fallback for a *correct* cell
+(shows nothing at all) — this REQ's own no-photo fallback is the
+placeholder avatar, never nothing.
+
 **4. Round closed** (either prior state, now permanent):
 
 ```
-Prior outcome: correct (at rest)      Prior outcome: incorrect
-┌─────────────────────────┐           ┌─────────────────────────┐
-│                     ✓     │           │                     ✕    │
-│  88 pts                   │           │  100 pts                 │
-└─────────────────────────┘           └─────────────────────────┘
-   ↑ gold checkmark — identical           ← no name here either,
-     structure to state 1 at rest           same S-029 rule as states
-                                             2/3; points value is the
-                                             same MaxPointsPerCell state
-                                             3 shows, per today's fix
+Prior outcome: correct (at rest)      Prior outcome: incorrect (typo/no match
+┌─────────────────────────┐           — see REQ-216's combination (3) above
+│                     ✓     │           for the matched/real-player variants)
+│  88 pts                   │           ┌─────────────────────────┐
+└─────────────────────────┘           │▒▒▒▒[ placeholder avatar ▒│
+   ↑ gold checkmark — identical        │▒▒▒▒  — muted silhouette]▒│
+     structure to state 1 at rest      │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│
+                                        │▓ 100 pts                  │
+                                        └─────────────────────────┘
+                                           ↑ red border, no name — same
+                                             REQ-216 combination (3) mock
+                                             above; state 4's incorrect
+                                             branch renders identically to
+                                             state 3, same MaxPointsPerCell
+                                             value regardless of when the
+                                             cell locked (unchanged from
+                                             before REQ-216)
 
 Prior outcome: correct, no photo (revealed — click/tap the cell)
 ┌─────────────────────────┐
@@ -839,6 +1054,45 @@ actionable text to show. State 1 and state 4 (and, as of today, state 3)
 are deliberately *not* visually distinguishable by round status at
 rest — see SCREEN-06 for where that distinction is explained instead.
 
+**Persistent correct-cell border (2026-08-03, direct product feedback):** a
+correct cell (states 1 and 4 above, no-photo or photo variant alike) now
+also gets a `--color-accent-green` border, 2px, around the whole cell —
+an always-visible cue that a cell is correct, independent of and in
+addition to the checkmark/points text tint (`--color-accent-gold-text`)
+this section already describes. Before this addition, "correct" was only
+ever signaled by the checkmark glyph and the gold-tinted points text — no
+border existed at all. `--color-accent-green`, not `--color-accent-green-scrim`
+(§2's dormant, one-off checkmark exception, not a general "correct"
+color), is the right token: it's already specified for exactly this kind
+of non-text/decorative use (live-dot, focus ring, tab underline), already
+measures ~3.4:1 against `surface-card`/white — clearing the 3:1 floor that
+applies to a decorative UI-component border, not the 4.5:1 text floor —
+and is unchanged between light/dark theme (§2's dark-theme table), so no
+new theme-specific value was needed. Implemented on `.grid-table__cell`
+(the `<td>` itself, `Grid.tsx`/`Grid.css`), not `.grid-cell` (the button)
+or anything inside `CellState.tsx`: a photo cell's photo layer bleeds only
+as far as this element's own padding edge (see this section's own S-050
+status note), never into its border area, so a border declared on the
+`<td>` is spatially guaranteed to render around/above the photo in both
+variants, without depending on paint-order/stacking-context specifics the
+way a border on `.grid-cell` would.
+
+**Extended to a locked-incorrect cell too (REQ-216, 2026-08-03):** the same
+`.grid-table__cell`-not-`.grid-cell` reasoning above now also applies to a
+locked-incorrect cell (states 3/4's incorrect branch) — see this state's
+own REQ-216 status note above for the three combinations this covers.
+`.grid-table__cell--incorrect` (Grid.tsx/Grid.css) gives that element a
+`--color-accent-red` border, same 2px weight, same non-text 3:1 floor
+reasoning (`accent-red` already measures ~4.9:1 against `surface-card`/
+white, clearing it with real margin) — added specifically because REQ-216
+can now put a full-bleed photo or placeholder-avatar layer on an incorrect
+cell too, the exact scenario this element (rather than `.grid-cell` or
+`CellState.tsx`) was already chosen to survive regardless of stacking
+order. Before REQ-216, an incorrect cell (locked or not) had no border at
+all — this is a genuinely new cue for the locked case specifically, not
+carried over from anywhere. Still never applied to state 2 (an attempt
+remains) or an unattempted cell — only once locked-incorrect.
+
 ### SCREEN-02: Guess input
 
 Bottom sheet on mobile, inline popover on desktop — unchanged structurally
@@ -871,10 +1125,22 @@ from v0.1, recolored for the light theme:
 
 **S-032 implementation note:** shipped without the photo/silhouette avatar
 described above — the `PlayerNameIndex`-backed contract this story builds
-against (ADR-0007) carries `name`/`birthYear`/`nationality` only, no photo
-field, so each suggestion row instead shows the name plus an optional
-`nationality · birthYear` caption line in `text-muted` for disambiguation.
-Avatar support stays an open item if/when the index gains a photo field.
+against (ADR-0007) carries `name`/`birthYear` only, no photo field, so each
+suggestion row instead shows the name plus an optional `birthYear` caption
+line in `text-muted` for disambiguation. Avatar support stays an open item
+if/when the index gains a photo field.
+
+**Nationality removed from the autocomplete contract (post-S-032 fix):**
+suggestion rows originally also carried `nationality`, shown alongside
+`birthYear` in the same caption line. That leaked the answer for
+nationality-based categories (e.g. Country × Club) — seeing which
+suggestions carried the target nationality told the player who was
+eligible before they'd even guessed, violating REQ-207/ADR-0007's "implies
+nothing about correctness" rule. `nationality` was removed entirely from
+`GET /players/autocomplete`'s response and from the suggestion row; only
+`birthYear` remains, since it doesn't align with any xG Grid category and
+so can't leak an answer the same way. If a future category is ever
+birth-year-based, this caption would need the same treatment.
 Judgment calls made without an existing spec to follow, recorded here
 rather than left as unreviewed implementation-only detail:
 - Suggestions list uses only neutral tokens — `surface-card` background,
@@ -888,8 +1154,11 @@ rather than left as unreviewed implementation-only detail:
   fills the text field only — never auto-submits — so the player always
   takes an explicit, separate "Submit guess" action regardless of how the
   name got into the field.
-- Debounced at 275ms after the last keystroke, once the trimmed query
-  reaches 2 characters; a failed suggestions fetch is swallowed
+- Debounced at 150ms after the last keystroke, once the trimmed query
+  reaches 2 characters — lowered from 275ms (2026-08-10) now that the
+  request is properly cancelled on a superseded keystroke (see REQ-207's
+  own test coverage), so a shorter debounce no longer risks piling up
+  redundant in-flight requests; a failed suggestions fetch is swallowed
   client-side (shows no suggestions, never blocks or errors the guess
   form) since autocomplete is a nice-to-have, not required to submit.
 - Standard combobox/listbox ARIA pattern (`role="combobox"` on the input,
@@ -927,6 +1196,101 @@ be handled cleanly rather than silently guessing on the player's behalf.
   rejecting a genuinely correct answer) is worse in both directions.
 - If the player abandons this prompt without choosing, the guess is not
   submitted — it does not default to either candidate.
+
+### SCREEN-02b: Suggestion entry point (REQ-215, S-089)
+
+New for S-089 — no prior SCREEN entry covered this, and REQ-215's own
+"guest vs. non-guest visibility"/"no retroactive rescoring" criteria left
+the actual UI placement to `ui-implementer`'s judgment. Documented here
+after the fact per this doc's own discipline for undocumented gaps found
+mid-build.
+
+**Placement decision.** Two trigger conditions exist (REQ-215): a submitted
+guess scored incorrect, or a REQ-211 live lookup for that guess timing out.
+Both are handled the same way, inside `GuessInput` (SCREEN-02) itself,
+rather than adding anything to the grid cell (`CellState`, SCREEN-01a):
+
+- The grid cell has a deliberately fixed, small footprint (REQ-214's
+  "fixed-cell-footprint guarantee") that was never designed with room for
+  an extra interactive element, and the incorrect states (SCREEN-01a states
+  2/3) already show no interactive controls at all — adding one there would
+  be a second, uncoordinated change to a constraint this document treats as
+  load-bearing.
+- The live-lookup-timeout trigger already has a natural home: `GuessInput`
+  already stays open and shows the timeout's error inline on that path
+  (unchanged by this story) — the sheet, not the cell, is already where
+  this player is looking at the moment either trigger fires.
+- Consequently, `GuessInput`'s prior "closes immediately on any scored
+  result, correct or incorrect" behavior changes: a **correct** result
+  still closes the sheet immediately, exactly as before. An **incorrect**
+  result now keeps the sheet open and replaces the plain form with a brief
+  outcome view, the same "replaces the form, header/Cancel stay put" shape
+  SCREEN-02a's disambiguation prompt already established.
+
+```
+Incorrect result (direct submission or a disambiguation resubmission):
+┌─────────────────────────────┐
+│ 🇫🇷 France × [AFC] Arsenal   │
+│                               │
+│ ✕ Not a match.                │
+│ You can try again, or         │
+│ suggest a correction below.   │
+│                               │
+│ [ Suggest a correction ]      │  ← collapsed entry point (see below)
+│                               │
+│    [ Try another guess ]      │
+│              [ Close ]        │
+└─────────────────────────────┘
+
+Live-lookup timeout (REQ-211) — the existing inline error, now with the
+entry point added alongside it; the form itself is untouched/resubmittable,
+exactly as before this story:
+┌─────────────────────────────┐
+│ 🇫🇷 France × [AFC] Arsenal   │
+│ ┌───────────────────────────┐│
+│ │ ronaldinho                ││
+│ └───────────────────────────┘│
+│ We couldn't verify this       │
+│ guess against our live data   │
+│ source in time. Please try    │
+│ again.                        │
+│                               │
+│ [ Suggest a correction ]      │
+│                               │
+│         [ Submit guess ]     │
+└─────────────────────────────┘
+```
+
+- **Entry point states**, all via one `SuggestionEntry` component mounted
+  at either trigger site above:
+  - **Non-guest, collapsed:** a single `surface-sunken` button, "Suggest a
+    correction" — clicking it expands an inline form (player name
+    read-only/pre-filled from the triggering guess, a club(s) field, a
+    nationality field, Cancel/Submit).
+  - **Guest:** the same button, rendered `disabled`, paired with text
+    copy ("Register for a full account (Settings → Save your progress) to
+    suggest a correction here.") — **present but inert, never hidden**
+    (REQ-215's "advertised, not hidden" rule), same "disabled control +
+    explanatory text" pattern REQ-717 already uses elsewhere for a guest.
+    The guest restriction is enforced server-side regardless of what this
+    button shows (REQ-215) — this is advertising, not the actual gate.
+  - **Submitted:** the form is replaced by a short confirmation line
+    ("Thanks — an admin will review this. It won't change this guess's own
+    score.") — the explicit "won't change this guess's own score" clause is
+    deliberate, not incidental copy: REQ-215's 2026-08-01 "no retroactive
+    rescoring" decision means nothing on this screen may imply otherwise.
+- **Tokens only**, no new ones: `surface-sunken`/`surface-card` for the
+  collapsed button/expanded form (mirrors `GuessInput`'s own suggestions
+  list treatment), `accent-red` for the ✕ icon (text/icon use, already
+  measured to pass contrast as-is per §2), `text-muted` for hint/guest/
+  confirmation copy, `accent-green-text` for the Submit button — same
+  palette `GuessInput.css` already uses throughout.
+- **Never color-only**: "Not a match." is real text next to the ✕ icon
+  (§6), same as every other correct/incorrect signal in this document.
+- **"Try another guess"** returns to the plain form for a genuine second
+  attempt without closing/reopening the sheet — only offered when the cell
+  isn't locked yet; once both attempts are used, only "Close" remains and
+  the hint text says the cell is locked instead.
 
 ### SCREEN-03: Leaderboard
 
@@ -995,6 +1359,26 @@ selector exists alongside them, not instead of them):
 Same underline-tab treatment as `.auth-screen__tabs`/`.auth-screen__tab`
 (`accent-green` underline on the active tab) — one visual tab pattern
 reused, not a second one invented.
+
+**Game switcher (built, ADR-0043/`requirements-document.md` REQ-410,
+`docs/backlog.md` S-087, 2026-08-02 — see that entry's "Built as" for the
+full implementation, including the backend `gameKey` query-param work it
+turned out to require):** once a second game exists, the **All-time**
+scope above can no longer mean one thing —
+`GetGlobalLeaderboardAsync` is scoped per `GameKey` (ADR-0043), so "the"
+all-time ranking becomes "xG Grid's all-time ranking" and "xG Path's
+all-time ranking," never one blended number. A game switcher — the same
+plain underline-tab pattern used everywhere else on this screen, not a
+new control type — sits above the `[All-time] [Current Round]...` scope
+row, one tab per game (same name/order as SCREEN-09's tiles and
+`HeaderNav`'s "Games" list: xG Grid, then xG Path). Switching games
+re-fetches whichever scope tab is currently selected, scoped to the newly
+selected game — it does not reset the selected scope tab back to
+All-time. This affects **every** scope in this section (Current Round,
+Previous Rounds, and Time Windows already take an explicit `gameKey`
+today per their own REQs — REQ-407/408/405 — only **All-time** is the
+scope this switcher newly makes possible), so the switcher sits above all
+four scope tabs, not duplicated per scope.
 
 **Scoring explainer entry point (REQ-213, S-068, added 2026-07-21):** the
 `(ⓘ)` shown in the header above, next to the "Global leaderboard" title —
@@ -1222,6 +1606,93 @@ generic error; a successful deletion clears the field and shows a brief
 behavior under an admin-triggered path — a second trigger for that one
 behavior, not a second, independently-designed deletion flow.
 
+**Accounts / guest-clear (REQ-507/508, added 2026-07-25) — always rendered,
+no `ASPNETCORE_ENVIRONMENT` gate, unlike round control/user deletion above:**
+these two REQs are explicitly visible in every environment including
+Production (see each REQ's own "Scope note"), so — unlike round control and
+user deletion — this pair is **not** nested inside the same
+`activeRound !== null` visibility gate; it renders and fetches
+unconditionally, right after the unverified-data section above.
+
+```
+┌─────────────────────────────────────────────┐
+│ Accounts                                       │
+├─────────────────────────────────────────────┤
+│ Total users        Current guests   Claimed   │
+│      42                    7         guests    │
+│                                          3      │
+└─────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────┐
+│ Guest accounts                                 │
+├─────────────────────────────────────────────┤
+│ Deletes every current guest account            │
+│ immediately — a manual remedy you can use any  │
+│ time, separate from the scheduled automatic    │
+│ purge.                                          │
+│                                                 │
+│ [ Force clear guests ]                          │
+│   (click) → fetches the dry-run count, then:   │
+│   [Yes, delete all N guest accounts] [Cancel]  │
+└─────────────────────────────────────────────┘
+```
+
+Judgment calls made without an existing spec to follow (`ui-implementer`,
+S-073 — corrected from an earlier "S-076" reference here, which didn't
+match any actual backlog story), recorded here per this repo's own
+discipline rather than left as an unreviewed implementation-only detail:
+
+- **A genuinely new component, not a reuse:** the metrics readout has no
+  existing row/list class that fits a label+value pair, so it's a new
+  `.admin-screen__metrics`/`.admin-screen__metric` pairing (tokens only —
+  `--space-*` for gaps, `--color-text-muted`/`--color-text-primary` for
+  label/value). The numeral value reuses the shared `.mono-figure` utility
+  (`index.css`) for the mono-face/tabular-figures rule (§2's "any number
+  meant to be compared at a glance"), and reuses `.admin-screen__title`'s
+  existing 18px size rather than inventing a new one (§7 already flags this
+  document has no formal type scale — this follows the existing
+  reuse-what's-already-used convention rather than compounding that gap).
+- **Two sections, not one:** "Accounts" (REQ-507, read-only) and "Guest
+  accounts" (REQ-508, the destructive bulk action) are two separate
+  `admin-screen__section` cards, matching this screen's existing
+  one-card-per-REQ convention (unverified data / round control / user
+  deletion are likewise separate cards) rather than merging a read-only
+  view and a destructive action into one box.
+- **Confirm-step copy strengthened per REQ-508's explicit acceptance
+  criterion:** clicking "Force clear guests" fetches the dry-run count
+  first, then reveals "Yes, delete all N guest accounts" / "Cancel" — a
+  stronger two-step confirm than "Yes, end round now"/"Yes, delete this
+  user permanently" specifically because the count is embedded in the
+  confirm button's own label, not shown only as separate nearby text.
+- **Zero-count special case (a judgment call, not in REQ-508's acceptance
+  criteria):** if the dry-run count is 0, the UI shows "No guest accounts to
+  clear right now." (the same muted/empty-state styling as "No unverified
+  data to review.") instead of a confirm prompt reading "Yes, delete all 0
+  guest accounts," which would be an odd, actionable-looking control for an
+  action that would do nothing.
+- **Per-account outcome list reuses the exact pattern REQ-503's bulk
+  approve/remove already established** (`admin-screen__list`,
+  `admin-screen__approval-result`/`--failed`, a "Dismiss" button) — one line
+  per account (`{userId} — {outcome text}`), with `Succeeded` → "Cleared.",
+  `NotFound` → "Not cleared — this account no longer exists.", and `Failed`
+  → the server's own `errorMessage` folded into the sentence ("Not cleared —
+  {message}."), never a raw enum value or a bare "failed." No player-facing
+  display name exists for a guest account to show instead of its raw
+  `userId` (guest accounts have no email; `displayName` exists but wasn't
+  worth a second server round-trip for this admin-only, low-frequency
+  action) — flagged here rather than silently treated as sufficient forever.
+- **A successful clear refreshes the "Accounts" metrics readout** (the same
+  `refreshMetrics` the "Accounts" section's own load uses) so the guest
+  count visibly drops without a manual page reload.
+- **403 handling deliberately differs from round control/user deletion's
+  own 404-as-hidden probe:** a 403 from `GET /admin/accounts/metrics` hides
+  both cards (not just "Accounts") rather than flipping the whole page to
+  access-denied — REQ-501/502/503's unverified-data fetch already owns that
+  page-level decision, and a non-admin token would already have 403'd there
+  first in practice; this is defensive, not the primary access-control path.
+  A 401 still escalates via the same `onAuthError` callback every other
+  admin action in this file uses.
+
 ### SCREEN-05: Delete account
 
 ```
@@ -1269,6 +1740,13 @@ question on that screen's missing spec) and deletes nothing. On success
 there is no account left to show anything else on, so the flow signs the
 user out and lands back on the login/landing screen — no "deleted"
 confirmation screen, nothing to confirm to once signed out.
+
+**Status note (2026-07-25, sign-in latency investigation, ADR-0037's
+third amendment):** this screen's password re-confirmation step gained a
+real, visible Cloudflare Turnstile checkbox
+(`.delete-account-screen__turnstile`, same reversal from invisible mode
+described in §7's SCREEN-00 status note) sitting inline in the form,
+empty until submit. No new tokens.
 
 ### SCREEN-06: Scoring/live-updates explainer
 
@@ -1419,7 +1897,10 @@ matching REQ-213 note for the exact values.
 ┌──────────────────────────────┐
 │ xG Arcade            [☰ Menu]│
 ├──────────────────────────────┤
+│ Games ▾                       │
+│   xG Grid                     │
 │ Leaderboard                   │
+│ Leagues                        │
 │ Settings                      │
 │ Log out                       │
 └──────────────────────────────┘
@@ -1445,9 +1926,49 @@ per this doc's own rule against adding a second bold motion moment without
 it being specified here first, and there was no reason to specify one for
 a plain menu reveal.
 
-Nav entries in the revealed list: "Leaderboard," "Settings" (SCREEN-08,
-REQ-713), and "Log out" — see SCREEN-08 for what replaced the previous
-standalone "Delete account" and "Admin" links.
+Nav entries in the revealed list: "Games" (see below), "Leaderboard,"
+"Leagues" (REQ-402/403 — this list itself was out of date until this pass:
+it had been added to the real nav without a matching update here, since
+fixed alongside the "Games" entry below), "Settings" (SCREEN-08, REQ-713),
+and "Log out" — see SCREEN-08 for what replaced the previous standalone
+"Delete account" and "Admin" links.
+
+**Added 2026-07-25, REQ-720 (reverses S-029's earlier removal of a
+"Games"/"Grid" nav pair — see that requirement's own "deliberate reversal,
+not a silent contradiction" note): the "Games" entry.** A second,
+independently-expandable disclosure *nested inside* the list above —
+same accessible-disclosure pattern as the outer toggle (a real `<button>`
+exposing its own `aria-expanded`), but activating it never navigates
+anywhere; it only shows/hides a per-game list, Tier 0's being exactly one
+entry ("xG Grid"). Selecting "xG Grid" navigates to the grid screen (the
+same destination `GameSelectScreen`'s own "xG Grid" tile already triggers)
+and closes both this nested list and the outer mobile menu, matching how
+every other nav entry already closes the menu on selection. While the grid
+screen is showing, "xG Grid" inside this list carries `aria-current="page"`
+— the same convention "Leaderboard," "Leagues," and "Settings" already use.
+
+This is deliberately a *different* kind of disclosure than the outer
+toggle: the outer toggle only exists below the mobile breakpoint (the flat
+row at/above it needs no collapsing), while "Games" is collapsed by
+default *at every viewport* — it's a permanent accordion-style entry
+within the nav, not a responsive affordance. At/above the breakpoint it
+sits inline in the flat row and reveals a small anchored flyout beneath
+itself on activation (never adding height to the row, so it can never be
+what causes the row to wrap); below the breakpoint, nested inside the
+already-vertical mobile dropdown, it reveals as an indented block in the
+same vertical flow instead of a floating flyout (avoiding an overlapping
+flyout-within-a-dropdown). Both treatments use only existing surface/
+border/spacing tokens — no new color or motion (same "no new motion" rule
+as the outer toggle above). Closing the outer mobile menu also collapses
+"Games" back to closed, so it never reopens already-expanded the next
+time the menu itself is reopened.
+
+The "xG Arcade" header title (outside this nav entirely) is unaffected and
+keeps navigating to `GameSelectScreen` exactly as before — REQ-720 keeps
+both affordances deliberately: "Games" is a quick-jump shortcut reachable
+from anywhere (including from inside another screen, e.g. the
+leaderboard), while the title remains the route to the full landing/picker
+screen shown right after login.
 
 ### SCREEN-08: Settings
 
@@ -1529,6 +2050,402 @@ submit-button pattern as the display-name section above it. **Not yet
 given a wireframe in this document** — built functionally with the
 existing token system only, same "flagged, not silently left out of sync"
 treatment as this document's other unreviewed-screen gaps (see §7).
+
+### SCREEN-09: Game select (post-login landing)
+
+```
+┌───────────────────────────────┐
+│ Choose a game                   │
+├───────────────────────────────┤
+│  ┌─────────────┐ ┌───────────┐ │
+│  │   xG Grid    │ │  xG Path  │ │
+│  │  Guess the   │ │ Guess the │ │
+│  │  player from │ │ player    │ │
+│  │  two clues   │ │ from a    │ │
+│  │              │ │ revealed  │ │
+│  │              │ │ career    │ │
+│  └─────────────┘ └───────────┘ │
+└───────────────────────────────┘
+```
+
+**Built as specified (S-085, 2026-08-01, `58a3ca2`/`3829e0d`) — resolves
+the open question flagged in §7 (tracks `docs/decisions/0040-0043` and
+`requirements-document.md` REQ-1201-1206).** `GameSelectScreen.tsx`
+(REQ-303, S-021) shipped as a single hardcoded tile deliberately kept
+unspecified here, since Tier 0 only ever had one game to choose from —
+that reasoning stopped applying the moment a second game (xG Path)
+actually existed. This entry is the spec for the multi-tile version,
+matched exactly by the shipped code — no deviations:
+
+- Tiles are laid out in a row that wraps to stacked on narrow viewports
+  (same breakpoint SCREEN-07's header-nav toggle already uses,
+  `max-width: 480px`) — no new responsive mechanism.
+- Each tile: game name (`--font-display`) plus a one-line, plain-language
+  description of the core loop (not marketing copy, not a tagline) —
+  "Guess the player from two clues" / "Guess the player from a revealed
+  career", matching how REQ-720's "Games" nav entry already names them.
+  No imagery on the tile itself (no crest/logo asset exists for either
+  game, and none is planned — see the crest/trademark note under
+  SCREEN-10 below).
+- Tokens only: `surface-card` tile background, `border-hairline` border,
+  no new color, no per-game accent color — a tile's identity comes from
+  its name and description text, not a color code, consistent with
+  "the UI is deliberately quiet" (§2).
+- Order matches `HeaderNav`'s existing "Games" list order (REQ-720): xG
+  Grid first (the original game), xG Path second — never alphabetical,
+  never reordered by recency, so the two lists (this screen, the nav
+  menu) never disagree about game order.
+- No loading state: both `GameSelectScreen.tsx`'s existing constant
+  (`XG_GRID_GAME_KEY`) and its future second constant are client-side
+  values, not a fetched list (S-021's own reasoning: "a 'list games' API
+  would be building a catalog for a catalog of one" — still true for a
+  catalog of two) — the tile row renders immediately, nothing to wait on.
+- Selecting a tile navigates the same way `onSelectGame(gameKey)` already
+  works today — no change to that mechanism, only to how many tiles call
+  it.
+
+### SCREEN-10: xG Path puzzle (clue reveal)
+
+```
+┌───────────────────────────────┐
+│ xG Path          Puzzle 2 of 4 │
+├───────────────────────────────┤
+│ ┆                               │
+│ ●─[AJ] Ajax · 74 apps          │
+│ ┆                               │
+│ ●─[JV] Juventus · 94 apps       │
+│ ┆                               │
+│ ●─[IM] Inter Milan · 88 apps    │
+│ ┆                               │
+│ ●─Ajax 2001–04 · Juventus       │
+│    2004–06 · Inter Milan        │
+│    2006–09                      │
+├───────────────────────────────┤
+│ [ Guess the player…      ] [Guess]│
+│         Clue 4 of 7            │
+└───────────────────────────────┘
+```
+
+**Built as specified, 2026-08-01 (S-086, `18b1cc2`/`928bd85`)** — one
+deviation from the literal spec text, called out in its own status note
+below (the photo-fallback treatment). Originally written design-only
+against `requirements-document.md` REQ-1201-1206 and
+`docs/decisions/0040-0042`; direction was validated against two working
+prototypes (a growing-timeline concept and a spotlight-stepper concept)
+before the growing timeline was chosen. Built entirely from the existing
+token system — no new color, typeface, or animation family introduced:
+
+- **Layout:** clues stack as nodes on a vertical connecting line — the
+  literal career path being drawn as it's revealed, one node per clue,
+  oldest at top. Every past clue stays visible (no collapsing, no
+  scrolling-away) — reviewing everything learned so far is part of the
+  puzzle, not a secondary concern. The guess input is pinned below the
+  timeline, not inside its scroll area, so it's always reachable
+  regardless of how many clues have been revealed.
+- **Clue content and order**, exactly per REQ-1203 — this screen adds no
+  new sequencing decision, only how it's rendered:
+  1. Every one of the target's documented club stints, chronological,
+     split across exactly 3 nodes ("turns") — the wireframe above shows
+     the 3-clubs case (one club per turn, since `N=3` splits 1-1-1); for a
+     longer career a single node bundles more than one club together
+     (e.g. `N=10` splits 3-3-4, so the last node alone shows 4 clubs), each
+     still showing its own name plus appearance count when known (never a
+     placeholder like "0 apps" when unknown — the count is simply omitted
+     for that club within the node)
+  2. Once all 3 club-reveal nodes are shown, one further node bundles
+     every revealed club's own start–end year range together (never one
+     aggregate span across the whole career)
+  3. Then, if still unsolved: position, nationality, age — one node
+     each, in that fixed order
+  4. National team caps are never a clue (REQ-1203's explicit exclusion)
+- **Club identity:** the same placeholder initial-chip badge already used
+  on SCREEN-01 (a colored circle with the club's initials) — no real
+  crest artwork. This isn't a stopgap unique to this screen: real crests
+  remain trademarked/licensing-unresolved (§2's existing "club crests
+  deferred" note, ADR-0008), and switching the *source* (Wikidata
+  instead of API-Football) doesn't change that — Wikidata's own
+  club-logo files are typically tagged for Wikipedia-only fair use, not
+  general reuse, so this is the same open question, not a new one.
+- **Attempt/clue counter:** "Clue N of M" in `--font-mono`/tabular
+  figures (same treatment as every other score/count in this app),
+  directly under the guess input — M is that puzzle's own total clue
+  count (REQ-1205's per-puzzle cap), never a fixed number across puzzles.
+- **Motion:** each new node fades and rises into place (~400ms,
+  `ease-out`-family curve) — deliberately the same *settle* character as
+  the grid's existing badge-dock reveal (§3's "Signature element: badge
+  dock" above), not a new motion signature for the platform. Respects
+  `prefers-reduced-motion`: nodes simply appear, no animation, same
+  fallback pattern already established for the badge dock.
+- **Rejected guess:** reuses SCREEN-02's existing shake cue verbatim —
+  this screen does not invent a third "try again" motion for what is
+  the same underlying moment (a guess didn't match).
+- **Solved state:** a trailing gold node (`accent-gold`/`accent-gold-text`
+  per §2's "gold means settled/correct" rule) is appended AFTER every real
+  clue turn (**bug fix, 2026-08-03 — see status note below for why "the
+  final node turns gold," this bullet's original wording, is stale**) and
+  shows the target player's name plus, when `Player.PhotoUrl` is set, their
+  photo (REQ-214's existing infrastructure, reused as-is — not a new
+  photo feature for this game) — falling back to the same initials-avatar
+  treatment REQ-214 already established for a player with no photo on
+  file (**stale — see S-086 status note below**), never a broken-image
+  icon. Once solved, the guess input and "Guess" button disable; a "Next
+  puzzle" action appears to advance through the round's remaining puzzles
+  (REQ-1202) — advancing is always an explicit action, never automatic,
+  consistent with how a correct grid cell also waits for the player to tap
+  before revealing anything further. **Also as built (S-086):** "Next
+  puzzle" appears once a puzzle is *locked* at all — solved, or locked
+  unsolved after its 7-attempt cap (REQ-1205) is exhausted — not only in
+  the solved case this bullet describes; without it, a player who used all
+  7 attempts without guessing correctly would have no way to advance to
+  the round's next puzzle. This is a deliberate scope addition beyond this
+  bullet's literal text, not an oversight.
+- **Puzzle position:** "Puzzle N of M" (plain text, `text-muted`) in the
+  header, mirroring SCREEN-01's round-timer header row placement.
+
+**Bug fix status note (2026-08-03, user-tester report): "the final node turns
+gold," in the bullet above, is stale.** As originally built, the solved (and
+locked-unsolved "Out of attempts") reveal REPLACED the last real clue turn's
+own node instead of appending after it — for a single-club turn that's a
+small cosmetic swap, but the same turn can carry several bundled clubs
+(`PathClueSequenceBuilder`'s 3-3-4 split for a long career) or the bundled
+year-range/position/nationality/age content, and replacing it wholesale
+silently deleted that entire turn's real content the instant the puzzle
+locked — directly contradicting this section's own "every past clue stays
+visible" rule above, and exactly what a tester reported as "the latest shown
+clue was removed upon correct answer." `PathTimeline.tsx`'s reveal (solved or
+failed) is now its own trailing node, appended after every real clue turn
+rather than displacing one — the bullet above is left as originally written
+(not rewritten) so the now-corrected assumption stays visible, same
+convention the S-086 status note below already follows.
+
+**S-086 status note (2026-08-01): the "initials-avatar" fallback text
+above is stale, not something the shipped code actually does, and never
+matched REQ-214's own history.** SCREEN-01a's own no-photo mocks (earlier
+in this document) show that REQ-214's no-photo case has, at every point in
+its history, rendered a plain checkmark/points value at rest and the
+player's name (plain text) plus checkmark once revealed — never an avatar
+of any kind, initials-based or otherwise. There is nothing in REQ-214's
+actual implementation, past or present, for this bullet's "initials-avatar
+treatment" to be reusing. `PathTimeline.tsx`'s `SolvedNode` (S-086)
+instead renders the player's name as plain text with no avatar element at
+all (and no separate checkmark — this screen's gold node styling already
+carries the "solved" signal SCREEN-01a's checkmark exists to give) — the
+closest honest match to what REQ-214 has actually ever done, rather than
+inventing a new avatar component this story was never asked to design.
+The bullet above is left as originally written (not rewritten) so the
+now-corrected assumption stays visible rather than silently smoothed over;
+treat this status note, not the bullet's "initials-avatar" clause, as the
+accurate description of what SCREEN-10 actually does.
+
+**S-086 quality-gate follow-up status note (judgment call, flagged rather
+than silently resolved):** `PathScreen.tsx`'s guess flow makes two network
+calls per submission — `POST .../guesses`, then a follow-up `GET
+/path/current` to pick up the newly revealed clue (see that component's own
+doc comment for why a re-fetch, not a local patch, is the mechanism xG Path
+uses). Neither this section nor REQ-1203/1204/1205 originally specified what
+happens if the *second* call fails after the first one already succeeded.
+Resolved as follows, not sketched anywhere before this note:
+- **Re-fetch throws (network blip, transient 5xx, mid-session 401):** the
+  player is never told the guess itself failed (it didn't — REQ-1205's
+  attempt was already consumed server-side, and telling them otherwise would
+  invite a retry that burns a second attempt for nothing). Instead a
+  distinct, honest inline message renders below the guess input: "Guess
+  submitted, but couldn't refresh — try reloading this screen." Plain text,
+  `accent-red`, no icon — same "text-paired, never color-only" rule §6
+  already applies everywhere else on this screen (the locked/solved copy
+  above it).
+- **Re-fetch resolves `null` (the round closed in the gap between the two
+  calls):** treated identically to any other "no active round" case —
+  transitions to this screen's existing empty state (`No puzzle to play
+  right now`), rather than leaving the stale, pre-guess puzzle on screen
+  indefinitely with no explanation.
+Both are edge-case network/timing failures, not new deliberate product
+states — no new token, color, or motion was introduced for either; the
+warning message reuses `accent-red` exactly as `path-screen__status--error`
+already does elsewhere on this same screen.
+
+**2026-08-02 status note — live user-testing batch, three fixes, all
+tokens-only (no new color/typeface/animation):**
+
+- **Skip-to-next-clue.** The guess input used to hard-block an empty
+  submission client-side ("Type a player name to submit a guess."), with no
+  other way to move on without typing something a tester didn't want to
+  guess yet. Since every guess submission — right or wrong — already
+  advances the reveal by consuming one attempt
+  (`PathClueSequenceBuilder.GetRevealedTurnCount` ties revealed-turn-count
+  directly to `attemptCount`), an empty submission is now let through as an
+  intentional skip rather than blocked, reusing the existing guess path
+  rather than a new endpoint/flow. The submit button's label reflects the
+  field's own content: **"Next clue"** while empty, **"Guess"** once
+  text is entered — the tester's own suggested wording. Two judgment calls,
+  recorded rather than silently decided (`PathGuessInput.tsx`):
+  - **The rejected-guess shake cue does not fire for a skip.** A skip is a
+    deliberate choice, not a wrong answer, so shaking the input would read
+    as scolding the player for something they chose to do on purpose. The
+    shake stays scoped to an actual incorrect guess.
+  - **What's actually sent as `submittedName` for a skip:**
+    `POST /rounds/{roundId}/cells/{cellId}/guesses` 400s on an empty/
+    whitespace `SubmittedName` (`GuessEndpoints.cs`), so a literal empty
+    string can't be sent without a backend change. Rather than touching
+    that endpoint, the frontend sends a fixed placeholder, `"(skipped)"` —
+    chosen (over an opaque value like a UUID) so a human ever looking at
+    raw `Guess` rows can tell at a glance what happened. It can never
+    collide with a real player name and is never shown to the player either
+    way, since an incorrect guess never displays `SubmittedName` (S-029,
+    `SCREEN-01a`).
+- **Career-stint year-range layout.** The bundled year-range turn used to
+  join every club's range into one inline paragraph with " · " separators
+  (e.g. "Paris Saint-Germain 2017-19 · Lille 2019-23 · Juventus
+  2023-present · Marseille 2025-present") — confirmed by a real screenshot
+  from testing to read as a dense, hard-to-scan block once it wrapped on
+  mobile. Each club/year-range pair now renders on its own line (a stacked
+  block, `--space-1` gap — the same spacing token already used for
+  `.path-timeline__content`'s own column, no new value) instead of being
+  joined inline. Same content and club-to-range pairing as before
+  (`revealedClubNames[index]`); only the layout changed.
+- **Reveal-on-failure.** A puzzle that locked *without* ever being solved
+  (`REQ-1205`'s fixed attempt cap exhausted) previously showed nothing
+  beyond its last real clue — no reveal of the answer at all. `PathScreen`
+  now passes its existing `locked` value (already computed for the "Next
+  puzzle" button's own gating) down to `PathTimeline` alongside `solved`.
+  When `locked && !solved` on the final node, a **distinct, non-gold**
+  reveal renders: a red (`accent-red` — §2's existing "incorrect states"
+  token, used directly for text/icon color the same way `CellState.css`'s
+  own incorrect state already does, no darkened `-text` variant needed)
+  **"✕ Out of attempts"** label, followed by the resolved player's name and
+  photo (same photo-with-fallback-on-load-error structure as the existing
+  `SolvedNode`, reused rather than duplicated). Deliberately **not** the
+  gold "✓ Solved" treatment — reusing that would misleadingly imply the
+  player got it right. This depends on a parallel backend change
+  (`PathEndpoints.cs`) populating `resolvedPlayerName`/
+  `resolvedPlayerPhotoUrl` whenever a puzzle is `locked` (solved OR
+  attempt-cap-exhausted), not only when `isCorrect` — until that ships, the
+  frontend renders the "Out of attempts" label with no name/photo line
+  (never a broken "it was null" line), and picks the name/photo up with no
+  further frontend change once the backend field is populated.
+
+**2026-08-04 status note — round end-time indicator added, wireframe
+above now stale on this one point.** A product owner asked whether SCREEN-10
+had the same round-end-time affordance SCREEN-01 has (REQ-303's 2026-07-21
+addition); it didn't. `PathScreen.tsx`'s header now shows the same
+`"Ends in {D}d {H}h"`/`"Ends in {H}h {M}m"`/`"Ends in {M}m"`/`"Ending soon"`
+indicator SCREEN-01's header shows (`.grid-screen__end-time`'s exact
+counterpart, `.path-screen__end-time`) — same wording rules, same
+computed-once-at-fetch-time behavior (no live tick), same
+accessible-name/keyboard-focus treatment. See REQ-303's own acceptance
+criteria for the full format/threshold rules (not restated here) and
+REQ-1203's 2026-08-04 status note for the requirements-side record of this
+addition. Placed next to the "xG Path" heading, inside a new
+`.path-screen__title-row`, the same relative position SCREEN-01's own
+end-time indicator occupies in its header row — the ASCII wireframe at the
+top of this section still shows the pre-2026-08-04 header (`xG Path
+Puzzle 2 of 4` only) and is not redrawn here, same "leave the stale mock,
+add a correcting note" convention this document already uses for SCREEN-01's
+own 2026-07-21 correction above. No new color, typeface, or animation —
+reuses `--color-text-muted`/13px/`--touch-target-min`, the same values
+`GridScreen.css`'s `.grid-screen__end-time` already uses.
+
+**2026-08-08 status note (REQ-1206 gap closed — the puzzle's locked point
+value is now shown, a genuinely new SCREEN-10 element, not one this
+section previously spec'd or anticipated).** A code-review pass
+(`requirements-document.md`'s REQ-1206 "Status note (2026-08-08 — gap
+identified via code review...)") found the clue-efficiency score
+(REQ-1206) was computed and locked at round close but never shown to the
+player anywhere on this screen. Resolved by adding one line to the
+existing trailing solved (gold)/failed (red, "Out of attempts") reveal
+nodes described above — `PathTimeline.tsx`'s `SolvedNode`/
+`FailedRevealNode` — directly under the resolved player's name, the same
+place `CellState.tsx` shows a locked cell's points on SCREEN-01a. This is
+a judgment call, not literal spec text (flagged per this repo's own
+"flag a judgment call rather than treating it as a minor implementation
+detail" convention), for two things this document hadn't previously
+decided:
+- **Where it lives:** on the timeline's reveal node (`PathTimeline.tsx`),
+  not `PathScreen.tsx`'s own header/status area — it's rendered in the
+  same place, and gated by the same `locked` condition, as the resolved
+  player name/photo it sits beside, rather than a separate element
+  elsewhere on the screen.
+- **Wording and color:** plain `"N pts"` (`mono-figure`, tokens-only, no
+  new typeface) — deliberately never `"~N pts estimated"` (xG Grid's
+  `LivePoints` wording, SCREEN-01a): unlike a grid cell's live estimate,
+  `ClueEfficiencyScoringStrategy`'s formula has no dependency that can
+  still change once a puzzle locks, so REQ-1206's own acceptance criteria
+  forbid "~"/"estimated"/"provisional" wording here (see that REQ's
+  "Important asymmetry from REQ-204's `LivePoints`" note). Colored to
+  match the reveal node's own outcome accent — `accent-gold-text` on the
+  solved node, `accent-red` on the failed one — mirroring
+  `CellState.css`'s existing `.cell-state--correct .cell-state__meta`/
+  `.cell-state--incorrect .cell-state__meta` convention for a locked
+  cell's own points text, not a new muted tone invented for this screen.
+  Per ADR-0021's golf-scoring convention (lower is better, same as every
+  other score in this app), the number itself carries no celebratory
+  styling implying a high value is good — the accent color signals
+  solved-vs-not, never "good score vs. bad score."
+No new color, typeface, or animation family was introduced — this reuses
+`accent-gold-text`/`accent-red`/`--font-mono`/`.mono-figure` exactly as
+SCREEN-01a and this section's own existing reveal nodes already do.
+
+**2026-08-08 status note (REQ-213 gap closed — a scoring explainer was not
+anticipated anywhere in this section before now).** A player who tested xG
+Path directly reported "no scoring information in the game" — clarified on
+follow-up to mean this screen had no `(ⓘ)` "How scoring works" entry point
+or explainer of any kind, not the per-puzzle point value the same-day
+REQ-1206 status note above already added. This section previously said
+nothing about a scoring explainer for SCREEN-10 at all; the wireframe at
+the top of this section is not redrawn (same "leave the stale mock, add a
+correcting note" convention already used twice above for this same
+screen). Resolved as a second entry point/component pattern, not a literal
+extension of REQ-213's existing content:
+- **Entry point:** a new `(ⓘ)` button (`.path-screen__info-toggle`) inside
+  `.path-screen__title-row`, immediately after the round end-time
+  indicator — the exact same relative position `GridScreen.tsx`'s
+  `.grid-screen__info-toggle` occupies next to its own end-time indicator,
+  same size/quiet/no-accent-color treatment (`--touch-target-min`,
+  `--color-text-muted`, no new token).
+- **Component: a new sibling, not a reuse of `ScoringExplainer.tsx` and
+  not a `gameKey`-branched version of it.** REQ-213's 2026-07-21
+  leaderboard extension reused `ScoringExplainer.tsx` verbatim precisely
+  because its content is identical regardless of which screen opened it
+  (both consumers describe the same grid/uniqueness/median mechanics).
+  That reasoning doesn't transfer here: xG Path has no uniqueness concept,
+  no live/locked point distinction (its locked score is final
+  immediately, unlike a grid cell's live-then-locked value), and a wholly
+  different clue/attempt-cap model, so reusing that component's content
+  verbatim would state things about xG Path that are actively false, and
+  branching every paragraph on a `gameKey` prop was judged to read worse
+  and risk cross-game content bleed for a two-consumer case (this
+  repo's own "duplication over premature abstraction for exactly two call
+  sites" convention, CLAUDE.md). Built as `frontend/src/path/
+  PathScoringExplainer.tsx` — its own content, but the same modal/
+  accessibility shell as `ScoringExplainer.tsx` (`role="dialog"`,
+  `aria-modal="true"`, Escape-to-close, focus moves to the close button on
+  open and returns to the `(ⓘ)` trigger on close) duplicated rather than
+  extracted into a shared hook/component, same two-call-sites reasoning.
+- **Content**, verified against the actual backend implementation, not
+  assumed: the fixed 7-clue sequence and its order (3 club-reveal turns,
+  one bundled year-range turn, then position/nationality/age — one clue
+  per wrong guess, halting immediately on a correct one); the fixed
+  7-attempt cap, and that exhausting it locks the puzzle unsolved and
+  reveals the answer; the golf-style scoring formula
+  (`round(cluesUsed / 7 × MaxPointsPerCell)`), stated explicitly as
+  "scored like golf, lower is better" rather than assuming the player
+  already knows this convention from xG Grid; that an unsolved puzzle
+  scores the same worst case as a correct guess that used every clue; and
+  that a locked score is final immediately, with no live/provisional value
+  to watch update — the deliberate opposite of SCREEN-01a's live-then-
+  locked cell. No uniqueness or other-players'-answers language appears
+  anywhere in this copy.
+- **Tokens only** — `--color-surface-card`, `--color-border-hairline`,
+  `--color-text-primary`/`--color-text-muted`, existing spacing scale, no
+  new color/typeface/animation. `PathScoringExplainer.css` duplicates
+  `ScoringExplainer.css`'s values rather than sharing the stylesheet, same
+  two-call-sites reasoning as the component split above.
+- **Known, pre-existing, out-of-scope gap flagged (not fixed here):**
+  `LeaderboardScreen.tsx`'s `(ⓘ)` entry point still opens xG Grid's
+  `ScoringExplainer` verbatim even when the leaderboard's xG Path tab is
+  active, showing Grid-specific content that doesn't describe xG Path's
+  rules. Pre-existing, unrelated to this screen, and out of this change's
+  scope — noted here as a candidate for a follow-up, not addressed now.
 
 ## 4. Responsive strategy
 
@@ -1895,6 +2812,23 @@ Unchanged from v0.1:
   You can save your progress and pick a real account any time from
   Settings."). No new tokens. This addition should be captured by the same
   future SCREEN-00 entry, not left to compound the existing gap further.
+- **2026-07-25 (sign-in latency investigation, ADR-0037's third
+  amendment) addition to this same unreviewed screen:** the login/signup
+  form and "Play as guest" button each gained a real, visible Cloudflare
+  Turnstile checkbox (`.auth-screen__turnstile`, reversing the original
+  invisible-mode captcha widget) — the form's checkbox sits between the
+  error message and the submit button, "Play as guest"'s sits below that
+  button, both empty until the corresponding action is actually submitted.
+  Signup also gained a transient status line
+  (`.auth-screen__turnstile-status`, `--color-text-muted`, matching the
+  existing error text's 13px size) reading "Verifying again to log you
+  in…" during the form's required second Turnstile render (a token is
+  single-use, so signup and its immediate auto-login each need their own).
+  No new tokens beyond `--space-1` for layout spacing. Same as the
+  additions above: this should be captured by the future SCREEN-00 entry,
+  not left to compound the existing gap further — now more consequential
+  than the earlier, invisible-mode captcha additions, since this one has
+  a real, visible footprint on the rendered screen.
 - **SCREEN-08 (Settings) gained a guest claim/upgrade section (2026-07-21,
   REQ-717/ADR-0036), also not yet reflected in a revised wireframe below** —
   see that section's own status note for what was actually built.
@@ -1908,14 +2842,28 @@ Unchanged from v0.1:
   `border-hairline`, `accent-green-text`) and no new motion. Clicking it
   navigates to Settings (SCREEN-08), where the claim section above actually
   lives.
-- **No SCREEN-xx spec exists for the post-login game-selection landing
-  screen either** (`frontend/src/games/GameSelectScreen.tsx`, added S-021,
-  REQ-303's UX addition). Same gap as SCREEN-00 above, same reasoning: kept
-  deliberately minimal (a single tokens-only tile for xG Grid, no
-  wireframe/copy/state review) since Tier 0 only ever has one game to
-  select from — but once a second game exists this screen stops being
-  trivial and needs a real spec (multi-tile layout, empty/loading states,
-  copy) rather than staying an unreviewed de facto one.
+- ~~No SCREEN-xx spec exists for the post-login game-selection landing
+  screen either~~ — **resolved 2026-07-26, see SCREEN-09.** Written ahead
+  of the second game (xG Path) actually existing in code as a design-only
+  spec (`requirements-document.md` REQ-1201-1206); **built as specified,
+  2026-08-01 (S-085, `58a3ca2`/`3829e0d`)** — `GameSelectScreen.tsx` now
+  renders both tiles (xG Grid, xG Path), matching this section exactly.
+- **No SCREEN-xx spec exists for the unauthenticated splash/landing screen
+  either** (`frontend/src/splash/SplashScreen.tsx`, added for REQ-719).
+  Same gap and same reasoning as SCREEN-00/the game-selection screen above:
+  kept deliberately minimal (an `<h1>` for "xG Arcade", a one-line tagline,
+  and a single tokens-only primary button, no wireframe/copy/state review)
+  rather than left unbuilt while a real spec was drafted. No new tokens —
+  the title uses the existing `--font-display` family (sized larger than
+  `app__title`'s 22px header treatment, since this is the screen's own
+  hero) and `--color-text-primary`; the tagline uses `--color-text-muted`;
+  the CTA button reuses `auth-screen__submit`'s exact token pairing
+  (`--color-accent-green-text` fill, `--color-surface-card` label). No
+  animation was added (REQ-719 doesn't call for one, and the badge-dock
+  reveal remains the app's only deliberate bold motion moment). Needs a
+  real SCREEN-xx entry (wireframe, copy review, any state beyond the single
+  at-rest one it has today) rather than staying an unreviewed de facto
+  spec, same as the other two gaps above.
 - **§2 has no numeric spacing scale.** SCREEN-01/01a/02's implementation
   (S-010) used an unreviewed 4px-based scale (4/8/12/16/24/32/48) for
   padding/gaps in the absence of one, rather than one-off values per

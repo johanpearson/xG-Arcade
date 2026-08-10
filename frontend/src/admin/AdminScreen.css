@@ -194,3 +194,39 @@
   font-size: 13px;
   margin: 0;
 }
+
+/* REQ-507: the "Accounts" metrics readout — a genuinely new visual need (no
+   existing row/list class fits a label+value pair), tokens only. Numeral
+   sizing reuses `.admin-screen__title`'s existing 18px rather than
+   introducing a new ad-hoc size (see design-document.md §7's open item on
+   the lack of a formal type scale); font-family/tabular-figures come from
+   the shared `.mono-figure` utility (index.css) applied alongside this
+   class in AdminScreen.tsx, per §2's "numerals always in the mono face with
+   tabular figures" rule, not duplicated here. */
+.admin-screen__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.admin-screen__metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.admin-screen__metric-label,
+.admin-screen__metric-value {
+  margin: 0;
+}
+
+.admin-screen__metric-label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.admin-screen__metric-value {
+  font-size: 18px;
+  color: var(--color-text-primary);
+}

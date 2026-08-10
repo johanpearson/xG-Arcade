@@ -1,0 +1,42 @@
+name: purge-guest-accounts
+
+# Purges guest accounts per REQ-718 (ADR-0038): unclaimed guests more than
+# 30 days old (rule 2), and guests with no LastActiveAt activity for more
+# than 7 days (rule 3). AuthController.Logout's best-effort delete-at-logout
+# (rule 1) is this feature's other half — this scheduled job is the safety
+# net for whenever that client-initiated call never reaches the backend, or
+# fails once it does.
+#
+# Cadence: daily (07:00 UTC) — deliberately offset by one hour from
+# generate-round.yml's 06:00 UTC cron so the two scheduled jobs never fire
+# at the exact same minute. Daily is the correct cadence (not more, not
+# less) because both of REQ-718's purge rules are day-granularity
+# (30-day/7-day): running more often than once a day buys no earlier
+# real-world effect (an account a few hours late being purged has no
+# correctness impact, unlike generate-round.yml's ADR-0027 coupling, where a
+# missed cycle means a round nobody can play), and running less often than
+# daily would let both windows drift further past their stated bound than
+# necessary.
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC
+  workflow_dispatch:
+
+jobs:
+  purge-guest-accounts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger guest account purge
+        run: |
+          http_status=$(curl -sS -o response.json -w "%{http_code}" -X POST \
+            "https://${{ secrets.DEV_BACKEND_HOSTNAME }}/internal/purge-guest-accounts" \
+            -H "Authorization: Bearer ${{ secrets.INTERNAL_JOB_TOKEN }}")
+
+          echo "Response body:"
+          cat response.json
+
+          if [ "$http_status" -ge 400 ]; then
+            echo "::error::/internal/purge-guest-accounts returned HTTP $http_status"
+            exit 1
+          fi

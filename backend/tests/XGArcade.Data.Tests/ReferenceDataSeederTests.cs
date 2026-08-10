@@ -34,12 +34,12 @@ public class ReferenceDataSeederTests
 
         // S-036 widened 20/15 to 45/21, S-037 widened clubs again to 32
         // (45/32), REQ-114/ADR-0035 (2026-07-21) added 4 home-nation rows
-        // to CountryDefinitions (49/32) — these counts intentionally stay
-        // hardcoded (not read back from ReferenceDataSeeder itself) so a
-        // future accidental change to the seed data is caught here, not
-        // silently accepted.
+        // to CountryDefinitions (49/32), ADR-0055 (2026-08-02) added Celtic
+        // (49/33) — these counts intentionally stay hardcoded (not read back
+        // from ReferenceDataSeeder itself) so a future accidental change to
+        // the seed data is caught here, not silently accepted.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     [Test]
@@ -60,7 +60,7 @@ public class ReferenceDataSeederTests
         // See REQ109_SeedAsync_PopulatesAllCountriesAndClubsFromMvpScope's
         // own comment for why these counts stay hardcoded.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     [Test]
@@ -77,7 +77,7 @@ public class ReferenceDataSeederTests
         // See REQ109_SeedAsync_PopulatesAllCountriesAndClubsFromMvpScope's
         // own comment for why these counts stay hardcoded.
         Assert.That(await _dbContext.CountryDefinitions.CountAsync(), Is.EqualTo(49));
-        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(32));
+        Assert.That(await _dbContext.ClubDefinitions.CountAsync(), Is.EqualTo(33));
     }
 
     // REQ-114/ADR-0035 (2026-07-21): supersedes the old
@@ -214,22 +214,62 @@ public class ReferenceDataSeederTests
     // ---- S-031/REQ-108: Trophy seeding ----------------------------------
 
     [Test]
-    public async Task REQ108_SeedAsync_PopulatesExactlyOneTrophy_BallonDor_AsIndividualAward()
+    public async Task REQ108_SeedAsync_PopulatesBallonDor_AsIndividualAward()
     {
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        // v1 seeds exactly one trophy (REQ-108's narrower S-031 scope) —
-        // hardcoded, not read back from ReferenceDataSeeder itself, same
-        // "catch a future accidental change" reasoning as the Country/Club
-        // counts above.
-        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(1));
         var ballonDor = await _dbContext.TrophyDefinitions.SingleAsync(t => t.Name == "Ballon d'Or");
         // Q166177 is a training-knowledge QID, not independently verified
         // against a live Wikidata page this session — see this file's own
         // doc comment for why that caveat matters and what to do if it
         // turns out wrong.
         Assert.That(ballonDor.WikidataQid, Is.EqualTo("Q166177"));
-        Assert.That(ballonDor.IsTeamTrophy, Is.False, "REQ-108/S-031: v1 is individual awards only");
+        Assert.That(ballonDor.IsTeamTrophy, Is.False, "REQ-108/S-031: an individual award");
+    }
+
+    // ---- ADR-0061: team-competition trophy seeding ----------------------
+
+    [Test]
+    public async Task REQ108_SeedAsync_PopulatesExactlyThreeTrophies_BallonDorWorldCupChampionsLeague()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        // ADR-0061 grew the seeded pool from 1 (Ballon d'Or, S-031) to 3 —
+        // hardcoded, not read back from ReferenceDataSeeder itself, same
+        // "catch a future accidental change" reasoning as the Country/Club
+        // counts above. This count is itself load-bearing: it's what
+        // crosses GridGameModule.SelectPairing's `trophyCount >= size`
+        // feasibility check for the default GridSize = 3 (see
+        // GridGameModuleTests' own REQ108_SelectPairing_* coverage).
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(3));
+    }
+
+    [Test]
+    public async Task REQ108_SeedAsync_PopulatesFifaWorldCup_AsTeamTrophy()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        var worldCup = await _dbContext.TrophyDefinitions.SingleAsync(t => t.Name == "FIFA World Cup");
+        // Q19317 is a training-knowledge QID, NOT independently verified
+        // against a live Wikidata page this session — see this file's own
+        // doc comment and ReferenceDataSeeder's own doc comment for why that
+        // caveat matters and what to do if it turns out wrong.
+        Assert.That(worldCup.WikidataQid, Is.EqualTo("Q19317"));
+        Assert.That(worldCup.IsTeamTrophy, Is.True, "ADR-0061: a team competition, not an individual award");
+    }
+
+    [Test]
+    public async Task REQ108_SeedAsync_PopulatesUefaChampionsLeague_AsTeamTrophy()
+    {
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        var championsLeague = await _dbContext.TrophyDefinitions.SingleAsync(t => t.Name == "UEFA Champions League");
+        // Q18756 is a training-knowledge QID, NOT independently verified
+        // against a live Wikidata page this session — see this file's own
+        // doc comment and ReferenceDataSeeder's own doc comment for why that
+        // caveat matters and what to do if it turns out wrong.
+        Assert.That(championsLeague.WikidataQid, Is.EqualTo("Q18756"));
+        Assert.That(championsLeague.IsTeamTrophy, Is.True, "ADR-0061: a team competition, not an individual award");
     }
 
     [Test]
@@ -238,7 +278,9 @@ public class ReferenceDataSeederTests
         await ReferenceDataSeeder.SeedAsync(_dbContext);
         await ReferenceDataSeeder.SeedAsync(_dbContext);
 
-        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(1));
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(), Is.EqualTo(3));
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(t => t.Name == "FIFA World Cup"), Is.EqualTo(1));
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(t => t.Name == "UEFA Champions League"), Is.EqualTo(1));
     }
 
     [Test]
@@ -256,5 +298,22 @@ public class ReferenceDataSeederTests
         Assert.That(ballonDor.WikidataQid, Is.EqualTo("Q166177"));
         Assert.That(ballonDor.IsTeamTrophy, Is.False);
         Assert.That(await _dbContext.TrophyDefinitions.CountAsync(t => t.Name == "Ballon d'Or"), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task REQ108_SeedAsync_CorrectsExistingTeamTrophyRow_WhenSeededQidOrFlagHasChanged()
+    {
+        // Mirrors REQ114_SeedAsync_CorrectsExistingNationalTeamRow_WhenSeededQidOrFlagHasChanged
+        // above — a stale row (wrong QID, and/or IsTeamTrophy left at a
+        // stale value) must be corrected in place.
+        _dbContext.TrophyDefinitions.Add(new TrophyDefinition { Id = Guid.NewGuid(), Name = "FIFA World Cup", WikidataQid = "Qstale", IsTeamTrophy = false });
+        await _dbContext.SaveChangesAsync();
+
+        await ReferenceDataSeeder.SeedAsync(_dbContext);
+
+        var worldCup = await _dbContext.TrophyDefinitions.AsNoTracking().SingleAsync(t => t.Name == "FIFA World Cup");
+        Assert.That(worldCup.WikidataQid, Is.EqualTo("Q19317"));
+        Assert.That(worldCup.IsTeamTrophy, Is.True);
+        Assert.That(await _dbContext.TrophyDefinitions.CountAsync(t => t.Name == "FIFA World Cup"), Is.EqualTo(1));
     }
 }

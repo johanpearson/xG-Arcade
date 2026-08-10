@@ -161,10 +161,14 @@ E2E against.
 **Grid content**: Country × Club, plus Club × Club as of `docs/backlog.md`
 S-030 (2026-07-12) — REQ-107 already permitted this pairing, Tier 0 grid
 generation just never used it; no new reference data needed. REQ-108's
-Trophy category is a separate pull-forward, **built 2026-07-20 as S-031** —
-see the Tier 1 section below for why it's scoped narrower than REQ-108's
-full definition, and why it's mechanically wired up but structurally
-dormant (won't actually be selected) until more than one trophy is seeded.
+Trophy category is a separate pull-forward, **built 2026-07-20 as S-031**,
+individual awards only at that point — see the Tier 1 section below for why
+it was scoped narrower than REQ-108's full definition, and why it was
+mechanically wired up but structurally dormant (not actually selected)
+until more than one trophy was seeded. **The deferred team-competition
+remainder shipped 2026-08-09 as S-095 (ADR-0061)**, growing the trophy pool
+to three and making Country×Trophy/Club×Trophy reachable in production —
+see the Tier 1 section below for the full detail.
 **Revised, per an explicit decision to prioritize full historical
 correctness over club-count breadth**: a small, **hand-curated** list of
 roughly **15 clubs** and **15-20 countries** in `CountryDefinition`/
@@ -325,18 +329,31 @@ is written as something you can actually observe, not a vague feeling:
   scoped narrower than REQ-108's full definition: **individual awards only
   for v1** (Ballon d'Or), which map to Wikidata's `P166` ("award received")
   — the same simple query shape as the existing Country×Club intersection
-  query. Team-competition trophies (World Cup, Champions League) need a
+  query. Team-competition trophies (World Cup, Champions League) needed a
   genuinely different query pattern (squad membership + tournament result
   — no single property links a player directly to "won this tournament")
-  and stay explicitly deferred to a follow-up story, not folded into S-031.
-  Two things worth knowing about what actually shipped, not just that it
-  did: (1) Ballon d'Or's QID was a training-knowledge guess, not verified
+  and were explicitly deferred to a follow-up story, not folded into S-031.
+  Two things worth knowing about what shipped at that stage, not just that
+  it did: (1) Ballon d'Or's QID was a training-knowledge guess, not verified
   against a live Wikidata page (same sandbox limitation that bit S-036) —
   needs a human check before real reliance; (2) with only this one trophy
-  seeded, every Trophy pairing is currently infeasible for any realistic
-  grid size, so Trophy is mechanically wired up but won't actually be
-  selected until more trophies are added as reference data — exactly the
-  "a data change, not a code change" growth path REQ-108 was designed for.
+  seeded, every Trophy pairing was infeasible for any realistic grid size,
+  so Trophy was mechanically wired up but wouldn't actually be selected
+  until more trophies were added as reference data — exactly the "a data
+  change, not a code change" growth path REQ-108 was designed for.
+  **The deferred follow-up shipped, 2026-08-09, `docs/backlog.md` S-095
+  (ADR-0061):** FIFA World Cup and UEFA Champions League added as
+  team-competition trophies, via the three-way `P1344`/`P3450`/`P1346`
+  edition-participation/winner join that individual-award `P166` can't
+  express. `ReferenceDataSeeder`'s trophy pool grew from one to three,
+  which is what actually made Country×Trophy and Club×Trophy REACHABLE and
+  selectable in production for the first time (Trophy×Trophy still needs
+  `trophyCount >= size * 2 = 6` and stays infeasible). Also closed
+  ADR-0035's own outstanding follow-up note (`UsesCountryForSportProperty`
+  now threaded through the Trophy×Country path). Both new QIDs (`Q19317`,
+  `Q18756`) are training-knowledge guesses, same unverified-QID caveat as
+  every prior one in this file — a human must check them against live
+  Wikidata pages before real reliance.
 - ~~**National teams as distinct footballing entities** (England, Scotland,
   Wales, Northern Ireland) — trigger: "United Kingdom" as a category
   starts feeling wrong/generic for football trivia, or you specifically
@@ -412,6 +429,47 @@ is written as something you can actually observe, not a vague feeling:
   on that distinct rejection, never on any other guest-sign-in failure.
   REQ-717/ADR-0037 is therefore complete end-to-end pending the manual
   Cloudflare/Supabase dashboard setup `SETUP.md` step 6 describes.
+- **Player-submitted answer suggestions + admin Wikidata search/commit**
+  (REQ-215/509/510, ADR-0053) — trigger: none fired; **pulled forward by
+  deliberate product decision, 2026-08-01**, same pattern as
+  REQ-108/REQ-214/REQ-402-403/REQ-717's own precedent (no observed
+  request from real play — the product owner asked for it directly, by
+  name). A new submission/review/commit pipeline: a logged-in, non-guest
+  player can suggest a correction after an incorrect guess or a REQ-211
+  live-lookup timeout (REQ-215); an admin reviews it against a fresh,
+  admin-triggered Wikidata lookup and commits or rejects it, or searches
+  and adds a player manually with no suggestion involved (REQ-509/510),
+  through the same `PlayerAttribute`/`PlayerOverride` write path REQ-501
+  already uses, never `PlayerNameIndex` (ADR-0007's boundary,
+  reconfirmed by ADR-0053). No retroactive rescoring of the guess that
+  prompted a suggestion — decided 2026-08-01, see REQ-215's own
+  acceptance criteria. **REQ-215's submission half built, 2026-08-01,
+  `docs/backlog.md` S-089:** `PlayerSuggestion`/`PlayerSuggestionClub`
+  entities, `POST /rounds/{roundId}/cells/{cellId}/suggestions`
+  (guest-rejected server-side), `SuggestionEntry.tsx` wired into
+  `GuessInput.tsx` at both trigger points (design-document.md SCREEN-02b).
+  Cell-metadata lookup goes through a new `IGameModule
+  .GetCellCategoryTypesAsync` method (an architecture-review fix,
+  same session — the original version read `GridCell` directly,
+  violating ADR-0003's boundary), implemented by `GridGameModule`; xG
+  Path's implementation throws `NotSupportedException` since nothing
+  wires this feature up for it yet. **REQ-509/REQ-510's admin
+  review/commit half remains queued, not yet built** — `docs/backlog.md`
+  S-090, blocked on no dependency other than session availability.
+- **In-app incident reporting to GitHub Issues** (REQ-903, new
+  Core.IncidentReporting component, ADR-0064) — trigger: none fired; **pulled
+  forward by deliberate product decision, 2026-08-10**, same pattern as
+  REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own precedent (no observed
+  volume of reports going out-of-band — the product owner asked for it
+  directly, reasoning that a logged-in player should be able to file a bug
+  report that lands as a real GitHub issue without needing a GitHub
+  account). A logged-in, non-guest player gets an in-app entry point;
+  the backend creates the issue server-side using a fine-grained GitHub
+  PAT scoped to `Issues: write` on this repo only — never exposed to the
+  client. Guests are rejected server-side (`403`), same boundary REQ-215
+  already established. **Design only — not yet built.** See ADR-0064 for
+  the full decision (including why a PAT over a GitHub App, and why not a
+  frontend-direct call) and REQ-903 for acceptance criteria.
 
 ## Tier 2 — already deferred, unchanged
 

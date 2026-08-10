@@ -387,6 +387,55 @@
   position: relative;
 }
 
+/* Product feedback (2026-08-03): a correct cell (SCREEN-01a states 1/4 —
+   round-active or round-closed, no-photo or photo variant alike) gets a
+   persistent light-green border as an always-visible "this one's correct"
+   cue, distinct from the checkmark/points text tint alone
+   (`--color-accent-gold-text`) — see design-document.md SCREEN-01a's
+   matching note. `--color-accent-green` (not `--color-accent-green-scrim`,
+   which §2 explicitly reserves as a one-off, dormant checkmark exception
+   not to be reused as a general "correct" color) is the right token here:
+   it's already documented for exactly this kind of non-text/decorative use
+   (live-dot, focus ring, tab underline — §2's "Text vs. decorative
+   contrast" note), and already measures ~3.4:1 against `surface-card`/
+   white, clearing the 3:1 floor that applies to a decorative UI-component
+   border (not the 4.5:1 text floor). 2px, not 1px, so the color change
+   reads as a deliberate cue rather than a barely-different hairline —
+   matching this file's own existing `:focus-visible` treatment
+   (`index.css`), which already uses `--color-accent-green` at 2px for the
+   same "a green ring/border is a decorative signal" role. Applied on this
+   element (`.grid-table__cell`, the `<td>`) specifically, not `.grid-cell`
+   (the button) or anything inside `CellState.tsx` — see Grid.tsx's own
+   comment on the `<td>`'s className for why this is the one place
+   guaranteed to render above/around a photo cell's photo layer too. */
+.grid-table__cell--correct {
+  border-color: var(--color-accent-green);
+  border-width: 2px;
+}
+
+/* REQ-216 (2026-08-03): the mirror-image case of .grid-table__cell--correct
+   above — a locked-incorrect cell (SCREEN-01a states 3/4's incorrect
+   branch) now gets a persistent `--color-accent-red` border too, same 2px
+   weight, same reasoning for living on this element rather than
+   `.grid-cell` or anything inside `CellState.tsx`: REQ-216 can put a
+   full-bleed matched-player photo or the new placeholder-avatar graphic on
+   an incorrect cell the same way a correct cell can carry a photo, and
+   `.cell-state--incorrect-photo`'s own layer (CellState.css) only ever
+   bleeds to this element's padding edge, never its border area, for the
+   identical structural reason `.cell-state--photo` doesn't either. Before
+   REQ-216, an incorrect cell (locked or not) had no border at all — this is
+   new for the locked case specifically; state 2 (an attempt remains, Grid.tsx's
+   own isLockedIncorrectCell check) is unaffected, same as an unattempted
+   cell. `--color-accent-red` already measures ~4.9:1 against `surface-card`/
+   white (design-document.md §2), clearing the 3:1 floor that applies to
+   this kind of decorative UI-component border with real margin, and is
+   unchanged between light/dark theme (§2's dark-theme table), so no new
+   theme-specific value was needed here either. */
+.grid-table__cell--incorrect {
+  border-color: var(--color-accent-red);
+  border-width: 2px;
+}
+
 /* S-059 (real-browser root cause — see this file's other S-059 comment,
    inside the earlier `@media (max-width: 480px)` block, for the full
    before/after numbers and why the 78px figure/3-line clamp pair was

@@ -14,12 +14,21 @@ name: warm-player-cache
 # unlike the deployed backend's own HTTP ingress (~240s, the exact wall
 # ADR-0023 had to work around for round generation).
 #
-# Manual trigger only, no recurring schedule — run this after any
-# reference-data change (ReferenceDataSeeder.cs), not on a fixed cadence,
-# since the reference data itself doesn't change on its own.
+# Weekly cron (ADR-0055, 2026-08-02) — supersedes the original "manual only,
+# run after any reference-data change" note: a recurring cadence is cheap
+# now that ConfirmedLowMatchPair/PairLookupFailure (ADR-0050/ADR-0052) skip
+# already-confirmed-low or persistently-failing pairs without a live query,
+# so a repeat run mostly costs time on genuinely new or previously-failed
+# pairs, not a full re-sweep. Offset 90 minutes after
+# import-player-name-index.yml's own weekly run so the two bulk jobs don't
+# compete for the same time slot (not a hard dependency between them —
+# either can run standalone). workflow_dispatch stays available for an
+# on-demand run right after a reference-data change, same as before.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "30 4 * * 0" # weekly, Sunday 04:30 UTC
 
 jobs:
   warm-player-cache:
@@ -27,10 +36,35 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+      # Bug-bundle follow-up (2026-07-27): retries the whole command if the
+      # process itself crashes/exits non-zero (e.g. a DB connection drop) —
+      # PlayerCacheWarmingService.WarmAsync is idempotent and safe to re-run
+      # (its own doc comment), and a real run comfortably finishes in ~30 of
+      # this job's 90-minute budget, so 2 attempts fits well within it. This
+      # is NOT the mechanism for a single pair's Wikidata query timing out —
+      # WikidataClient already swallows that internally and keeps going
+      # (now with a warning logged per pair, see WikidataClient.cs's
+      # timeout-branch comment), so a crash here means something actually
+      # broke, not just an unlucky slow query. If specific pairs are still
+      # missing after a clean run, just re-dispatch this workflow again — it
+      # skips anything already cached and only re-queries what's still
+      # missing, so a fresh run is the right lever for "a few pairs got
+      # unlucky," not a build-in retry loop here.
       - name: Warm player cache
-        run: dotnet run --project backend/src/XGArcade.Api -- warm-player-cache
+        run: |
+          max_attempts=2
+          for attempt in $(seq 1 "$max_attempts"); do
+            if dotnet run --project backend/src/XGArcade.Api -- warm-player-cache; then
+              exit 0
+            fi
+
+            echo "::warning::warm-player-cache exited non-zero (attempt $attempt/$max_attempts)"
+          done
+
+          echo "::error::warm-player-cache failed after $max_attempts attempts"
+          exit 1
         env:
           ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { stubTurnstile } from './turnstile-stub'
 
 // Matches the pattern already established for the backend base URL (see
 // app-loads.spec.ts's use of the frontend's own VITE_API_BASE_URL indirectly
@@ -69,11 +70,18 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // DB), surfacing as a confusing 401 further down rather than here.
     const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const email = `test-probe-${tag}@test.invalid`
+    // captchaToken (REQ-701/ADR-0037's 2026-07-25 amendment): AuthController
+    // .Signup/Login now reject a missing token unconditionally, at this
+    // backend's own level -- not only when Supabase's real captcha toggle
+    // happens to be on. The local-e2e stack's LocalE2EAuthClient ignores
+    // whatever value this carries (it fakes Supabase entirely), so a fixed
+    // placeholder is fine here -- same convention AuthEndpointTests.cs uses
+    // server-side.
     await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', confirmPassword: 'password123', displayName: `Probe ${tag}`, ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName: `Probe ${tag}`, ageConfirmed: true, captchaToken: 'e2e-test-token' },
     })
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
-      data: { email, password: 'password123' },
+      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
     })
     expect(loginResponse.ok(), `probe login failed: ${loginResponse.status()}`).toBeTruthy()
     const { accessToken } = (await loginResponse.json()) as { accessToken: string }
@@ -127,13 +135,16 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     email: string,
     displayName: string,
   ): Promise<string> {
+    // captchaToken: same fixed placeholder as clearAnyExistingActiveRound
+    // above -- see that function's own comment for why LocalE2EAuthClient
+    // (this stack's ISupabaseAuthClient) doesn't care what value it carries.
     const signupResponse = await request.post(`${API_BASE_URL}/auth/signup`, {
-      data: { email, password: 'password123', confirmPassword: 'password123', displayName, ageConfirmed: true },
+      data: { email, password: 'password123', confirmPassword: 'password123', displayName, ageConfirmed: true, captchaToken: 'e2e-test-token' },
     })
     expect(signupResponse.ok(), `signup failed: ${signupResponse.status()}`).toBeTruthy()
 
     const loginResponse = await request.post(`${API_BASE_URL}/auth/login`, {
-      data: { email, password: 'password123' },
+      data: { email, password: 'password123', captchaToken: 'e2e-test-token' },
     })
     expect(loginResponse.ok(), `login failed: ${loginResponse.status()}`).toBeTruthy()
     const { accessToken } = (await loginResponse.json()) as { accessToken: string }
@@ -168,7 +179,14 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
     const email = `test-${tag}@test.invalid`
 
+    // REQ-717/ADR-0037 follow-up: handleSubmit calls the real
+    // getTurnstileToken() unconditionally -- stub window.turnstile before
+    // this signup form ever submits (see turnstile-stub.ts).
+    await stubTurnstile(page)
     await page.goto('/')
+    // REQ-719: a fresh, unauthenticated visit now lands on the splash screen
+    // first, not AuthScreen directly — its call-to-action is the way in.
+    await page.getByRole('button', { name: 'Log in or sign up' }).click()
     await page.getByRole('tab', { name: 'Sign up' }).click()
     await page.getByLabel('Email').fill(email)
     await page.getByLabel('Password', { exact: true }).fill('password123')
@@ -212,10 +230,14 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByLabel('Player name').fill('Definitely Not A Real Player')
     await page.getByRole('button', { name: 'Submit guess' }).click()
 
-    // REQ-201/203: correctness shown immediately, no reload — the dialog
-    // closes itself on a successfully-accepted (even if wrong) submission.
-    // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // REQ-201/203: correctness shown immediately, no reload — the cell's
+    // own state updates the instant the response comes back. This guess
+    // missed cache, so it also paid ADR-0018's live-lookup cost.
+    // REQ-215 (S-089): unlike a correct guess, the sheet no longer closes
+    // itself on an incorrect result — it stays open and shows a "not a
+    // match" outcome view carrying the suggestion entry point.
+    await expect(page.getByText('Not a match.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    await expect(page.getByTestId('suggestion-entry-point')).toBeVisible()
     // Frontend name-display fix (S-029): an incorrect guess shows no name at
     // all, not even the raw as-typed text — only the ✕ and attempt count.
     await expect(cell.getByText('Definitely Not A Real Player')).not.toBeVisible()
@@ -232,9 +254,10 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // check below.
     await expect(cell.locator('.cell-state--shake')).toBeVisible()
 
-    // Second attempt: the real correct player name from the seed response.
-    await cell.click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    // Second attempt: REQ-215's outcome view offers "Try another guess"
+    // instead of requiring the sheet to be closed and the cell reopened —
+    // continues within the same still-open sheet.
+    await page.getByRole('button', { name: 'Try another guess' }).click()
     await expect(page.getByText('1 of 2 attempts used')).toBeVisible()
     await page.getByLabel('Player name').fill(seed.correctPlayerName)
     await page.getByRole('button', { name: 'Submit guess' }).click()
@@ -366,19 +389,25 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     await page.getByLabel('Player name').fill('Wrong Guess Number One')
     await page.getByRole('button', { name: 'Submit guess' }).click()
     // This guess missed cache, so it also paid ADR-0018's live-lookup cost.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // REQ-215 (S-089): the sheet stays open on an incorrect result — see
+    // the equivalent assertion in the test above for the full rationale.
+    await expect(page.getByText('Not a match.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
     await expect(cell.getByText('1 attempt left')).toBeVisible()
     await expect(cell).toBeEnabled()
 
-    await cell.click()
-    await expect(page.getByRole('dialog')).toBeVisible()
+    // Second (and final) attempt, continuing within the same still-open
+    // sheet via "Try another guess" rather than reopening the cell.
+    await page.getByRole('button', { name: 'Try another guess' }).click()
     await page.getByLabel('Player name').fill('Wrong Guess Number Two')
     await page.getByRole('button', { name: 'Submit guess' }).click()
 
     // REQ-210: both attempts used without a correct answer locks the cell
     // as incorrect — shown as visible text, never color/icon-only. Same
-    // ADR-0018 live-lookup cost applies to this second miss too.
-    await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    // ADR-0018 live-lookup cost applies to this second miss too. REQ-215:
+    // the outcome view now says the cell is locked instead of offering
+    // "Try another guess" — only "Close" remains.
+    await expect(page.getByText('No attempts remain for this cell.')).toBeVisible({ timeout: WRONG_GUESS_TIMEOUT_MS })
+    await expect(page.getByRole('button', { name: 'Try another guess' })).not.toBeVisible()
     // Frontend name-display fix (S-029): no name shown for an incorrect
     // guess, same as the single-wrong-guess case above.
     await expect(cell.getByText('Wrong Guess Number Two')).not.toBeVisible()
@@ -395,6 +424,11 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
     // S-020: the rejected-guess cue also fires on the guess that uses up
     // the last attempt (state 2 -> state 3), not just state 2 -> state 2.
     await expect(cell.locator('.cell-state--shake')).toBeVisible()
+
+    // REQ-215: closing the outcome view (only option left once locked) is
+    // still a normal, working dismissal.
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
   })
 
   // S-011 (docs/backlog.md): REQ-204 (denominator = correct guesses only,
@@ -458,7 +492,13 @@ test.describe('REQ-201/202/203/210/303/701/807: play a full grid round', () => {
 
     // View the leaderboard as Player A, through the real UI (not the API) —
     // this is the one part of the scenario SCREEN-03 itself needs to prove.
+    // REQ-717/ADR-0037 follow-up: this login form also drives handleSubmit's
+    // real getTurnstileToken() call -- stub window.turnstile before this
+    // goto, same as signUpNewPlayer above (see turnstile-stub.ts).
+    await stubTurnstile(page)
     await page.goto('/')
+    // REQ-719: splash screen first, same as signUpNewPlayer above.
+    await page.getByRole('button', { name: 'Log in or sign up' }).click()
     await page.getByLabel('Email').fill(playerAEmail)
     await page.getByLabel('Password').fill('password123')
     await page.getByRole('button', { name: 'Log in' }).click()

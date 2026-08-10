@@ -30,9 +30,10 @@ public class RoundCloseServiceTests
         _roundRepository = new RoundRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
         var gameModuleResolver = new GameModuleResolver([new FakeGameModule("xg-grid")]);
+        var scoringStrategyResolver = new ScoringStrategyResolver([new UniquenessScoringStrategy { GameKey = "xg-grid" }]);
         _service = new RoundCloseService(
             _roundRepository,
-            new ScoreLockingService(_guessRepository, _roundRepository, gameModuleResolver));
+            new ScoreLockingService(_guessRepository, _roundRepository, gameModuleResolver, scoringStrategyResolver));
     }
 
     [TearDown]

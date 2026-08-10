@@ -27,6 +27,233 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-03 — `PlayerCareerStint`'s "few thousand rows" full-table-read assumption is now stale (608K rows after ADR-0055)
+Several existing in-memory-read helpers (`GetAllCareerStintsByPlayerAsync`,
+`GetPlayersMissingPhotoAsync`, the new `GetUnseededClubCandidatesAsync`) are
+documented as safe because of a "tolerate a full-table read at Tier 0's
+player-pool scale (a few thousand rows)" precedent. That was true when
+written, but ADR-0055's `prefetch-player-careers` job has since populated
+`PlayerCareerStint` with 607,914 real rows (confirmed by its first clean
+run) — two orders of magnitude past "a few thousand." Still fine for a
+manual, occasional CLI job like `audit-club-gaps` (tens of MB, trivial for a
+CI runner), but `GetAllCareerStintsByPlayerAsync` is on a hot path —
+`XGPathGameModule`'s REQ-1201 eligibility check calls it on every round
+generation, not just manually. Not fixed here (out of scope for this
+session's work) — worth a dedicated look at whether that read still holds up
+at real scale before it becomes a real production latency problem, rather
+than waiting for a report the way ADR-0054's Celtic gap was.
+
+**Update (2026-08-03, later same day):** the hot-path method flagged above
+is fixed. `GetAllCareerStintsByPlayerAsync` is deleted; `XGPathGameModule.
+GetEligiblePlayerIdsAsync` now reads in two passes — a new
+`GetCareerStintCandidatePlayerIdsAsync` narrows the full player pool down to
+real candidates using only a cheap `(PlayerId, ClubName)` projection (the
+two necessary-but-not-sufficient conditions computable from that alone: >= 3
+stint rows, and any stint at a seeded club), then `GetCareerStintsByPlayerIdsAsync`
+(already existed) loads full stint data only for that narrowed set before
+`IsEligible`'s existing checks run unchanged. Zero eligibility-semantics
+change — the narrowing filter is a true superset, never excluding a player
+`IsEligible` would have accepted. `GetPlayersMissingPhotoAsync` and the
+general "few thousand rows" assumption elsewhere are still unaddressed —
+this fix only covered the one hot-path method called out above.
+
+### 2026-08-02 — `prefetch-player-careers`'s first real run: huge success overall, 4 batches hit the same 15s-default-timeout mistake `import-player-name-index` already made once
+
+First-ever real run (ADR-0055, right after merging PR #140) processed
+essentially the entire seeded country list — 49 countries, 177,872 players
+touched, 607,914 stints added — in ~42 minutes, comfortably inside the
+90-minute budget. `QueryPlayerPoolByNationalityAsync` (the per-country pool
+query) never failed once, including for huge pools (United Kingdom: 18,460
+players; Brazil: 10,949; Germany: 10,128) — so ADR-0055's own flagged risk
+("a large country might exceed WDQS's ~60s server-side cap") did NOT
+materialize. The job still went red at the end, though: 4 of the many
+200-player `QueryPlayerCareerStintsByQidsAsync` career-fetch batches (mixed
+in among Brazil's and Russia's batches) hit `WikidataClient`'s 15s default
+timeout and failed — recoverable, isolated batch failures, not country
+failures, exactly as designed (the fail-loud-at-end contract worked
+correctly: kept going, reported the 4 failures, preserved everything that
+succeeded, exited nonzero to signal "re-run to fill the gaps").
+
+Root cause is the *exact same class of bug* as the
+2026-07-17 `import-player-name-index` timeout entry below: 15s
+(`WikidataClient`'s default, tuned in ADR-0011 for the narrow per-cell
+intersection queries) is too tight for a 200-QID VALUES-clause query
+fetching full P54 career histories — a genuinely heavier query shape than
+what 15s was ever tuned for, not a sign of the server-side ~60s cap being
+hit (this is the important distinction: don't reach for "slice the query
+further" here, that lesson applies to the *other* failure mode). Fixed the
+same way `import-player-name-index` was fixed for the identical reason:
+gave `prefetch-player-careers`'s own standalone `WikidataClient` a 60s
+`queryTimeout` override in `Program.cs`. **Lesson worth generalizing:** any
+new by-QID batch query added to `WikidataClient` in the future should
+default its CLI verb's standalone client to 60s from the start, not wait to
+rediscover this the same way twice.
+
+### 2026-08-02 — two `workflow_dispatch` jobs need a manual run after the diacritic-normalization/position-birthyear bug-bundle fix ships
+
+Deploying the `PlayerNameNormalizer`/`Player.Position`/`Player.BirthYear` fixes
+(non-decomposable-letter transliteration + the new
+`backfill-player-position-birthyear` verb) fixes the *code*, but two pools of
+already-persisted data need an operator to actually trigger a re-run before
+players see the effect — neither happens automatically on deploy:
+
+- **`import-player-name-index`** (`.github/workflows/import-player-name-index.yml`)
+  — `PlayerNameIndex.NormalizedName` (autocomplete/COMP-10) is fully re-derived
+  from source on every run of this importer, so a manual trigger after this
+  fix deploys is sufficient to fix autocomplete suggestions for names
+  containing Ø/Æ/Œ/Đ/Ł/ß/Þ (e.g. "Ødegaard") — no new backfiller was written
+  for this table, deliberately, since the existing importer already does the
+  job. `Player.NormalizedFullName`/`PlayerAlias.NormalizedAlias` (the
+  correctness-side tables) DID get new/extended automatic backfillers wired
+  into `migrate-and-seed`, so those fix themselves on the next push to main —
+  only the autocomplete side needs this manual step.
+- **`backfill-player-position-birthyear`** (new workflow, this same fix) —
+  needs at least one manual run to clear the existing backlog (most `Player`
+  rows predate the `Position`/`BirthYear` migration); `migrate-and-seed`
+  deliberately does NOT call this automatically, same reasoning as
+  `backfill-player-photos` never being wired into `migrate-and-seed` either
+  (a live-Wikidata-call-per-batch job doesn't belong on every push-to-main
+  deploy's critical path).
+
+Worth remembering next time a bug report says "still broken after deploy" for
+either of these — the deploy alone isn't enough, someone has to actually click
+"Run workflow" once.
+
+### 2026-07-27 — `backend/Dockerfile` needs a `COPY` line per project, and it's easy to forget
+
+Two consecutive deploys (`deploy` runs #117, #118) failed at `dotnet publish`
+with `NETSDK1004: Assets file '.../XGArcade.Games.XGPath/obj/project.assets.json'
+not found`. Cause: `backend/Dockerfile` copies each project's `.csproj` file
+individually (for Docker layer caching) before running `dotnet restore`, so
+`dotnet restore` only sees projects that were explicitly `COPY`'d — it doesn't
+walk the filesystem. When `XGArcade.Games.XGPath` was scaffolded (S-080) and
+wired into `XGArcade.Api.csproj` as a `ProjectReference`, the Dockerfile
+wasn't updated to `COPY` its `.csproj` too, so restore silently skipped it
+("Skipping project ... because it was not found") and the later
+`dotnet publish --no-restore` failed. Fixed by adding the missing `COPY`
+line. Updated `.claude/agents/game-scaffolder.md` to call this out as a
+required scaffolding step so the next new game module doesn't repeat it —
+there's no build-time check that would otherwise catch a missing `COPY`
+line, since `dotnet build`/`dotnet test` outside Docker restore the whole
+solution and don't notice.
+
+### 2026-07-25 — `AdminScreen.test.tsx`'s REQ-507 test is flaky under a full `npm run test` run
+
+Found while quality-gating REQ-719 (unrelated diff). Failed 1 of 3 full-suite
+runs (`Unable to find an element with the text: Total users` — the metrics
+fetch hadn't resolved before the assertion) but passed 29/29 every time when
+run in isolation (`npx vitest run src/admin/AdminScreen.test.tsx`). Smells
+like a missing `await`/`findBy*` vs `getBy*` race, or cross-test fetch-mock/
+timer leakage from another suite. Not a regression from any recent change —
+worth a real look next time someone's in `AdminScreen.test.tsx`, rather than
+re-discovering it from a random CI flake later.
+
+### 2026-07-26 — S-076's `IScoringStrategy` extraction didn't reach `LiveRoundContributionService`
+
+Found by `quality-architect` while gating S-076 (ADR-0040). `ScoreLockingService`
+now resolves an `IScoringStrategy` per `Round.GameKey` instead of calling
+`UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly — but
+`LiveRoundContributionService` (the live per-cell/per-round contribution
+formula behind `ILiveRoundContributionService`, ADR-0031) still calls both of
+those directly, inline, unchanged. S-076's own scope (backlog.md) was
+`ScoreLockingService` only, so this wasn't a defect in that story — but it
+means ADR-0040's stated goal ("`Core.Scoring` gains zero compile-time
+knowledge of any specific game") isn't fully true yet: once xG Path
+(`ClueEfficiencyScoringStrategy`) ships, `LiveRoundContributionService` will
+keep computing xG Grid's uniqueness formula for every game's live view,
+producing wrong live points for xG Path rounds. Needs its own follow-up story
+(resolve `IScoringStrategy` here too, same as `ScoreLockingService`) before
+xG Path's frontend (S-085+) can rely on live points being correct — worth
+raising before S-081-083 land, not after.
+
+### 2026-07-25 — Sign-in latency follow-up: live evidence pointed at the client-side Turnstile step, not backend/cold start
+
+Follow-up to the entry immediately below. The product owner manually
+tested login repeatedly, back-to-back, and consistently saw an 8-12s
+spinner right after clicking Login, every time — not a pattern that
+fits "only the first request after idle is slow." They shared a real
+Azure Container App log from one such attempt:
+
+```
+17:51:51.279 — POST https://<project>.supabase.co/auth/v1/token?* (start)
+17:51:52.204 — response after 924.3ms — 200
+17:51:52.236 → 17:51:52.362 — three fast EF Core queries (~125ms total):
+  Login's own GetByAuthProviderUserIdAsync + UpdateLastActiveAtAsync
+  (REQ-718, merged same day), likely immediately followed by the
+  frontend's own GET /auth/me
+17:51:52.362 → 17:51:58.189 — a 5.83s gap with ZERO server-side activity
+  logged (no DB query, no outbound HTTP call), then one more identical
+  user-lookup query
+```
+
+So the actual login request was fast end-to-end (~1.1s server-side, not
+a multi-second cold call) — the felt delay had to be sitting somewhere
+the backend logs can't see. Confirmed with the product owner that the
+8-12s is the spinner between clicking Login and getting *any* result
+back (not a slow page-load after a fast login) — which places nearly all
+of it before `POST /auth/login` is even sent. `getTurnstileToken()`
+(`frontend/src/lib/turnstile.ts`) only runs inside the submit handler,
+never preloaded, so the whole chain (Cloudflare script download if
+uncached, widget render, verification round-trip) was fully serialized
+in front of the request. Device was normal mobile Chrome over home WiFi,
+no reported ad-blocker/VPN, ruling out the most common "Turnstile is
+blocked/slowed by a privacy tool" explanation.
+
+Fix (see `infra/README.md`, `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`'s
+third amendment, and `docs/CHANGELOG.md` for the full write-up): preload
+just the Turnstile *script* on screen mount (not the widget/token — those
+still wait for submit, since a token is single-use and expires quickly),
+and switch from invisible/managed mode to an always-visible checkbox —
+the product owner's own call, since an invisible widget both hides that
+anything is happening and can't fall back to an interactive challenge if
+Cloudflare's risk scoring is ever unsure, which may itself have
+contributed to the stuck-feeling attempts. **Also worth remembering:**
+this is only a real fix if the Cloudflare Turnstile site itself is
+configured as Managed/Non-Interactive mode in the dashboard — a site
+created as Invisible mode cannot show a widget at all no matter what the
+frontend's `size` parameter requests, since that's Cloudflare's own
+server-side enforcement, not something client code can override. Check
+this on any already-existing dev/prod Turnstile site before assuming the
+code change alone fixed the visibility (see `SETUP.md` step 6's
+correction).
+
+### 2026-07-25 — Sign-in latency measured: cold start and captcha are additive, separate costs
+
+Live report: sign-in feels slow, reportedly since the Cloudflare Turnstile
+captcha rollout (ADR-0037). Rather than guess, measured real timing
+against the deployed dev Container App via a temporary `workflow_dispatch`
+diagnostic workflow (added, dispatched, then deleted — see
+`infra/README.md`'s new "Sign-in latency" section for the numbers in
+full and the resulting decision). This sandbox can't reach
+`*.azurecontainerapps.io` directly (same proxy restriction as
+`wikidata.org` elsewhere in this file), so the probe had to run from a
+real GitHub Actions runner instead — and a brand-new `workflow_dispatch`
+workflow can't be triggered via the API/UI until it exists on the
+**default branch**, not just a feature branch (a genuine GitHub
+limitation, not a permissions issue) — worth remembering next time a
+diagnostic-only workflow is needed for a similar investigation.
+
+Headline numbers: cold `/health` (first hit after ~22 idle minutes) took
+9.93s, of which only 0.13s was the TCP connect — almost all of it was
+Container Apps standing a replica up (`minReplicas: 0`, pre-existing
+since ADR-0004/S-001, not caused by captcha). Warm `/health` settled at
+~0.35s. The first `/auth/login` on an already-warm backend cost 1.97s —
+about 1.6s more than warm baseline, the one-time cost of the backend's
+first Supabase call (which now also asks Supabase to verify the captcha
+token against Cloudflare) — dropping to ~0.45s on the next two attempts.
+**Conclusion: cold start was always the bigger single cost and predates
+captcha; captcha added a real but smaller tax on top, concentrated on the
+first sign-in after any idle period** (both the measured
+backend→Supabase→Cloudflare cost above, and an unmeasured-here but
+structurally real frontend cost — `getTurnstileToken()`
+(`frontend/src/lib/turnstile.ts`) makes the browser await a Cloudflare
+token *before* `POST /auth/login` is ever sent, a genuinely new serial
+delay stacked in front of everything else). Decision: keep
+`minReplicas: 0` (this project is free-tier-only by explicit constraint;
+raising it to 1 would cost ~$10-12/month) and document the trade-off
+instead — see `infra/README.md`. Revisit if/when a real "prod"
+environment exists and this stops being a solo-testing inconvenience.
+
 ### 2026-07-21 — Supabase Anonymous Sign-ins / user-update API shapes unverified (S-069, REQ-717)
 `SupabaseAuthClient.SignInAnonymouslyAsync` (`POST auth/v1/signup` with no
 email/password) and `LinkEmailPasswordAsync` (`PUT auth/v1/user`,
@@ -904,3 +1131,458 @@ place. Regression tests:
 `PlayerPhotoBackfillServiceTests.REQ214_BackfillAsync_BatchContainsMalformedWikidataQid_SkipsThatPlayerButBackfillsTheRestWithoutThrowing`
 and the all-malformed edge case,
 `REQ214_BackfillAsync_EveryPlayerInBatchHasMalformedWikidataQid_CompletesWithoutThrowing`.
+
+### 2026-07-25 — Supabase's "Enable Captcha Protection" toggle is project-wide, not per-endpoint — it broke real-user login/signup, not just `/auth/guest`
+Reported live: a registered user's login started failing with `captcha
+protection: request disallowed (no captcha_token found)`, and new signups
+started returning the generic "Check your email to confirm your account,
+or reset your password if you already have one." message (that message is
+`AuthController.Signup`'s deliberate, REQ-701 account-enumeration-safe
+fallback for *any* Supabase signup rejection, not a real email-confirmation
+feature — it fires for this too). Root cause: ADR-0037 designed Turnstile
+captcha as scoped to `POST /auth/guest` only, and `AuthController.Login`/
+`Signup` were built assuming Supabase's captcha requirement would only
+apply to the anonymous-sign-in call `SignInAnonymouslyAsync` makes
+(`SignInWithPasswordAsync`/`SignUpAsync` in `SupabaseAuthClient.cs` never
+send a `captcha_token` at all). That assumption was wrong: Supabase's
+dashboard "Enable Captcha Protection" setting is a single project-wide
+toggle covering every `gotrue` endpoint that can create or authenticate an
+identity (`signup`, `token?grant_type=password`, `recover`, ...), not
+scoped to whichever flow you had in mind when you turned it on. The
+moment someone completed `SETUP.md` step 6 (turning the toggle on for
+guest-creation bot protection) against a real Supabase project, it started
+rejecting every password-based login and signup too, since those code
+paths have no token to send. Same root cause explains both user-visible
+symptoms — the misleading signup message wasn't a new feature, it's the
+existing anti-enumeration fallback firing for a captcha rejection instead
+of a real duplicate-email case. This was flagged as an "unverified against
+a live Supabase project" assumption in the original ADR-0037/CHANGELOG
+entries (no network access in that sandbox) — now confirmed live and
+wrong. Fix needs Turnstile wired into Login and Signup too (not just
+Guest), or the captcha toggle turned back off until that's done — tracked
+as a separate session, not fixed in this note-taking pass.
+
+### 2026-08-01 — `warm-player-cache.yml` stopped completing entirely; the 2026-07-28 same-run-retry fix was itself the regression (REQ-110, ADR-0052)
+
+Reported: run #15 was manually re-dispatched three times (2026-07-28
+through 2026-08-01) and every attempt got cancelled at the workflow's
+90-minute ceiling without ever finishing, on top of CI logs that had
+become unreadable — thousands of per-pair `Warning`-level lines, some
+carrying 15-20 line stack traces.
+
+Root cause traced to the 2026-07-28 "cache-warming-specific timeout and
+same-run retry" extension itself: the same-run retry doubled every
+technical failure's cost (up to 2 x the 45s cache-warming timeout instead
+of 1x), and nothing persisted a technical failure across runs, so the same
+doomed pairs got retried, at that now-doubled cost, on literally every
+future run forever. Reading run #15's tail log showed a long contiguous
+stretch where *every* club-club pair involving a handful of specific clubs
+failed — not intermittently, every single time, regardless of partner
+club. One failure named the actual mechanism: a JSON parse error at
+binding row 250,204.
+`WikidataClient.BuildClubClubIntersectionQuery`'s plain join on two
+independent P54 statement-path patterns binds both statement variables in
+the outer pattern — a player with multiple non-deprecated P54 statements
+at club A (loan spells, a return transfer) times multiple at club B
+produces one result row per *combination*, on top of the query's existing
+per-alias multiplication. For two clubs with a large, well-documented,
+historically-overlapping squad this produced a real 250,000+ row WDQS
+response. No timeout, however long, reliably finishes that — it needed a
+smaller query, not a bigger budget or more retries.
+
+Fixed by ADR-0052, three changes together: (1) removed the same-run retry
+— it only ever helps a transient failure, and made a structural one's cost
+worse; (2) added `PairLookupFailure` (mirrors `ConfirmedLowMatchPair`'s
+shape, ADR-0050) so a pair failing on 2 *consecutive runs* is skipped
+without a live query on the third, converging instead of re-fighting the
+same doomed pairs forever — a single run's failure alone is NOT enough to
+skip, so a one-off transient blip still gets a real second chance; (3)
+wrapped each club's P54 match in `BuildClubClubIntersectionQuery` in its
+own `FILTER EXISTS { }` block instead of a plain join, eliminating the
+statement-count cross product at the source. Also downgraded the two
+per-pair failure logs in `WikidataClient` from `Warning` to `Debug` (the
+project's default log level is `Information`, so these are now silent by
+default) — the run's own `Information`-level summary already reports the
+technical-failure count and names every failing pair, so the per-pair
+noise added nothing an operator needed by default.
+
+**Same "don't repeat this reasoning" lesson as the 2026-07-13 wrong-QID
+entry above, different shape**: a fix aimed at one real problem
+(swallowed-failure visibility) quietly made a different cost worse
+(doubled the price of every failure) in a way that only showed up once the
+*rate* of failures crossed some threshold — three quiet, successful runs
+(2026-07-26/27, pre-extension) gave no signal that the extension itself
+would tip the job over its CI budget the moment failures got common
+enough. **If cache-warming ever stops completing again**: check the run's
+tail log for a long *contiguous* stretch of failures against the *same*
+handful of QIDs on one side — that pattern means structural (a query-shape
+problem), not transient (WDQS load) or a straightforward "budget's too
+small" — a bigger timeout or more retries will not fix a structural
+failure, only a query-shape change or `PairLookupFailure`'s skip will.
+
+### 2026-08-02 — `import-player-name-index` crashed on birth year 1970 with an EF identity-tracking conflict; fixed by deduping a batch by PlayerId
+
+A real manual dispatch (run #6, attempt 1) imported birth years 1939-1969
+cleanly (57,157 rows) then died with an unhandled
+`System.InvalidOperationException: The instance of entity type
+'PlayerNameIndexWord' cannot be tracked because another instance with the
+same key value for {'PlayerId', 'Word'} is already being tracked`, thrown
+from `PlayerNameIndexRepository.ReconcileWords`'s `PlayerNameIndexWords.Add(...)`
+call, at exit code 134. Confirmed via the actual GitHub Actions job log
+(job 91462586266), not guessed.
+
+Root cause: `UpsertManyAsync` assumed every `PlayerId` in the batch it's
+given is unique, and built `existingWordsByPlayer` once, up front, from the
+database. If the same `PlayerId` appears twice in one batch, the second
+occurrence's `ReconcileWords` call tries to re-`Add` `PlayerNameIndexWord`
+rows the first occurrence already staged (Added but not yet saved) for the
+same `PlayerId` — EF's change tracker rejects the second `Add` for an
+identical `{PlayerId, Word}` composite key immediately, in memory, before
+`SaveChangesAsync` ever issues a query. This is distinct from — and not
+covered by — the two cases already handled and tested: a repeated word
+*within* one name (`ToHashSet()`-deduped, `REQ208_UpsertManyAsync_NameWithRepeatedWord...`)
+and the same QID appearing in *two different* birth-year slices, i.e. two
+separate `UpsertManyAsync` calls (`ImportAsync_SameQidInTwoBirthYearSlices...`,
+which works correctly because each call re-reads current DB state fresh).
+
+**The exact Wikidata-side trigger for birth year 1970 specifically producing
+two same-QID entries within one `QueryPlayerPoolBirthYearAsync` response is
+NOT confirmed** — `ParseNameIndexBindings` already dedupes by QID string
+within one response via its `byQid` dictionary, so this would require
+either a WDQS response anomaly on that specific query or something else not
+reproducible from this sandbox (no live Wikidata access, same limitation as
+every other Wikidata data question in this file). Rather than chase that
+further, fixed defensively where it actually matters: `UpsertManyAsync` now
+collapses `entryList` by `PlayerId` (`GroupBy(...).Select(g => g.Last())`)
+before doing anything else, so a duplicate within one batch can never reach
+`ReconcileWords` at all, regardless of cause — "last entry wins," the same
+last-write-wins rule this method already applies across separate runs.
+Regression test:
+`PlayerNameIndexRepositoryTests.UpsertManyAsync_SamePlayerIdTwiceInOneBatch_DoesNotThrow_LastEntryWins`.
+**If this run was re-dispatched before this fix lands, it will fail again at
+the same point** — re-run `import-player-name-index.yml` once this fix is
+on `main`.
+
+### 2026-08-02 — xG Path's "no Celtic at all, missing Juventus/Marseille stints" report explained: `PlayerCareerStint` is a side effect of xG Grid's country×club lookups, not a full career fetch
+
+Live report: a Timothy Weah xG Path puzzle showed no Juventus or Marseille
+stints (both real, per Wikipedia) and no Celtic stint at all. Traced
+through the actual data path, not guessed:
+
+- `PlayerCareerStint` rows are populated **only** as a side effect of
+  `WikidataLookupService.LookupAndPersistAsync` — the nationality × club
+  intersection query xG Grid uses to fill a grid cell (ADR-0042/S-079's own
+  comment says this explicitly: career-stint persistence is wired up for
+  the country/nationality × club path only, deliberately not for
+  club-club/trophy-country/trophy-club). There is no "fetch this player's
+  full Wikidata career" call anywhere in this codebase — a player's
+  `PlayerCareerStint` set is whatever the accumulated history of xG Grid
+  cell lookups (live guess-time misses + `warm-player-cache` runs) has
+  happened to query so far, never a complete career.
+- A stint can only ever be recorded for a club that is in the seeded
+  `ClubDefinition` table (`ReferenceDataSeeder.Clubs`) — the intersection
+  query is always (seeded country, seeded club). **Celtic is not in that
+  list at all** (checked `ReferenceDataSeeder.cs` directly), so a Celtic
+  stint can never be persisted for any player, regardless of how much
+  cache-warming runs — this is a reference-data gap, not a bug to fix in
+  code. Juventus and Marseille, by contrast, **are** both seeded — so a
+  missing stint there means the specific (nationality, club) pair (for
+  Weah, presumably United States of America × Juventus and
+  USA × Marseille) simply hasn't been queried and cached yet, or was
+  queried and marked a confirmed-low-match/technical-failure pair
+  (ADR-0050/ADR-0052) and is now being skipped without a live re-query.
+- `PathEndpoints`'s `GET /path/current` renders every `PlayerCareerStint`
+  row on record for the target player, unfiltered by seeded-club status —
+  so this isn't a display bug hiding data that exists; the rows genuinely
+  aren't there yet.
+
+**Not a code defect** — this is `ADR-0042`'s accepted scope (career stints
+are a byproduct of xG Grid's own cell lookups, not a first-class Wikidata
+fetch) intersecting with two separate, known gaps: Celtic's absence from
+`ClubDefinition`, and `warm-player-cache` not yet having covered every
+(nationality, seeded club) pair for every xG Path target player. Two
+distinct fixes exist if this is worth acting on, not attempted here since
+neither was asked for: (1) add Celtic to `ReferenceDataSeeder.Clubs` with a
+verified QID (same S-037-style live-Wikidata verification discipline every
+other club addition here has followed — this sandbox can't verify it), and
+(2) either run `warm-player-cache.yml` again to close remaining
+(nationality, club) gaps, or give xG Path its own direct per-player
+career-stint fetch instead of depending on xG Grid's lookup history as a
+byproduct — the latter is a real scope decision (a new Wikidata query
+shape, ADR-worthy), not a one-line fix.
+
+## PlayerNameIndex.BirthYear can go ambiguous — Wikidata itself, not our bug (2026-08-03)
+
+A user-tester report: the autocomplete suggestion for "Michael Owen" (the
+England footballer, actually born 14 December 1979) showed birth year 1976.
+`wdt:P569` is a *truthy* predicate — it already collapses to a single
+preferred-rank statement whenever Wikidata has one, so this can only happen
+when the underlying Wikidata item genuinely carries more than one
+non-deprecated P569 (date of birth) statement with **neither** marked
+preferred — Wikidata's own data has no stated preference between them.
+This is a real, if uncommon, state of Wikidata's data (an old or
+erroneous secondary-sourced date nobody has cleaned up), not something our
+SPARQL can resolve with certainty.
+
+Before this fix, two independent code paths silently picked one of the
+conflicting values with no correctness signal behind the choice:
+`WikidataClient.ParseNameIndexBindings` kept whichever row happened to
+arrive first in a single SPARQL response's (unspecified, engine-internal)
+row order, and `PlayerNameIndexImporter.ImportAsync`'s per-birth-year-slice
+loop let whichever slice ran *last* (i.e. whichever value is numerically
+higher, since the loop runs ascending 1939 → current year) silently
+overwrite the other. For Michael Owen specifically the second mechanism
+would have landed on the *correct* value by coincidence (1979 > 1976) — the
+report only surfaced because whatever earlier data was actually
+persisted for his `PlayerNameIndex` row predates this reasoning, or the
+import run that would have corrected it to 1979 never completed. Either
+way, "later wins" was never a principled rule, just a happy accident when
+it worked.
+
+Fixed by treating a genuine cross-row/cross-slice birth-year conflict as
+unresolvable and nulling out `BirthYear` instead of guessing either way —
+same "omit rather than mislead" convention this codebase already uses for
+an unknown club appearance count. See `ParseNameIndexBindings`'s and
+`PlayerNameIndexImporter.ResolveCrossSliceBirthYearConflicts`'s own doc
+comments for the mechanics.
+
+**Sandbox limitation, flagged rather than silently worked around:** this
+session had no outbound network access to `wikidata.org` (the agent
+proxy's egress policy doesn't allow it) or to `dotnet.microsoft.com` (the
+.NET SDK isn't preinstalled here and couldn't be downloaded either), so
+neither the live Wikidata data behind the original report nor a real
+`dotnet build`/`dotnet test` run of these changes could be verified
+directly in this session — the fix and its tests were checked by careful
+manual review (hand-verified brace/paren balance, cross-checked against
+this file's other `record`/tuple `with`/mutation patterns that already
+compile elsewhere in this codebase) instead. Worth an actual CI run before
+merging.
+
+## ADR-0061's team-competition trophy work also needed a 4th, unlisted query method (2026-08-09)
+
+While implementing ADR-0061 (FIFA World Cup/UEFA Champions League as
+team-competition trophies), resolving ADR-0035's follow-up note — "extend
+`BuildTrophyCountryIntersectionQuery` with a `P1532` counterpart... whenever
+the trophy pool grows enough to make the pairing reachable" — turned out to
+require more than the three `IWikidataClient` methods ADR-0061 itself lists
+(`QueryTeamTrophyCountryIntersectionAsync`/
+`QueryTeamTrophyNationalTeamIntersectionAsync`/`QueryTeamTrophyClubIntersectionAsync`).
+ADR-0035's note was about `LookupAndPersistTrophyCountryAsync` honoring
+`CountryDefinition.UsesCountryForSportProperty` **in general**, not only for
+the new team-trophy branch — so the *existing*, pre-ADR-0061 individual-award
+P166 path (S-031) needed its own P1532 counterpart too, or a flagged country
+(England, Scotland, Wales, Northern Ireland) paired with an individual award
+like Ballon d'Or would still silently fall back to (wrong) P27 semantics,
+just one branch over from the one ADR-0061 explicitly fixed.
+
+Added a fourth method, `QueryTrophyNationalTeamIntersectionAsync` (P166
+truthy + P1532 truthy, the individual-award counterpart of
+`QueryTeamTrophyNationalTeamIntersectionAsync`'s team-competition shape), and
+a matching `BuildTrophyNationalTeamIntersectionQuery` builder — not written
+into ADR-0061's own text (that ADR's "Decision" section literally says
+"three new methods"), but documented at length on the method/builder
+themselves and in ADR-0035's now-resolved follow-up note, since it's the
+same P27-vs-P1532 dispatch pattern ADR-0035 already established, applied to
+close a gap that ADR's own note had explicitly flagged. Flagging here in
+case a future reviewer greps ADR-0061 for "how many new client methods"
+and is confused why the actual diff has four, not three — the answer is
+"ADR-0035's follow-up note, read literally, covers a case ADR-0061's own
+scope didn't."
+
+**Sandbox limitation:** as with every other session in this codebase, no
+outbound network access to `wikidata.org` and no `dotnet` SDK available —
+the two new team-trophy QIDs (`Q19317` FIFA World Cup, `Q18756` UEFA
+Champions League) are training-knowledge guesses, not verified, and none of
+the new/changed code in this story was run through a real `dotnet build`/
+`dotnet test` — checked by careful manual review (brace/paren balance,
+cross-referencing existing query-builder/dispatch patterns) instead. Must
+run in CI before merging, and the two QIDs must be checked against live
+Wikidata pages by a human before this is relied on in production.
+
+### 2026-08-09 — Admin Wikidata by-name lookup (`REQ-509`/`REQ-510`) failing with "Lookup unavailable" in production: same 15s-too-tight-for-a-broad-query-shape bug as `import-player-name-index`/`PlayerCareerPrefetchService`, just newer code
+
+Reported live (via a screenshot of the admin Suggestions screen): both
+`POST /admin/suggestions/{id}/lookup` (REQ-509, suggestion review) and
+`POST /admin/player-search/lookup` (REQ-510, standalone admin search)
+were failing with "Lookup unavailable — we couldn't reach Wikidata to
+verify this player" — for the *same* player, on the *same* attempt, on
+*both* endpoints, which was the tell: they share one code path
+(`AdminSuggestionEndpoints.LookupPlayerAsync` →
+`IWikidataClient.QueryPlayerCareerAndNationalityByNameAsync`), so a
+Wikidata reachability/timing problem takes out both admin recovery
+routes for a stuck suggestion at once, with no fallback between them.
+
+Root cause: `QueryPlayerCareerAndNationalityByNameAsync`'s query
+(`BuildPlayerCareerAndNationalityByNameQuery`) does a case-insensitive
+`rdfs:label`/`skos:altLabel` scan across every Wikidata footballer
+(`?player wdt:P106 wd:Q937857` + a `LCASE(STR(?matchedLabel)) =
+LCASE(...)` filter) to find a name match — an unindexed, population-wide
+scan, not a narrow per-cell query — but it was still using
+`WikidataClient`'s default `_queryTimeout` (15s), the budget ADR-0011
+tuned specifically for the narrow per-cell intersection queries. This is
+the exact same failure class recorded twice already in this file
+(2026-07-17 `import-player-name-index`, 2026-07-28
+`PlayerCareerPrefetchService`) — a broad/unbounded WDQS query shape
+needs its own, longer, dedicated timeout, and 15s is only ever safe for
+the narrow per-cell shape it was measured against. This admin lookup
+(built in S-090, 2026-08-08) just hadn't been through that lesson yet,
+being newer than both prior incidents.
+
+Fixed the same way both prior incidents were: added a fourth,
+purpose-specific `TimeSpan?` constructor param on `WikidataClient`,
+`adminLookupQueryTimeout` (`_adminLookupQueryTimeout`, defaulting to
+45s — same evidence band as `_cacheWarmingQueryTimeout`'s 45s, safely
+under WDQS's ~60s hard server-side cap per the 2026-07-18 entry above,
+but explicitly *not* framed as "nobody's waiting" the way cache warming
+is — an admin is synchronously blocked on this in a browser tab), used
+only by `QueryPlayerCareerAndNationalityByNameAsync`. Deliberately did
+**not** touch `QueryPlayerPhotoByNameAsync` (same by-name shape, but on
+the live wrong-guess photo-reveal path, ADR-0057, with a real-time/
+ingress-timeout constraint this admin lookup doesn't have) — its
+existing comment claiming budget parity with the career/nationality
+lookup was updated to explain the two now intentionally diverge, and a
+new regression test
+(`REQ216_QueryPlayerPhotoByNameAsync_UsesQueryTimeout_NotAdminLookupBudget`)
+locks that down so a future refactor can't silently re-merge the two
+budgets and only find out via a real 45s slowdown in production.
+
+Also added server-side `Warning`-level logging (with the caught
+`WikidataQueryException`) in both `/admin/suggestions/{id}/lookup` and
+`/admin/player-search/lookup`'s existing catch blocks — before this fix,
+neither endpoint logged anything on failure, so a recurrence would have
+been just as undiagnosable as this one was. The HTTP 503 response
+contract is unchanged (ADR-0046 — the exception's own message still
+never reaches the admin's browser, only the server log).
+
+Went through `architecture-reviewer` (no ADR needed — same "just tuning"
+judgment as the two prior timeout additions, `_guessTimeFallbackQueryTimeout`/
+ADR-0046 and `_cacheWarmingQueryTimeout`/REQ-110, neither of which got
+its own ADR either; flagged as a forward-looking note that a *fifth*
+per-purpose timeout on this constructor would be the point to reconsider
+the growing-parameter-list shape) and `quality-architect` (no blocking
+findings; one real gap closed — see the regression test above — plus two
+non-blocking follow-ups noted for later: `AdminSuggestionEndpointTests.cs`'s
+`CapturingLoggerProvider` is now duplicated with `GridEndpointTests.cs`'s
+copy in the same test assembly, worth extracting next time either file
+is touched; and the constructor's four same-typed optional `TimeSpan?`
+params are becoming error-prone by position, worth an options-object
+refactor if a fifth is ever proposed).
+
+**Whether this actually fixes it in production is still unverified** —
+this session had no live Wikidata access to reproduce the original
+failure or confirm 45s clears it (same standing sandbox limitation as
+every entry in this file); the user was explicit up front that they were
+skeptical a timeout bump alone would hold, given this class of lookup's
+recurring history. The new Warning-level logging exists specifically so
+that if "Lookup unavailable" recurs after this ships, there's now a
+server log entry (with the suggestion id or player name, and whether it
+was a timeout vs. an HTTP/parse failure) instead of nothing to go on —
+check the logs first before assuming the timeout value itself needs
+raising further, since a genuine WDQS outage or a non-timeout failure
+(HTTP error, malformed JSON) would look identical to a timeout from the
+admin's browser but very different in this new log line.
+
+**Update, same day, ~90 minutes later — the new logging paid off
+immediately, and confirmed the user's skepticism was right.** A real
+production log (pasted into this session, not reproduced here) for the
+exact same player (Donny van de Beek) showed the request running **38.8
+seconds and then returning HTTP 502 Bad Gateway** from
+`query.wikidata.org` — not a timeout at all. The 45s budget above was
+never the bottleneck; it gave the request enough room to actually
+complete and reveal what's really happening: something in front of WDQS
+(most likely a gateway/reverse-proxy enforcing its own upstream-response
+deadline, independent of any client-side `CancellationTokenSource`) is
+rejecting this query once it runs long enough. No client timeout, however
+large, fixes a failure that happens on the far side of that gateway.
+
+Root cause, once actually visible: `BuildPlayerCareerAndNationalityByNameQuery`'s
+candidate-selection subquery was a case-insensitive `rdfs:label`/
+`skos:altLabel` scan across every Wikidata footballer — an unindexed,
+population-wide literal comparison, not a narrow query. That's what was
+actually expensive; the timeout fix above only ever addressed the
+symptom (client giving up too early), never the cause (WDQS itself, or
+its gateway, choking on the query's real cost).
+
+Fixed in ADR-0062 (`docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md`):
+replaced that scan with a federated `SERVICE wikibase:mwapi { ... }`
+`EntitySearch` call — Wikidata's own indexed search, the same engine
+behind its search box — re-filtered to footballers, still `LIMIT 1`. Two
+alternatives were considered and rejected: backfilling a real
+`WikidataQid` column onto `PlayerNameIndex` so this could resolve locally
+(rejected — `PlayerNameIndex.PlayerId` is a one-way hash of the QID
+today, not the QID itself, and reconciling the two id spaces is exactly
+the kind of deliberate future decision ADR-0007/COMP-10's own comments
+say not to back into via a fix); and calling Wikidata's REST
+`wbsearchentities` API directly (rejected — a genuinely new external
+host/dependency needing its own ADR-0008-style terms review, plus two
+round trips instead of one). The chosen approach stays inside
+`WikidataClient`'s existing single-endpoint SPARQL client — the `SERVICE
+wikibase:mwapi` federation is executed server-side by WDQS itself against
+`www.wikidata.org`, not by this codebase's own `HttpClient` — confirmed
+by `architecture-reviewer` on direct scrutiny, not just deferred to the
+ADR's own claim.
+
+**Still unverified against the real endpoint** — same standing sandbox
+limitation (no live network access to `wikidata.org`). Specific things a
+human should check first, per the implementer's own flagged uncertainty:
+whether `mwapi:limit "10"` is actually respected by the live WDQS
+deployment; whether re-filtering `EntitySearch`'s ranked candidates down
+to `wdt:P106 wd:Q937857` can legitimately return zero results for an
+ambiguous name where a much more famous non-footballer outranks the
+actual player in the top 10 (try "Donny van de Beek" first as a known
+real case, then a deliberately ambiguous name); and whether
+`wikibase:endpoint "www.wikidata.org"` is the exact right form for this
+WDQS deployment. `QueryPlayerPhotoByNameAsync` (REQ-216/ADR-0057) still
+uses the old raw label-scan shape — deliberately not touched here (its
+own different timeout/urgency constraints), flagged in ADR-0062 as a
+possible future follow-up if this pattern proves out.
+
+**The general lesson, worth internalizing beyond this one incident:** a
+client-side timeout increase can only ever fix "our client gave up too
+early." It does nothing for "the query is too expensive and something
+else — the server, or infrastructure in front of it — rejects it once it
+runs long enough." Adding diagnosability (the Warning-level logging from
+the fix above) before assuming a timeout bump is sufficient is what
+turned this from "still broken, no idea why" into a concrete, actionable
+root cause within one production log line.
+
+**Update, same day — manually verified against the real
+`query.wikidata.org` endpoint by the user (this sandbox still has no live
+network access, so this is human-run verification, not automated).**
+Running the actual query text for "Donny van de Beek" — the real case
+that started this whole thread — returned all 6 real clubs correctly, in
+8-31s across repeated runs (never a 502, always well under the 45s
+budget). The isolated `wikibase:mwapi` search step alone (no P27/P54
+join) accounted for most of that time (6 of 8s on one run) — the search
+federation itself is the slow part, not the club-history join this
+NOTES.md entry originally suspected; a possible future optimization
+target if 8-31s per admin lookup ever becomes a real UX complaint, but
+not urgent (it's synchronous but rare, admin-only, and light-years better
+than a guaranteed 502).
+
+The "no footballer matches this name" path was also tested (a nonsense
+search string): one run returned `Zzxxqq Nonexistentplayer123`-style
+searches cleanly with zero rows in ~14s; a separate run of the FULL query
+(search + P27 + P54 block) briefly returned an opaque "unknown failure"
+on the same nonsense name, but retrying the identical query succeeded
+("No matching records found") — consistent with ordinary WDQS
+load-related flakiness (the same 9-27s-observed-under-load variance
+ADR-0011 already documents), not a reproducible structural bug in the
+mwapi rewrite. Re-running the isolated search-only query with the same
+nonsense name also succeeded cleanly. Given it didn't reproduce on retry
+and the isolated pieces are each individually clean, this reads as
+ordinary transient WDQS flakiness (exactly the class of failure ADR-0046's
+"lookup unavailable, try again" contract already exists to handle
+gracefully), not evidence the query shape itself is broken for the
+no-match case — but if "unknown failure" (or any error) on a genuine
+no-match search becomes a *repeatable* pattern in production logs (check
+the new Warning-level log line from the timeout-fix incident above to
+tell timeout/HTTP/parse-failure apart), revisit this assumption; the
+open risk ADR-0062 originally flagged (an ambiguous name where a more
+famous non-footballer could outrank the real player in the top-10
+`EntitySearch` results) was not directly tested and remains open.
+
+This is real evidence the fix addresses the actual production bug (no
+more 502 for the one real case that triggered this investigation), gathered
+by a human against the live endpoint rather than assumed from documentation
+memory — merged on the strength of this, not on CI alone (see PR #157).

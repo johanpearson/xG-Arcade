@@ -36,12 +36,20 @@ public class AccountDeletionService(
     ILeagueRepository leagueRepository,
     ISupabaseAuthClient authClient) : IAccountDeletionService
 {
+    // REQ-508: exposed (rather than an inline literal below) so the bulk
+    // guest force-clear endpoint can distinguish a "not found" outcome from
+    // any other failure (e.g. the Supabase-delete failure below) by
+    // comparing against this same constant, without a second
+    // GetByIdAsync/existence check duplicating what this method already
+    // does internally.
+    public const string UserNotFoundErrorMessage = "User not found.";
+
     public async Task<AccountDeletionResult> DeleteAccountAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var user = await userRepository.GetByIdAsync(userId, cancellationToken);
         if (user is null)
         {
-            return new AccountDeletionResult { Success = false, ErrorMessage = "User not found." };
+            return new AccountDeletionResult { Success = false, ErrorMessage = UserNotFoundErrorMessage };
         }
 
         // REQ-710: sever the link rather than deleting the rows — other

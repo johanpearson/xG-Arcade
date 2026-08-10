@@ -13,10 +13,32 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerOverride> PlayerOverrides => Set<PlayerOverride>();
     public DbSet<PlayerAttribute> PlayerAttributes => Set<PlayerAttribute>();
     public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
+    // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension) —
+    // COMP-06 (Data.PlayerStore), same boundary as PlayerAttribute/PlayerData
+    // above: only reachable from Games.XGGrid via IPlayerStoreRepository,
+    // never a direct DbContext query. See ConfirmedLowMatchPair's own doc
+    // comment for the full "why a new table" reasoning.
+    public DbSet<ConfirmedLowMatchPair> ConfirmedLowMatchPairs => Set<ConfirmedLowMatchPair>();
+    // REQ-110 (2026-08-01 "persistent technical-failure tracking"
+    // extension, ADR-0052) — COMP-06, same boundary as ConfirmedLowMatchPair
+    // above: only reachable from Games.XGGrid via IPlayerStoreRepository.
+    // See PairLookupFailure's own doc comment for the full "why a separate
+    // table from ConfirmedLowMatchPair" reasoning.
+    public DbSet<PairLookupFailure> PairLookupFailures => Set<PairLookupFailure>();
+    // ADR-0042/S-079 (COMP-06): xG Path's ordered, dated career-stint log —
+    // see PlayerCareerStint's own doc comment. Never read by
+    // IPlayerStoreRepository's correctness-checking methods (xG Grid).
+    public DbSet<PlayerCareerStint> PlayerCareerStints => Set<PlayerCareerStint>();
     // COMP-10 (Data.PlayerNameIndex) — see ADR-0007 and architecture-document.md
     // boundary rule 5. Deliberately never read by IPlayerStoreRepository
     // (COMP-06); only IPlayerNameIndexRepository queries this DbSet.
     public DbSet<PlayerNameIndex> PlayerNameIndexEntries => Set<PlayerNameIndex>();
+    // REQ-208's 2026-07-26 correction / ADR-0044: per-word decomposition of
+    // PlayerNameIndex.NormalizedName, indexed so a surname-only autocomplete
+    // query can still be a proper (index-backed) StartsWith match. Same
+    // COMP-10/autocomplete-only boundary as PlayerNameIndexEntries above —
+    // never read by IPlayerStoreRepository.
+    public DbSet<PlayerNameIndexWord> PlayerNameIndexWords => Set<PlayerNameIndexWord>();
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();
     public DbSet<TrophyDefinition> TrophyDefinitions => Set<TrophyDefinition>();
@@ -24,10 +46,28 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<GridTemplate> GridTemplates => Set<GridTemplate>();
     public DbSet<GridInstance> GridInstances => Set<GridInstance>();
     public DbSet<GridCell> GridCells => Set<GridCell>();
+    // COMP-11 (Games.XGPath) — S-081's puzzle generation. Same
+    // Template/Instance/Cell-equivalent shape as Games.XGGrid's own three
+    // entities above.
+    public DbSet<PathTemplate> PathTemplates => Set<PathTemplate>();
+    public DbSet<PathInstance> PathInstances => Set<PathInstance>();
+    public DbSet<PathPuzzle> PathPuzzles => Set<PathPuzzle>();
+    // REQ-1208/ADR-0058: xG Path's own no-repeat-target-selection cycle
+    // state — see PathTargetCycle/PathCycleTargetUsage's own doc comments.
+    // Never read outside IPathInstanceRepository (Games.XGPath's own
+    // persistence boundary, same as the three DbSets above).
+    public DbSet<PathTargetCycle> PathTargetCycles => Set<PathTargetCycle>();
+    public DbSet<PathCycleTargetUsage> PathCycleTargetUsages => Set<PathCycleTargetUsage>();
     public DbSet<Round> Rounds => Set<Round>();
     public DbSet<Guess> Guesses => Set<Guess>();
     public DbSet<League> Leagues => Set<League>();
     public DbSet<LeagueMembership> LeagueMemberships => Set<LeagueMembership>();
+
+    // REQ-215/ADR-0052 (S-089): its own table, deliberately never joined
+    // into or read alongside PlayerData/PlayerOverride/PlayerAttribute/
+    // PlayerNameIndex above — see PlayerSuggestion's own doc comment.
+    public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
+    public DbSet<PlayerSuggestionClub> PlayerSuggestionClubs => Set<PlayerSuggestionClub>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -52,6 +92,40 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         // inserts a duplicate alias row for the same player.
         modelBuilder.Entity<PlayerAlias>()
             .HasKey(pa => new { pa.PlayerId, pa.NormalizedAlias });
+
+        // REQ-110 (2026-07-28): composite key mirrors
+        // CountPlayersWithBothAttributesAsync's own four-argument shape
+        // exactly (see ConfirmedLowMatchPair's own doc comment) — a pair is
+        // either marked confirmed-low or it isn't, so the natural-key lookup
+        // this repository does (IsConfirmedLowAsync) is a straight PK hit,
+        // no separate surrogate id/unique-index pair needed. No FK to
+        // Player: unlike PlayerAttribute, a confirmed-low row often has NO
+        // corresponding Player rows at all (the zero-match case this table
+        // exists for) — there is nothing to reference.
+        modelBuilder.Entity<ConfirmedLowMatchPair>()
+            .HasKey(c => new { c.FirstAttributeType, c.FirstAttributeValue, c.SecondAttributeType, c.SecondAttributeValue });
+
+        // StaleClubAttributeCleaner/purge-player-pool's clearing queries
+        // filter by a single side's (AttributeType, AttributeValue) — e.g.
+        // "every confirmed-low row involving this club, on either side of
+        // the pair" — so both sides get their own index, same shape as
+        // PlayerAttribute's (AttributeType, AttributeValue) index above. The
+        // composite PK above already covers a First-side-only filter as a
+        // leftmost-prefix match, but the Second side needs its own index to
+        // avoid a full scan.
+        modelBuilder.Entity<ConfirmedLowMatchPair>()
+            .HasIndex(c => new { c.SecondAttributeType, c.SecondAttributeValue });
+
+        // REQ-110 (2026-08-01, ADR-0052): same composite-key/index shape as
+        // ConfirmedLowMatchPair above, for the same reasons — see
+        // PairLookupFailure's own doc comment. No FK to Player for the same
+        // reason as ConfirmedLowMatchPair: a pair that only ever technically
+        // failed has no Player rows to reference.
+        modelBuilder.Entity<PairLookupFailure>()
+            .HasKey(f => new { f.FirstAttributeType, f.FirstAttributeValue, f.SecondAttributeType, f.SecondAttributeValue });
+
+        modelBuilder.Entity<PairLookupFailure>()
+            .HasIndex(f => new { f.SecondAttributeType, f.SecondAttributeValue });
 
         // PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias all live
         // inside COMP-06 alongside Player, so (unlike ADR-0003's deliberate
@@ -78,6 +152,17 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .WithMany()
             .HasForeignKey(pa => pa.PlayerId)
             .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PlayerCareerStint>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pcs => pcs.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // ADR-0042/S-079: every future reader (xG Path's puzzle generation,
+        // S-081+) needs "all of this player's stints" — the hot-path query
+        // this table exists to serve.
+        modelBuilder.Entity<PlayerCareerStint>()
+            .HasIndex(pcs => pcs.PlayerId);
 
         // COMP-10 (Data.PlayerNameIndex, ADR-0007): keyed on PlayerId (the
         // bulk importer upserts in place per player, never inserting a
@@ -93,6 +178,25 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasKey(pni => pni.PlayerId);
         modelBuilder.Entity<PlayerNameIndex>()
             .HasIndex(pni => pni.NormalizedName);
+
+        // REQ-208's 2026-07-26 correction / ADR-0044: PlayerNameIndexWord is
+        // PlayerNameIndex's own per-word decomposition (see that entity's doc
+        // comment for why), so it's keyed and cascade-deleted against
+        // PlayerNameIndex rather than Player — same "no FK crossing into
+        // Player's id space" rule PlayerNameIndex itself follows. Composite
+        // key (PlayerId, Word), same shape as PlayerAlias's (PlayerId,
+        // NormalizedAlias) above, so re-upserting a player's words is
+        // idempotent rather than duplicating. (Word) index is the actual hot
+        // path — SearchByPrefixAsync's per-word StartsWith match.
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasKey(w => new { w.PlayerId, w.Word });
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasIndex(w => w.Word);
+        modelBuilder.Entity<PlayerNameIndexWord>()
+            .HasOne<PlayerNameIndex>()
+            .WithMany()
+            .HasForeignKey(w => w.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // (Name) unique per implementation-document.md §5 — grid generation
         // picks from these directly (REQ-109); also prevents an admin
@@ -140,6 +244,57 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
         modelBuilder.Entity<GridCell>()
             .HasIndex(gc => new { gc.GridInstanceId, gc.Row, gc.Col })
             .IsUnique();
+
+        // PathPuzzle/PathInstance are Games.XGPath's (COMP-11) own entities
+        // — same normal owned-collection FK as GridCell/GridInstance above,
+        // no ADR-0003 boundary concern (that ADR is specifically about
+        // Round/Core never holding a game-specific FK).
+        modelBuilder.Entity<PathPuzzle>()
+            .HasOne<PathInstance>()
+            .WithMany(pi => pi.Puzzles)
+            .HasForeignKey(pp => pp.PathInstanceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // PathPuzzle.TargetPlayerId crosses into Player's table (COMP-06) —
+        // see PathPuzzle's own doc comment for why this FK is meaningful
+        // here (unlike GridCell, which has no single fixed per-cell answer).
+        // Cascade mirrors every other Player-referencing FK above; there is
+        // no player-row-deletion pathway in the codebase today.
+        modelBuilder.Entity<PathPuzzle>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(pp => pp.TargetPlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1202: "no two puzzles in the same round instance target the
+        // same player" — enforced at the DB level, same precedent as
+        // GridCell's (GridInstanceId, Row, Col) unique index above.
+        modelBuilder.Entity<PathPuzzle>()
+            .HasIndex(pp => new { pp.PathInstanceId, pp.TargetPlayerId })
+            .IsUnique();
+
+        // REQ-1208/ADR-0058: PathCycleTargetUsage.PlayerId crosses into
+        // Player's table (COMP-06) — same "meaningful FK, not ADR-0003's
+        // Round/Core boundary concern" reasoning as PathPuzzle.
+        // TargetPlayerId above. Cascade mirrors every other Player-
+        // referencing FK; there is no player-row-deletion pathway today.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasOne<Player>()
+            .WithMany()
+            .HasForeignKey(u => u.PlayerId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-1208: a player is recorded at most once per cycle — guards
+        // AddInstanceWithCycleUsageAsync's insert the same way GridCell's
+        // unique index above guards its own generation-time insert.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasIndex(u => new { u.PlayerId, u.CycleNumber })
+            .IsUnique();
+
+        // GetUsedPlayerIdsInCycleAsync's hot-path read — every lookup is
+        // scoped to "this cycle number", never PlayerId alone.
+        modelBuilder.Entity<PathCycleTargetUsage>()
+            .HasIndex(u => u.CycleNumber);
 
         // REQ-301's "one round ahead" check (GetLatestByGameKeyAsync) runs on
         // every scheduled generation invocation — the hot path for this table.
@@ -210,6 +365,34 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
             .HasOne<User>()
             .WithMany()
             .HasForeignKey(m => m.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-215/ADR-0052 (S-089): PlayerSuggestion.RoundId is a Core-owned
+        // table in the same schema (ADR-0014) — same "no boundary reason to
+        // leave this unconstrained" precedent as Guess.RoundId above. Unlike
+        // Guess's own CellId/UserId (both deliberately unconstrained — see
+        // PlayerSuggestion's own doc comment for why this table matches
+        // that), Round itself is never a game-specific table, so a
+        // PlayerSuggestion pointing at a nonexistent Round is just bad data.
+        modelBuilder.Entity<PlayerSuggestion>()
+            .HasOne<Round>()
+            .WithMany()
+            .HasForeignKey(ps => ps.RoundId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // REQ-509/S-090's future admin queue lists pending suggestions —
+        // same "status filter is the hot read path" precedent as PlayerData.
+        // Confidence's implicit unverified-queue filter.
+        modelBuilder.Entity<PlayerSuggestion>()
+            .HasIndex(ps => ps.Status);
+
+        // Owned-collection FK, same shape as GridCell/GridInstance and
+        // PathPuzzle/PathInstance above — one PlayerSuggestion's asserted
+        // clubs are deleted alongside it.
+        modelBuilder.Entity<PlayerSuggestionClub>()
+            .HasOne<PlayerSuggestion>()
+            .WithMany(ps => ps.AssertedClubs)
+            .HasForeignKey(psc => psc.PlayerSuggestionId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

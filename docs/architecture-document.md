@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.48"
+version: "0.88"
 status: draft
-last_updated: 2026-07-21
+last_updated: 2026-08-10
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -18,7 +18,7 @@ update_when:
   - "An architecture decision is made — also add an ADR under docs/decisions/"
 ---
 
-# Architecture Document – xG Arcade (working title)
+# Architecture Document – xG Arcade
 
 Version 0.43 · 2026-07-20
 References: `requirements-document.md`, `implementation-document.md`
@@ -131,9 +131,11 @@ business rules (e.g. override precedence) are enforced in one place.
 | COMP-02 | Core.Leagues | Global + custom leagues, membership | `XGArcade.Core` |
 | COMP-03 | Core.Rounds | Round lifecycle, scheduling config | `XGArcade.Core` |
 | COMP-04 | Core.Scoring | Uniqueness calculation, score locking | `XGArcade.Core` (`Scoring/` — `GuessSubmissionService`, added S-009) |
-| COMP-05 | Games.XGGrid | Grid generation, category logic (Country/Club/Trophy, REQ-107/REQ-108), `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair; not yet extended to Trophy pairs (a known, harmless gap — S-031's Trophy pairings are structurally unselectable in production anyway, see REQ-108's status note), run as its own CLI verb rather than an HTTP endpoint (ADR-0024) | `XGArcade.Games.XGGrid` |
-| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path | `XGArcade.Data` |
-| COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback. As of REQ-114/ADR-0035 (S-066), `IWikidataClient`/`WikidataLookupService` dispatch a Country×Club query through one of two query-property paths — `P27` (citizenship, every ordinary country) or `P1532` ("country for sport", the four home nations) — chosen from a flag on the `CountryDefinition` row passed in, never a second category type; see COMP-05/COMP-06's own status note below and ADR-0035 for the full design | `XGArcade.DataSync` |
+| COMP-12 | Core.IncidentReporting | **Status: Not started — design only (REQ-903, ADR-0064).** Creates a GitHub issue in this repository from a logged-in, non-guest player's in-app bug report — `POST /incidents`, `[RequireAuthorization]`, resolving the caller the same `IUserRepository.GetByAuthProviderUserIdAsync` way REQ-215's suggestion endpoint does, and rejecting `IsGuest == true` with `403` server-side. Holds a fine-grained GitHub PAT scoped only to `Issues: write` on this one repo as a backend secret/environment variable — never sent to or accepted from the client, never widened in scope. The target repo and issue label are fixed server-side; nothing about the GitHub call is client-configurable. See ADR-0064 for the full decision and alternatives (GitHub App vs. PAT, why not a frontend-direct call, why not requiring GitHub sign-in). | `XGArcade.Core` (planned — not yet scaffolded) |
+| COMP-11 | Games.XGPath | **Status: Puzzle generation (S-081, ADR-0045), clue reveal/guess submission/attempt cap (2026-07-27, S-082), clue-efficiency scoring (2026-07-28, S-083), and round-scheduling wiring (2026-07-28, S-084, ADR-0051) all built.** `XGPathGameModule.GenerateInstanceAsync`/`GetCellIdsAsync` implement REQ-1201 (target-player eligibility)/REQ-1202 (N distinct-target puzzles per round) — see those REQs' own status notes for the exact eligibility reading and ADR-0045 for why. New entities `PathTemplate`/`PathInstance`/`PathPuzzle` (`XGArcade.Data`) mirror `GridTemplate`/`GridInstance`/`GridCell`'s shape; unlike `GridCell`, `PathPuzzle.TargetPlayerId` is a real FK into `Player` (COMP-06) — see ADR-0045 for why this doesn't cross ADR-0003's boundary. New repository `IPathInstanceRepository`/`PathInstanceRepository` is COMP-11's own persistence, same one-repo-per-component precedent as `IGridInstanceRepository`; a new `IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync` bulk read (COMP-06) is the only new cross-component call from S-081. **Superseded 2026-08-03 (perf fix, no REQ/ADR change):** `GetAllCareerStintsByPlayerAsync` is removed — `GetEligiblePlayerIdsAsync` now narrows to real candidates first via a new, cheap `IPlayerStoreRepository.GetCareerStintCandidatePlayerIdsAsync` (a `(PlayerId, ClubName)`-only projection, provably a superset of REQ-1201's actual eligibility set), then loads full stint data only for that narrowed set via the pre-existing `GetCareerStintsByPlayerIdsAsync`, before running the unchanged eligibility checks. Needed once `PlayerCareerStint` grew to ~608K rows via ADR-0055's prefetch job — see `NOTES.md`'s 2026-08-03 entry. **S-082 addition:** `ScoreSubmissionAsync` (REQ-1204) resolves a guess via the same `Player.NormalizedFullName`/`PlayerAlias.NormalizedAlias` matching order `GridGameModule.FindMatchAsync` uses, correct iff the resolved candidate's `PlayerId` equals the puzzle's one target — **deliberately no fuzzy-matching stage and no REQ-209-style disambiguation prompt**, reviewed and confirmed "fine as-is" by `architecture-reviewer` during S-082's quality gate (a structural difference from xG Grid, not a gap to "fix" later: xG Path has no category concept to bound a fuzzy search by, and disambiguation is moot when only one target player can ever be correct — see `XGPathGameModule.ScoreSubmissionAsync`'s own doc comment for the full reasoning). `GetMaxAttemptsForCellAsync` (REQ-1205) returns the fixed constant 7 unconditionally, mirroring `GridGameModule`'s own unconditional-return shape (ADR-0041). New `GET /path/current` (`XGArcade.Api.Path.PathEndpoints`, REQ-1203) is COMP-11's own read-only display endpoint, reading `PathInstance`/`PathPuzzle` directly via `IPathInstanceRepository` — ADR-0016's direct-repository-read pattern applied to a second game module, confirmed (not superseded) by the new ADR-0048 (§6.2b). Guess submission itself adds **no new write endpoint**: xG Path guesses go through the existing, already-game-agnostic `POST /rounds/{roundId}/cells/{cellId}/guesses` (`XGArcade.Api.Guesses.GuessEndpoints`), routed to `XGPathGameModule.ScoreSubmissionAsync` purely via `IGameModuleResolver`/`Round.GameKey`, same as xG Grid. `PathScoringException` now derives from a new shared `XGArcade.Core.Games.GameEntityNotFoundException` (alongside xG Grid's `GuessScoringException`), so `GuessEndpoints` — game-agnostic by design — no longer needs compile-time knowledge of either game's own concrete exception type to catch this failure mode; mirrors `LiveLookupUnavailableException`'s existing cross-boundary precedent for living in `Core.Games` rather than a game module's own assembly. `Player.Position`/`Player.BirthYear` (REQ-1207, new nullable scalar columns on COMP-06's `Player`, set once at creation from Wikidata P413/P569 riding the existing intersection queries) feed the clue sequence's position/age clues. **S-084 addition (ADR-0051):** round-scheduling wiring is now built — a second `RoundSchedulingOptions` instance (`GameKey = "xg-path"`, its own configured `RoundDuration`) is registered and resolved via the new `IRoundSchedulingOptionsResolver` (mirroring `IScoringStrategyResolver`'s per-`GameKey` shape), and `POST /internal/generate-round?gameKey=xg-path` (the same `generate-round.yml` daily cron `"xg-grid"` uses, not a second scheduled job) now generates real xG Path rounds end to end, dispatching to the new `PathTemplateResolver` (`XGArcade.Api.Path`) to find-or-create a `PathTemplate` by `PathGenerationOptions.PuzzleCount` (default 4). `GET /path/current` now reads instances created this way in every environment, not only via the non-Production test-data endpoints. Owns the progressive clue-reveal sequence (`PathClueSequenceBuilder`/`PathClueTurn`: every documented club stint, split across exactly 3 reveal turns per REQ-1203's 2026-07-27 revision — never capped, each club bundled with its appearance count when known — then one bundled "years" clue, then position/nationality/age) and the fixed 7-clue-per-puzzle attempt cap this requires (ADR-0041). **S-083 addition (REQ-1206):** `ClueEfficiencyScoringStrategy` (`XGArcade.Core.Scoring`) is now registered against `GameKey = XGPathGameModule.XGPathGameKey` in `Program.cs`, mirroring `UniquenessScoringStrategy`'s `"xg-grid"` registration — this game has no uniqueness concept at all, since every solver of a given puzzle necessarily names the same target player, so `FinalUniquenessScore` is always null. `cluesUsed` is read directly off the winning `Guess.AttemptCount` (no new column); `maxCluesForThisPuzzle` is `maxAttemptsForCell`, resolved once per cell by COMP-04's `ScoreLockingService` via the existing `GetMaxAttemptsForCellAsync` (ADR-0041) and passed in — see COMP-04's own S-083 status note below and the new ADR-0049 for the resolved `IScoringStrategy` parameter shape (ADR-0040's own deferred follow-up). Reads career data only from COMP-06's `PlayerCareerStint` table (ADR-0042), never `PlayerAttribute`, except for the nationality clue, which reads `PlayerAttribute`'s existing "nationality" rows as a display-only read (never `PlayerOverride`/`HasEffectiveAttributeAsync`, which remains xG Grid correctness-checking's own precedence logic); reuses COMP-10's autocomplete/name-matching pipeline unchanged. **Extended 2026-08-02 (ADR-0054):** `GenerateInstanceAsync` now calls a new `IPlayerCareerStintRefreshService` (COMP-07, `XGArcade.DataSync`) with exactly the N target players it just picked, refreshing their `PlayerCareerStint` rows from a new direct-by-QID full-career Wikidata query (`IWikidataClient.QueryPlayerCareerStintsByQidsAsync`) rather than relying solely on whatever xG Grid's own country/club lookups happened to persist (ADR-0042's byproduct model, now a floor, not the only source, for an already-selected target's own data). This is the first COMP-11 dependency on COMP-07/DataSync — `Games.XGPath` gained a `ProjectReference` to `XGArcade.DataSync`, mirroring `Games.XGGrid`'s existing one. Deliberately does NOT change `GetEligiblePlayerIdsAsync`'s candidate pool, which still reads only already-persisted `PlayerCareerStint` rows — see ADR-0054's own scope note. **Bug-bundle fixes 2026-08-02 (REQ-1203/ADR-0056):** (1) `WikidataClient.QueryPlayerCareerStintsByQidsAsync`'s SELECT now excludes any `?club` that is transitively an instance of Wikidata's Q6979593 "national association football team" class — Wikidata models national-team caps under the same P54 property as club membership, so without this exclusion a target's national team could appear as a "club" in `PathClueSequenceBuilder`'s reveal turns, directly violating REQ-1203's own "national team caps are never revealed" acceptance criterion. (2) `GetEligiblePlayerIdsAsync` gained a new dependency, `IPlayerFamiliarityService`/`PlayerFamiliarityService` (COMP-07, `XGArcade.DataSync`) — the same "Games.XGPath depends on a narrow, purpose-built service, never `IWikidataClient` directly" shape `IPlayerCareerStintRefreshService` already established (ADR-0054) — which filters the structurally-eligible pool down to targets with a Wikipedia sitelink count at/above a threshold before `PickDistinct` runs, fixing a real complaint (an obscure, unrecognizable target passing every structural check). Fails open (returns the pool unfiltered) on a Wikidata failure or a systemic data gap — see ADR-0056 for the full decision and alternatives considered. **Extended 2026-08-03 (REQ-1208/1209, S-093, ADR-0058):** two new xG Path-scoped entities, `PathTargetCycle` (a singleton row — `CycleNumber`/`ObservedPoolSize`/`UsedInCycleCount`/`LastCycleCompletedAt`) and `PathCycleTargetUsage` (one row per player recorded as used in a given cycle number), persist a no-repeat-target-selection cycle over the exact live, familiarity-filtered pool `GetEligiblePlayerIdsAsync` already computes — never a field on the shared `Player` entity (COMP-06), per ADR-0058's explicit rejection of that alternative (same cross-game-leakage reasoning as ADR-0042). Four new `IPathInstanceRepository` methods (`GetCycleStateAsync`, `GetOrCreateCycleStateAsync`, `GetUsedPlayerIdsInCycleAsync`, `AddInstanceWithCycleUsageAsync`) are the only path to this new state — `GetOrCreateCycleStateAsync` mirrors `ILeagueRepository.GetOrCreateGlobalLeagueAsync`'s idempotent-singleton-row shape, and `AddInstanceWithCycleUsageAsync` persists the `PathInstance`/`PathPuzzle` write together with the cycle-state/usage write in one `SaveChangesAsync` call so the two can never diverge on a partial failure. `GenerateInstanceAsync` now excludes already-used-this-cycle players from `PickDistinct`'s pool and rolls the cycle over (tolerant "remaining unused < N" rule, not exact-zero) before selecting when needed, leaving REQ-1202's own distinct-target-within-an-instance and insufficient-total-pool checks untouched. New `GET /admin/xg-path/cycle` (`XGArcade.Api.Admin.AdminXGPathEndpoints`, REQ-1209), `"Admin"`-policy-gated like every other admin endpoint and registered unconditionally, reads only `GetCycleStateAsync` — never triggers round generation or `IPlayerFamiliarityService`. Frontend panel (`XGPathCycleSection` in `AdminScreen.tsx`) built 2026-08-03, following `AccountMetricsSection`'s own fetch/gating pattern exactly. Full test coverage for both REQs landed 2026-08-03: backend unit (`XGPathGameModuleTests.cs`) and API (`RoundEndpointTests.cs`, new `AdminXGPathEndpointTests.cs`) tests are written and hand-traced but not compiled/run in this sandbox (`dotnet` unavailable, pending a CI `dotnet test` pass); frontend Vitest coverage (`AdminScreen.test.tsx`) verified locally, 459/459 passing. **Bug fix 2026-08-08 (REQ-1203 follow-up, no new ADR — same read-time-filter-over-destructive-cleanup reasoning ADR-0059 already established for a different COMP-11-adjacent bug):** a new, pure `PathCareerStintFilter` (`XGArcade.Games.XGPath`) excludes leftover *pre*-2026-08-02 youth/age-grade national-team `PlayerCareerStint` rows (e.g. "Spain national under-16 association football team") that the 2026-08-02 SPARQL-level exclusion above only stops from being written going forward — it cannot retroactively clean the ~608K-row table, since `PlayerCareerStintRefreshService` is additive-only (see that service's own doc comment). Unlike ADR-0059's `DuplicateCareerStintCleaner`, there is no QID on these older rows to prove a match against, so this is a read-time, name-pattern filter (`national` + an age-grade `under-\d+` marker), not a delete — a false positive only skips one clue, never an irreversible row loss. Applied at both of COMP-11's own read sites that turn `PlayerCareerStint` rows into either a clue or an eligibility count: `GET /path/current`'s clue-building read (`PathEndpoints.cs`, see §6.2b below) and `GetEligiblePlayerIdsAsync`'s REQ-1201 eligibility check (so a player's eligibility count can no longer be inflated by leftover junk rows either). No new repository method, no new dependency — a stateless static helper shared by both call sites so the exclusion logic can't drift between them. See `docs/implementation-document.md`'s matching 2026-08-08 note for the exact regex scope and its own "not verified against live Wikidata" caveat. **Bug fix 2026-08-10 (REQ-1203 follow-up, bug-bundle — supersedes the "youth/age-grade only" scope of the 2026-08-08 note directly above):** a new bug report (screenshot) showed a SENIOR national team ("Italy men's national association football team," with an appearance count) still leaking into a club-reveal clue — the exact case the 2026-08-08 fix's own reasoning had judged as rendering correctly and deliberately left unfiltered. `PathCareerStintFilter.IsYouthNationalTeam`/`ExcludeYouthNationalTeams` renamed to `IsNationalTeam`/`ExcludeNationalTeams` and broadened from an age-grade-only pattern (`\bnational\s.*\bunder-\d+\b`) to matching ANY national team (`\bnational\b.*\bteam\b`, still both word-bounded) — per REQ-1203's own acceptance criterion, which has no senior/youth carve-out. Same two read sites, same stateless-static-helper shape, no new dependency or repository method. The non-FIFA-regional-side behavior (e.g. "Basque Country regional football team" stays a valid clue) is unchanged in practice but is now documented as incidental — a side effect of matching on label wording only, with no FIFA-affiliation signal — not a deliberate policy exemption; a non-FIFA side whose label does say "national team" is excluded the same as any FIFA member. See `docs/requirements-document.md` REQ-1203's matching 2026-08-10 status note for the full write-up and §6.2b below for the corresponding data-flow wording fix. See `docs/requirements-document.md` §4.12 (REQ-1201 onward) | `XGArcade.Games.XGPath` (scaffolded S-080; puzzle generation S-081; clue reveal/guess submission/attempt cap S-082; scoring strategy S-083; round-scheduling wiring S-084; direct career-stint fetch 2026-08-02, ADR-0054; benefits from the ADR-0055 prefetch below without any COMP-11 code change — `GetEligiblePlayerIdsAsync` still just reads whatever `PlayerCareerStint` rows exist, which the new `prefetch-player-careers` job (COMP-07) can now populate ahead of time, widening the pool `GetEligiblePlayerIdsAsync` already saw; national-team exclusion + familiarity filter, 2026-08-02, ADR-0056; no-repeat target cycling + admin cycle-read endpoint + frontend panel + tests, 2026-08-03, ADR-0058; national-team read-time filter — youth-only 2026-08-08, broadened to any national team 2026-08-10) |
+| COMP-05 | Games.XGGrid | Grid generation, category logic (Country/Club/Trophy, REQ-107/REQ-108), `IGameModule` implementation for the xG Grid game. Also owns `PlayerCacheWarmingService` (REQ-110, S-036) — proactively warms COMP-06's cache for every reference Country×Club/Club×Club pair; not yet extended to Trophy pairs. **Status update (2026-08-09, ADR-0061):** this gap is no longer harmless — Country×Trophy and Club×Trophy became reachable/selectable in production once `ReferenceDataSeeder` grew the trophy pool to three (REQ-108's status note), so a Trophy-involving grid generation can now hit a cold cache with no proactive warming behind it; `GenerateInstanceAsync`'s own generation-time live-lookup fallback (REQ-101/REQ-103) still covers a cold cell correctly, so this is a possible latency/reliability gap on first-touch Trophy pairings, not a correctness one — flagged here as unresolved, not fixed in this change, run as its own CLI verb rather than an HTTP endpoint (ADR-0024). **Extended 2026-07-28 (REQ-110, ADR-0050):** `WarmAsync` now also skips a pair COMP-06 reports as `IsConfirmedLowAsync` (a prior run's persisted "checked, genuinely below `MinValidAnswers`" signal — see COMP-06's own row below), requests COMP-07's new cache-warming-only query-timeout tier on every live lookup, and retries a technical failure once within the same run (`LookupWithSameRunRetryAsync`) before counting it in the run summary's `PairsWithTechnicalFailure`/`FailingPairs`. **Extended 2026-08-01 (REQ-110, ADR-0052) — supersedes the same-run retry above:** the retry doubled every technical failure's cost and did nothing for a structural (rather than transient) failure — see NOTES.md's 2026-08-01 entry for the incident. `LookupWithSameRunRetryAsync` is removed; each pair is attempted exactly once per run. A pair also now skips (without any live query) once COMP-06 reports `IsPersistentTechnicalFailureAsync` true (2+ consecutive RUN-level failures, `PersistentFailureThreshold`), and a pair's failure marker is cleared (`ClearTechnicalFailureAsync`) the moment it gets a real answer. Still reaches COMP-06 only through `IPlayerStoreRepository` (`IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/`IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`) — boundary rule 1 unaffected | `XGArcade.Games.XGGrid` |
+| COMP-06 | Data.PlayerStore | PlayerData, PlayerOverride, PlayerAttribute, PlayerAlias; override-merge logic — see ADR-0015 for the exact precedence semantics (`HasEffectiveAttributeAsync`: an override replaces its entire attribute type for correctness-checking, not one value within it). `PlayerAlias` (known nicknames/stage names) is populated incrementally alongside `PlayerAttribute` — e.g. from Wikidata's `skos:altLabel`, fetched in the same intersection query as REQ-103's live lookup (S-006) — not bulk-imported like COMP-10's index; not yet queried for guess-time name matching either (REQ-208's Tier 0 status note). As of S-012, `XGArcade.Api.Admin.AdminEndpoints` is a second caller alongside the guess-submission path, reaching PlayerData/PlayerOverride only through `IPlayerStoreRepository`, same as any other caller — no new data-access path. **Built S-079 (ADR-0042):** `PlayerCareerStint` (ordered, dated career stints with an optional appearance count) is a new entity alongside the three above, populated from the same `P54` fetch as `PlayerAttribute`'s "club" rows — specifically only by `WikidataLookupService.LookupAndPersistAsync` (the country/nationality × club path); the other three `Lookup*Async` callers (club-club, trophy-country, trophy-club) deliberately do not populate it yet, a scoped decision made in S-079, not an oversight, and one a future story may extend. `SequenceOrder` is resolved at write time across a player's full stint set (existing rows plus any newly discovered), so a stint found later that chronologically precedes existing ones re-numbers the whole sequence; `AppearanceCount` is null (never `0`) when Wikidata's P1350 qualifier isn't present. **S-081 addition:** `IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync` is a new bulk read (every player's full stint set, grouped by `PlayerId`, in one query) — COMP-11's puzzle-generation eligibility check (REQ-1201) is its only caller, same "tolerate a full-table-scale read at Tier 0's player-pool size" precedent `GetPlayersMissingPhotoAsync` already establishes. Read only by COMP-11 (xG Path) — never by xG Grid's correctness path, and never merged with `PlayerAttribute` itself. **Superseded 2026-08-03 (perf fix):** removed once `PlayerCareerStint` grew past the "few thousand rows" assumption this precedent relied on (~608K rows via ADR-0055's prefetch job). Replaced by two narrower COMP-06 methods COMP-11 calls in sequence: `GetCareerStintCandidatePlayerIdsAsync` (a `(PlayerId, ClubName)`-only read, narrows to a provable superset of REQ-1201's real candidates) and the pre-existing `GetCareerStintsByPlayerIdsAsync` (full data, only for that narrowed set). Same "COMP-11 only, never xG Grid, never merged with `PlayerAttribute`" boundary as before — this is a read-shape change, not a new access path. **S-082 addition (REQ-1207):** `Player.Position`/`Player.BirthYear` are two new nullable scalar columns on `Player` itself (not `PlayerAttribute` rows — neither value has club-style multiplicity), sourced from Wikidata's P413/P569 riding the same five intersection queries that already resolve `FullName`/`WikidataQid`/`PhotoUrl`, set once at player creation and never re-synced, same rule as `PhotoUrl`. Read only by COMP-11's clue-reveal sequence (REQ-1203) — no other caller. **Extended 2026-07-28 (REQ-110, ADR-0050):** `ConfirmedLowMatchPair` is a new entity/table, a composite-key (`FirstAttributeType`/`FirstAttributeValue`/`SecondAttributeType`/`SecondAttributeValue`) marker recording that COMP-05's cache warming already confirmed a pair genuinely below `MinValidAnswers`, deliberately with no FK into `Player` (the zero-match case it mainly exists for has none). Reachable only via two new `IPlayerStoreRepository` methods, `IsConfirmedLowAsync`/`RecordConfirmedLowAsync` — never a direct `DbContext` query from `Games.XGGrid`, same boundary-rule-1 discipline as every other COMP-06 read. Invalidated (deleted) by `StaleClubAttributeCleaner` (REQ-111) and the `purge-player-pool` CLI verb (REQ-112/S-038) alongside the `PlayerAttribute`/`PlayerData` rows they already clear — see ADR-0050 for the full "why a new table, not a column" reasoning and the invalidation invariant. Deliberately **not** added to `infra/scripts/lib/game-data-tables.sh`'s prod/dev sync allowlist (ADR-0009) — it is derived, environment-specific cache-warming process state, not an objective Wikidata fact. **Extended 2026-08-01 (REQ-110, ADR-0052):** `PairLookupFailure` is a second new entity/table, same composite-key shape and invalidation surface as `ConfirmedLowMatchPair` above but a different kind of fact — an operational record of this codebase's own query reliability against a pair (resettable, not an objective Wikidata fact), tracking `ConsecutiveFailureCount` across separate cache-warming runs. Reachable only via three new `IPlayerStoreRepository` methods, `IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`. Same "not eligible for the prod/dev sync allowlist" reasoning as `ConfirmedLowMatchPair` — see ADR-0052. **Extended 2026-08-01 (live-incident follow-up to ADR-0052):** a second, narrower invalidation path — `PairLookupFailureCleaner` (`XGArcade.Data.Seeding`) and its `clear-pair-lookup-failures` CLI verb — clears only `PairLookupFailure` rows already at/above `PersistentFailureThreshold`, touching no other table; added after a real run left 125 Club×Club pairs stuck across all 32 seeded clubs, where `StaleClubAttributeCleaner`'s club-name scope would have wiped ~850 other pairs' good cached data along with them. `StaleClubAttributeCleaner`/`purge-player-pool` remain the tools for a QID/query-shape correction (their own broader scope is intentional there); this one is for clearing the failure marker alone. **Built S-089 (REQ-215, ADR-0053):** `PlayerSuggestion` (a submitting user's claim that a named player satisfies a specific cell — asserted club(s)/nationality, `SubmittingUserId`, originating `CellId`/`RoundId`/`RowCategoryType`/`ColCategoryType`, `Status` pending/committed/rejected) and its child table `PlayerSuggestionClub` (one row per asserted club) are new entities, persisted in `XGArcade.Data` alongside `PlayerData`/`PlayerOverride`/`PlayerAttribute` per ADR-0053's "COMP-01-adjacent, filed under COMP-06's data project" placement — reached only via `IPlayerSuggestionRepository`/`PlayerSuggestionRepository` (`AddAsync`, submission-only as of S-089). Deliberately never read by `HasEffectiveAttributeAsync` or any other correctness-checking path, and never written to by `PlayerNameIndex`/COMP-10 — a `PlayerSuggestion` is a pending human claim, not player data, until an admin commit writes through the existing `PlayerAttribute`/`PlayerOverride` mechanism, per ADR-0053/ADR-0007. **Built 2026-08-08 (REQ-509/REQ-510, S-090):** `PlayerSuggestion` gains two new nullable audit fields, `ResolvedByAdminId`/`ResolvedAt`, set together by a new `IPlayerSuggestionRepository.ResolveAsync` (alongside new `GetPendingAsync`/`GetByIdAsync` reads) the moment `Status` moves off `Pending` to `Committed` or `Rejected` — covering both outcomes under one mechanism, since the club write path below has no audit columns of its own. New admin endpoints (`XGArcade.Api.Admin.AdminSuggestionEndpoints`, `"Admin"`-policy-gated, deliberately its own file/route group per ADR-0053, never folded into `AdminEndpoints.cs`'s REQ-501/502/503 scope) list pending suggestions, trigger a live Wikidata lookup for a suggestion's own player name via a new `IWikidataClient.QueryPlayerCareerAndNationalityByNameAsync` (COMP-07 — an always-throw-on-failure contract, not the `throwOnTimeout` param pattern the older intersection queries use, since this single-purpose admin lookup has no "never block" caller; ADR-0046's timeout-vs-no-match distinction still applies, surfaced as HTTP 503), and commit or reject. Commit's write path splits by field cardinality — see ADR-0060 for the full reasoning: nationality (single-valued) via `PlayerOverride` upsert, club(s) (multi-valued) via additive `PlayerAttribute` rows, skipping any club already effective per `HasEffectiveAttributeAsync`. REQ-510's standalone manual search-and-add (`POST /admin/player-search/lookup`/`commit`) reuses the identical `LookupPlayerAsync`/`CommitPlayerDataAsync` helpers — a variant entry point per ADR-0053, not a third code path — and never reads, creates, or touches a `PlayerSuggestion` row. Frontend: a new, separate `frontend/src/admin/SuggestionsScreen.tsx` (ADR-0053 — never merged into `AdminScreen.tsx`'s REQ-503 queue), reachable only via a nav link from within `AdminScreen.tsx` itself, matching REQ-504's existing "no independent top-level nav entry" precedent | `XGArcade.Data` |
+| COMP-07 | DataSync.Clients | Wikidata/API-Football clients, live-lookup fallback. As of REQ-114/ADR-0035 (S-066), `IWikidataClient`/`WikidataLookupService` dispatch a Country×Club query through one of two query-property paths — `P27` (citizenship, every ordinary country) or `P1532` ("country for sport", the four home nations) — chosen from a flag on the `CountryDefinition` row passed in, never a second category type; see COMP-05/COMP-06's own status note below and ADR-0035 for the full design. **Extended 2026-07-28 (REQ-110, ADR-0050):** `WikidataClient.RunIntersectionQueryAsync`'s per-call timeout is now selected by a `WikidataQueryTimeoutTier` enum (`Default`/`CacheWarming`), not `throwOnTimeout` alone — `Default` preserves the existing two-way split exactly (`throwOnTimeout: false` → round generation's 15s, REQ-103; `throwOnTimeout: true` → the guess-time fallback's 28s, ADR-0046); `CacheWarming` (always paired with `throwOnTimeout: false`) is a third, 45s budget requested only by COMP-05's `PlayerCacheWarmingService`, justified by the same ADR-0011 9-27s WDQS evidence `_guessTimeFallbackQueryTimeout` already leans on, just with a wider margin since nothing is synchronously waiting on a cache-warming run. `IWikidataClient`/`IWikidataLookupService` also gained an optional `onTechnicalFailure` callback so a caller can distinguish a genuine timeout/HTTP/parse-error swallow from a successful-but-empty response, without changing the existing fail-open/swallow-to-`[]` contract for any caller. **Extended 2026-08-01 (REQ-110, ADR-0052):** `BuildClubClubIntersectionQuery` now wraps each club's P54 statement-path match in its own `FILTER EXISTS { }` block instead of a plain join — a plain join's two independently-bound statement variables could multiply result rows by (statements at club A) x (statements at club B) per player, producing a real 250,000+ row WDQS response for two clubs with a large, overlapping squad (see NOTES.md's 2026-08-01 entry). Scoped to this one builder only — `BuildCountryClubIntersectionQuery`/`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery` still need their club statement variable bound in the outer pattern for the shared query footer's career-stint qualifier fetch (ADR-0042/S-079) and cannot use the same trick. Also: `RunIntersectionQueryAsync`'s two per-pair failure logs (timeout, HTTP/parse error) are now `Debug`, not `Warning` — see ADR-0052's log-cleanup note. **Extended 2026-08-02 (ADR-0054/ADR-0055):** two new by-QID/by-nationality query shapes, `QueryPlayerCareerStintsByQidsAsync` (a player's FULL, unrestricted P54 history — no caller-supplied club, unlike every query above) and `QueryPlayerPoolByNationalityAsync` (every eligible player for one seeded country/national-team, the nationality-scoped sibling of `QueryPlayerPoolBirthYearAsync`). Two new services consume them: `PlayerCareerStintRefreshService` (ADR-0054, called by COMP-11 per-round for its own newly-picked targets) and `PlayerCareerPrefetchService` (ADR-0055, a new `prefetch-player-careers` CLI verb that sweeps every seeded `CountryDefinition` row's full pool) — both share one reconciliation helper (`PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`, internal) so their tuple-dedup-against-existing-stints logic can't drift apart. **Bug-bundle fixes 2026-08-02 (REQ-1207/ADR-0056):** (1) every P413 ("position")-fetching query — the five shared `BuildIntersectionQuery`-based builders and the backfill's own `QueryPlayerPositionsAndBirthYearsByQidsAsync` — now requests `?positionLabel` (auto-resolved by the existing/newly-added `SERVICE wikibase:label` block) instead of the raw `?position` binding, which was a bare Wikidata entity URI, never a human-readable string; `ParseBindings`/`ParsePositionBirthYearBindings` read the label field accordingly. (2) a new batched by-QID query, `QuerySitelinkCountsByQidsAsync` (`wikibase:sitelinks`, WDQS's computed sitelink-count predicate — no P-number, not a stored statement), backs the new `PlayerFamiliarityService`/`IPlayerFamiliarityService` (COMP-11's own familiarity filter, ADR-0056) — same VALUES-clause-over-a-bounded-batch shape and throw-on-failure error contract as `QueryPlayerPhotosByQidsAsync`/`QueryPlayerPositionsAndBirthYearsByQidsAsync`. **Bug fix 2026-08-04 (REQ-1203 follow-up, ADR-0059):** `BuildPlayerCareerStintsByQidsQuery`'s SELECT now also projects the underlying `?club` QID (`WikidataCareerStintEntry.ClubQid`) so `PlayerCareerStintRefreshService`/`PlayerCareerPrefetchService` can canonicalize a fetched stint's `ClubName` against COMP-06's seeded `ClubDefinition.Name` by QID rather than by label, fixing a cross-writer duplicate-node bug in COMP-11's clue reveal. `PlayerCareerStintRefreshService` gains a new `ICategoryValueRepository` (COMP-06) constructor dependency for this — `PlayerCareerPrefetchService` already had it (used for `GetCountriesAsync`'s pool scoping); reading COMP-06's reference-data tables (`ClubDefinition`/`CountryDefinition`) from COMP-07 is not a new boundary, just a second call site for the same read pattern §6.1's diagram already documents for COMP-05's candidate selection (ADR-0012). `WikidataClient` itself takes on no such dependency — canonicalization stays one layer up, per this class's own internal layering convention (not a numbered cross-component boundary rule; see ADR-0059's "For AI agents" note) | `XGArcade.DataSync` |
 | COMP-08 | Core.Notifications | Sends product notification emails (round results) via Resend's API; owns notification preferences. Does not handle auth emails — those are Supabase Auth's responsibility, configured with custom SMTP. See ADR-0005 | `XGArcade.Core` |
 | COMP-09 | Testing.SeedManager | Test-data creation/reset/scenario API. Registered only when the environment is not Production — see ADR-0006 | `XGArcade.Api` (conditionally registered), reaches other components' normal write paths, never a separate data path |
 | COMP-10 | Data.PlayerNameIndex | Broad, bulk-imported name/alias index used only for autocomplete and as the candidate pool for name matching (REQ-207/208/209). Deliberately separate from COMP-06's narrow, incrementally-built validation cache, and from COMP-06's own `PlayerAlias` above — see ADR-0007 and boundary rule 5. **Built S-032:** `PlayerNameIndex` entity + `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` live in `XGArcade.Data`; the bulk Wikidata importer (`PlayerNameIndexImporter`) lives in `XGArcade.DataSync` instead, alongside `WikidataLookupService` — `XGArcade.Data` has no project reference to `XGArcade.DataSync`, so a class needing both `IWikidataClient` and `IPlayerNameIndexRepository` can't live in `XGArcade.Data` | `XGArcade.Data` |
@@ -215,6 +217,166 @@ typed only as "opaque submission reference" in practice resolves to a real
 `GridCell` — an accepted v1 simplification, same one
 `implementation-document.md` §5 already documents on the `Guess` entity
 itself.
+
+**COMP-04 status (design only, 2026-07-26, ADR-0040/ADR-0041):** planning
+xG Path (COMP-11) surfaced two hidden xG-Grid-only assumptions inside
+`Core.Scoring`, both scoped as ADRs rather than being folded silently into
+xG Path's own build. First (ADR-0040): `ScoreLockingService` currently
+calls `UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly
+for every game — it will instead resolve an `IScoringStrategy` by
+`Round.GameKey` through a new `IScoringStrategyResolver`, the same
+resolution shape `IGameModuleResolver` already establishes; xG Grid's
+existing formula becomes `UniquenessScoringStrategy` (an extraction, not a
+behavior change), and xG Path gets `ClueEfficiencyScoringStrategy`. Second
+(ADR-0041): `GuessRules.MaxAttemptsPerCell`'s hardcoded `2` becomes a
+per-cell value read through a new `IGameModule` method (mirroring
+`GetCellIdsAsync`'s existing shape) — xG Grid returns `2` unconditionally
+(no behavior change), xG Path returns a fixed `7` for every puzzle
+(REQ-1203, revised 2026-07-27: all of a target's club stints are now
+shown, spread across 3 reveal turns, rather than capping at 5 one-per-clue
+— see `docs/CHANGELOG.md`). Separately, this planning pass also resolved
+the open question the paragraph directly above raises about `Guess.CellId`
+("generalize this when a second game is built"): `XGArcadeDbContext` was
+checked and there is no actual EF Core foreign-key relationship configured
+between `Guess`/`GridCell` today, only the doc comment's conceptual
+coupling — so `Guess.CellId` already works as an opaque per-game cell
+reference for COMP-11 with no schema change needed; the doc-comment
+caveat can be removed once COMP-11 is actually built and confirms this in
+practice.
+
+**COMP-04 status (S-076, ADR-0040 — built, not just designed):** the first
+of the two ADR-0040/ADR-0041 refactors above is now real code, ahead of xG
+Path itself (S-079+). `ScoreLockingService.LockRoundScoresAsync` no longer
+calls `UniquenessCalculator`/`ScoringRules.PointsFromUniqueScore` directly;
+it resolves an `IScoringStrategy` via the new `IScoringStrategyResolver`
+(`Core.Scoring`), keyed by `Round.GameKey`, mirroring
+`IGameModuleResolver`'s resolution shape exactly (interface + a concrete
+resolver taking `IEnumerable<IScoringStrategy>`, throwing
+`InvalidOperationException` for an unregistered `GameKey`). xG Grid's
+existing formula is now `UniquenessScoringStrategy`, a pure wrap of
+`UniquenessCalculator.Calculate` + `ScoringRules.PointsFromUniqueScore` —
+same math, same order of operations, registered in `Program.cs` with
+`GameKey = GridGameModule.XGGridGameKey` supplied at the composition root
+(never hardcoded inside `XGArcade.Core`, same pattern
+`RoundSchedulingOptions.GameKey` already established — ADR-0003).
+`MaterializeUnansweredCellsAsync`'s unanswered-cell penalty is untouched:
+it still runs before any strategy is consulted and stays
+`FinalPoints = MaxPointsPerCell`/`FinalUniquenessScore = null`,
+strategy-agnostic. This is a pure extraction — every existing REQ-204/205
+acceptance criterion still holds for xG Grid unchanged.
+
+**COMP-04 status (S-077, ADR-0041 — built, not just designed):** the second
+of the two ADR-0040/ADR-0041 refactors above is now real code too, ahead of
+xG Path itself (S-079+). `IGameModule` gained
+`Task<int> GetMaxAttemptsForCellAsync(Guid instanceId, Guid cellId, CancellationToken)`,
+resolved through `IGameModuleResolver` the same way `GetCellIdsAsync`
+already is. `GridGameModule`'s implementation returns `2` unconditionally
+for every cell — no repository lookup, no branching on `instanceId` or
+`cellId` — deliberately identical to the behavior it replaces. The old
+`GuessRules.MaxAttemptsPerCell` global constant no longer exists.
+`GuessSubmissionService` (REQ-210's lock/cap check),
+`LiveRoundContributionService` (the locked-incorrect live-contribution
+branch), and `RoundEndpoints` (`GET /rounds/current`'s `Locked` field on
+each cell's guess) all now read the cap through the module instead of the
+deleted constant. This is a pure extraction — every existing REQ-210 acceptance
+criterion still holds for xG Grid unchanged; new tests cover
+`GridGameModule.GetMaxAttemptsForCellAsync` directly plus call-count
+assertions on `GuessSubmissionService`/`LiveRoundContributionService`'s
+resolution of it.
+
+**COMP-05/COMP-11 status (S-089, REQ-215 — new `IGameModule` method,
+architecture-review fix applied same session):** `IGameModule` gained a
+fourth method, `Task<CellCategoryTypes> GetCellCategoryTypesAsync(Guid
+instanceId, Guid cellId, CancellationToken)`, mirroring
+`GetCellIdsAsync`/`GetMaxAttemptsForCellAsync`'s existing shape —
+resolved through `IGameModuleResolver` by `Round.GameKey`, never called
+directly. Its only caller is the new `XGArcade.Api.Suggestions
+.SuggestionEndpoints` (`POST /rounds/{roundId}/cells/{cellId}/suggestions`,
+REQ-215), which needs a cell's authoritative row/col category types to
+persist on a submitted `PlayerSuggestion` row without trusting the
+client for them. `GridGameModule` (COMP-05) implements it as a plain
+`IGridInstanceRepository.GetCellByIdAsync` read, throwing
+`GuessScoringException` (a `GameEntityNotFoundException`) for an unknown
+cell — no new repository method. `XGPathGameModule` (COMP-11) implements
+it by throwing `NotSupportedException` unconditionally: xG Path's
+`PathPuzzle` has a single fixed `TargetPlayerId`, not two independent
+category axes, so there is genuinely nothing to return — the same
+"flag it, don't fabricate a value" discipline this interface's other
+per-game judgment calls already follow. REQ-215's frontend does not wire
+a suggestion entry point up for `GameKey = "xg-path"` at all, so this path
+is unreachable today; a known, accepted, non-blocking gap (flagged by
+architecture-reviewer, not fixed) is that reaching it would currently
+surface ASP.NET's bare default `500` rather than a deliberate
+`ProblemDetails` response, since `SuggestionEndpoints` has no catch clause
+for `NotSupportedException`. **Architecture-review fix applied
+same-session:** the original S-089 commit resolved a cell's category
+types via a direct `IGridInstanceRepository`/`GridCell` read from
+`SuggestionEndpoints.cs` itself — a boundary rule 2 violation (an
+Api-layer file reaching into COMP-05's game-specific entity directly
+instead of going through `IGameModule`, ADR-0003). `architecture-reviewer`
+caught this before merge; the fix (routing through the new
+`GetCellCategoryTypesAsync` method instead) is what's described above and
+is what actually shipped. No architecture-doc pass happened when REQ-215
+was first built, which is why this note — and the `PlayerSuggestion`/
+`PlayerSuggestionClub` note on COMP-06's row below — are both being added
+only now, as part of doc-sync, not at the time of the original commit.
+
+**COMP-04 status (S-083, ADR-0040/ADR-0049 — xG Path's own strategy now
+built):** the `ClueEfficiencyScoringStrategy` xG Path's own COMP-11 status
+note above named as still owed is now real code, resolving ADR-0040's own
+deferred follow-up ("the exact parameter shape is an implementation detail
+... not fixed by this ADR") via the new ADR-0049. `IScoringStrategy
+.ScoreCorrectGuess`'s signature changed from
+`(IReadOnlyCollection<Guess> correctGuessesForCell, Guid myAnswerPlayerId)`
+to `(Guess guess, IReadOnlyCollection<Guess> correctGuessesForCell, int
+maxAttemptsForCell)` — `guess` (the correct `Guess` row being scored)
+replaces the bare `myAnswerPlayerId`, and `maxAttemptsForCell` is new,
+resolved once per cell (not once per guess) by `ScoreLockingService` itself
+via the existing `IGameModule.GetMaxAttemptsForCellAsync` (ADR-0041) before
+either strategy is invoked. `UniquenessScoringStrategy` was adapted to the
+new signature with no formula/behavior change (it still reads
+`guess.PlayerAnswerId` where it used to read the bare parameter, and still
+ignores `maxAttemptsForCell` entirely — xG Grid's attempt cap has no
+bearing on REQ-204/205's formula). `ClueEfficiencyScoringStrategy`
+(`XGArcade.Core.Scoring`) reads `cluesUsed` directly off `guess
+.AttemptCount` (no new `Guess` column — `XGPathGameModule`/
+`GuessSubmissionService`'s one-row-per-cell, increment-per-submission
+behavior already makes a winning guess's `AttemptCount` equal its
+clue-reveal count) and ignores `correctGuessesForCell` entirely (no
+uniqueness concept). Registered against `GameKey =
+XGPathGameModule.XGPathGameKey` in `Program.cs`, mirroring
+`UniquenessScoringStrategy`'s own `"xg-grid"` registration — `Core.Scoring`
+gains no new dependency on `Core.Games`/`IGameModule` from either strategy
+itself; `ScoreLockingService` is the only caller of
+`GetMaxAttemptsForCellAsync` in this flow. See ADR-0049 for the full
+alternatives considered (notably: why `IScoringStrategy` itself was not
+given a direct `IGameModule` dependency instead).
+
+**COMP-04/COMP-11 status (2026-08-08, REQ-1206):** `GET /path/current`
+(`XGArcade.Api.Path.PathEndpoints`, COMP-11's own read-only display
+endpoint) now also resolves `IScoringStrategyResolver` (COMP-04) once per
+request — the first caller of that resolver other than `ScoreLockingService`
+itself, reached the same way `GetMaxAttemptsForCellAsync` above is already
+reached from this same handler: resolve-by-`GameKey` from the Api layer,
+same `IGameModuleResolver`-from-Api-layer shape ADR-0016 already
+established, just via a different per-`GameKey` resolver interface for the
+first time. Backs a new `Points` field (`int?`) on
+`CurrentPathGuessResponse`, non-null only when `Locked` is true — computed
+per puzzle by calling the real, already-registered
+`ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly on a correct
+guess (never a reimplemented copy of its rounding formula), or reading
+`ScoringRules.MaxPointsPerCell` directly for a locked-but-unsolved puzzle
+(the strategy is "only ever invoked for a correct guess," mirroring
+`ScoreLockingService.LockRoundScoresAsync`'s own `!guess.IsCorrect` branch,
+ADR-0021, rather than calling the strategy with a guess shape it doesn't
+support). Both branches reproduce `ScoreLockingService`'s own scoring shape
+exactly, so the value returned is arithmetically identical to what that
+service will separately persist as `FinalPoints` once the round closes —
+this is a new call site for an existing formula, not a formula change, so
+no new ADR. `Core.Scoring` (COMP-04) itself gains no new dependency and no
+behavior change; `ClueEfficiencyScoringStrategy`/`IScoringStrategyResolver`
+are unchanged. See §6.2b below for the extended data-flow diagram and
+`docs/requirements-document.md` REQ-1206's matching 2026-08-08 status note.
 
 **COMP-02 status (S-011):** `ILeaderboardService`/`LeaderboardService`
 (`XGArcade.Core.Leagues`) is COMP-02's first real code — REQ-401's
@@ -305,6 +467,82 @@ above: REQ-405 keeps its own plain-sum-within-the-window ranking, since
 across all history" are different questions with different natural
 formulas.
 
+**COMP-02 status (2026-07-27, S-078, ADR-0043):** planning xG Path's
+platform integration (not just its own game logic, COMP-11) found that
+three of `ILeaderboardService`'s four scopes were already `GameKey`-scoped
+(`GetActiveRoundLeaderboardAsync` via the specific `Round` passed in;
+`GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`/
+`GetWindowedLeaderboardAsync` via an explicit `gameKey` parameter,
+S-054/S-027 above) — only `GetGlobalLeaderboardAsync` (REQ-409's all-time
+median) was not, silently blending every game's rounds into one ranking.
+ADR-0043 closed that one remaining gap: `GetGlobalLeaderboardAsync` and
+`IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` both gained a
+required `gameKey` parameter (the latter's existing `Guess`-`Round` join
+just gained a `round.GameKey == gameKey` filter, no schema change). `League`
+membership itself is untouched — one Global League, auto-joined at signup
+(REQ-401) — only which game's rounds count toward the *ranking* is now an
+explicit parameter, consistent with the other three scopes. See
+`docs/requirements-document.md` §4.4 for the corresponding REQ (REQ-410).
+`LeaderboardEndpoints` (the Api/outer-composition layer) passes
+`GridGameModule.XGGridGameKey` explicitly, same convention as the other
+three scopes' routes — xG Grid is still the only shipped game, so behavior
+is unchanged in practice; the frontend game-switcher UI this eventually
+needs (SCREEN-03) is a separate, not-yet-built follow-up (S-087).
+
+**COMP-02/COMP-05/COMP-11 status (2026-08-02, S-087):** the follow-up
+above landed. `LeaderboardEndpoints` no longer hardcodes
+`GridGameModule.XGGridGameKey` — every route above except the single-round
+`/closed-rounds/{roundId:guid}` one (which resolves by `roundId` alone,
+already uniquely determining the round's game) now accepts an optional
+`gameKey` query parameter, validated against the two known `GameKey`s via
+a `ValidateGameKey` helper that mirrors `InternalRoundEndpoints.cs`'s
+existing inline-tuple-check pattern (400 "Invalid gameKey" on anything
+else), defaulting to `GridGameModule.XGGridGameKey` when omitted so any
+caller that hasn't been updated keeps its prior behavior. `Core.Leagues`
+itself is untouched — the new validation stays in the Api layer, same
+ADR-0003 reasoning as every other `GameKey`-shaped Api-layer check in this
+codebase. `LeaderboardScreen.tsx` (frontend) gained the game-switcher tab
+row SCREEN-03 describes, sitting above the existing scope-tab row, reusing
+`GameSelectScreen.tsx`'s `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` constants
+rather than duplicating them. See `docs/backlog.md` S-087's "Built as" for
+the full implementation and `docs/requirements-document.md` REQ-410's
+matching 2026-08-02 status note.
+
+**COMP-04/COMP-05 status (2026-08-03, S-094, REQ-216/ADR-0057):** `IGameModule`
+gained a fifth method, `Task<WrongGuessPlayerInfo?> ResolveWrongGuessPlayerAsync
+(Guid instanceId, string submittedName, CancellationToken)`
+(`XGArcade.Core.Games`), resolved through `IGameModuleResolver` the same way
+`GetCellCategoryTypesAsync`/`GetMaxAttemptsForCellAsync` already are.
+`GuessSubmissionService` (COMP-04) calls it exactly once per cell, only after
+it has already determined the cell just locked with its final guess still
+incorrect — a new, distinct live-lookup trigger from REQ-211's existing
+correctness-fallback one, deliberately Wikidata-only with no API-Football
+fallback and no `ExternalApiUsage` threshold gate, since this resolves a
+cosmetic display value (the guessed player's canonical name/photo for the
+locked, red-bordered cell), not a correctness verdict — see ADR-0057 for the
+full reasoning. `GridGameModule`'s implementation (COMP-05) is cache-first:
+it first requires `IPlayerNameIndexRepository.FindByNormalizedNameAsync`
+(COMP-10, ADR-0007) to confirm the submitted string names a real player at
+all — returning `null` (REQ-216's "no identity to show" case) if it doesn't,
+so this trigger never fires for a guess matching no real player — then
+prefers any `Player`/`PlayerAttribute` data already cached from resolving some
+other cell's answer key (`IPlayerStoreRepository`, by normalized full name
+then alias, same order `FindMatchAsync` already uses), and only falls back to
+a live `WikidataClient.QueryPlayerPhotoByNameAsync` call when nothing is
+cached, swallowing any failure (timeout/HTTP/parse error) to show the name
+index's own name with no photo rather than failing closed — there is no
+correctness outcome left to compute for a guess already known to be wrong.
+Two new nullable columns, `Guess.MatchedPlayerName`/`Guess.MatchedPlayerPhotoUrl`,
+persist this result in the same write as the locking guess, never batched.
+`XGPathGameModule` (COMP-11) implements the method by returning `null`
+unconditionally — not because xG Path lacks the concept (a wrong-but-real
+guess against a `PathPuzzle` is just as real a case as against a `GridCell`),
+but because `docs/backlog.md` S-094 scoped this feature to xG Grid only;
+`GuessSubmissionService`'s existing null-means-no-identity handling already
+makes this a no-op for xG Path, leaving its incorrect-guess display
+unaffected. See `docs/requirements-document.md` REQ-216 and ADR-0057 for the
+full requirement/decision.
+
 **COMP-01 status (S-017):** `User.NormalizedDisplayName` is COMP-01's first
 uniqueness-enforcement logic (REQ-701) — a case-insensitive unique index
 (`XGArcadeDbContext`) backing `IUserRepository.DisplayNameExistsAsync`'s
@@ -366,6 +604,52 @@ a claimed account's pre-claim rounds — every other query/service
 "For AI agents" instruction that a guest must never gain a second,
 guest-aware code path anywhere else.
 
+**COMP-01 status (S-072, 2026-07-25, REQ-718/ADR-0038):** guest account
+lifecycle cleanup added a third `User` column, `LastActiveAt` (non-nullable
+`DateTime`, migration `20260725120000_AddUserLastActiveAt`) — updated on
+exactly four events (login, guest provisioning, claim, a submitted guess)
+with no `IsGuest` branch in any of those write paths, the same discipline
+the S-069 status note above already established for `IsGuest` itself. Two
+new `IUserRepository` queries
+(`GetUnclaimedGuestsOlderThanAsync`/`GetInactiveGuestsOlderThanAsync`) are
+the *only* other place `IsGuest`/`LastActiveAt` are consulted for this
+feature — inside the new `/internal/purge-guest-accounts` endpoint
+(`XGArcade.Api.Auth.InternalGuestCleanupEndpoints`, see §6.10), never inside
+REQ-201-210/204/406/407/408. A new `POST /auth/logout`
+(`AuthController.Logout`) is this system's first backend logout call at
+all — REQ-715's logout was, until now, entirely client-side. Both the new
+endpoint and the scheduled job call the exact same
+`IAccountDeletionService.DeleteAccountAsync` (COMP-01, S-025) REQ-710's
+self-service deletion and S-026's admin deletion already use — a fourth and
+fifth caller, never a second implementation. The existing
+`/internal/generate-round` bearer-token check
+(`InternalRoundEndpoints.IsAuthorized`) was extracted into a shared
+`XGArcade.Api.Internal.InternalJobAuthorization` helper so this second
+bearer-token-gated `/internal/*` endpoint doesn't hand-duplicate it.
+
+**COMP-01 status (S-073, 2026-07-25, REQ-507/508):** a new
+`XGArcade.Api.Admin.AdminAccountsEndpoints` (`GET
+/admin/accounts/metrics`, `GET /admin/accounts/guests/count`, `POST
+/admin/accounts/guests/clear`) adds four new read-only `IUserRepository`
+methods — `CountUsersAsync`, `CountGuestsAsync`, `CountClaimedGuestsAsync`,
+`GetAllGuestIdsAsync` — all reached the same way every other
+`IUserRepository` caller is, no new data-access path. Unlike
+`AdminManagementEndpoints` (REQ-505/506, S-026), this file is registered
+unconditionally, including Production — see the file's own doc comment
+and each REQ's "Scope note"/environment acceptance criterion for why: both
+REQs act on real account data as their stated purpose, not on seeded/test
+data. `GetAllGuestIdsAsync` is a deliberately separate, unfiltered query
+from S-072's `GetUnclaimedGuestsOlderThanAsync`/
+`GetInactiveGuestsOlderThanAsync` above — REQ-508's own scope note
+requires no age/inactivity filter, so it is not built by relaxing those
+two queries. The bulk "clear" action is a further caller of
+`IAccountDeletionService.DeleteAccountAsync` (§6.8) — the same
+anonymize-and-keep mechanism REQ-710/REQ-506/REQ-718 already use, no new
+deletion implementation. `AccountDeletionService` gained a public
+`UserNotFoundErrorMessage` const (no behavior change) so this new caller
+can distinguish a "no longer exists" outcome from any other failure
+without a second existence check.
+
 **Boundary rule 1 (data access):** COMP-05 (and any future game module) may
 only reach player data through COMP-06's public interface. It must never
 query `PlayerData`/`PlayerOverride` directly — this keeps the
@@ -397,9 +681,19 @@ players still persist under the same `PlayerAttribute.AttributeType =
 is `GridGameModule`'s internal `CategoryCandidate` struct carrying the flag
 from generation through to COMP-07's dispatch call, so the decision is made
 in exactly one place rather than re-derived per candidate — see ADR-0035
-for the full rationale, alternatives considered, and the one known follow-up
-gap (Country×Trophy doesn't yet honor the flag, currently unreachable in
-production).
+for the full rationale and alternatives considered.
+**Follow-up resolved (2026-08-09, ADR-0061):** ADR-0035's own follow-up
+gap — Country×Trophy not yet honoring `UsesCountryForSportProperty` — is
+now closed. `CategoryCandidate` also gained `IsTeamTrophy` (mirroring
+`UsesCountryForSportProperty`'s threading pattern exactly) so
+`WikidataLookupService.LookupAndPersistTrophyCountryAsync`/
+`LookupAndPersistTrophyClubAsync` can dispatch between the individual-award
+(`P166`) and team-competition (`P1344`/`P3450`/`P1346` join) query shapes.
+This was no longer purely theoretical follow-up work by the time it
+shipped: `ReferenceDataSeeder` grew the trophy pool from one to three in
+the same story, which is what made Country×Trophy reachable in production
+for the first time — see ADR-0061 for the full query-shape decision and
+REQ-108's status note for the production consequence.
 
 **Boundary rule 2 (Round genericity):** `Core.Rounds` (COMP-03) must never
 hold a foreign key to a game-specific entity such as `GridInstance`. A
@@ -505,6 +799,31 @@ at all outside non-Production" pattern — until now that pattern only
 gated `XGArcade.Testing`/`InternalRoundEndpoints` (COMP-09); its scope of
 use has grown, not its shape (see §7's Authorization row).
 
+**COMP-03 status (S-084, ADR-0051):** the shape described above (one
+`RoundSchedulingOptions`, one `GameKey`, resolved directly into
+`RoundGenerationService`) was single-`GameKey` only until this story.
+`RoundGenerationService.GenerateNextRoundIfNeededAsync` now takes a leading
+`gameKey` parameter and resolves the right `RoundSchedulingOptions` via a
+new `IRoundSchedulingOptionsResolver` (mirroring `IScoringStrategyResolver`'s
+per-`GameKey` resolution shape, ADR-0040) rather than a directly-injected
+singleton; two instances are now registered (`"xg-grid"`, `"xg-path"`),
+each with its own independently-configured `RoundDuration`.
+`/internal/generate-round` stays **one** endpoint, gaining an optional
+`gameKey` query parameter (defaulting to `"xg-grid"` for back-compat with
+any caller that omits it) — its own `gameKey switch`, dispatching narrowly
+to either `GridTemplateResolver` or the new `PathTemplateResolver`
+(`XGArcade.Api.Path`) to produce the round's opaque `TemplateId`, is the
+*only* place in the handler that branches on `GameKey`; auth, the
+`roundDurationHours` floor validation, and the response/error shape (an
+unrecognized `gameKey` now returns 400, a quality-gate follow-up correcting
+an initial 500) all stay generic. `generate-round.yml`'s single daily cron
+now triggers this endpoint once per `GameKey` (each with its own
+independent retry loop) rather than a second scheduled job. See ADR-0051
+for the full decision, alternatives considered, and why `GridSize`/the new
+`PuzzleCount` moved onto each game's own generation-options class
+(`GridGenerationOptions`/`PathGenerationOptions`) instead of staying on
+`RoundSchedulingOptions`.
+
 Two things from the S-007-era version of this note did **not** resolve the
 way that note predicted:
 
@@ -545,11 +864,13 @@ REQ-107's Country×Country ban is enforced by
 `CategoryPairingRules.IsAllowedPairing`, checked once per `PickHeadersAsync`
 call (invariant for that call, since every candidate in one call shares the
 same two category types) — not by a fixed-axis assumption baked into the
-code. **Load-bearing caveat (REQ-108's status note has the full detail):**
-with only one trophy seeded in production, every Trophy pairing is
-structurally infeasible for any realistic grid size, so Trophy is
-mechanically wired up but not yet actually selectable — this becomes live
-only once more trophies are added as reference data.
+code. **Load-bearing caveat, updated (2026-08-09, ADR-0061; REQ-108's
+status note has the full detail):** `ReferenceDataSeeder` now seeds three
+trophies (Ballon d'Or, FIFA World Cup, UEFA Champions League), which clears
+`Size` for the default `GridSize = 3` — Country×Trophy and Club×Trophy are
+now REACHABLE and actually selectable in production, not just mechanically
+wired up. Trophy×Trophy still needs `trophyCount >= Size × 2 = 6` and
+remains structurally infeasible until the trophy pool grows further.
 
 **Explicit rule, not just implied by the diagram below:** every live
 lookup this round's cells will ever need to reach `MinValidAnswers` happens
@@ -622,6 +943,12 @@ deliberate per `MVP-SCOPE.md`, not bugs:
 - **The `Data.PlayerNameIndex`/autocomplete leg is now built (S-032,
   ADR-0007, pulled forward from Tier 1 by deliberate choice).** COMP-10
   exists: `PlayerNameIndex` (keyed on `PlayerId`, `HasIndex(NormalizedName)`),
+  plus (as of REQ-208's 2026-07-26 correction, ADR-0044) a child table
+  `PlayerNameIndexWord` (`PlayerId`, `Word` — one row per space-separated
+  word in `NormalizedName`, `HasIndex(Word)`) so `SearchByPrefixAsync` can
+  match a surname-only query, not just a prefix of the whole stored name —
+  both still plain, index-backed `StartsWith` scans, never a
+  leading-wildcard/`Contains()` match at this table's bulk-imported scale.
   `IPlayerNameIndexRepository`/`PlayerNameIndexRepository` (a repository
   deliberately separate from COMP-06's `IPlayerStoreRepository` — never
   merged, per boundary rule 5), and `GET /players/autocomplete?query=&limit=`
@@ -654,7 +981,18 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   `Games.XGGrid` is ever called at all — `Games.XGGrid` is only reached
   once REQ-210's checks have already passed. Matches the acceptance
   criteria's substance ("checked before any name resolution work"), just
-  not this diagram's component attribution.
+  not this diagram's component attribution. **S-077/ADR-0041 addendum
+  (2026-07-26):** since S-077, `GuessSubmissionService` *does* call into
+  `Games.XGGrid` before that rejection decision — `IGameModule
+  .GetMaxAttemptsForCellAsync(instanceId, cellId)`, resolved through
+  `IGameModuleResolver` to read this cell's own attempt cap. This is not
+  the exception the paragraph above is about (`ScoreSubmissionAsync`, the
+  name-resolution call, still only runs after every REQ-210 check passes)
+  — `GetMaxAttemptsForCellAsync` is a narrow, side-effect-free read of a
+  per-cell configuration value, not name-resolution work. The rejection
+  *decision* itself is still made entirely in `GuessSubmissionService`;
+  `Games.XGGrid` only answers "what's this cell's cap," never "should this
+  guess be rejected."
 - Name resolution is real but much narrower than described: `normalize +
   alias + fuzzy match against Data.PlayerNameIndex (REQ-208)` should read
   "normalize (lowercase/diacritics/punctuation only) and look up exact
@@ -682,17 +1020,44 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   (`GetMatchCountAsync`), so the call sites can't drift on which pairings
   are handled; Trophy×Trophy has no dedicated persist method (unreachable
   in production anyway, see REQ-108's status note) and, like any other
-  unhandled pairing, fails closed rather than throwing. This differs from the diagram's full shape in
-  one deliberate way: the trigger is "cached data didn't resolve this
-  guess," not "guess matched a `Data.PlayerNameIndex` candidate" — even
-  though `PlayerNameIndex`/COMP-10 (REQ-207) is now built (S-032), REQ-211's
-  guess-time live-lookup trigger does not consult it yet (that wiring is
-  REQ-208/209's still-deferred candidate-resolution step, not this story's
-  scope), and ADR-0018 explains why Tier 0 doesn't need it as a prerequisite
-  here (Wikidata has no scarce daily budget to protect, unlike
-  API-Football). There is still no API-Football fallback leg or
-  `ExternalApiUsage` budget-gating for this call site, same as REQ-103's
-  status.
+  unhandled pairing, fails closed rather than throwing. **Correction
+  (2026-07-27, bug-fix bundle, ADR-0046; supersedes the paragraph this
+  replaces):** this diagram's full shape ("guess matched a
+  `Data.PlayerNameIndex` candidate") is now accurate for the trigger
+  condition, not a deliberate simplification anymore —
+  `GridGameModule.ScoreSubmissionAsync` now checks
+  `IPlayerNameIndexRepository.ExistsByNormalizedNameAsync` before running
+  the live lookup, closing the gap the previous version of this paragraph
+  described. This was not a new pull-forward of REQ-208/209's
+  candidate-resolution work: `PlayerNameIndex`/COMP-10 (REQ-207) has existed
+  since S-032, and the un-gated trigger had simply never been updated to
+  use it once it existed — a stale simplification note, not a deliberate
+  scope boundary, and the dominant cost behind a reported "guessing is slow"
+  bug (an un-gated live Wikidata round-trip on every unresolved guess,
+  including ones matching no real player at all). ADR-0018's own
+  Wikidata-has-no-scarce-budget reasoning for *not requiring* this gate is
+  unaffected — the gate is now applied anyway, purely as the latency
+  optimization ADR-0018's "For AI agents" section already anticipated.
+  There is still no API-Football fallback leg or `ExternalApiUsage`
+  budget-gating for this call site, same as REQ-103's status.
+- **New exception-based signal crossing the Games.XGGrid → Core.Scoring
+  boundary (2026-07-27, ADR-0046):** a timeout on this live-lookup call
+  (`DataSync.Clients`, COMP-07) previously swallowed to an empty result,
+  indistinguishable from "Wikidata found no match" — wrong for this call
+  site specifically, since it let a timeout during a genuinely correct
+  guess get persisted as a confirmed incorrect answer. `IWikidataClient`'s
+  intersection-query methods now accept an opt-in `throwOnTimeout`
+  parameter, set only here (REQ-103's own use of the same client is
+  unaffected — default unchanged); on timeout, `DataSync.Clients` throws
+  `WikidataQueryException`, which `Games.XGGrid` catches and translates
+  into a new `XGArcade.Core.Games.LiveLookupUnavailableException` — defined
+  in `Core` itself, never in `Games.XGGrid` or `DataSync`, so `Core.Scoring`
+  never references a `DataSync`-specific type (ADR-0003's boundary).
+  `Core.Scoring` (`GuessSubmissionService`) catches that exception and
+  returns a new `GuessSubmissionOutcome.LiveLookupUnavailable` — before
+  writing any `Guess` row, the same shape REQ-209's disambiguation branch
+  already uses — which `XGArcade.Api` maps to HTTP 503. See ADR-0046 for
+  the full decision and alternatives considered.
 - "Core.Scoring: compute live uniqueness on read, not on write" **is now
   built (S-011, extended S-018)** — `GET /rounds/current` computes
   `UniquePercent` on every request via `UniquenessCalculator.Calculate`,
@@ -883,6 +1248,111 @@ Rounds" / "Time Windows" — renamed 2026-07-20, S-056, from "This round
 wording), not separate screens (REQ-407/408's own resolved UX placement
 decision); custom leagues (REQ-402/403) have their own separate
 `LeaguesScreen.tsx` (create/join/list), not a SCREEN-03 tab.
+
+**6.2b xG Path clue reveal and guess submission flow** (realizes REQ-1203,
+REQ-1204, REQ-1205, REQ-1207 — added S-082, 2026-07-27; REQ-207 — added
+S-091, 2026-08-01; REQ-1206's `Points` field — added 2026-08-08)
+
+```
+Player → Web Frontend: types a guess
+  → Data.PlayerNameIndex (COMP-10): autocomplete suggestions — the SAME
+    generic, game-agnostic query §6.2's diagram documents for xG Grid
+    (REQ-207); no second autocomplete endpoint or read path exists for
+    xG Path (S-091)
+Player → Web Frontend → Backend API: GET /path/current
+  (XGArcade.Api.Path.PathEndpoints) → Core.Rounds (IRoundRepository):
+  resolve the active "xg-path" round, 404 if none
+  → Games.XGPath (COMP-11, via IPathInstanceRepository): read
+    PathInstance/PathPuzzle directly, bypassing IGameModule — ADR-0016's
+    direct-repository-read pattern, confirmed for a second game module by
+    ADR-0048, mirroring RoundEndpoints' GET /rounds/current (§6.2) exactly
+  → Games.XGPath (via IGameModule.GetMaxAttemptsForCellAsync, ADR-0041):
+    resolve each puzzle's attempt cap (fixed 7) to compute its locked state
+  → Core.Scoring (COMP-04, via IScoringStrategyResolver, ADR-0049): resolve
+    ClueEfficiencyScoringStrategy for round.GameKey ("xg-path") once per
+    request — 2026-08-08 addition, REQ-1206's Points field. Computed per
+    puzzle, only once that puzzle's guess is Locked: ScoreCorrectGuess(guess,
+    [], maxAttemptsForCell) on a correct guess (the same real formula
+    ScoreLockingService will separately persist as FinalPoints once the
+    round closes, never reimplemented here), or ScoringRules
+    .MaxPointsPerCell directly on a locked-but-unsolved puzzle (the
+    strategy is only ever invoked for a correct guess) — see COMP-04/
+    COMP-11's own 2026-08-08 status note above for the full reasoning
+  → Data.PlayerStore (COMP-06): bulk-read PlayerCareerStint (ADR-0042),
+    Player.Position/BirthYear (REQ-1207), and PlayerAttribute's
+    "nationality" rows (display-only, never PlayerOverride/
+    HasEffectiveAttributeAsync) for every puzzle's target player, once for
+    the whole instance
+  → Games.XGPath: PathCareerStintFilter excludes any leftover pre-2026-08-02
+    national-team row, senior or youth (2026-08-08 bug fix scoped to
+    youth/age-grade only, broadened to any national team 2026-08-10 — see
+    COMP-11's own table entry above for both dates' full reasoning) before
+    PathClueSequenceBuilder assembles the full 7-turn sequence per puzzle,
+    then the response includes only the turns the requesting player's own
+    attempt count has unlocked so far — the target player's identity is
+    never included unless that player's own guess already resolved it
+    correctly (REQ-1204)
+
+Player → Web Frontend → Backend API: POST /rounds/{roundId}/cells/{cellId}/guesses
+  (XGArcade.Api.Guesses.GuessEndpoints — the SAME generic, game-agnostic
+  endpoint §6.2 documents for xG Grid; no second write endpoint exists for
+  xG Path)
+  → Core.Scoring (COMP-04, GuessSubmissionService): resolve Round.GameKey
+    ("xg-path") → IGameModuleResolver
+  → Games.XGPath (COMP-11): XGPathGameModule.ScoreSubmissionAsync —
+    resolves the guess via the same Player.NormalizedFullName/
+    PlayerAlias.NormalizedAlias matching order GridGameModule.FindMatchAsync
+    uses (ADR-0007's shared pipeline), correct iff the resolved candidate's
+    PlayerId equals the puzzle's one target — deliberately no fuzzy-matching
+    stage and no REQ-209-style disambiguation prompt (see COMP-11's own
+    table entry above for why this is a confirmed scope decision, not a gap)
+  → Data (XGArcade.Data): Guess persisted, correctness shown immediately,
+    locks on a correct guess or once the 7-attempt cap (REQ-1205) is reached
+```
+
+A submitted cellId/instanceId that doesn't resolve to a real puzzle throws
+`PathScoringException`, which — like xG Grid's `GuessScoringException` —
+now derives from the shared `XGArcade.Core.Games.GameEntityNotFoundException`
+(added S-082), so `GuessEndpoints`'s single catch clause handles both games
+without a per-game `using`; this is the same "define the shared signal in
+`Core`, never in a game module's own assembly" precedent §6.2 above already
+documents for `LiveLookupUnavailableException`.
+
+**6.2c Player suggestion submission flow** (realizes REQ-215 — added S-089,
+2026-08-01; submission half only, REQ-509/510's admin review/commit half
+is S-090, not yet built)
+
+```
+Player → Web Frontend (SuggestionEntry.tsx, mounted by GuessInput.tsx only
+  after a guess is scored incorrect or a REQ-211 live lookup times out)
+  → Backend API: POST /rounds/{roundId}/cells/{cellId}/suggestions
+    (XGArcade.Api.Suggestions.SuggestionEndpoints)
+  → Core.Users (IUserRepository): resolve the caller from the bearer
+    token; 401 if no match; 403 if the resolved user IsGuest (server-side
+    enforcement, regardless of what the client UI shows)
+  → Core.Rounds (IRoundRepository): resolve Round.GameKey
+  → owning game module (COMP-05/COMP-11, via IGameModuleResolver,
+    ADR-0003): IGameModule.GetCellCategoryTypesAsync(instanceId, cellId) —
+    the authoritative row/col category types, never trusted from the
+    request; 404 if the cell doesn't resolve (GameEntityNotFoundException)
+  → Data.PlayerStore (COMP-06): PlayerSuggestion + PlayerSuggestionClub
+    persisted, Status = Pending — no write to PlayerAttribute,
+    PlayerOverride, PlayerNameIndex, or the triggering Guess row
+```
+
+This flow deliberately never reaches `Data.PlayerNameIndex`/COMP-10 or
+`Data.PlayerStore`'s correctness-checking tables (`PlayerAttribute`/
+`PlayerOverride`) — boundary rule 5 and ADR-0052 both apply: a suggestion
+is a pending human claim, not a data write, until a future admin commit
+(REQ-509, S-090, not yet built) resolves it through the normal
+`PlayerOverride`/`PlayerAttribute` write path REQ-501 already uses. The
+row/col category type lookup is the one part of this flow with its own
+history: the original S-089 commit read `GridCell` directly via
+`IGridInstanceRepository` from the Api layer, bypassing `IGameModule` —
+a boundary rule 2 violation caught by `architecture-reviewer` before
+merge and corrected to the `IGameModule.GetCellCategoryTypesAsync` path
+shown above; see COMP-05/COMP-11's own S-089 status note for the full
+account.
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
@@ -1075,6 +1545,22 @@ ADR-0006) — which resolves the admin-supplied email to a `User.Id` (new
 exactly the same `IAccountDeletionService` call the self-service path uses;
 everything below that point is identical, unchanged, and not duplicated.
 
+**S-072 addition (REQ-718/ADR-0038):** two more entry points join the same
+`IAccountDeletionService` call — `AuthController.Logout` and
+`InternalGuestCleanupEndpoints`'s scheduled job (see §6.10) — a fourth and
+fifth *caller*, not a second/third/fourth *implementation*.
+
+**S-073 addition (REQ-508):** a sixth entry point joins the same call —
+`Admin → Web Frontend (admin view) → Backend API: POST
+/admin/accounts/guests/clear` (`XGArcade.Api.Admin.AdminAccountsEndpoints`,
+registered unconditionally including Production, unlike
+`AdminManagementEndpoints` above) — which selects every currently-matching
+guest id via a new, unfiltered `IUserRepository.GetAllGuestIdsAsync` (not
+REQ-718's age-filtered queries — see the COMP-01 status note above for why)
+and then joins this diagram at the same `IAccountDeletionService` call
+every other entry point uses; everything below that point is identical,
+unchanged, and not duplicated.
+
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
 ```
@@ -1085,6 +1571,44 @@ GitHub Actions → Production database: pg_dump (full export)
     and from Supabase entirely — see infra/README.md for the retention
     policy and restore procedure
 ```
+
+**6.10 Guest account cleanup flow** (realizes REQ-718, ADR-0038)
+
+```
+Rule 1 (logout, best-effort):
+User → Web Frontend: logs out
+  → Backend API: POST /auth/logout ([Authorize])
+    → Core.Users (COMP-01): if IsGuest && ClaimedAt is null,
+      IAccountDeletionService.DeleteAccountAsync(user.Id) — same mechanism
+      as §6.8
+    → Always responds 204, regardless of outcome — Web Frontend clears
+      localStorage immediately, never blocked or delayed by this call
+
+Rules 2 and 3 (scheduled purge, safety net):
+[scheduled, daily, 07:00 UTC — purge-guest-accounts.yml]
+GitHub Actions → Backend API: POST /internal/purge-guest-accounts
+  (bearer-token-protected, same InternalJobAuthorization helper §6.1 uses)
+  → Core.Users: IUserRepository.GetUnclaimedGuestsOlderThanAsync(30 days)
+    — rule 2 (IsGuest && ClaimedAt IS NULL && CreatedAt < cutoff)
+  → Core.Users: IUserRepository.GetInactiveGuestsOlderThanAsync(7 days)
+    — rule 3 (IsGuest && LastActiveAt < cutoff, no ClaimedAt condition)
+  → For every matching row (deduped — a row can satisfy both):
+    IAccountDeletionService.DeleteAccountAsync(user.Id) — same mechanism
+    as §6.8
+  → Returns a count of each rule's matches and the total accounts removed
+```
+
+**Built as (S-072):** `AuthController.Logout` and
+`XGArcade.Api.Auth.InternalGuestCleanupEndpoints` are the two new entry
+points — see the COMP-01 status note above for exactly what's new on the
+data-model side (`User.LastActiveAt`, the two new `IUserRepository`
+queries). Both call sites reuse `IAccountDeletionService.DeleteAccountAsync`
+unmodified (§6.8) — no new deletion logic was written for this flow.
+`/internal/purge-guest-accounts` runs in every environment, following
+`/internal/generate-round`'s own precedent (§6.1) for why a
+bearer-token-gated `/internal/*` endpoint whose only caller is a scheduled
+job isn't restricted to non-Production the way `XGArcade.Testing`/COMP-09
+is (ADR-0006).
 
 ## 7. Cross-cutting concerns
 
@@ -1192,7 +1716,26 @@ new ADR that references the old one.
 | ADR-0034 | Dark mode is an explicit System/Light/Dark toggle, stored in `localStorage` (not `prefers-color-scheme`-only, not a `User`-level column) | Accepted |
 | ADR-0035 | National teams (P1532) are a per-row flag on `CountryDefinition`, not a separate category type | Accepted |
 | ADR-0036 | Guest play is a real `User` row via backend-mediated Supabase Anonymous Sign-ins (`User.IsGuest` flag), not a client-local scheme | Accepted |
-| ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation against scripted abuse | Accepted |
+| ADR-0037 | Cloudflare Turnstile, passed through unmodified to Supabase's native captcha verification, hardens guest creation, signup, login, and account-deletion password re-confirmation against scripted abuse (widened twice from guest-only on 2026-07-25, after Supabase's "Enable Captcha Protection" toggle proved project-wide rather than per-endpoint) | Accepted |
+| ADR-0038 | Guest account cleanup reuses `IAccountDeletionService`; activity tracked via a new `User.LastActiveAt`, updated only on genuine engagement | Accepted |
+| ADR-0039 | Hash-based, hand-rolled client-side routing for URL-reflected navigation (REQ-721) — no `react-router`, no server-side SPA-fallback dependency | Accepted |
+| ADR-0040 | `Core.Scoring` resolves an `IScoringStrategy` per `GameKey`, extracting xG Grid's existing formula as the first implementation with no formula change | Accepted |
+| ADR-0041 | Guess attempt cap becomes a per-cell value the owning game module reports (`IGameModule`), not a shared `GuessRules.MaxAttemptsPerCell` constant | Accepted |
+| ADR-0042 | New `PlayerCareerStint` entity (COMP-06) for ordered, dated career stint data, populated from the same Wikidata `P54` fetch as `PlayerAttribute` | Accepted |
+| ADR-0043 | Global League's all-time leaderboard ranking is scoped per `GameKey`, not merged across games | Accepted |
+| ADR-0044 | Per-word decomposition (`PlayerNameIndexWord`), not `pg_trgm`, for `PlayerNameIndex` surname-prefix matching | Accepted |
+| ADR-0045 | xG Path puzzle generation: `PathTemplate`/`PathInstance`/`PathPuzzle` entity shape, `PathPuzzle.TargetPlayerId` as a real FK to `Player`, and the settled reading of REQ-1201's two ambiguous eligibility phrases | Accepted |
+| ADR-0046 | A timeout during REQ-211's guess-time live lookup is a distinct, non-scoring exception signal (`LiveLookupUnavailableException`/`GuessSubmissionOutcome.LiveLookupUnavailable`/HTTP 503), not a swallowed empty result | Accepted |
+| ADR-0047 | REQ-1201's seeded-club eligibility stint must also clear a 20-appearance floor (or have an unknown count) — closes the "one token appearance at a big club" loophole | Accepted |
+| ADR-0048 | ADR-0016's direct-repository-read pattern for read-only display endpoints (`GET /rounds/current`, `GET /path/current`) is confirmed as the platform's permanent shape, not superseded by a generic `IGameModule` read method | Accepted |
+| ADR-0049 | `IScoringStrategy.ScoreCorrectGuess` takes the whole `Guess` plus a plain `int maxAttemptsForCell` (resolved once per cell by `ScoreLockingService` via ADR-0041's mechanism), never a direct `IGameModule` dependency — closes ADR-0040's own deferred parameter-shape follow-up | Accepted |
+| ADR-0050 | A new `ConfirmedLowMatchPair` table (COMP-06), not a column on `PlayerAttribute`/`PlayerData` or an in-memory-only signal, persists "checked, genuinely below `MinValidAnswers`" per Country×Club/Club×Club pair so `PlayerCacheWarmingService` stops re-querying it every run; invalidated by `StaleClubAttributeCleaner`/`purge-player-pool`, excluded from the prod/dev sync allowlist | Accepted |
+| ADR-0051 | Per-`GameKey` round scheduling: `IRoundSchedulingOptionsResolver` mirrors `IScoringStrategyResolver`'s pattern, `/internal/generate-round` stays one endpoint dispatching narrowly by `gameKey`, `generate-round.yml`'s existing cron is extended rather than duplicated, and `GridSize`/`PuzzleCount` move onto each game's own options class | Accepted |
+| ADR-0057 | REQ-216's wrong-but-real guess photo lookup reuses ADR-0011's `WikidataClient` as its own distinct, lower-priority trigger — Wikidata-only, no API-Football fallback, fires once at cell-lock time, fails silently (no photo) rather than fail-closed-as-incorrect | Accepted |
+| ADR-0058 | xG Path target cycle tracking (REQ-1208/1209): cycle state is xG Path's own data (never a field on shared `Player`), scored against the live ADR-0056 familiarity-filtered pool with a tolerant "remaining < N" completion rule, not the larger structural pool or an exact-zero rule | Accepted |
+| ADR-0060 | REQ-509/510's admin-suggestion-commit action splits its write path by field cardinality — single-valued nationality via `PlayerOverride` (ADR-0015's existing full-type-replacement semantics), multi-valued club(s) via additive `PlayerAttribute` rows instead, so confirming one club can never mask another | Accepted |
+| ADR-0061 | Team-competition trophies (FIFA World Cup, UEFA Champions League) query via tournament-edition participation + winner join (`P1344`/`P3450`/`P1346`), not a direct player property — the individual-award shape (`P166`) doesn't exist for a team competition | Accepted |
+| ADR-0062 | REQ-509/510's admin by-name Wikidata lookup resolves its candidate player via a federated `wikibase:mwapi` `EntitySearch` call instead of a raw, unindexed label/alias scan — the scan was cheap-looking but expensive enough in production to trigger an HTTP 502 from a gateway in front of WDQS, not just a client-side timeout | Accepted |
 
 ## 11. Glossary
 

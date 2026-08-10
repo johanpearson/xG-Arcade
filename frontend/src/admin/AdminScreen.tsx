@@ -2,22 +2,37 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   ApiError,
   approvePlayerData,
+  clearGuestAccounts,
   closeAdminRound,
   createPlayerOverride,
   deleteUserByEmail,
   describeError,
   fetchActiveAdminRound,
+  fetchAdminAccountMetrics,
+  fetchAdminXGPathCycle,
+  fetchGuestAccountCount,
   fetchUnverifiedPlayerData,
   removePlayerData,
   updateAdminRoundEndTime,
 } from '../lib/api';
-import type { AdminActiveRound, UnverifiedPlayerData } from '../lib/types';
+import type {
+  AdminActiveRound,
+  AdminAccountMetrics,
+  AdminXGPathCycleState,
+  ClearGuestAccountResult,
+  UnverifiedPlayerData,
+} from '../lib/types';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 import './AdminScreen.css';
 
 export interface AdminScreenProps {
   accessToken: string;
   onAuthError: () => void;
+  // REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
+  // SuggestionsScreen — App.tsx wires this to navigateTo('admin-suggestions'),
+  // mirroring how SettingsScreen's own onOpenAdmin link is this screen's own
+  // entry point. Never a standalone top-level nav entry (ADR-0053).
+  onOpenSuggestions: () => void;
 }
 
 type PageState =
@@ -32,7 +47,7 @@ type PageState =
 // endpoint 403s a non-admin token directly, and the unverified-data fetch's
 // own 403 is what flips this whole page to an access-denied message,
 // independent of the nav-hiding.
-export function AdminScreen({ accessToken, onAuthError }: AdminScreenProps) {
+export function AdminScreen({ accessToken, onAuthError, onOpenSuggestions }: AdminScreenProps) {
   const [pageState, setPageState] = useState<PageState>({ phase: 'loading' });
   const [unverifiedRows, setUnverifiedRows] = useState<UnverifiedPlayerData[]>([]);
   // null both while the round-control/user-deletion feature is genuinely
@@ -122,12 +137,38 @@ export function AdminScreen({ accessToken, onAuthError }: AdminScreenProps) {
     <div className="admin-screen">
       <h2 className="admin-screen__title">Admin</h2>
 
+      {/* REQ-509/REQ-510 (S-090)/ADR-0053: the only entry point into
+          SuggestionsScreen — a separate screen/file per that ADR, never
+          folded into this one's sections below. Mirrors SettingsScreen's own
+          "onOpenAdmin" link-out pattern, one level deeper. */}
+      <section className="admin-screen__section">
+        <button type="button" onClick={onOpenSuggestions}>
+          Player suggestions
+        </button>
+      </section>
+
       <UnverifiedDataSection
         accessToken={accessToken}
         rows={unverifiedRows}
         onAuthError={onAuthError}
         onRefresh={refreshUnverified}
       />
+
+      {/* REQ-507/508: unlike RoundControlSection/UserDeletionSection below,
+          this section is NOT gated by `activeRound !== null` — that gate
+          exists only because the round-control/user-deletion probe 404s in
+          Production (REQ-505/506's non-Production-only scope). REQ-507's
+          metrics view and REQ-508's bulk guest-clear are both explicitly
+          visible in every environment, including Production, so this section
+          renders (and attempts its own fetch) unconditionally. */}
+      <AccountMetricsSection accessToken={accessToken} onAuthError={onAuthError} />
+
+      {/* REQ-1209: same "own fetch, own gating, never blocks or is blocked by
+          any other admin section" pattern as AccountMetricsSection above —
+          rendered unconditionally (this endpoint is registered in every
+          environment, including Production, same as REQ-507/508's), not
+          gated by the Non-Production-only `activeRound` probe below. */}
+      <XGPathCycleSection accessToken={accessToken} onAuthError={onAuthError} />
 
       {activeRound !== null && (
         <>
@@ -706,6 +747,340 @@ function UserDeletionSection({ accessToken, onAuthError }: UserDeletionSectionPr
           </button>
         )}
       </div>
+    </section>
+  );
+}
+
+interface AccountMetricsSectionProps {
+  accessToken: string;
+  onAuthError: () => void;
+}
+
+// REQ-507 (metrics) / REQ-508 (bulk guest-clear). Rendered unconditionally by
+// AdminScreen (see the render-site comment above) — never gated by the
+// Non-Production-only activeRound probe RoundControlSection/
+// UserDeletionSection share, since both REQs are explicitly Production-
+// visible. Owns its own fetch/error state independently of AdminScreen's
+// top-level PageState: a 401 here escalates via onAuthError like every other
+// admin action in this file, but a 403 only hides this section (`hidden`)
+// rather than flipping the whole page to access-denied — REQ-501/502/503's
+// unverified-data fetch already owns that page-level decision, and in
+// practice a 403 here for a genuinely non-admin caller can't happen without
+// the unverified-data fetch (same "Admin" policy) having already 403'd and
+// flipped the page first. Handled defensively anyway, per the explicit
+// instruction not to rely on that ordering.
+function AccountMetricsSection({ accessToken, onAuthError }: AccountMetricsSectionProps) {
+  const [metrics, setMetrics] = useState<AdminAccountMetrics | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const refreshMetrics = useCallback(async () => {
+    try {
+      const result = await fetchAdminAccountMetrics(accessToken);
+      setMetrics(result);
+      setLoadError(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      if (err instanceof ApiError && err.status === 403) {
+        setHidden(true);
+        return;
+      }
+      setLoadError(describeError(err));
+    }
+  }, [accessToken, onAuthError]);
+
+  useEffect(() => {
+    refreshMetrics();
+  }, [refreshMetrics]);
+
+  if (hidden) return null;
+
+  return (
+    <>
+      <section className="admin-screen__section">
+        <h3 className="admin-screen__section-title">Accounts</h3>
+        {loadError && (
+          <p className="admin-screen__error" role="alert">
+            {loadError}
+          </p>
+        )}
+        {metrics ? (
+          <dl className="admin-screen__metrics">
+            <div className="admin-screen__metric">
+              <dt className="admin-screen__metric-label">Total users</dt>
+              <dd className="admin-screen__metric-value mono-figure">{metrics.totalUserCount}</dd>
+            </div>
+            <div className="admin-screen__metric">
+              <dt className="admin-screen__metric-label">Current guests</dt>
+              <dd className="admin-screen__metric-value mono-figure">{metrics.currentGuestCount}</dd>
+            </div>
+            <div className="admin-screen__metric">
+              <dt className="admin-screen__metric-label">Claimed guests</dt>
+              <dd className="admin-screen__metric-value mono-figure">{metrics.claimedGuestCount}</dd>
+            </div>
+          </dl>
+        ) : (
+          !loadError && <p className="admin-screen__empty">Loading account metrics…</p>
+        )}
+      </section>
+
+      <GuestClearSection accessToken={accessToken} onAuthError={onAuthError} onCleared={refreshMetrics} />
+    </>
+  );
+}
+
+interface GuestClearSectionProps {
+  accessToken: string;
+  onAuthError: () => void;
+  onCleared: () => Promise<void>;
+}
+
+type GuestClearPhase =
+  | { phase: 'idle' }
+  | { phase: 'counting' }
+  | { phase: 'confirming'; count: number }
+  | { phase: 'clearing'; count: number };
+
+// REQ-508: the bulk force-clear-guests action — a stronger two-step confirm
+// than RoundControlSection/UserDeletionSection's own ("Yes, end round now" /
+// "Yes, delete this user permanently"), since here the confirm step must
+// itself show the dry-run count so the admin confirms a known, specific
+// number of accounts, not an open-ended action. Reports a per-account
+// outcome afterward, same "never a single pass/fail for the whole batch"
+// discipline UnverifiedDataSection's bulk approve/remove already establishes
+// above.
+function GuestClearSection({ accessToken, onAuthError, onCleared }: GuestClearSectionProps) {
+  const [phase, setPhase] = useState<GuestClearPhase>({ phase: 'idle' });
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [zeroGuestsMessage, setZeroGuestsMessage] = useState<string | null>(null);
+  const [results, setResults] = useState<ClearGuestAccountResult[] | null>(null);
+
+  async function handleForceClearClick() {
+    setClearError(null);
+    setZeroGuestsMessage(null);
+    setPhase({ phase: 'counting' });
+    try {
+      const count = await fetchGuestAccountCount(accessToken);
+      if (count === 0) {
+        // Nothing to confirm — showing "Yes, delete all 0 guest accounts"
+        // would be an odd, actionable-looking prompt for an action that
+        // would do nothing.
+        setZeroGuestsMessage('No guest accounts to clear right now.');
+        setPhase({ phase: 'idle' });
+        return;
+      }
+      setPhase({ phase: 'confirming', count });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setClearError(describeError(err));
+      setPhase({ phase: 'idle' });
+    }
+  }
+
+  function handleCancelClear() {
+    setPhase({ phase: 'idle' });
+    setClearError(null);
+  }
+
+  async function handleConfirmClear(count: number) {
+    setPhase({ phase: 'clearing', count });
+    setClearError(null);
+    try {
+      const response = await clearGuestAccounts(accessToken);
+      setResults(response.results);
+      setPhase({ phase: 'idle' });
+      await onCleared();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        onAuthError();
+        return;
+      }
+      setClearError(describeError(err));
+      setPhase({ phase: 'confirming', count });
+    }
+  }
+
+  return (
+    <section className="admin-screen__section">
+      <h3 className="admin-screen__section-title">Guest accounts</h3>
+      <p className="admin-screen__empty">
+        Deletes every current guest account immediately — a manual remedy you can use any time, separate from the
+        scheduled automatic purge.
+      </p>
+
+      {clearError && (
+        <p className="admin-screen__error" role="alert">
+          {clearError}
+        </p>
+      )}
+
+      {zeroGuestsMessage && <p className="admin-screen__empty">{zeroGuestsMessage}</p>}
+
+      {results && (
+        <div className="admin-screen__approval-results">
+          <ul className="admin-screen__list">
+            {results.map((result) => (
+              <li
+                key={result.userId}
+                className={
+                  result.outcome === 'Succeeded'
+                    ? 'admin-screen__approval-result'
+                    : 'admin-screen__approval-result admin-screen__approval-result--failed'
+                }
+              >
+                {result.userId} — {describeGuestClearOutcome(result)}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => setResults(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <div className="admin-screen__action-group">
+        {phase.phase === 'confirming' || phase.phase === 'clearing' ? (
+          <div className="admin-screen__confirm-row">
+            <button
+              type="button"
+              onClick={() => handleConfirmClear(phase.count)}
+              disabled={phase.phase === 'clearing'}
+            >
+              {phase.phase === 'clearing'
+                ? 'Clearing…'
+                : `Yes, delete all ${phase.count} guest account${phase.count === 1 ? '' : 's'}`}
+            </button>
+            <button type="button" onClick={handleCancelClear} disabled={phase.phase === 'clearing'}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={handleForceClearClick} disabled={phase.phase === 'counting'}>
+            {phase.phase === 'counting' ? 'Checking…' : 'Force clear guests'}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// REQ-508: turns the backend's three known `outcome` values into copy that
+// states what happened, per design-document.md §5 — never a generic
+// "failed" with no explanation, and never the raw enum string shown to an
+// admin as-is. Mirrors describeApprovalFailure/describeRemovalFailure above,
+// but for a three-outcome (not two-outcome, success-implied-by-absence)
+// shape.
+function describeGuestClearOutcome(result: ClearGuestAccountResult): string {
+  switch (result.outcome) {
+    case 'Succeeded':
+      return 'Cleared.';
+    case 'NotFound':
+      return 'Not cleared — this account no longer exists.';
+    case 'Failed':
+      return result.errorMessage ? `Not cleared — ${result.errorMessage}` : 'Not cleared.';
+    default:
+      return 'Not cleared.';
+  }
+}
+
+interface XGPathCycleSectionProps {
+  accessToken: string;
+  onAuthError: () => void;
+}
+
+// REQ-1209/ADR-0058: read-only visibility into xG Path's REQ-1208
+// target-selection cycle state, mirroring AccountMetricsSection's shape
+// exactly (its own fetch/state, independent of AdminScreen's top-level
+// PageState) — a 401 escalates via onAuthError like every other admin
+// action in this file, a 403 only hides this section, and any other error
+// shows inline rather than failing the whole page. Rendered unconditionally
+// by AdminScreen (see the render-site comment there), so its fetch/render
+// never blocks, and is never blocked by, any other admin section's state.
+function XGPathCycleSection({ accessToken, onAuthError }: XGPathCycleSectionProps) {
+  const [cycleState, setCycleState] = useState<AdminXGPathCycleState | null>(null);
+  const [hidden, setHidden] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const result = await fetchAdminXGPathCycle(accessToken);
+        if (cancelled) return;
+        setCycleState(result);
+        setLoadError(null);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          onAuthError();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setHidden(true);
+          return;
+        }
+        setLoadError(describeError(err));
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, onAuthError]);
+
+  if (hidden) return null;
+
+  return (
+    <section className="admin-screen__section">
+      <h3 className="admin-screen__section-title">xG Path target cycle</h3>
+      {loadError && (
+        <p className="admin-screen__error" role="alert">
+          {loadError}
+        </p>
+      )}
+      {!loadError && cycleState === null && (
+        <p className="admin-screen__empty">Loading xG Path cycle status…</p>
+      )}
+      {!loadError && cycleState !== null && !cycleState.hasData && (
+        // REQ-1209: "no xG Path round has ever generated yet" — a clear
+        // no-data state, never an error and never a blank section.
+        <p className="admin-screen__empty">No xG Path round has generated yet — no cycle data to show.</p>
+      )}
+      {!loadError && cycleState !== null && cycleState.hasData && (
+        <dl className="admin-screen__metrics">
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Current cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.cycleNumber}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Eligible pool size (as of last generation)</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.observedPoolSize}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Used this cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.usedInCycleCount}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Remaining this cycle</dt>
+            <dd className="admin-screen__metric-value mono-figure">{cycleState.remainingInCycleCount}</dd>
+          </div>
+          <div className="admin-screen__metric">
+            <dt className="admin-screen__metric-label">Last cycle completed</dt>
+            <dd className="admin-screen__metric-value">
+              {cycleState.lastCycleCompletedAt ?? 'No cycle has completed yet'}
+            </dd>
+          </div>
+        </dl>
+      )}
     </section>
   );
 }

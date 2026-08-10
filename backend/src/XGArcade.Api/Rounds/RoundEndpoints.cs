@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using XGArcade.Api.Auth;
+using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
@@ -23,6 +24,7 @@ public static class RoundEndpoints
             IGridInstanceRepository gridInstanceRepository,
             IGuessRepository guessRepository,
             IPlayerStoreRepository playerStoreRepository,
+            IGameModuleResolver gameModuleResolver,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -43,6 +45,12 @@ public static class RoundEndpoints
                     detail: "There is no active round to play right now.",
                     statusCode: StatusCodes.Status404NotFound);
             }
+
+            // ADR-0041: resolved here (not just for the direct-read exception
+            // documented below) so GetMaxAttemptsForCellAsync can be called
+            // per cell — same GameKey-keyed resolution IGameModuleResolver
+            // already provides everywhere else, no new mechanism.
+            var gameModule = gameModuleResolver.Resolve(round.GameKey);
 
             // Reads GridInstance/GridCell directly, bypassing IGameModule —
             // NOT the same precedent as GridTemplateResolver (that one is
@@ -79,63 +87,85 @@ public static class RoundEndpoints
                 .ToList();
             var playersById = await playerStoreRepository.GetPlayersByIdsAsync(ownCorrectPlayerAnswerIds, cancellationToken);
 
-            var cells = instance.Cells
-                .OrderBy(c => c.Row).ThenBy(c => c.Col)
-                .Select(cell =>
+            // ADR-0041: a plain foreach, not the previous LINQ .Select(...) —
+            // GetMaxAttemptsForCellAsync must be awaited per cell, which a
+            // synchronous LINQ projection can't do cleanly.
+            var cells = new List<CurrentRoundCellResponse>(instance.Cells.Count);
+            foreach (var cell in instance.Cells.OrderBy(c => c.Row).ThenBy(c => c.Col))
+            {
+                guessByCellId.TryGetValue(cell.Id, out var guess);
+                CurrentRoundGuessResponse? guessResponse = null;
+                if (guess is not null)
                 {
-                    guessByCellId.TryGetValue(cell.Id, out var guess);
-                    CurrentRoundGuessResponse? guessResponse = null;
-                    if (guess is not null)
-                    {
-                        // Safe: only correct guesses land in
-                        // correctGuessesByCell, and a correct ScoreResult
-                        // always sets PlayerAnswerId (ScoreResult's own doc
-                        // comment).
-                        double? uniquePercent = guess.IsCorrect
-                            ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
-                            : null;
+                    // Safe: only correct guesses land in
+                    // correctGuessesByCell, and a correct ScoreResult
+                    // always sets PlayerAnswerId (ScoreResult's own doc
+                    // comment).
+                    double? uniquePercent = guess.IsCorrect
+                        ? UniquenessCalculator.Calculate(correctGuessesByCell[cell.Id], guess.PlayerAnswerId!.Value)
+                        : null;
 
-                        // S-018 (REQ-204 extension): ScoringRules.PointsFromUniqueScore
-                        // is the exact same call ScoreLockingService makes to lock
-                        // FinalPoints at round-close (REQ-205), computed live here
-                        // instead so it can only ever drift with uniquePercent
-                        // itself, never as a second formula. Still provisional —
-                        // see LivePoints' own doc comment below.
-                        int? livePoints = uniquePercent is not null
-                            ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
-                            : null;
+                    // S-018 (REQ-204 extension): ScoringRules.PointsFromUniqueScore
+                    // is the exact same call ScoreLockingService makes to lock
+                    // FinalPoints at round-close (REQ-205), computed live here
+                    // instead so it can only ever drift with uniquePercent
+                    // itself, never as a second formula. Still provisional —
+                    // see LivePoints' own doc comment below.
+                    int? livePoints = uniquePercent is not null
+                        ? ScoringRules.PointsFromUniqueScore(uniquePercent.Value)
+                        : null;
 
-                        Player? resolvedPlayer = guess.IsCorrect && guess.PlayerAnswerId is not null
-                            && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var foundPlayer)
-                            ? foundPlayer
-                            : null;
+                    Player? resolvedPlayer = guess.IsCorrect && guess.PlayerAnswerId is not null
+                        && playersById.TryGetValue(guess.PlayerAnswerId.Value, out var foundPlayer)
+                        ? foundPlayer
+                        : null;
 
-                        // REQ-214: PhotoUrl rides along with the same
-                        // resolvedPlayer lookup ResolvedPlayerName already
-                        // uses — no second query, and null exactly when
-                        // Wikidata had no P18 for this player (never an error).
-                        guessResponse = new CurrentRoundGuessResponse(
-                            guess.IsCorrect,
-                            guess.AttemptCount,
-                            guess.IsCorrect || guess.AttemptCount >= GuessRules.MaxAttemptsPerCell,
-                            guess.SubmittedName,
-                            resolvedPlayer?.FullName,
-                            resolvedPlayer?.PhotoUrl,
-                            uniquePercent,
-                            livePoints);
-                    }
+                    // ADR-0041: this cell's own max-attempts, resolved
+                    // through IGameModule instead of the deleted
+                    // GuessRules.MaxAttemptsPerCell.
+                    var maxAttemptsForCell = await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, cell.Id, cancellationToken);
 
-                    return new CurrentRoundCellResponse(
-                        cell.Id,
-                        cell.Row,
-                        cell.Col,
-                        cell.RowCategoryType,
-                        cell.RowCategoryValue,
-                        cell.ColCategoryType,
-                        cell.ColCategoryValue,
-                        guessResponse);
-                })
-                .ToList();
+                    // REQ-214: PhotoUrl rides along with the same
+                    // resolvedPlayer lookup ResolvedPlayerName already
+                    // uses — no second query, and null exactly when
+                    // Wikidata had no P18 for this player (never an error).
+                    //
+                    // REQ-216/ADR-0057: reads back MatchedPlayerName/
+                    // MatchedPlayerPhotoUrl straight off the persisted Guess
+                    // row (GuessSubmissionService's own write, at submission
+                    // time) — this endpoint never triggers a new live
+                    // Wikidata lookup itself, which is exactly what makes
+                    // state 4 (round closed, page reload) work. Both are
+                    // guaranteed null whenever guess.IsCorrect is true (the
+                    // write path never sets them for a correct guess) or the
+                    // guess never actually locked incorrect (never set for
+                    // state 2 either) — the explicit !guess.IsCorrect guard
+                    // here is defensive, matching this file's existing
+                    // "trust but verify the persisted invariant" style for
+                    // resolvedPlayer above.
+                    guessResponse = new CurrentRoundGuessResponse(
+                        guess.IsCorrect,
+                        guess.AttemptCount,
+                        guess.IsCorrect || guess.AttemptCount >= maxAttemptsForCell,
+                        guess.SubmittedName,
+                        resolvedPlayer?.FullName,
+                        resolvedPlayer?.PhotoUrl,
+                        guess.IsCorrect ? null : guess.MatchedPlayerName,
+                        guess.IsCorrect ? null : guess.MatchedPlayerPhotoUrl,
+                        uniquePercent,
+                        livePoints);
+                }
+
+                cells.Add(new CurrentRoundCellResponse(
+                    cell.Id,
+                    cell.Row,
+                    cell.Col,
+                    cell.RowCategoryType,
+                    cell.RowCategoryValue,
+                    cell.ColCategoryType,
+                    cell.ColCategoryValue,
+                    guessResponse));
+            }
 
             return Results.Ok(new CurrentRoundResponse(round.Id, round.StartTime, round.EndTime, round.AllowGuessChange, cells));
         }).RequireAuthorization();
@@ -186,6 +216,22 @@ public record CurrentRoundCellResponse(
 // (REQ-212) whenever this is null. Recomputed on every request from the
 // same bulk playersById lookup ResolvedPlayerName already uses, so it stays
 // in sync across reads without a second query.
+//
+// IncorrectGuessMatchedPlayerName/IncorrectGuessMatchedPlayerPhotoUrl
+// (REQ-216/ADR-0057): the mirror-image case of ResolvedPlayerName/
+// ResolvedPlayerPhotoUrl — non-null only when this guess locked the cell
+// with its final attempt still incorrect (state 3, or state 4's incorrect
+// branch) AND the guess string matched a real PlayerNameIndex candidate.
+// Read straight off the persisted Guess.MatchedPlayerName/
+// MatchedPlayerPhotoUrl columns (set once, at submission time, by
+// GuessSubmissionService) — this endpoint never triggers a new live
+// Wikidata lookup itself, which is what makes state 4 (round closed, page
+// reload) show the same value without a second lookup. PhotoUrl is
+// independently nullable even when Name is set — ADR-0057's own silent,
+// graceful fallback when the Wikidata-only lookup timed out, errored, or
+// found no photo at submission time; never a broken-image icon.
 public record CurrentRoundGuessResponse(
     bool IsCorrect, int AttemptCount, bool Locked, string SubmittedName,
-    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl, double? UniquePercent, int? LivePoints);
+    string? ResolvedPlayerName, string? ResolvedPlayerPhotoUrl,
+    string? IncorrectGuessMatchedPlayerName, string? IncorrectGuessMatchedPlayerPhotoUrl,
+    double? UniquePercent, int? LivePoints);

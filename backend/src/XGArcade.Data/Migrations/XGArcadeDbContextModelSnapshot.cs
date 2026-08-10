@@ -43,6 +43,33 @@ namespace XGArcade.Data.Migrations
                     b.ToTable("ClubDefinitions");
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.ConfirmedLowMatchPair", b =>
+                {
+                    b.Property<string>("FirstAttributeType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirstAttributeValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondAttributeType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondAttributeValue")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MatchCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("FirstAttributeType", "FirstAttributeValue", "SecondAttributeType", "SecondAttributeValue");
+
+                    b.HasIndex("SecondAttributeType", "SecondAttributeValue");
+
+                    b.ToTable("ConfirmedLowMatchPairs");
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.CountryDefinition", b =>
                 {
                     b.Property<Guid>("Id")
@@ -162,6 +189,12 @@ namespace XGArcade.Data.Migrations
                     b.Property<bool>("IsCorrect")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("MatchedPlayerName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MatchedPlayerPhotoUrl")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("PlayerAnswerId")
                         .HasColumnType("uuid");
 
@@ -232,11 +265,136 @@ namespace XGArcade.Data.Migrations
                     b.ToTable("LeagueMemberships");
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.PairLookupFailure", b =>
+                {
+                    b.Property<string>("FirstAttributeType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirstAttributeValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondAttributeType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondAttributeValue")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ConsecutiveFailureCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("LastFailedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("FirstAttributeType", "FirstAttributeValue", "SecondAttributeType", "SecondAttributeValue");
+
+                    b.HasIndex("SecondAttributeType", "SecondAttributeValue");
+
+                    b.ToTable("PairLookupFailures");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathCycleTargetUsage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CycleNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerId", "CycleNumber")
+                        .IsUnique();
+
+                    b.HasIndex("CycleNumber");
+
+                    b.ToTable("PathCycleTargetUsages");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathInstance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PathInstances");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathPuzzle", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PathInstanceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TargetPlayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PathInstanceId", "TargetPlayerId")
+                        .IsUnique();
+
+                    b.HasIndex("TargetPlayerId");
+
+                    b.ToTable("PathPuzzles");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathTargetCycle", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CycleNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastCycleCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("ObservedPoolSize")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("UsedInCycleCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PathTargetCycles");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PuzzleCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PathTemplates");
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.Player", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("BirthYear")
+                        .HasColumnType("integer");
 
                     b.Property<string>("FullName")
                         .IsRequired()
@@ -247,6 +405,9 @@ namespace XGArcade.Data.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("PhotoUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Position")
                         .HasColumnType("text");
 
                     b.Property<string>("WikidataQid")
@@ -296,6 +457,38 @@ namespace XGArcade.Data.Migrations
                     b.HasIndex("AttributeType", "AttributeValue");
 
                     b.ToTable("PlayerAttributes");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerCareerStint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AppearanceCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ClubName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("EndYear")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SequenceOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StartYear")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerId");
+
+                    b.ToTable("PlayerCareerStints");
                 });
 
             modelBuilder.Entity("XGArcade.Data.Entities.PlayerData", b =>
@@ -366,6 +559,21 @@ namespace XGArcade.Data.Migrations
                     b.ToTable("PlayerNameIndexEntries");
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerNameIndexWord", b =>
+                {
+                    b.Property<Guid>("PlayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Word")
+                        .HasColumnType("text");
+
+                    b.HasKey("PlayerId", "Word");
+
+                    b.HasIndex("Word");
+
+                    b.ToTable("PlayerNameIndexWords");
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.PlayerOverride", b =>
                 {
                     b.Property<Guid>("Id")
@@ -398,6 +606,78 @@ namespace XGArcade.Data.Migrations
                     b.HasIndex("PlayerId");
 
                     b.ToTable("PlayerOverrides");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerSuggestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssertedNationality")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CellId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ColCategoryType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PlayerName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RoundId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RowCategoryType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SubmittingUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoundId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("PlayerSuggestions");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerSuggestionClub", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClubName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("PlayerSuggestionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerSuggestionId");
+
+                    b.ToTable("PlayerSuggestionClubs");
                 });
 
             modelBuilder.Entity("XGArcade.Data.Entities.Round", b =>
@@ -484,6 +764,9 @@ namespace XGArcade.Data.Migrations
                     b.Property<bool>("IsGuest")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime>("LastActiveAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("NormalizedDisplayName")
                         .IsRequired()
                         .HasColumnType("text");
@@ -532,6 +815,30 @@ namespace XGArcade.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.PathCycleTargetUsage", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathPuzzle", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.PathInstance", null)
+                        .WithMany("Puzzles")
+                        .HasForeignKey("PathInstanceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("TargetPlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.PlayerAlias", b =>
                 {
                     b.HasOne("XGArcade.Data.Entities.Player", null)
@@ -542,6 +849,15 @@ namespace XGArcade.Data.Migrations
                 });
 
             modelBuilder.Entity("XGArcade.Data.Entities.PlayerAttribute", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerCareerStint", b =>
                 {
                     b.HasOne("XGArcade.Data.Entities.Player", null)
                         .WithMany()
@@ -568,9 +884,46 @@ namespace XGArcade.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerNameIndexWord", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.PlayerNameIndex", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerSuggestion", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.Round", null)
+                        .WithMany()
+                        .HasForeignKey("RoundId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerSuggestionClub", b =>
+                {
+                    b.HasOne("XGArcade.Data.Entities.PlayerSuggestion", null)
+                        .WithMany("AssertedClubs")
+                        .HasForeignKey("PlayerSuggestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("XGArcade.Data.Entities.GridInstance", b =>
                 {
                     b.Navigation("Cells");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PathInstance", b =>
+                {
+                    b.Navigation("Puzzles");
+                });
+
+            modelBuilder.Entity("XGArcade.Data.Entities.PlayerSuggestion", b =>
+                {
+                    b.Navigation("AssertedClubs");
                 });
 #pragma warning restore 612, 618
         }

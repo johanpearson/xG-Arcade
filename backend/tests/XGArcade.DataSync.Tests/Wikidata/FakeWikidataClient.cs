@@ -59,6 +59,133 @@ internal sealed class FakeWikidataClient : IWikidataClient
         return Task.FromResult(result);
     }
 
+    // REQ-1207 backfill (bug-bundle fix, 2026-08-02): QueryPlayerPositionsAndBirthYearsByQidsAsync
+    // support — same "configured per-QID, plus one shared fail-next-N-calls
+    // counter" shape as the photo-batch support above.
+    private readonly Dictionary<string, PlayerPositionBirthYearEntry> _positionBirthYearByQid = new();
+    private int _remainingPositionBirthYearBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedPositionBirthYearBatches { get; } = [];
+
+    public void SetPositionBirthYear(string wikidataQid, string? position, int? birthYear) =>
+        _positionBirthYearByQid[wikidataQid] = new PlayerPositionBirthYearEntry(position, birthYear);
+
+    public void FailNextPositionBirthYearBatches(int batches) => _remainingPositionBirthYearBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedPositionBirthYearBatches.Add(wikidataQids);
+
+        if (_remainingPositionBirthYearBatchFailures > 0)
+        {
+            _remainingPositionBirthYearBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a player-position/birth-year batch");
+        }
+
+        IReadOnlyDictionary<string, PlayerPositionBirthYearEntry> result = wikidataQids
+            .Where(qid => _positionBirthYearByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _positionBirthYearByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
+    // ADR-0054: QueryPlayerCareerStintsByQidsAsync support — same
+    // "configured per-QID, plus one shared fail-next-N-calls counter" shape
+    // as the photo/position-birth-year batch support above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataCareerStintEntry>> _careerStintsByQid = new();
+    private int _remainingCareerStintBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedCareerStintBatches { get; } = [];
+
+    public void SetCareerStints(string wikidataQid, params WikidataCareerStintEntry[] stints) =>
+        _careerStintsByQid[wikidataQid] = stints;
+
+    public void FailNextCareerStintBatches(int batches) => _remainingCareerStintBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedCareerStintBatches.Add(wikidataQids);
+
+        if (_remainingCareerStintBatchFailures > 0)
+        {
+            _remainingCareerStintBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a player career-stint batch");
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> result = wikidataQids
+            .Where(qid => _careerStintsByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _careerStintsByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
+    // ADR-0055: QueryPlayerPoolByNationalityAsync support — same
+    // "configured per-QID, plus one shared fail-next-N-calls counter" shape
+    // as every other batch-style method above.
+    private readonly Dictionary<string, IReadOnlyList<WikidataNameIndexEntry>> _poolByNationalityQid = new();
+    private int _remainingNationalityPoolFailures;
+
+    public List<string> QueriedNationalityQids { get; } = [];
+    public List<bool> QueriedUsesCountryForSportProperty { get; } = [];
+
+    public void SetPoolForNationality(string nationalityQid, IReadOnlyList<WikidataNameIndexEntry> pool) =>
+        _poolByNationalityQid[nationalityQid] = pool;
+
+    public void FailNextNationalityPoolCalls(int calls) => _remainingNationalityPoolFailures = calls;
+
+    public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
+        string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default)
+    {
+        QueriedNationalityQids.Add(nationalityWikidataQid);
+        QueriedUsesCountryForSportProperty.Add(useCountryForSportProperty);
+
+        if (_remainingNationalityPoolFailures > 0)
+        {
+            _remainingNationalityPoolFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for nationality {nationalityWikidataQid}");
+        }
+
+        var pool = _poolByNationalityQid.TryGetValue(nationalityWikidataQid, out var configured) ? configured : [];
+        return Task.FromResult(pool);
+    }
+
+    // ADR-0056: QuerySitelinkCountsByQidsAsync support — same "configured
+    // per-QID, plus one shared fail-next-N-calls counter" shape as every
+    // other batch-style method above. Never actually exercised by
+    // PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests (same
+    // "never touched by either caller" reasoning as the intersection-query
+    // stubs below) — added only so this fake still satisfies IWikidataClient's
+    // signature. PlayerFamiliarityServiceTests gets its own dedicated fake,
+    // same precedent as PlayerCareerStintRefreshServiceTests.
+    private readonly Dictionary<string, int> _sitelinkCountsByQid = new();
+    private int _remainingSitelinkBatchFailures;
+
+    public List<IReadOnlyList<string>> QueriedSitelinkBatches { get; } = [];
+
+    public void SetSitelinkCount(string wikidataQid, int count) => _sitelinkCountsByQid[wikidataQid] = count;
+
+    public void FailNextSitelinkBatches(int batches) => _remainingSitelinkBatchFailures = batches;
+
+    public Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
+        IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
+    {
+        QueriedSitelinkBatches.Add(wikidataQids);
+
+        if (_remainingSitelinkBatchFailures > 0)
+        {
+            _remainingSitelinkBatchFailures--;
+            throw new WikidataQueryException("simulated WDQS failure for a sitelink-count batch");
+        }
+
+        IReadOnlyDictionary<string, int> result = wikidataQids
+            .Where(qid => _sitelinkCountsByQid.ContainsKey(qid))
+            .ToDictionary(qid => qid, qid => _sitelinkCountsByQid[qid]);
+
+        return Task.FromResult(result);
+    }
+
     // Every year queried, in call order (a retried year appears once per attempt).
     public List<int> QueriedYears { get; } = [];
 
@@ -78,8 +205,14 @@ internal sealed class FakeWikidataClient : IWikidataClient
     public void CancelCallerTokenWhileQuerying(int year, CancellationTokenSource source) =>
         _cancelCallerTokenByYear[year] = source;
 
+    // onTechnicalFailure/timeoutTier (REQ-110): never exercised by
+    // PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests — added
+    // only so this fake still satisfies IWikidataClient's signature, same
+    // "never touched by either caller" reasoning as throwOnTimeout below.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryCountryClubIntersectionAsync(
-        string countryWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        string countryWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     // REQ-114/ADR-0035: never touched by PlayerNameIndexImporterTests/
@@ -87,11 +220,15 @@ internal sealed class FakeWikidataClient : IWikidataClient
     // caller" reasoning as the other intersection methods below — stays
     // stubbed to an empty result.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryNationalTeamClubIntersectionAsync(
-        string nationalTeamWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        string nationalTeamWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryClubClubIntersectionAsync(
-        string clubAWikidataQid, string clubBWikidataQid, CancellationToken cancellationToken = default) =>
+        string clubAWikidataQid, string clubBWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     // S-031/REQ-108: neither Trophy intersection is touched by
@@ -99,11 +236,43 @@ internal sealed class FakeWikidataClient : IWikidataClient
     // "never touched by either caller" reasoning as the two intersection
     // methods above — stays stubbed to an empty result.
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyCountryIntersectionAsync(
-        string trophyWikidataQid, string countryWikidataQid, CancellationToken cancellationToken = default) =>
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyClubIntersectionAsync(
-        string trophyWikidataQid, string clubWikidataQid, CancellationToken cancellationToken = default) =>
+        string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    // ADR-0061: never touched by PlayerNameIndexImporterTests/
+    // PlayerPhotoBackfillServiceTests, same "never touched by either caller"
+    // reasoning as the intersection methods above — stays stubbed to an
+    // empty result.
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyCountryIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTeamTrophyClubIntersectionAsync(
+        string trophyWikidataQid, string clubWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
+        Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
+
+    public Task<IReadOnlyList<WikidataPlayerMatch>> QueryTrophyNationalTeamIntersectionAsync(
+        string trophyWikidataQid, string countryWikidataQid, bool throwOnTimeout = false, CancellationToken cancellationToken = default,
+        Action? onTechnicalFailure = null,
+        WikidataQueryTimeoutTier timeoutTier = WikidataQueryTimeoutTier.Default) =>
         Task.FromResult<IReadOnlyList<WikidataPlayerMatch>>([]);
 
     public Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
@@ -125,5 +294,46 @@ internal sealed class FakeWikidataClient : IWikidataClient
 
         var entries = _entriesByYear.TryGetValue(birthYear, out var configured) ? configured : [];
         return Task.FromResult(entries);
+    }
+
+    // REQ-216/ADR-0057: QueryPlayerPhotoByNameAsync support — never touched
+    // by PlayerNameIndexImporterTests/PlayerPhotoBackfillServiceTests (same
+    // "never touched by either caller" reasoning as the intersection-query
+    // stubs above), added only so this fake still satisfies IWikidataClient's
+    // signature. GridGameModuleTests gets its own dedicated fake, same
+    // precedent as PlayerFamiliarityServiceTests/PlayerCareerStintRefreshServiceTests.
+    public Task<WikidataPlayerPhotoLookupResult?> QueryPlayerPhotoByNameAsync(
+        string playerName, CancellationToken cancellationToken = default) =>
+        Task.FromResult<WikidataPlayerPhotoLookupResult?>(null);
+
+    // REQ-509/REQ-510 (S-090): QueryPlayerCareerAndNationalityByNameAsync
+    // support — same "configured per-name, plus one shared fail-next-N-calls
+    // counter" shape as every other batch/name-based method above. An
+    // unconfigured name returns null (a real "no footballer matches this
+    // name"), matching the real method's own contract; FailNext scripts a
+    // WikidataQueryException instead, mirroring FailNextPhotoBatches et al.
+    private readonly Dictionary<string, WikidataPlayerCareerLookupResult> _careerLookupByName = new();
+    private int _remainingCareerLookupFailures;
+
+    public List<string> QueriedCareerLookupNames { get; } = [];
+
+    public void SetCareerLookup(string playerName, WikidataPlayerCareerLookupResult result) =>
+        _careerLookupByName[playerName] = result;
+
+    public void FailNextCareerLookups(int calls) => _remainingCareerLookupFailures = calls;
+
+    public Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
+        string playerName, CancellationToken cancellationToken = default)
+    {
+        QueriedCareerLookupNames.Add(playerName);
+
+        if (_remainingCareerLookupFailures > 0)
+        {
+            _remainingCareerLookupFailures--;
+            throw new WikidataQueryException($"simulated WDQS failure for admin career/nationality lookup of '{playerName}'");
+        }
+
+        var result = _careerLookupByName.TryGetValue(playerName, out var configured) ? configured : null;
+        return Task.FromResult(result);
     }
 }

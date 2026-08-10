@@ -5,6 +5,15 @@ namespace XGArcade.Games.XGGrid;
 // branches don't need hundreds of iterations to exercise.
 public class GridGenerationOptions
 {
+    // S-084/REQ-1202 follow-up: moved here from Core.Rounds'
+    // RoundSchedulingOptions — GridSize is xG-Grid-specific generation
+    // config, not a generic round-scheduling concern every GameKey shares
+    // (RoundSchedulingOptions' own doc comment). Tier 0 has no admin-driven
+    // GridTemplate management yet (S-007) — the scheduler endpoint
+    // find-or-creates a template of this size on demand, same as
+    // /internal/grid/generate already does.
+    public int GridSize { get; set; } = 3;
+
     public int MinValidAnswers { get; set; } = 5;
 
     // 500 is effectively "no ceiling" in practice — MaxDuration below is

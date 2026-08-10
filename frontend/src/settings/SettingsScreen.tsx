@@ -3,6 +3,7 @@ import { ApiError, claimAccount, describeError, updateDisplayName } from '../lib
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
 import type { CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
+import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
 import './SettingsScreen.css';
 
 // REQ-716: the toggle's own option list — order matches the three-state
@@ -219,6 +220,16 @@ export function SettingsScreen({
           <p className="settings-screen__claim-hint">
             You&apos;re playing as a guest. Add an email and password to keep
             your scores and log back in from any device.
+          </p>
+          {/* REQ-718 UI addendum (rule 5, 2026-08-01): the actual 7-day/
+              30-day removal policy, alongside (not replacing) the claim
+              hint above — GUEST_EXPIRY_COPY is the single source of this
+              sentence, shared with App.tsx's guest banner, so it can never
+              drift out of sync with REQ-718 rules 2/3's own numbers. This
+              whole section only renders while isGuest is true, so a
+              non-guest account never sees this either. */}
+          <p className="settings-screen__claim-hint" data-testid="guest-expiry-copy-settings">
+            {GUEST_EXPIRY_COPY}
           </p>
           <form className="settings-screen__claim-form" onSubmit={handleClaimSubmit}>
             <label className="settings-screen__field">

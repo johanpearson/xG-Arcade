@@ -3,7 +3,6 @@ using XGArcade.Api.Auth;
 using XGArcade.Core.Games;
 using XGArcade.Core.Scoring;
 using XGArcade.Data.Repositories;
-using XGArcade.Games.XGGrid;
 
 namespace XGArcade.Api.Guesses;
 
@@ -39,23 +38,47 @@ public static class GuessEndpoints
             if (user is null)
                 return Results.Unauthorized();
 
+            // REQ-718/ADR-0038: a submitted guess is one of the four
+            // activity-tracking events — updated unconditionally here
+            // (no IsGuest branch) for every authenticated submission this
+            // endpoint accepts, regardless of the eventual scoring outcome
+            // (accepted, disambiguation prompt, or rejected as e.g. already
+            // solved/no attempts remaining) — all of those still mean this
+            // account genuinely engaged with an active round, which is the
+            // signal this field exists to capture.
+            await userRepository.UpdateLastActiveAtAsync(user.Id, cancellationToken);
+
             GuessSubmissionResult result;
             try
             {
                 result = await guessSubmissionService.SubmitGuessAsync(
                     roundId, user.Id, cellId, request.SubmittedName, request.ChosenPlayerId, cancellationToken);
             }
-            catch (GuessScoringException ex)
+            catch (GameEntityNotFoundException ex)
             {
-                // The cellId didn't resolve to a real cell in this round's
-                // grid instance — a malformed/stale request, not an ordinary
-                // incorrect-guess outcome. Logged server-side (coding-
-                // guidelines.md), same discipline InternalRoundEndpoints
-                // uses for GridGenerationException; the client gets the
-                // same bare 404 as RoundNotFound below — both are plain
-                // "this id doesn't resolve to anything" outcomes, so they
-                // share one response shape rather than one being a richer
-                // Problem body than the other for no real reason.
+                // The cellId didn't resolve to a real cell/puzzle in this
+                // round's game instance — a malformed/stale request, not an
+                // ordinary incorrect-guess outcome. Logged server-side
+                // (coding-guidelines.md), same discipline
+                // InternalRoundEndpoints uses for GridGenerationException;
+                // the client gets the same bare 404 as RoundNotFound below —
+                // both are plain "this id doesn't resolve to anything"
+                // outcomes, so they share one response shape rather than one
+                // being a richer Problem body than the other for no real
+                // reason.
+                //
+                // This endpoint (XGArcade.Api.Guesses, game-agnostic by
+                // design — routes through IGuessSubmissionService/
+                // IGameModuleResolver by round.GameKey) previously needed
+                // compile-time knowledge of both games' own scoring-exception
+                // types (GuessScoringException from Games.XGGrid,
+                // PathScoringException from Games.XGPath) to catch here.
+                // Resolved by having both derive from the shared
+                // Core.Games.GameEntityNotFoundException — the same
+                // cross-boundary precedent LiveLookupUnavailableException
+                // already set — so this catch clause depends only on a type
+                // Core already owns, with no per-game `using` needed for this
+                // purpose.
                 logger.LogError(ex, "Guess submission failed: cell not found.");
                 return Results.NotFound();
             }
@@ -66,7 +89,8 @@ public static class GuessEndpoints
             {
                 GuessSubmissionOutcome.Accepted => Results.Ok(
                     new SubmitGuessResponse(
-                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl, Candidates: null)),
+                        result.IsCorrect, result.AttemptCount, result.Locked, result.ResolvedPlayerName, result.ResolvedPlayerPhotoUrl,
+                        result.IncorrectGuessMatchedPlayerName, result.IncorrectGuessMatchedPlayerPhotoUrl, Candidates: null)),
                 // REQ-209/REQ-210: still a 200 (nothing about the request was
                 // wrong — the guess just resolved to more than one fitting
                 // candidate), but with Candidates populated and every other
@@ -77,6 +101,7 @@ public static class GuessEndpoints
                 GuessSubmissionOutcome.NeedsDisambiguation => Results.Ok(
                     new SubmitGuessResponse(
                         IsCorrect: false, AttemptCount: 0, Locked: false, ResolvedPlayerName: null, ResolvedPlayerPhotoUrl: null,
+                        IncorrectGuessMatchedPlayerName: null, IncorrectGuessMatchedPlayerPhotoUrl: null,
                         Candidates: result.DisambiguationCandidates!
                             .Select(c => new DisambiguationCandidateResponse(c.PlayerId, c.Name, c.DistinguishingAttributes))
                             .ToList())),
@@ -89,14 +114,28 @@ public static class GuessEndpoints
                     title: "Cell already solved",
                     detail: "This cell already has a correct guess and is locked.",
                     statusCode: StatusCodes.Status409Conflict),
+                // ADR-0041/REQ-1205: worded generically ("all allowed
+                // attempts," not "both") since this endpoint is game-agnostic
+                // and the attempt cap itself now varies by game (xG Grid's
+                // fixed 2 vs. xG Path's fixed 7) — the old "Both guess
+                // attempts" wording was accurate only for xG Grid.
                 GuessSubmissionOutcome.NoAttemptsRemaining => Results.Problem(
                     title: "No attempts remaining",
-                    detail: "Both guess attempts for this cell have already been used.",
+                    detail: "All allowed attempts for this cell have already been used.",
                     statusCode: StatusCodes.Status409Conflict),
                 GuessSubmissionOutcome.GuessChangeNotAllowed => Results.Problem(
                     title: "Guess changes are not allowed",
                     detail: "This round does not allow changing an already-submitted guess.",
                     statusCode: StatusCodes.Status409Conflict),
+                // REQ-211 (2026-07-27 fix): a live Wikidata timeout during
+                // the guess-time fallback means "we don't know yet," not
+                // "wrong" — no Guess row was written and no attempt was
+                // consumed (GuessSubmissionService), so the client should
+                // simply retry rather than treat this as a scored result.
+                GuessSubmissionOutcome.LiveLookupUnavailable => Results.Problem(
+                    title: "Live verification unavailable",
+                    detail: "We couldn't verify this guess against our live data source in time. Please try again.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable),
                 _ => Results.Problem(statusCode: StatusCodes.Status500InternalServerError),
             };
         }).RequireAuthorization();
@@ -121,6 +160,19 @@ public record SubmitGuessRequest(string SubmittedName, Guid? ChosenPlayerId = nu
 // is the normal, error-free "no photo" case; the frontend falls back to
 // today's text-only reveal (REQ-212) whenever this is null.
 //
+// IncorrectGuessMatchedPlayerName/IncorrectGuessMatchedPlayerPhotoUrl
+// (REQ-216/ADR-0057): the mirror-image case of ResolvedPlayerName/
+// ResolvedPlayerPhotoUrl above — set only when this cell just locked with
+// its final guess still incorrect (state 3, or state 4's incorrect branch)
+// AND that guess string matched a real PlayerNameIndex candidate. Null in
+// every other case: IsCorrect true (REQ-214 owns that case instead), the
+// cell not yet locked (state 2 is completely unaffected by this REQ), or a
+// guess matching no real PlayerNameIndex candidate at all. PhotoUrl is
+// independently nullable even when Name is set — ADR-0057's own silent,
+// graceful fallback when the Wikidata-only lookup times out, errors, or
+// finds no photo; never a broken-image icon, never a fail-closed/incorrect
+// signal.
+//
 // Candidates (REQ-209): null on every ordinary (scored) response — this is
 // the frontend's unambiguous signal to distinguish "this response means:
 // show a picker" (Candidates != null) from "this response means: scored,
@@ -137,6 +189,8 @@ public record SubmitGuessResponse(
     bool Locked,
     string? ResolvedPlayerName,
     string? ResolvedPlayerPhotoUrl,
+    string? IncorrectGuessMatchedPlayerName,
+    string? IncorrectGuessMatchedPlayerPhotoUrl,
     IReadOnlyList<DisambiguationCandidateResponse>? Candidates);
 
 // REQ-209: one entry per candidate the player must choose between — mirrors

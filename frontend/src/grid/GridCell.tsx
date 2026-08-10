@@ -48,6 +48,18 @@ export function GridCell({ cell, roundStatus, submittedThisSession, onOpenGuess 
         // the photo automatically at rest once isCorrect+locked, and
         // `revealed` continues to control only the name/badge dock.
         photoUrl={guess.isCorrect ? guess.resolvedPlayerPhotoUrl : undefined}
+        // REQ-216/ADR-0057: the mirror-image case of playerName/photoUrl
+        // above — only ever meaningful for a locked, INCORRECT guess (states
+        // 3/4's incorrect branch), never state 2 (an attempt remains) or a
+        // correct guess. CellState itself only actually renders these once
+        // `locked` is also true, but they're passed through unconditionally
+        // here (not gated on `!guess.isCorrect && guess.locked`) since the
+        // backend already guarantees these fields are null/absent for every
+        // other case (GuessSubmissionService only ever populates them on the
+        // submission that locks a cell with its final guess still
+        // incorrect) — no client-side re-derivation of that gate needed.
+        incorrectMatchedPlayerName={guess.incorrectGuessMatchedPlayerName}
+        incorrectMatchedPlayerPhotoUrl={guess.incorrectGuessMatchedPlayerPhotoUrl}
         isCorrect={guess.isCorrect}
         attemptCount={guess.attemptCount}
         locked={guess.locked}

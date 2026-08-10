@@ -1,0 +1,81 @@
+/* z-index: 30, deliberately above ScoringExplainer's backdrop (z-index: 20)
+   and GuessInput's (z-index: 10) — this dialog is reachable from the
+   header's "Log out" button on any authenticated screen, including one
+   with GuessInput or ScoringExplainer already open, and must always end up
+   the topmost overlay regardless of what else happens to be open
+   underneath it. Same backdrop tint as ScoringExplainer-backdrop
+   (rgba(26, 31, 28, 0.35), `--color-text-primary`'s own hue). */
+.guest-logout-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 31, 28, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  padding: var(--space-4);
+}
+
+.guest-logout-confirm {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 12px;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.guest-logout-confirm__title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.guest-logout-confirm__text {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Button treatment matches DeleteAccountScreen.css's
+   __cancel/__confirm pair exactly (same flex weighting, same tokens) —
+   this is the same "destructive action needs a two-step, unevenly
+   weighted Cancel/Confirm pair" pattern, reused rather than reinvented. */
+.guest-logout-confirm__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.guest-logout-confirm__cancel {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.guest-logout-confirm__confirm {
+  flex: 2;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-red);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}

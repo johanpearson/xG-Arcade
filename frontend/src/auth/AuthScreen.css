@@ -136,3 +136,30 @@
   color: var(--color-text-muted);
   text-align: center;
 }
+
+/* Sign-in latency fix (2026-07-25, ADR-0037 amendment): container Cloudflare
+   Turnstile's checkbox widget renders into at submit time. Empty (zero
+   visual footprint) until then, so nothing about this reserves layout space
+   before it's needed. Spacing here is the only thing this app themes --
+   the widget's own iframe content is Cloudflare's, not ours (see
+   turnstile.ts's own comment) -- so only existing --space-* tokens are used,
+   no new/ad-hoc values. */
+.auth-screen__turnstile {
+  display: flex;
+  justify-content: center;
+}
+
+.auth-screen__turnstile:empty {
+  margin: 0;
+}
+
+.auth-screen__turnstile:not(:empty) {
+  margin: var(--space-1) 0;
+}
+
+.auth-screen__turnstile-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+}

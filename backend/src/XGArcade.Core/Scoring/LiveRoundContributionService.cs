@@ -25,6 +25,18 @@ public class LiveRoundContributionService(
             ? []
             : guesses.Where(g => cellIds.Contains(g.CellId)).ToList();
 
+        // ADR-0041: GetMaxAttemptsForCellAsync is a pure function of
+        // (instanceId, cellId) — never varies by participant — so it's
+        // resolved once per distinct cell here, up front, rather than once
+        // per participant guess in the loop below. Harmless with xG Grid's
+        // constant-2 implementation today, but avoids an avoidable N-per-
+        // participant cost once a real per-puzzle state lookup exists.
+        var maxAttemptsByCellId = new Dictionary<Guid, int>();
+        foreach (var cellId in cellIds)
+        {
+            maxAttemptsByCellId[cellId] = await gameModule.GetMaxAttemptsForCellAsync(round.GameInstanceId, cellId, cancellationToken);
+        }
+
         // Same "correct guesses, grouped by cell" population UniquenessCalculator
         // needs — built from every guess for the cell (not just this round's
         // participants) so an anonymized (UserId == null) correct guess still
@@ -70,9 +82,10 @@ public class LiveRoundContributionService(
                 var uniqueScore = UniquenessCalculator.Calculate(correctGuessesByCell[guess.CellId], guess.PlayerAnswerId!.Value);
                 cellContribution = ScoringRules.PointsFromUniqueScore(uniqueScore);
             }
-            else if (guess.AttemptCount >= GuessRules.MaxAttemptsPerCell)
+            else if (guess.AttemptCount >= maxAttemptsByCellId[guess.CellId])
             {
-                // Locked-incorrect: both attempts used, never correct.
+                // Locked-incorrect: this cell's own max-attempts (ADR-0041)
+                // used, never correct.
                 cellContribution = ScoringRules.MaxPointsPerCell;
             }
             // else: incorrect with an attempt still remaining — not yet

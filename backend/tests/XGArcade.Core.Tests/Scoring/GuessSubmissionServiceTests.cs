@@ -218,6 +218,113 @@ public class GuessSubmissionServiceTests
         Assert.That(result.ResolvedPlayerPhotoUrl, Is.Null, "no photo is ever shown for an incorrect guess, same rule as ResolvedPlayerName");
     }
 
+    // ---- REQ-216/ADR-0057: wrong-guess photo lookup, fired at cell-lock
+    // time only -------------------------------------------------------------
+    // GridGameModule's own ResolveWrongGuessPlayerAsync implementation is
+    // GridGameModuleTests' responsibility (cache-first, then Wikidata-only,
+    // then PlayerNameIndex.PrimaryName fallback) — these tests pin down only
+    // GuessSubmissionService's own trigger condition: fires exactly once,
+    // only when a cell has just locked with its final guess still
+    // incorrect, and persists the result onto the same Guess row in the
+    // same write.
+
+    [Test]
+    public async Task REQ216_SubmitGuess_IncorrectWithAttemptsRemaining_NeverCallsResolveWrongGuessPlayer()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Wrong Guess");
+
+        Assert.That(result.Locked, Is.False, "state 2 (incorrect, attempts remaining) — this REQ never applies");
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0));
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_CorrectGuess_NeverCallsResolveWrongGuessPlayer()
+    {
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Thierry Henry");
+
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0),
+            "REQ-214 owns the correct-guess case; this REQ never fires for it");
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null);
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_FinalAttemptStillIncorrect_CallsResolveWrongGuessPlayerExactlyOnce_AndReturnsItsResult()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        _gameModule.ResolveWrongGuessPlayerResult = (_, _) =>
+            new WrongGuessPlayerInfo("Clarence Seedorf", "https://example.org/seedorf.jpg");
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "First Wrong Guess");
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(1),
+            "must fire exactly once — never per incorrect attempt while attempts remain (only the first attempt above must not have called it)");
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.EqualTo("Clarence Seedorf"));
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored!.MatchedPlayerName, Is.EqualTo("Clarence Seedorf"),
+            "persisted immediately in the same write, never batched — this is what makes state 4 (round closed, page reload) work");
+        Assert.That(stored.MatchedPlayerPhotoUrl, Is.EqualTo("https://example.org/seedorf.jpg"));
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_FinalAttemptStillIncorrect_NoPlayerNameIndexMatch_ReturnsNullFieldsAndPersistsNull()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 1;
+        _gameModule.ResolveWrongGuessPlayerResult = (_, _) => null;
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Not A Real Player");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(1));
+        Assert.That(result.IncorrectGuessMatchedPlayerName, Is.Null,
+            "a guess matching no real PlayerNameIndex candidate at all has no identity to show (REQ-216)");
+        Assert.That(result.IncorrectGuessMatchedPlayerPhotoUrl, Is.Null);
+
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored!.MatchedPlayerName, Is.Null);
+        Assert.That(stored.MatchedPlayerPhotoUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task REQ216_SubmitGuess_CorrectOnFirstAttempt_NeverCallsResolveWrongGuessPlayer_EvenThoughCellLocks()
+    {
+        // Distinguishes "locked" from "locked AND incorrect" — REQ-210 locks
+        // immediately on a correct answer too, but this REQ must still never
+        // fire for that case (REQ-214 owns it instead).
+        var round = await SeedActiveRoundAsync();
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, Guid.NewGuid(), Guid.NewGuid(), "Thierry Henry");
+
+        Assert.That(result.Locked, Is.True);
+        Assert.That(_gameModule.ResolveWrongGuessPlayerAsyncCallCount, Is.EqualTo(0));
+    }
+
     // ---- REQ-202: guess locking (allow_guess_change) -----------------------
 
     [Test]
@@ -428,6 +535,86 @@ public class GuessSubmissionServiceTests
             "a rejected-by-REQ-210 submission must never reach the game module a third time");
     }
 
+    // ---- ADR-0041/S-077: attempt cap resolved per-cell via IGameModule ----
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_ThirdAttemptStillAccepted_ProvingCapIsNotHardcodedTwo()
+    {
+        // The literal acceptance criterion: with a game module reporting a
+        // cap other than 2, a 3rd attempt — which the old hardcoded
+        // GuessRules.MaxAttemptsPerCell == 2 would have rejected with
+        // NoAttemptsRemaining — must still be accepted, proving
+        // GuessSubmissionService reads the cap through IGameModule
+        // (ADR-0041) rather than a hardcoded constant.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 3");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.AttemptCount, Is.EqualTo(3));
+        Assert.That(result.Locked, Is.False, "still under the module-reported cap of 5, must not lock yet");
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_GameModuleReportsNonStandardCap_SixthAttemptRejectedWithNoAttemptsRemaining()
+    {
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.MaxAttemptsForCellResult = (_, _) => 5;
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+        for (var i = 1; i <= 5; i++)
+        {
+            await service.SubmitGuessAsync(round.Id, userId, cellId, $"Wrong Guess {i}");
+        }
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 6");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+    }
+
+    [Test]
+    public async Task REQ210_SubmitGuess_EachSubmissionAttempt_ResolvesMaxAttemptsCapExactlyOnce()
+    {
+        // ADR-0041: GetMaxAttemptsForCellAsync must be read exactly once per
+        // submission attempt that reaches it — never skipped (the REQ-210
+        // checks immediately below it depend on the value) and never
+        // re-resolved redundantly within the same call. Same
+        // "exactly-N-calls" assertion pattern this file already uses for
+        // ScoreSubmissionAsyncCallCount (e.g.
+        // REQ210_SubmitGuess_AlreadyCorrectlyLockedCell_RejectedWithoutEverCallingGameModule
+        // above), applied to MaxAttemptsForCellCallCount instead — which
+        // otherwise goes unread by any test.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        SetNextResult(_gameModule, isCorrect: false);
+        var service = BuildService();
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 1");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(1));
+
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Wrong Guess 2");
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(2));
+
+        // Even the rejected 3rd attempt resolves the cap once (it's what
+        // the NoAttemptsRemaining check itself reads) — never zero, never
+        // twice within the same call.
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Third Guess");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.NoAttemptsRemaining));
+        Assert.That(_gameModule.MaxAttemptsForCellCallCount, Is.EqualTo(3),
+            "the cap is resolved exactly once per submission attempt, including the rejected third one");
+    }
+
     // ---- REQ-209/REQ-210: disambiguation prompt is not a separate attempt -
 
     [Test]
@@ -567,6 +754,53 @@ public class GuessSubmissionServiceTests
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
         return user.Id;
+    }
+
+    // ---- REQ-211 (2026-07-27 fix): live-lookup-unavailable outcome ---------
+    // The owning game module signals "we don't know yet" (a live-lookup
+    // timeout) by throwing LiveLookupUnavailableException from
+    // ScoreSubmissionAsync — GuessSubmissionService must catch it and return
+    // before ever touching guessRepository, same shape as REQ-209's
+    // disambiguation branch.
+
+    [Test]
+    public async Task REQ211_SubmitGuess_GameModuleThrowsLiveLookupUnavailable_RejectedWithoutPersistingGuessRow_OrConsumingAnAttempt()
+    {
+        var round = await SeedActiveRoundAsync();
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.ScoreSubmissionResult = (_, _, _) =>
+            throw new LiveLookupUnavailableException("simulated Wikidata timeout");
+        var service = BuildService();
+
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.LiveLookupUnavailable));
+        Assert.That(result.IsCorrect, Is.False);
+        Assert.That(result.AttemptCount, Is.EqualTo(0), "no attempt is consumed when correctness is genuinely unknown");
+        var stored = await _guessRepository.GetAsync(round.Id, userId, cellId);
+        Assert.That(stored, Is.Null, "no Guess row must be written for a live-lookup-unavailable outcome");
+    }
+
+    [Test]
+    public async Task REQ211_SubmitGuess_GameModuleThrowsLiveLookupUnavailable_ASecondAttemptIsStillAvailable()
+    {
+        // The player gets a genuine retry, not a wasted one — a later,
+        // successful submission for the same cell must still see a full set
+        // of attempts remaining.
+        var round = await SeedActiveRoundAsync(allowGuessChange: true);
+        var userId = Guid.NewGuid();
+        var cellId = Guid.NewGuid();
+        _gameModule.ScoreSubmissionResult = (_, _, _) =>
+            throw new LiveLookupUnavailableException("simulated Wikidata timeout");
+        var service = BuildService();
+        await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        SetNextResult(_gameModule, isCorrect: true, Guid.NewGuid());
+        var result = await service.SubmitGuessAsync(round.Id, userId, cellId, "Clarence Seedorf");
+
+        Assert.That(result.Outcome, Is.EqualTo(GuessSubmissionOutcome.Accepted));
+        Assert.That(result.AttemptCount, Is.EqualTo(1), "the earlier live-lookup-unavailable response must not have consumed an attempt");
     }
 
     [Test]

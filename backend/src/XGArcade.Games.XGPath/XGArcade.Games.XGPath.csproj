@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- IGameModule and its supporting types (GameInstance, RoundConfig,
+         ScoreResult) live in XGArcade.Core. -->
+    <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
+    <!-- S-081 (REQ-1201/1202): COMP-06 (Data.PlayerStore) repositories
+         (IPlayerStoreRepository for PlayerCareerStint, ICategoryValueRepository
+         for ClubDefinition) and COMP-11's own persistence
+         (IPathInstanceRepository/PathTemplate/PathInstance/PathPuzzle) —
+         boundary rule 1: Games.XGPath reaches player/category/its-own data
+         only through these interfaces, never a DbContext directly. -->
+    <ProjectReference Include="..\XGArcade.Data\XGArcade.Data.csproj" />
+    <!-- ADR-0054: IPlayerCareerStintRefreshService (XGPathGameModule's own
+         direct Wikidata career fetch) — same precedent as Games.XGGrid's
+         existing reference to this project. -->
+    <ProjectReference Include="..\XGArcade.DataSync\XGArcade.DataSync.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

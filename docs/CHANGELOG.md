@@ -13,6 +13,2250 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — new `docs/decisions/0064-backend-mediated-github-incident-reporting.md`,
+  `docs/requirements-document.md` (REQ-903), `docs/architecture-document.md`
+  (new COMP-12 Core.IncidentReporting), `MVP-SCOPE.md` (Tier 1 pull-forward
+  entry) — design-only exploration of letting a logged-in, non-guest player
+  file a bug report from inside the app that lands as a real GitHub issue,
+  without them needing a GitHub account. Backend holds a fine-grained PAT
+  scoped to `Issues: write` on this repo only, never exposed to the client;
+  guests rejected server-side `403`, same boundary REQ-215 already
+  established. No code written yet — REQ-903/ADR-0064 only.
+
+- 2026-08-10 — `docs/requirements-document.md` (v1.60 → v1.61),
+  `docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md`
+  (new status note) — admin reported the mandatory "reason" field on
+  `/admin/suggestions/{id}/commit` as unwanted friction; investigation found
+  it was a real bug, not just friction: `Reason` is only ever persisted
+  (`PlayerOverride.Reason`) when a nationality is committed — `PlayerAttribute`
+  has no audit columns, so a clubs-only commit validated the field as
+  required then discarded it, satisfying no audit trail. Fixed by making
+  `Reason` conditionally required: still mandatory and persisted whenever a
+  commit includes a nationality, optional for clubs-only commits.
+  `AdminSuggestionEndpoints.ValidateCommitRequest` and
+  `SuggestionsScreen.tsx`'s `PlayerReviewPanel` (`canCommit`, the `Reason`
+  field's `required` attribute) updated together; new backend test
+  (`REQ509_Commit_SucceedsWithoutReason_WhenClubsOnly_NoNationality`) and
+  frontend test (`SuggestionsScreen.test.tsx`) added. REQ-509, ADR-0060.
+  **Backend caveat: `dotnet` SDK unavailable in this sandbox** — the new
+  backend test was hand-traced against the existing, already-verified
+  `REQ509_Commit_ReturnsBadRequest_WhenReasonMissing` pattern, not actually
+  built or run; confirm in CI.
+
+- 2026-08-10 — `docs/requirements-document.md` (v1.61 → v1.62),
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (new status note) — player reported REQ-211's guess-time live-lookup
+  fallback timing out "quite often" on guesses they expected to be
+  incorrect. Root cause: `GridGameModule.RefreshCellFromLiveLookupAsync`
+  never consulted `PairLookupFailure` (ADR-0052) — a Country×Club/Club×Club
+  pair `PlayerCacheWarmingService` had already confirmed, independently, as
+  a persistent technical failure still paid the full ~28s guess-time
+  timeout on every guess against it. Fixed by checking
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` before
+  attempting the live call — a known-doomed pair now fails fast
+  (`LiveLookupUnavailableException`) instead of re-waiting out a timeout
+  already known to happen. Correctness-neutral: still reports the pair as
+  genuinely unknown, not incorrect, and still never consumes a REQ-210
+  attempt — purely removes a redundant wait. `PlayerCacheWarmingService
+  .PersistentFailureThreshold` changed `private` → `internal` so
+  `GridGameModule` can reference the same value instead of duplicating it
+  (both live in `Games.XGGrid`, no project-boundary issue). New tests in
+  `GridGameModuleTests.cs` (`REQ211_ScoreSubmissionAsync_
+  PairAlreadyKnownPersistentFailure_ThrowsLiveLookupUnavailableException_
+  WithoutCallingWikidata`, `REQ211_ScoreSubmissionAsync_
+  PairBelowPersistentFailureThreshold_StillAttemptsLiveLookup`). Only
+  benefits Country×Club/Club×Club — `PlayerCacheWarmingService` doesn't
+  track Trophy pairings. REQ-211, ADR-0052. **Backend caveat: `dotnet` SDK
+  unavailable in this sandbox** — hand-traced against the existing,
+  already-verified `REQ211_ScoreSubmissionAsync_LiveLookupTimesOut_
+  ThrowsLiveLookupUnavailableException` test pattern, not built or run;
+  confirm in CI.
+
+- 2026-08-10 — `docs/design-document.md` (v0.67 → v0.68) — player-name
+  autocomplete's debounce lowered from 275ms to 150ms (`GuessInput.tsx`,
+  `PathGuessInput.tsx`), now that a superseded in-flight request is actually
+  aborted (`AbortController`, new REQ-207 test coverage) rather than merely
+  ignored client-side — the shorter debounce no longer risks piling up
+  redundant concurrent requests the way it would have before that fix.
+  REQ-207.
+
+- 2026-08-10 — new `docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md`,
+  `docs/decisions/0059-career-stint-club-name-canonicalization.md`
+  ("For AI agents" section) — quality-gate follow-up on commit `237439c`
+  (REQ-1203/REQ-1207 xG Path clue-reveal bug fixes). `DuplicateCareerStintCleaner`'s
+  widened matching (null-tolerant `AppearanceCount` merge, same-`ClubName`
+  Step 2 pass, in-place survivor mutation) needed the fresh ADR that
+  ADR-0059's own "For AI agents" guardrail required before any widening —
+  ADR-0063 records it and ADR-0059 now points at it. Same round also fixed
+  two real bugs the ADR gap was standing in front of: Step 2 silently
+  failing to collapse two rows sharing an identical, already-populated
+  `AppearanceCount` (only null rows were ever removed); and Step 1's
+  in-place mutation being order-dependent for 3+-row groups sharing a
+  `(PlayerId, StartYear, EndYear)` key (now conservative — an ambiguous
+  3+-row group is left entirely untouched rather than picking a winner via
+  enumeration order). Also corrected `PathCareerStintFilter`'s doc comment,
+  which overclaimed the national-team regex "leaves non-FIFA regional
+  representative sides alone" — it has no FIFA-affiliation signal at all
+  and matches on label wording only; a non-FIFA side labeled as a
+  "national team" is excluded same as any other, pinned down with a new
+  test (`Catalonia national football team`, NOT verified against a live
+  Wikidata query from this sandbox — flagged for manual confirmation). No
+  `dotnet` SDK available in this sandbox; new/changed tests hand-traced,
+  not run. REQ-1203, ADR-0059, ADR-0063.
+
+- 2026-08-10 — `docs/requirements-document.md` (v1.58 → v1.59),
+  `docs/architecture-document.md` (v0.86 → v0.87) — doc-sync pass over
+  commits `237439c`/`44771a6`/`ccbfbfe` (the same xG Path clue-reveal
+  bug-bundle round as the entry directly above). REQ-1203: renamed stale
+  `PathCareerStintFilter.ExcludeYouthNationalTeams`/`IsYouthNationalTeam`
+  references to `ExcludeNationalTeams`/`IsNationalTeam`; added a new
+  2026-08-10 status note (superseding, not deleting, the 2026-08-08 note)
+  recording that the youth-only scoping was reopened by a new bug report
+  showing a senior national team leaking through, and that the filter now
+  matches any national team per this REQ's own unqualified acceptance
+  criterion — the non-FIFA-regional-side behavior is unchanged but is now
+  documented as incidental (label-wording-based), not a deliberate policy
+  exemption; added a status note on the 2026-08-03 "known, accepted
+  limitation" (`AppearanceCount` mismatch) recording that ADR-0063's
+  null-vs-populated merge now partially closes it (both-populated-and-
+  different still doesn't merge). REQ-1207: added a status note on the
+  raw-Wikidata-URI backfill-candidate widening fix. `docs/architecture-
+  document.md`: updated COMP-11's status note and §6.2b's data-flow wording
+  to match the broadened national-team filter (was described as
+  "youth/age-grade only," now reads as senior-or-youth with both dates'
+  reasoning). REQ-1203, REQ-1207, ADR-0063. Note:
+  `docs/implementation-document.md` (project-structure section, ~line 245)
+  still describes the filter as "youth/age-grade national-team" only — left
+  unedited, out of this pass's explicit scope; flagged for a follow-up pass.
+
+- 2026-08-10 — `docs/implementation-document.md` (v0.92 → v0.93) — closed
+  the follow-up flagged in the entry directly above. Project-structure
+  section's `PathCareerStintFilter` description updated from "youth/age-
+  grade national-team" rows to noting the 2026-08-10 widening to any
+  national team (`IsYouthNationalTeam` → `IsNationalTeam`); the position/
+  birth-year backfill section's `GetPlayersMissingPositionOrBirthYearAsync`
+  description updated to record the raw-Wikidata-URI candidate widening and
+  `UpdatePlayerPositionsAndBirthYearsAsync`'s corresponding one-time
+  exception to its "never clobber an already-set field" rule. Same round
+  as commits `237439c`/`44771a6`/`ccbfbfe`. REQ-1203, REQ-1207.
+
+- 2026-08-09 — `docs/architecture-document.md` (v0.85 → v0.86), new
+  `docs/decisions/0062-admin-lookup-wikibase-mwapi-search.md` — a
+  production log showed REQ-509/510's admin by-name Wikidata lookup
+  running ~39s and then failing with HTTP 502 Bad Gateway (not a
+  timeout — the 45s budget added earlier the same day wasn't the
+  bottleneck; something in front of WDQS rejects the query under its
+  own cost/duration). Root cause: `QueryPlayerCareerAndNationalityByNameAsync`
+  resolves a name to a candidate player via an unindexed, population-wide
+  `rdfs:label`/`skos:altLabel` scan. ADR-0062 records the decision to
+  replace that scan with a federated `wikibase:mwapi` `EntitySearch` call
+  (Wikidata's own indexed search) instead, and the two alternatives
+  rejected (backfilling `PlayerNameIndex` with a real `WikidataQid`;
+  calling Wikidata's REST `wbsearchentities` API as a new external
+  dependency). Flagged in the ADR's own Consequences: unverified against
+  the real Wikidata endpoint from this sandbox (no live network access),
+  needs a human check before being trusted in production. `docs/architecture-document.md`
+  §10's ADR table gained the new row. REQ-509, REQ-510, ADR-0062.
+
+- 2026-08-09 — `docs/requirements-document.md` (v1.57 → v1.58),
+  `docs/architecture-document.md` (v0.84 → v0.85),
+  `docs/implementation-document.md` (v0.91 → v0.92), `docs/backlog.md`
+  (new S-095 entry), `MVP-SCOPE.md` — synced all five docs to REQ-108's
+  now-completed follow-up story: team-competition trophies (FIFA World Cup,
+  UEFA Champions League) for xG Grid's Trophy category, per ADR-0061's
+  `P1344`/`P3450`/`P1346` edition-participation/winner query shape. REQ-107
+  and REQ-108's status notes updated to record the trophy pool growing from
+  one to three and, critically, that Country×Trophy/Club×Trophy are now
+  REACHABLE and selectable in production (previously "structurally
+  dormant") — Trophy×Trophy remains infeasible (`trophyCount >= size * 2`
+  not yet cleared). `docs/architecture-document.md`'s boundary-rule-1
+  discussion (COMP-05/06/07 status note) updated to record ADR-0035's own
+  outstanding follow-up note as resolved in the same story; its §6.1 grid-
+  generation flow caveat and COMP-05's `PlayerCacheWarmingService` note
+  updated to match (the latter flagged as a newly-live, not fixed, gap —
+  Trophy pairs still aren't proactively cache-warmed even though they're
+  now reachable). `docs/implementation-document.md`'s `TrophyDefinition`
+  data-model snippet and grid-generation pairing narrative updated to match
+  the actual entity/behavior. `docs/backlog.md` gained a new S-095 entry
+  mirroring S-031's "Built as" format; `MVP-SCOPE.md`'s struck-through
+  REQ-108 Tier 1 entry updated to record the deferred remainder as shipped.
+  REQ-108, ADR-0061, ADR-0035 (follow-up note only, not re-litigated).
+
+- 2026-08-09 — `docs/requirements-document.md` (v1.56 → v1.57),
+  `docs/backlog.md` — synced both docs to S-090's actual shipped state
+  (`docs/architecture-document.md`'s COMP-06 status note and new
+  ADR-0060 were already updated directly by the orchestrator, not touched
+  here). REQ-509 and REQ-510 moved from "drafted only" to "Implemented
+  (2026-08-08, S-090)," documenting the four suggestion-scoped admin
+  endpoints and two standalone search-and-add endpoints
+  (`AdminSuggestionEndpoints.cs`), the new `SuggestionsScreen.tsx` (linked
+  from, never merged into, `AdminScreen.tsx` per ADR-0053), the
+  nationality-via-`PlayerOverride`/club(s)-via-additive-`PlayerAttribute`
+  write-path split (ADR-0060), and a bug found and fixed mid-implementation
+  (the Wikidata career lookup silently dropping clubs with no P580
+  start-date qualifier). REQ-215's own status note and its two stale
+  "admin half still queued" cross-references were updated to match.
+  `docs/backlog.md`'s S-090 entry replaced its "not yet started" placeholder
+  with a "Built as" paragraph covering the same ground, plus the deviation
+  from the original story text (the write-path split wasn't specified up
+  front) and the bug fix. REQ-509, REQ-510, ADR-0060, ADR-0053.
+
+- 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
+  `infra/scripts/promote-dev-to-prod.sh`, `infra/scripts/sync-prod-to-dev.sh`,
+  `.github/workflows/promote-dev-to-prod-dry-run.yml` (new),
+  `docs/decisions/0009-bidirectional-game-data-sync.md`,
+  `infra/README.md`, `docs/implementation-document.md` — fixed a real
+  data-loss bug found during an architecture review: both sync scripts ran
+  `TRUNCATE TABLE $t CASCADE;` per allowlisted table before restoring, and
+  Postgres's `TRUNCATE ... CASCADE` truncates every OTHER table with a
+  foreign key into the truncated table too, not just rows — truncating
+  `Player` was silently wiping xG Path's `PathPuzzle`/`PathCycleTargetUsage`
+  tables (verified against `XGArcadeDbContext.cs`'s FK graph), neither of
+  which is or should be on the sync allowlist per this ADR. Fixed by
+  finding and temporarily dropping only the specific external FK
+  constraints at runtime (`pg_constraint`), truncating the whole allowlist
+  together with no `CASCADE` keyword at all, then re-adding the
+  constraints after restore — verified end-to-end against a real local
+  Postgres 16 instance (including reproducing the original bug for
+  contrast), not just reasoned about; `SET session_replication_role =
+  replica` was tried first and confirmed NOT to solve this specific
+  problem. Also extended both scripts' `--dry-run` output to show both
+  sides' row counts per table (previously only the source side's), and
+  added `promote-dev-to-prod-dry-run.yml`, a weekly-scheduled workflow that
+  surfaces the diff on the job summary without ever writing to prod or
+  adding a non-interactive flag to the real promote path; it exits cleanly
+  when prod isn't configured yet (Tier 1). No new ADR — addendum to
+  ADR-0009. REQ-804/REQ-805, ADR-0009.
+
+- 2026-08-08 — `infra/scripts/lib/game-data-tables.sh`,
+  `docs/decisions/0009-bidirectional-game-data-sync.md` — fixed a real gap
+  found during an architecture review of a proposed shared dev/prod
+  database: `PlayerCareerStint` (ADR-0042) was never added to the
+  prod↔dev sync allowlist, so the two environments have had no sync path
+  for it since it was introduced. Added `"public.\"PlayerCareerStints\""`
+  to the allowlist both `sync-prod-to-dev.sh`/`promote-dev-to-prod.sh`
+  share; ADR-0009 gained a dated addendum recording the gap and fix. No
+  behavior change beyond making this table syncable going forward — no
+  sync actually run as part of this fix. ADR-0009.
+
+- 2026-08-08 — `docs/backlog.md` — doc-hygiene fix: the "Tier 1 backlog
+  (unordered)" quick-reference list still showed `T-104 disambiguation UI
+  (REQ-209)` without a strikethrough, even though S-067 fully built it
+  (backend/API + frontend, same day) — the list just wasn't updated when
+  S-067 shipped. Struck through and cross-referenced to S-067, matching
+  the convention every other completed T-10x entry in that list already
+  uses. No behavior/requirement change. REQ-209.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.55 → v1.56) — fixed the
+  gap flagged (not fixed) in the same-day xG Path `PathScoringExplainer`
+  entry: `LeaderboardScreen.tsx`'s `(ⓘ)` "How scoring works" button always
+  opened xG Grid's `ScoringExplainer`, even when the leaderboard's xG Path
+  tab was active, showing Grid-specific content (uniqueness, live/locked
+  points, median ranking) that doesn't describe xG Path's rules — reported
+  directly by a player after the gap was flagged. Made the entry point's
+  modal `gameKey`-aware: `gameKey === XG_GRID_GAME_KEY` renders
+  `ScoringExplainer`, `gameKey === XG_PATH_GAME_KEY` renders
+  `PathScoringExplainer` (imported from `../path/PathScoringExplainer`,
+  the same cross-feature-folder import pattern this file already used for
+  `../grid/ScoringExplainer` — no component relocation needed). Judgement
+  call: switching the game tab while the explainer is open now closes it
+  rather than swapping its content live or leaving the old game's
+  mismatched content on screen — follows the same "back out on a game
+  switch" precedent this file's `selectedRound`/`pastDetailState` reset
+  effect already established (REQ-410/S-087), rather than inventing a new
+  behavior. 4 new Vitest tests in `LeaderboardScreen.test.tsx`
+  (`describe('game-aware scoring explainer', ...)`): Grid tab opens the
+  Grid explainer, Path tab opens the Path explainer, switching games while
+  open closes it (and a re-open shows the new game's content), switching
+  games while closed has no effect. Full frontend suite run (476 tests
+  passing, up from 472), `npx tsc -b` clean, `npm run lint` clean. No
+  backend changes, no ADR (UI composition only — same reasoning as the
+  original PathScoringExplainer change this follows up on). REQ-213.
+- 2026-08-08 — `docs/requirements-document.md` (v1.54 → v1.55),
+  `docs/design-document.md` (v0.66 → v0.67) — closed a real player-reported
+  gap on xG Path (SCREEN-10): "no scoring information in the game" turned
+  out to mean the `(ⓘ)` "How scoring works" explainer specifically (not the
+  same-day REQ-1206 per-puzzle points value, which stays untouched).
+  `PathScreen.tsx` had no explainer entry point at all before this. Added a
+  new `(ⓘ)` button (`.path-screen__info-toggle`) in the header, next to the
+  round end-time indicator, opening a new sibling component
+  (`frontend/src/path/PathScoringExplainer.tsx`) rather than reusing or
+  `gameKey`-branching xG Grid's `ScoringExplainer.tsx` — xG Path's rules
+  share almost nothing with xG Grid's (no uniqueness, no live/locked point
+  distinction, a different 7-clue/7-attempt model), so reuse would have
+  misdescribed the game; the modal/accessibility shell (focus management,
+  Escape-to-close) is duplicated from `ScoringExplainer.tsx`, not
+  extracted, per this repo's two-call-sites duplication preference.
+  Content verified against `XGPathGameModule.cs`,
+  `PathClueSequenceBuilder.cs`, `ClueEfficiencyScoringStrategy.cs`, and
+  `PathGenerationOptions.cs` rather than assumed. `docs/requirements-
+  document.md` REQ-213 gained a 2026-08-08 second-consumer status note
+  (mirroring REQ-303's earlier second-consumer precedent) plus new
+  acceptance-criteria/Test-level coverage for SCREEN-10's distinct entry
+  point; `docs/design-document.md`'s SCREEN-10 section gained a matching
+  status note. Both docs flag the same known, pre-existing,
+  out-of-scope gap: `LeaderboardScreen.tsx`'s own `(ⓘ)` entry point still
+  shows xG Grid's `ScoringExplainer` content even when the leaderboard's
+  xG Path tab is active — not fixed here, filed as a follow-up candidate.
+  3 new Vitest tests added to `PathScreen.test.tsx`
+  (`describe('REQ-213: scoring explainer', ...)`); full frontend suite run
+  (472 tests passing, up from 469), `npx tsc -b` clean, `npm run lint`
+  clean. No backend changes, no ADR (UI content/composition, not a
+  structural/boundary decision). REQ-213.
+- 2026-08-08 — `docs/architecture-document.md` (v0.82 → v0.83),
+  `docs/implementation-document.md` (v0.90 → v0.91) — doc-sync closing an
+  `architecture-reviewer` gate finding on today's two xG Path bug fixes
+  (no boundary violation, no new ADR needed either time; purely a
+  documentation gap). Architecture doc: COMP-11's status note gained a
+  2026-08-08 continuation of its own 2026-08-02 national-team-exclusion
+  note, documenting the new `PathCareerStintFilter` read-time filter (same
+  read-time-filter-over-destructive-cleanup reasoning as ADR-0059) at both
+  its call sites; a new COMP-04/COMP-11 status note documents `GET
+  /path/current` (`PathEndpoints.cs`) now also resolving
+  `IScoringStrategyResolver` to compute REQ-1206's `Points` field, the
+  first Api-layer caller of that resolver besides `ScoreLockingService`,
+  via the already-established `IGameModuleResolver`-from-Api-layer shape;
+  §6.2b's data-flow diagram extended with both the new `Core.Scoring`
+  step and the `PathCareerStintFilter` step, which it previously omitted
+  entirely. Implementation doc: one additional line noting
+  `PathEndpoints.cs`'s new `IScoringStrategyResolver` dependency and how
+  `Points` is computed, alongside the existing `PathCareerStintFilter`
+  note from earlier today. `docs/requirements-document.md` and
+  `docs/design-document.md` untouched — already correctly updated earlier
+  this session. REQ-1203, REQ-1206.
+- 2026-08-08 — no doc changes — same-day quality-gate fix-up (not a new
+  requirement) to `XGArcade.Games.XGPath.PathCareerStintFilter`'s
+  `YouthNationalTeamPattern` regex: added a missing leading `\b` before
+  `national` so the pattern anchors to a real word, not a bare substring
+  match inside a longer word (e.g. "Inter"+"national",
+  "Multi"+"national") — was wrongly flagging club/team names like
+  "International Under-20 Select XI" and "Multinational Development
+  Squad Under-19" as youth national teams. New negative test cases added
+  to `PathCareerStintFilterTests`
+  (`REQ1203_IsYouthNationalTeam_ClubNamesContainingNationalAsSubstring_ReturnsFalse`).
+  Also corrected an inaccurate precedent claim in `PathEndpoints.cs`'s
+  comment introducing `scoringStrategyResolver.Resolve(round.GameKey)` —
+  it mirrors the `IGameModuleResolver` Api-layer-resolver pattern, not an
+  existing `RoundEndpoints`/`ScoreLockingService` call to this specific
+  resolver (that resolver's only prior caller was `ScoreLockingService`
+  inside `XGArcade.Core.Scoring`). `dotnet` unavailable in this sandbox;
+  regex fix hand-traced against all positive/negative cases in both test
+  files, not run. REQ-1203.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.52 → v1.53) — backend
+  half of REQ-1206's 2026-08-08 "score is never shown" gap: `GET
+  /path/current`'s `CurrentPathGuessResponse` (`XGArcade.Api.Path.
+  PathEndpoints`) gains a `Points` field (`int?`), non-null only when
+  `Locked` is true. Computed by resolving `IScoringStrategyResolver`
+  (already DI-registered for `ScoreLockingService`) and calling
+  `ClueEfficiencyScoringStrategy.ScoreCorrectGuess` directly for a solved
+  puzzle — never a reimplemented copy of its rounding formula — or the
+  same `ScoringRules.MaxPointsPerCell` worst case `ScoreLockingService`
+  assigns for a puzzle locked via exhausted attempts (unsolved), since
+  that strategy is only ever invoked for a correct guess. Named `Points`,
+  not `LivePoints`/anything implying "estimated," matching REQ-1206's
+  explicit "this is never provisional, unlike xG Grid's `LivePoints`"
+  distinction. No change to `ClueEfficiencyScoringStrategy`,
+  `IScoringStrategyResolver`, or `ScoreLockingService` themselves — this
+  is a new call site for an existing formula, not a formula change, so no
+  new ADR. New coverage: `PathEndpointTests`
+  (`REQ1206_PathCurrent_Get_LockedViaCorrectGuess_ReturnsPointsMatchingClueEfficiencyFormula`,
+  `REQ1206_PathCurrent_Get_LockedViaExhaustedAttempts_ReturnsWorstCasePoints`,
+  `REQ1206_PathCurrent_Get_UnlockedPuzzleWithAnExistingGuess_ReturnsNoPoints`,
+  `XGArcade.Api.Tests`). `dotnet` is unavailable in this sandbox — tests
+  were hand-traced against the existing `PathEndpointTests` patterns but
+  not run; will only run in CI. Frontend (`PathScreen.tsx`, SCREEN-10)
+  deliberately untouched — left to a follow-up `ui-implementer` task, per
+  REQ-1206's still-open UI "Not yet covered" note. REQ-1206.
+
+- 2026-08-08 — `docs/requirements-document.md` (v1.53 → v1.54),
+  `docs/design-document.md` (v0.65 → v0.66) — frontend half of REQ-1206's
+  "score is never shown" gap, closing it: `lib/types.ts`'s
+  `CurrentPathGuess` gains a `points: number | null` field mirroring
+  `CurrentPathGuessResponse.Points` exactly, and `PathTimeline.tsx`'s
+  `SolvedNode`/`FailedRevealNode` (wired from `PathScreen.tsx`, gated on
+  the same `locked` boolean already used for the resolved player name/
+  photo) render it as plain `"N pts"` text (`mono-figure`, colored to
+  match the reveal node's own outcome accent —
+  `accent-gold-text`/`accent-red` — mirroring `CellState.css`'s existing
+  points-color convention) — deliberately never `"~N pts estimated"` or
+  any other provisional wording, per REQ-1206's explicit "not the same as
+  xG Grid's `LivePoints`" acceptance criteria. Judgment call flagged in
+  `design-document.md`'s new SCREEN-10 status note (placement on the
+  timeline's reveal node, not a separate screen element; wording/color
+  choice) since this section hadn't previously spec'd a score display slot
+  at all. New coverage: `PathTimeline.test.tsx`'s
+  `describe('REQ-1206: locked point value', ...)` (solved reveal, no
+  provisional wording; locked-but-unsolved reveal; still-unlocked shows
+  no points; null `points` on an otherwise-locked reveal shows no points
+  line) and three `PathScreen.test.tsx` `REQ-1206:` tests (end-to-end
+  plumbing for the solved, exhausted-unsolved, and still-unlocked cases).
+  `npm run test` (Vitest): 469/469 passed across 26 files, including the
+  9 new ones. `tsc -b` and `npm run lint` (oxlint) both clean. REQ-1206.
+- 2026-08-08 — `docs/requirements-document.md` (v1.51 → v1.52),
+  `docs/implementation-document.md` (v0.89 → v0.90) — bug fix:
+  leftover pre-2026-08-02 youth/age-grade national-team `PlayerCareerStint`
+  rows (e.g. "Spain national under-16 association football team," "Italy
+  national under-20/under-21 football team") were still leaking into xG
+  Path's club-reveal clues, reported directly via user testing. The
+  2026-08-02 SPARQL fix only stops NEW rows from being fetched — it can't
+  retroactively remove rows already sitting in the ~608K-row
+  `PlayerCareerStint` table, since `PlayerCareerStintRefreshService` is
+  additive-only. Fixed with a new, pure `PathCareerStintFilter`
+  (`XGArcade.Games.XGPath`), a read-time filter (not a DELETE/cleanup
+  script — no QID exists on already-persisted rows to prove a match
+  against, unlike ADR-0059's cleanup) applied at both `GET /path/current`
+  (`PathEndpoints.cs`) and `XGPathGameModule.GetEligiblePlayerIdsAsync`'s
+  REQ-1201 eligibility check, so a player's eligibility count can no
+  longer be inflated by leftover junk rows either. Scoped narrowly
+  (`national` + an age-grade `under-\d+` marker) to match only what was
+  reported — the valid senior national-team clue and a non-FIFA regional
+  side are both deliberately left alone. New coverage:
+  `PathCareerStintFilterTests`, `XGPathGameModuleTests`, `PathEndpointTests`
+  (all `XGArcade.Games.XGPath.Tests`/`XGArcade.Api.Tests`). `dotnet` is
+  unavailable in this sandbox — tests were hand-traced against the
+  existing test patterns but not run; will only run in CI. REQ-1203.
+- 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.49),
+  `docs/design-document.md` (v0.64 → v0.65) — REQ-213 verification finding
+  (content confirmed complete; found the `(ⓘ)` explainer entry point
+  orphans onto its own line, disconnected from the round-timer text, at
+  420-480px viewport widths — new dated acceptance criterion filed for a
+  follow-up fix, REQ-213's status unchanged at Implemented) plus SCREEN-10
+  (`PathScreen.tsx`) now rendering the same round end-time indicator
+  SCREEN-01 has (REQ-303's 2026-07-21 addition), reusing
+  `CurrentPathResponse.endTime` (already present since S-081/S-082) and the
+  same shared `lib/roundTime.ts` formatter `GridScreen.tsx` uses — a
+  second-consumer status note under REQ-1203 (no acceptance-criteria
+  change; format/threshold rules stay owned by REQ-303) and a matching
+  status note on SCREEN-10 in the design doc, flagging its wireframe as
+  stale on this one point. No architecture change (no new endpoint field,
+  no boundary crossed). REQ-213, REQ-303, REQ-1203.
+- 2026-08-04 — `docs/requirements-document.md` (v1.47 → v1.48),
+  `docs/architecture-document.md` (v0.81 → v0.82) — doc-sync for the
+  REQ-1203 follow-up fix (ADR-0059, commits `99c5818`/`d829a25`, branch
+  `claude/xg-duplicate-clubs-7ns69u`): xG Path could still show the same
+  real career stint as two separate club-reveal nodes even after the
+  2026-08-03 `NormalizeClubName` fix, because two independent writers of
+  `PlayerCareerStint.ClubName` used different naming conventions (the
+  seeded `ClubDefinition.Name` vs. Wikidata's raw `?clubLabel`) with no
+  QID-based cross-check — e.g. "Lyon" vs. "Olympique Lyonnais," same club,
+  more than a legal-suffix token apart. Fixed by selecting the underlying
+  Wikidata `?club` QID (`WikidataCareerStintEntry.ClubQid`) and having
+  `PlayerCareerStintRefreshService`/`PlayerCareerPrefetchService`
+  canonicalize each fetched stint's `ClubName` against `ClubDefinition.Name`
+  by QID, also fixing `GetCareerStintCandidatePlayerIdsAsync`'s (REQ-1201)
+  exact-string eligibility match for free. A new narrow, provable-only CLI
+  verb (`clean-duplicate-career-stints`/`DuplicateCareerStintCleaner`)
+  backfills already-persisted duplicates without a full purge-and-reseed of
+  the ~608K-row table — see ADR-0059 for the full reasoning. Requirements
+  doc: new 2026-08-04 status note on REQ-1203, alongside (not replacing)
+  the existing 2026-08-02/2026-08-03 notes, which cover different bugs.
+  Architecture doc: COMP-07 row updated to note `PlayerCareerStintRefreshService`'s
+  new `ICategoryValueRepository` dependency and the QID-canonicalization
+  data flow — confirmed this is a second call site for an existing
+  reference-data-read pattern (ADR-0012), not a new boundary; COMP-11/COMP-06
+  rows checked and left unchanged, since neither's documented responsibility
+  or data-flow shape actually changed. `docs/decisions/0059-*.md` already
+  existed (written alongside the code fix) and was not re-created or
+  edited. Both an `architecture-reviewer` and `quality-architect` pass
+  already ran on the diff before this doc-sync and returned PASS (two
+  low-severity, explicitly non-blocking test-coverage nits, not code
+  changes). No test suite was executed as part of this fix or this
+  doc-sync — the `dotnet` SDK was not available in this sandbox at any
+  point; all new/changed backend code was hand-traced against the actual
+  service/query code, not run. `docs/decisions/0058-career-stint-club-name-canonicalization.md`
+  was renumbered to `0059-*.md` (and every reference to it) after merging
+  latest `main`, since `main`'s own PR #147 (below) had independently
+  claimed ADR-0058 for S-093's cycle-tracking decision while this branch
+  was in progress. REQ-1203, ADR-0059.
+
+- 2026-08-03 — `docs/backlog.md` — closes a doc-sync gap left by the prior
+  two entries below: S-093's status line and body updated to reflect that
+  ADR-0058 was amended (2026-08-03, post quality-gate review) to confirm
+  `GET /admin/xg-path/cycle`'s `IGameModule` bypass as a deliberate
+  extension of ADR-0016/ADR-0048's direct-repository-read pattern to
+  cross-instance bookkeeping state (not literally covered by either ADR's
+  original per-instance-content scope), plus a note on
+  `AddInstanceWithCycleUsageAsync`'s bundled-write shape not being the
+  default way to write multiple entities; and a one-line comment typo fix
+  (`XGArcada` → `XGArcade`) in `frontend/src/lib/types.ts`. No REQ/ADR
+  content changed beyond ADR-0058's own amendment (already committed);
+  this entry only catches `docs/backlog.md` up to it. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.46 → v1.47),
+  `docs/architecture-document.md` (v0.80 → v0.81), `docs/backlog.md` —
+  full test coverage landed for REQ-1208/REQ-1209 (S-093): backend unit
+  tests (`XGPathGameModuleTests.cs`, new `ManualTimeProvider.cs`) covering
+  per-selection usage recording, in-cycle exclusion, rollover once
+  remaining-unused drops below N (including reselecting a just-used
+  player), a stale usage row from a dropped-out player never blocking
+  rollover, and the pre-existing REQ-1202 insufficient-pool abort left
+  untouched by cycle state; backend API tests (`RoundEndpointTests.cs`,
+  new `AdminXGPathEndpointTests.cs`) covering round generation across a
+  rollover boundary and `GET /admin/xg-path/cycle`'s persisted-state/
+  no-data-yet/403/401 cases plus its unconditional Production
+  registration; frontend Vitest coverage (`AdminScreen.test.tsx`) covering
+  full-field render, the no-data-yet empty state, and the
+  401/403/other-error handling pattern for `XGPathCycleSection` (459/459
+  frontend tests passing, verified in this sandbox). `dotnet` was
+  unavailable in the implementation sandbox, consistent with the prior two
+  implementation commits' own note — backend tests are written and
+  hand-traced against the actual implementation but not compiled or run;
+  still need a real `dotnet test` pass in CI before merge. Both REQs'
+  status notes and the architecture doc's COMP-11 status (which had been
+  left saying "frontend panel not yet built" after the frontend was
+  actually implemented in the prior entry) updated to match. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.44 → v1.45),
+  `docs/architecture-document.md` (v0.79 → v0.80), `docs/backlog.md` —
+  backend implementation of REQ-1208/REQ-1209 (S-093, xG Path no-repeat
+  target-selection cycle + admin visibility), following ADR-0058's binding
+  decisions exactly. New xG Path-scoped entities `PathTargetCycle`/
+  `PathCycleTargetUsage` (`XGArcade.Data`, migration
+  `20260803140000_AddPathTargetCycle`) — never a field on the shared
+  `Player` entity. Four new `IPathInstanceRepository` methods
+  (`GetCycleStateAsync`, `GetOrCreateCycleStateAsync`,
+  `GetUsedPlayerIdsInCycleAsync`, `AddInstanceWithCycleUsageAsync`);
+  `XGPathGameModule.GenerateInstanceAsync` now selects targets only from
+  eligible players not yet used in the current cycle, rolling the cycle
+  over (tolerant "remaining unused < N" rule) before selecting when
+  needed, writing the puzzle/instance and cycle-usage state in one unit of
+  work. New `GET /admin/xg-path/cycle` (`AdminXGPathEndpoints`,
+  `"Admin"`-policy-gated, registered unconditionally) is a pure read of
+  the persisted cycle state — never triggers round generation or a live
+  familiarity check. `dotnet` was unavailable in the implementation
+  sandbox; the migration's `Designer.cs`/`XGArcadeDbContextModelSnapshot.cs`
+  were hand-derived from the existing migration pattern rather than
+  machine-generated and still need a real `dotnet build`/`dotnet ef`
+  verification in CI. Frontend panel (REQ-1209) and tests (both REQs) not
+  yet built — tracked by S-093's own updated status note. REQ-1208/1209,
+  ADR-0058.
+- 2026-08-03 — `docs/requirements-document.md` (v1.45 → v1.46),
+  `docs/backlog.md` — frontend implementation of REQ-1209 (S-093's
+  remaining `ui-implementer` pass): new `XGPathCycleSection` in
+  `frontend/src/admin/AdminScreen.tsx`, rendered unconditionally alongside
+  `AccountMetricsSection` and reusing its exact fetch/gating pattern
+  (401 escalates via `onAuthError`, 403 hides the section, any other error
+  shows inline, "no data yet" renders via the existing
+  `admin-screen__empty` class rather than as an error or a blank section).
+  New `fetchAdminXGPathCycle` helper (`frontend/src/lib/api.ts`) and
+  `AdminXGPathCycleState` type (`frontend/src/lib/types.ts`) against
+  `GET /admin/xg-path/cycle`'s existing response shape. No new CSS/design
+  tokens — reuses `admin-screen__metrics`/`admin-screen__metric-label`/
+  `admin-screen__metric-value mono-figure`. `npx tsc -b`, `npm run build`,
+  `npm run lint`, and the full Vitest suite (453 passing, including the
+  pre-existing `AdminScreen.test.tsx` unchanged) all verified locally.
+  Tests for REQ-1209's UI coverage (and REQ-1208's backend coverage) still
+  tracked as S-093's next, separate `test-writer` pass. REQ-1209.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.43 → v1.44),
+  `docs/decisions/0058-xg-path-target-cycle-tracking.md` (new),
+  `docs/architecture-document.md` (v0.78 → v0.79) — `/orchestrate` ran on
+  S-093 (xG Path: no-repeat target selection across rounds + admin cycle
+  visibility). Requirements pass: added REQ-1208 (targets don't repeat
+  until the eligible, ADR-0056-familiarity-filtered pool has cycled once)
+  and REQ-1209 (admin-visible cycle status on the existing
+  `AdminScreen.tsx`, REQ-503/509/510's surface). Both `Status: Not yet
+  implemented — drafted only`; code not yet written, tracked by S-093.
+  ADR-0058 records the two decisions the backlog entry explicitly flagged
+  as needing one rather than an assumption: cycle-tracking state is xG
+  Path's own data (never a field on the shared `Player` entity, per
+  ADR-0042's precedent), and a cycle is scored against the live,
+  ADR-0056-filtered pool `PickDistinct` actually samples from (not the
+  larger structurally-eligible-only pool), with a tolerant
+  "remaining-unused-below-N" completion rule rather than an exact-zero
+  check, to tolerate that pool's documented live instability. REQ-1201/1202.
+
+- 2026-08-03 — `docs/architecture-document.md` (v0.77 → v0.78) — REQ-1201's
+  eligibility check (`XGPathGameModule.GetEligiblePlayerIdsAsync`) no
+  longer loads the entire `PlayerCareerStint` table
+  (`IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync`, now removed)
+  on every xG Path round generation — that table grew to ~608K rows via
+  ADR-0055's `prefetch-player-careers` job and kept growing, so a
+  full-table read on a live (non-admin) path no longer scaled. Replaced
+  with a two-pass narrowing: new `GetCareerStintCandidatePlayerIdsAsync`
+  reads only `(PlayerId, ClubName)` pairs and filters to a provable
+  superset of REQ-1201's real candidates (never excludes a player the
+  unchanged `IsEligible` would accept), then the pre-existing
+  `GetCareerStintsByPlayerIdsAsync` loads full data only for that
+  narrowed set. Pure internal performance fix — REQ-1201's eligibility
+  semantics are unchanged, no REQ/ADR needed; COMP-06/COMP-11 rows in
+  the architecture doc updated to match, since they named the removed
+  method specifically. See `NOTES.md`'s 2026-08-03 entry for the
+  original scale finding.
+
+- 2026-08-03 — `docs/backlog.md` (S-092 status) — ran `/orchestrate` on
+  S-092 ("xG Grid: widen player pool using xG Path's full-career data");
+  dropped before any code was written. `requirements-writer` and
+  `architecture-reviewer` independently found the story's own proposal —
+  `GridGameModule`'s correctness path reading `PlayerCareerStint` —
+  directly conflicts with ADR-0042 (2026-07-26), which explicitly forbids
+  exactly this read path and instructs agents to "stop and flag" rather
+  than implement it. Also found `PlayerCareerStint` has no nationality
+  field and no reliable QID join to `ClubDefinition`, so it couldn't fully
+  satisfy REQ-101/102 even absent the ADR conflict. Escalated to the user
+  via `AskUserQuestion`; decision was to drop the story rather than write
+  a superseding ADR or scope a narrower variant. No REQ or ADR changes.
+  See S-092's backlog entry for full detail. ADR-0042.
+
+- 2026-08-03 — `docs/design-document.md` (v0.63 → v0.64), `NOTES.md` —
+  three user-tester bug fixes (xG Path clue reveal, country flags, a
+  `PlayerNameIndex.BirthYear` data-quality bug). (1) `PathTimeline.tsx`'s
+  solved/failed reveal used to REPLACE the last real clue turn's own node
+  instead of appending after it, silently deleting that turn's content
+  (a bundled multi-club turn or the year-range/position/nationality/age
+  content) the instant the puzzle locked — contradicted this codebase's own
+  "every past clue stays visible" rule. Fixed to append the reveal as a
+  separate, trailing node; design doc's SCREEN-10 "Solved state" bullet
+  status-noted (not rewritten) the same way its existing S-086 note already
+  documents a stale assumption. (2) Flags moved from Unicode emoji
+  (`categoryDisplay.ts`'s old `flagEmojiFor`) to bundled inline SVGs
+  (`frontend/src/lib/countryFlags.tsx`) — Windows Chrome/Edge render emoji
+  through the host OS font, and Windows dropped color flag glyphs from its
+  system font, so a flag emoji degraded to its two bare Regional Indicator
+  Symbol letters (e.g. "GB") with no flag graphic at all; Firefox alone
+  avoided this by bundling its own emoji font. Design doc's §1 "Imagery
+  note" updated to match. (3) `WikidataClient.ParseNameIndexBindings` and
+  `PlayerNameIndexImporter` used to silently pick one of two conflicting
+  Wikidata P569 (date of birth) statements for the same player with no
+  correctness signal behind the choice (whichever SPARQL row arrived first,
+  or whichever birth-year slice ran last) — a real report showed Michael
+  Owen's autocomplete entry carrying birth year 1976 instead of his actual
+  1979. Fixed to null out the ambiguous value instead of guessing either
+  way; see `NOTES.md`'s own entry for the full mechanism and a flagged
+  sandbox limitation (no live Wikidata/`dotnet` access this session, so the
+  backend fix was verified by manual review, not a real build/test run —
+  recommend a CI run before merging).
+
+- 2026-08-03 — `docs/design-document.md` (v0.62 → v0.63),
+  `docs/requirements-document.md` (v1.41 → v1.42), `docs/backlog.md`
+  (S-094 status) — `ui-implementer` shipped REQ-216's frontend half.
+  Design doc first: §2 gained a new "Placeholder avatar" token/component
+  entry (reuses `surface-sunken`/`text-muted`, no new color) per the
+  amendment's own flagged blocker, and SCREEN-01a's states 2-4 mocks/
+  "Persistent correct-cell border" note were updated with a matching
+  REQ-216 status note (the three locked-incorrect combinations, and the
+  new `.grid-table__cell--incorrect` red border extending the existing
+  correct-cell green-border mechanism). Code:
+  `frontend/src/grid/CellState.tsx`'s locked-incorrect branch now renders
+  a real matched-player photo (reusing the existing `CellPhoto`
+  component), the new placeholder avatar (`CellPlaceholderAvatar`), or
+  both with/without a canonical name, depending on which of REQ-216's
+  three combinations applies — never a checkmark/cross icon there anymore,
+  mirroring REQ-214/S-048's own established pattern. State 2 is completely
+  unaffected. `frontend/src/grid/Grid.tsx`/`Grid.css` add the red border on
+  `.grid-table__cell` (not `.grid-cell`/`CellState.tsx`), mirroring the
+  correct-cell border's own placement and reasoning.
+  `frontend/src/lib/types.ts` adds `incorrectGuessMatchedPlayerName`/
+  `incorrectGuessMatchedPlayerPhotoUrl` to `CurrentRoundGuess`/
+  `SubmitGuessResponse`, confirmed camelCase against the backend records.
+  Vitest coverage added/updated in `CellState.test.tsx`, `Grid.test.tsx`,
+  `GridCell.test.tsx` for state 2 (unaffected), the three locked-incorrect
+  combinations, and the fixed-footprint mechanism. REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.40 → v1.41),
+  `docs/backlog.md` (S-094 status) — `backend-implementer` shipped REQ-216's
+  backend half: `GuessSubmissionService` resolves
+  `IGameModule.ResolveWrongGuessPlayerAsync` exactly once, only when a cell
+  locks with its final guess still incorrect; `GridGameModule`'s
+  implementation is cache-first, then ADR-0057's Wikidata-only
+  `WikidataClient.QueryPlayerPhotoByNameAsync` for the photo (new
+  `IPlayerNameIndexRepository.FindByNormalizedNameAsync` supplies the
+  always-resolvable canonical-name fallback); persisted onto two new
+  nullable `Guess` columns (migration `AddGuessMatchedPlayerNameAndPhoto`)
+  in the same write, read back (never re-resolved) by `GET /rounds/current`
+  as `IncorrectGuessMatchedPlayerName`/`IncorrectGuessMatchedPlayerPhotoUrl`.
+  Also documents, retroactively, the same-day placeholder-avatar amendment
+  (both REQ-216 no-photo branches now show a placeholder graphic instead of
+  nothing, per direct product-owner sign-off) that had updated
+  `docs/requirements-document.md`/`docs/backlog.md` without a CHANGELOG
+  entry — confirmed to require no backend change, since it's a pure
+  frontend rendering decision against the same two nullable fields.
+  Frontend (`CellState.tsx`) is still queued. REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/architecture-document.md` (v0.76 → v0.77),
+  `docs/decisions/0057-wrong-guess-photo-lookup-scope.md` — `doc-sync`
+  closed two non-blocking architecture-review gaps from REQ-216's
+  pre-merge gate. Architecture doc: added a COMP-04/COMP-05 status note
+  (the §10 ADR-log entry alone wasn't the "component responsibility/data
+  flow changed" update CLAUDE.md step 3 calls for) covering the new
+  `IGameModule.ResolveWrongGuessPlayerAsync` method, `GridGameModule`'s
+  cache-first-then-Wikidata-only implementation, the two new nullable
+  `Guess` columns, and `XGPathGameModule`'s unconditional-null
+  implementation. ADR-0057: added a Consequences addendum naming that this
+  trigger has no WDQS-level rate-limiting of its own — same uncapped
+  exposure as REQ-211's existing guess-time fallback
+  (`GridGameModule.RefreshCellFromLiveLookupAsync`) today, not a new gap,
+  but worth stating explicitly given REQ-216's plausibly higher firing
+  volume. No code, tests, requirements, backlog, or design doc changes.
+  REQ-216/ADR-0057/S-094.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.37 → v1.39, new REQ-216),
+  `docs/backlog.md` (new S-094), `docs/decisions/0057-wrong-guess-photo-lookup-scope.md`
+  (new), `docs/architecture-document.md` (§10 table) — GitHub feature
+  request "show the guessed player's photo on an incorrect guess, with a
+  red border" (xG Grid) was flagged before any code, since it reverses a
+  deliberate prior decision (`CellState.tsx`'s states-2/3 "no name shown on
+  a wrong guess" comment) and has no existing data path (`PlayerNameIndex.PhotoUrl`
+  was removed 2026-07-18). Confirmed with the product owner via
+  `AskUserQuestion`: wanted, but only on the locked/final-incorrect case
+  (state 3/4), never an in-progress guess (state 2). Drafted as REQ-216.
+  `architecture-reviewer` then resolved the open "how is the photo
+  resolved" question via ADR-0057: reuse ADR-0011's `WikidataClient` as a
+  new, distinct, lower-priority trigger — Wikidata-only, no API-Football
+  fallback, fires once at cell-lock time, fails silently to no-photo
+  rather than fail-closed-as-incorrect, since a wrong guess has no
+  correctness verdict left to compute. Not yet implemented — S-094 is
+  ready to size/build in a future session.
+
+- 2026-08-03 — `docs/requirements-document.md` (v1.36 → v1.37, REQ-1203
+  status note addendum) — a concurrent quality-gate pass on the same
+  session's dedup fix (commit `a78e52d`) found and documented (in code
+  comments/tests, `WikidataClient.cs`/`WikidataClientTests.cs`) a known,
+  accepted limitation the REQ note below hadn't yet stated: dedup is still
+  keyed on the full `(ClubName, StartYear, EndYear, AppearanceCount)`
+  tuple, so two rows for what could plausibly be the same stint but that
+  disagree on `AppearanceCount` (one `null`, one known) still do not merge.
+  Deliberately not widened — see the new status note for why loosening the
+  match risks a correctness regression, not just a display one. This entry
+  adds the corresponding requirements-document.md note; the code/test
+  changes themselves were already committed in `a78e52d`, not by this
+  doc-sync pass.
+- 2026-08-03 — `docs/requirements-document.md` (v1.35 → v1.36, REQ-204
+  status note) — direct product feedback: a correct cell (SCREEN-01a
+  states 1/4) now also gets a persistent light-green (`--color-accent-green`)
+  2px border, always visible, in addition to the existing checkmark/points
+  text — previously "correct" was signaled by text alone.
+  `frontend/src/grid/Grid.tsx`/`Grid.css` apply the new
+  `.grid-table__cell--correct` class on `.grid-table__cell` (the `<td>`),
+  never on the button or photo-layer element, so the border renders
+  correctly around both the no-photo and photo cell variants.
+  `docs/design-document.md`'s matching SCREEN-01a note (v0.62) was already
+  added earlier this session; this entry just adds requirements-document.md's
+  own status note and its CHANGELOG line. Tests: `Grid.test.tsx`.
+- 2026-08-03 — `docs/requirements-document.md` (v1.34 → v1.35, REQ-1203
+  status note) — bug fix: `WikidataClient.ParseCareerStintBindings`
+  deduplicates career stints by exact `?clubLabel` string (no `?club` QID is
+  selected to key on instead), so a real stint whose label appeared in two
+  variants — e.g. "Liverpool" and "Liverpool F.C." — surfaced as two
+  separate xG Path club-reveal nodes instead of deduping into one, reported
+  directly by a player with a screenshot. Fixed with a new
+  `NormalizeClubName` step (`backend/src/XGArcade.DataSync/Wikidata/
+  WikidataClient.cs`) that strips a small, explicit set of trailing
+  football-club legal-suffix tokens (`FC`/`F.C.`/`AFC`/`A.F.C.`) before the
+  existing dedup runs — deliberately narrow, not a general fuzzy-name
+  matcher, to avoid conflating two different clubs. Tests in
+  `WikidataClientTests.cs`.
+- 2026-08-03 — `docs/backlog.md` (S-092/S-093 added, queued not built) —
+  product feedback session on xG Grid/xG Path raised two future-scope items
+  neither ready for implementation this session: (1) widening xG Grid's
+  player pool by reading xG Path's already-fetched `PlayerCareerStint` data
+  (ADR-0054's own follow-up note already named this as its own future story);
+  (2) xG Path no-repeat target selection across rounds plus an admin-visible
+  "full cycle completed" signal on `AdminScreen.tsx`. Both queued rather than
+  built — neither has a requirements/architecture pass yet. See the three
+  entries above for what *was* built from the same feedback batch (the
+  Liverpool/Liverpool F.C. duplicate club-node bug, its accepted dedup
+  limitation, and the correct-cell green border).
+- 2026-08-02 — `docs/decisions/0056-xg-path-familiarity-filter.md` (new),
+  `docs/requirements-document.md` (v1.33 → v1.34, REQ-1201/1203/1207 status
+  notes), `docs/architecture-document.md` (v0.75 → v0.76, COMP-07/COMP-11),
+  `docs/implementation-document.md` (v0.88 → v0.89) — player feedback on xG
+  Path ("I got this Austrian guy I had no idea who he is," national team
+  showing up as a "club," Position clue rendering a raw Wikidata QID URI
+  instead of a name, "Age" label on what's actually a birth year). Three
+  fixes: (1) `WikidataClient.QueryPlayerCareerStintsByQidsAsync` now excludes
+  national teams from `?club` (Wikidata models caps under the same P54
+  property as club membership) — was violating REQ-1203's own "national team
+  caps are never revealed as a clue" acceptance criterion. (2) every P413
+  ("position")-fetching query now requests `?positionLabel` via
+  `SERVICE wikibase:label` instead of the raw `?position` binding, which was
+  a bare entity URI, never a label; the backfill query needed the label
+  service added outright. (3) new `IWikidataClient
+  .QuerySitelinkCountsByQidsAsync` + `PlayerFamiliarityService` — a Wikipedia
+  sitelink-count familiarity filter on top of REQ-1201's existing structural
+  eligibility checks, fails open on a Wikidata failure or data gap — ADR-0056
+  (product owner's chosen signal, among sitelink count/total appearances/
+  trophy won). Frontend: `PathTimeline.tsx`'s "Age" clue now displays as
+  "Birth year" (the value was already a birth year, never a computed age;
+  only the label changed).
+- 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
+  (Consequences/Follow-up amended with real-run findings), `NOTES.md` —
+  `prefetch-player-careers`'s first real run processed all 49 seeded
+  countries (177,872 players, 607,914 stints) but 4 of many 200-player
+  career-fetch batches hit `WikidataClient`'s 15s default timeout (the same
+  bug class as the 2026-07-17 `import-player-name-index` timeout entry, not
+  the WDQS server-cap risk this ADR had originally flagged, which did not
+  materialize). Fixed with the same 60s `queryTimeout` override
+  `import-player-name-index` already needed.
+- 2026-08-02 — `docs/decisions/0055-proactive-player-data-buildout.md`
+  (Proposed → Accepted, same session), `docs/architecture-document.md`
+  (v0.74 → v0.75), `docs/implementation-document.md` (v0.87 → v0.88) — three
+  follow-up moves to ADR-0054's "build the player-data cache up proactively"
+  feedback, all shipped: (1) Celtic added to `ReferenceDataSeeder.Clubs`
+  (unverified QID, flagged for human verification, same as every other
+  recent addition); (2) `warm-player-cache.yml`/`import-player-name-index.yml`
+  moved from `workflow_dispatch`-only to a weekly cron, alongside their
+  existing manual trigger; (3) new `prefetch-player-careers` CLI verb/
+  workflow (`workflow_dispatch` only for now) and `PlayerCareerPrefetchService`
+  sweep every seeded `CountryDefinition`'s full player pool via a new
+  `IWikidataClient.QueryPlayerPoolByNationalityAsync`, writing careers
+  directly — this is what actually widens xG Path's target-player pool
+  beyond whatever xG Grid's own lookups happened to discover, not just
+  enriches an already-selected target (ADR-0054's own scope). Note: ADR-0055
+  originally proposed sourcing move (3) from `PlayerNameIndex`; that turned
+  out to be unworkable (`PlayerNameIndex` has no `WikidataQid` column at
+  all, ADR-0007) and was corrected to source from `CountryDefinition`
+  instead during implementation — see the ADR's own "Correction" note.
+- 2026-08-02 — `docs/decisions/0054-xg-path-direct-career-stint-fetch.md` (new),
+  `docs/architecture-document.md` (v0.73 → v0.74),
+  `docs/implementation-document.md` (v0.86 → v0.87) — xG Path now fetches its
+  own targets' full career directly from Wikidata (`IWikidataClient
+  .QueryPlayerCareerStintsByQidsAsync`, a new `IPlayerCareerStintRefreshService`
+  in `XGArcade.DataSync`, called from `XGPathGameModule.GenerateInstanceAsync`
+  right after target selection) instead of relying solely on whatever xG
+  Grid's country/club lookups happened to persist as a byproduct (ADR-0042).
+  Fixes a live-reported gap (a Timothy Weah puzzle missing real Juventus/
+  Marseille stints, and unable to ever show Celtic at all since it isn't a
+  seeded club). Deliberately does not widen xG Path's candidate/eligibility
+  pool itself — see ADR-0054's Follow-up section, including an explicit
+  product-feedback note that this codebase's player-data cache should move
+  toward being built up proactively rather than purely reactively, which is
+  its own future story. `Games.XGPath` gained a `ProjectReference` to
+  `XGArcade.DataSync` (mirroring `Games.XGGrid`'s existing one) — see
+  ADR-0054.
+- 2026-08-02 — `docs/requirements-document.md` (v1.31 → v1.32),
+  `docs/implementation-document.md` (v0.85 → v0.86) — Backend
+  half of the xG Path live user-testing feedback batch, three fixes:
+  (1) `PlayerNameNormalizer.Normalize` now transliterates non-decomposable
+  Latin letters (Ø/Æ/Œ/Đ/Ł/ß/Þ) that NFKD normalization silently left
+  untouched — "Ødegaard" now normalizes the same as "Odegaard," fixing both
+  autocomplete and guess correctness for any player whose name contains one
+  of these letters; new `PlayerAliasNormalizedAliasBackfiller`
+  (`XGArcade.Data.Seeding`, wired into `migrate-and-seed`, mirroring
+  `PlayerNameIndexWordBackfiller`'s wiring) re-derives already-stored
+  `PlayerAlias.NormalizedAlias` values under the fixed normalizer —
+  `Player.NormalizedFullName` needed no equivalent new wiring since the
+  pre-existing `PlayerNormalizedFullNameBackfiller` already re-derives it on
+  every `migrate-and-seed` run; `PlayerNameIndex.NormalizedName`
+  (autocomplete-only, COMP-10) needs a manual one-time
+  `import-player-name-index` workflow re-run post-deploy, not a new
+  backfiller, since that importer already fully re-derives it on every run.
+  (2) `Player.Position`/`Player.BirthYear` (REQ-1207) were only ever set at
+  `Player` row creation time, so every row created before migration
+  `20260727140000_AddPlayerPositionAndBirthYear` shipped has both
+  permanently null — new `PlayerPositionBirthYearBackfillService`
+  (`XGArcade.DataSync.Wikidata`), a near-exact mirror of
+  `PlayerPhotoBackfillService` (REQ-214), backfills them via a new
+  `IWikidataClient.QueryPlayerPositionsAndBirthYearsByQidsAsync`
+  (P413/P569-by-QID batch query) and new `IPlayerStoreRepository`
+  read/write pair (`GetPlayersMissingPositionOrBirthYearAsync`/
+  `UpdatePlayerPositionsAndBirthYearsAsync`), wired to a new
+  `dotnet run -- backfill-player-position-birthyear` CLI verb and
+  `.github/workflows/backfill-player-position-birthyear.yml`
+  (`workflow_dispatch`-only, mirroring `backfill-player-photos.yml`).
+  (3) `PathEndpoints.cs`'s `GET /path/current` now reveals the target
+  player's name/photo whenever a puzzle is `Locked` (solved OR REQ-1205's
+  7-attempt cap exhausted), not only when the guess `IsCorrect` — a puzzle
+  that locked via exhausted attempts previously never told the player who
+  the answer was. New REQ-1203 status note records the boundary correction
+  ("never leak the answer for a puzzle the player can still guess on,"
+  replacing the old "unsolved puzzle" phrasing that conflated "unsolved"
+  with "still live"). Frontend half of fix 3 already shipped separately
+  (see the 2026-08-02 `docs/design-document.md` entry below) and was
+  waiting on this backend change. No architecture/ADR change for any of the
+  three — all within existing component boundaries (ADR-0007's
+  autocomplete/correctness separation confirmed intact: only one shared
+  `PlayerNameNormalizer.Normalize` function, never a shared query path;
+  REQ-1207's "set once at creation" contract preserved going forward, this
+  is purely a backfill of pre-existing rows, same precedent as REQ-214's
+  photo backfill).
+
+- 2026-08-02 — `docs/design-document.md` (v0.60 → v0.61) — Live user-testing
+  feedback batch on the xG Path puzzle screen (`frontend/src/path/`), three
+  fixes, all tokens-only: (1) an empty guess submission is now an
+  intentional skip to the next clue instead of a client-side error, with
+  the submit button relabeling "Next clue"/"Guess" to match; (2) the
+  career-stint year-range clue now renders one club/year-range pair per
+  line instead of one dense inline-joined paragraph; (3) `PathTimeline` now
+  accepts a `locked` prop (alongside `solved`) and renders a distinct,
+  non-gold "✕ Out of attempts" reveal node when a puzzle locks without ever
+  being solved (REQ-1205's attempt cap exhausted) — previously this case
+  showed no reveal at all. Fix 3 depends on a parallel, separately-scoped
+  backend change (`PathEndpoints.cs`) populating `resolvedPlayerName`/
+  `resolvedPlayerPhotoUrl` whenever `locked` is true, not only when
+  `isCorrect`; the frontend degrades gracefully (label only, no broken
+  name/photo line) until that ships. New SCREEN-10 status note added
+  documenting all three, including the shake-on-skip and skip-placeholder
+  (`"(skipped)"`) judgment calls. No REQ/ADR change — these are
+  implementation-level UX fixes within SCREEN-10's existing spec, not new
+  requirements.
+
+- 2026-08-02 — `docs/backlog.md` — Doc-sync for S-088 (E2E coverage for
+  the full xG Path game loop), covering three commits (`c0bdd3a` backend
+  endpoint, `ae382e9` E2E spec, `c8eb356` quality-gate fixes).
+  `POST /internal/test-data/seed-guessable-path-round`
+  (`backend/src/XGArcade.Api/Rounds/InternalRoundEndpoints.cs`) is a new,
+  non-Production-only sibling to `seed-guessable-round` — same
+  registration gate and repository-only write discipline (ADR-0006
+  boundary rule 4) — that deterministically creates a guessable xg-path
+  round (one `Player` with three career stints, one `PathInstance`/
+  `PathPuzzle`, an active `Round`) for E2E setup; two new tests added in
+  `backend/tests/XGArcade.Api.Tests/RoundEndpointTests.cs`.
+  `frontend/tests/e2e/play-path.spec.ts` is the new Playwright spec the
+  story asked for: one continuous run through generation → clue reveal →
+  wrong guess → correct guess → round close → game-scoped leaderboard
+  (confirming xG Path's points are not blended with xG Grid's, per
+  REQ-410/ADR-0043). `docs/requirements-document.md`'s REQ-807 (v1.32 →
+  v1.33) was already extended in `c8eb356` by a separate
+  requirements-writer pass to document the new endpoint and correct its
+  stale "only grid/round content is seeded this way" line — noted here
+  for completeness, not re-edited. `docs/backlog.md`'s S-088 entry marked
+  "— done, 2026-08-02" with a "Built as:" paragraph naming one real
+  deviation from the story's literal text (a new sibling endpoint rather
+  than a parameter extension of `seed-guessable-round` itself, since that
+  endpoint has no game-agnostic shape to extend) and the quality-gate
+  outcome (`architecture-reviewer`: pass, no new ADR; `quality-architect`:
+  pass after three findings fixed — a REQ-806/REQ-807 comment mislabel, a
+  non-REQ-prefixed test name, and de-duplicating the unique-test-player
+  boilerplate into a shared helper). `docs/architecture-document.md` and
+  `docs/implementation-document.md` were checked and left unchanged: the
+  new endpoint is already covered by boundary rule 4's generic wording and
+  §6.6's generic test-data-reset flow description (neither names
+  `seed-guessable-round` specifically, so neither needed a matching
+  addition for its sibling), and the implementation doc's `/e2e` folder
+  description is likewise generic (doesn't name individual spec files,
+  e.g. `play-grid.spec.ts` isn't named either) — no tech, entity, or
+  folder-layout change to record. — REQ-807, S-088
+- 2026-08-02 — `docs/backlog.md`, `docs/requirements-document.md` (v1.31 →
+  v1.32), `docs/architecture-document.md` (v0.72 → v0.73),
+  `docs/implementation-document.md` (v0.85 → v0.86), `docs/design-
+  document.md` (v0.60 → v0.61) — Doc-sync for S-087 (frontend leaderboard
+  game switcher, SCREEN-03, ADR-0043/REQ-410), covering three commits
+  (`caaaade` backend, `8ce49a3` frontend, `f102f6d` tests). Turned out to
+  be full-stack, not frontend-only: S-078 had already added `gameKey` to
+  every `ILeaderboardService` method, but `LeaderboardEndpoints` (the
+  Api/outer-composition layer) still hardcoded
+  `GridGameModule.XGGridGameKey` at every call site, so no client could
+  ever request xG Path's ranking — this story closed that gap with an
+  optional `gameKey` query parameter (defaulting to xg-grid, 400 on an
+  unrecognized value, kept in the Api layer per ADR-0003) on every route
+  except the single-round-by-id one, alongside the game-switcher tab row
+  itself. `docs/backlog.md`'s S-087 entry marked "— done, 2026-08-02" with
+  a "Built as" paragraph describing the backend addition, the frontend
+  tab row (reusing `GameSelectScreen.tsx`'s existing
+  `XG_GRID_GAME_KEY`/`XG_PATH_GAME_KEY` constants), and one deliberate
+  scope addition beyond the story's literal text (switching games while a
+  specific past round is drilled into now backs out to the round list,
+  since a round belongs to exactly one game). `docs/requirements-
+  document.md`'s REQ-410 gained a 2026-08-02 status note marking the
+  frontend/API-parameter gap closed and its Test-level line updated —
+  the API-level cross-game test explicitly flagged as "not yet addable"
+  in REQ-410's own S-078-era text is now covered
+  (`LeaderboardEndpointTests.cs`'s `REQ410_*` cases); REQ-401/404's own
+  status notes referencing S-087 as a pending follow-up got matching
+  updates. `docs/architecture-document.md`'s COMP-02 status note gained a
+  2026-08-02 addendum describing the same Api-layer change and confirming
+  `Core.Leagues` stayed untouched (ADR-0003 boundary respected).
+  `docs/implementation-document.md`'s REQ-410/S-078 paragraph, which had
+  explicitly said "no route query parameter exists yet," gained a
+  matching 2026-08-02 addendum. `docs/design-document.md`'s SCREEN-03
+  "Game switcher" note changed from "design only ... not yet built" to
+  "built," pointing at the backlog entry for detail. No new ADR:
+  ADR-0043's own Consequences section already named this exact frontend
+  follow-up as deferred, not undecided — this story is that follow-up
+  landing, not a new structural decision, confirmed during this story's
+  own quality gate (architecture/quality review performed directly by the
+  orchestrating session after both review subagents hit the account's
+  session usage limit; see the session's own record for what was
+  checked). 419/419 Vitest passing (416 pre-existing + 3 new), clean
+  `tsc -b`/`oxlint`. Backend build/tests deferred to CI — `dotnet` is not
+  installed in this sandbox; new backend tests were hand-traced against
+  the actual endpoint/service code instead of run.
+- 2026-08-01 — `docs/backlog.md`, `docs/requirements-document.md` (v1.30 →
+  v1.31), `docs/architecture-document.md` (v0.71 → v0.72),
+  `docs/implementation-document.md` (v0.84 → v0.85) — Doc-sync for S-091
+  (xG Path guess autocomplete, extending REQ-207 to a second consumer),
+  covering both commits (`27ed880` the backlog entry, `3dd0027`
+  implementation + tests). `docs/backlog.md`'s S-091 entry marked "— done,
+  2026-08-01" with a "Built as:" paragraph (matching S-085/S-086's
+  convention) confirming the shipped code matched the story's own stated
+  scope with no deviations: same debounce/limit constants and
+  keyboard-nav/ARIA pattern as `GuessInput.tsx` (xG Grid), no backend
+  change, no REQ-209 disambiguation picker. `docs/requirements-document.md`
+  gained a small REQ-207 status note (2026-08-01, S-091) noting the second
+  UI consumer for discoverability — smaller than the REQ-303/REQ-720
+  precedent, since REQ-207's Given/When/Then was never game-scoped to
+  begin with, so there was no stale "exactly one game" language to correct;
+  the note also glosses REQ-207's one xG-Grid-flavored phrase ("current
+  cell") for a game with no cell/category axis. `docs/architecture-
+  document.md`'s §6.2b (xG Path clue reveal/guess flow) diagram gained the
+  same autocomplete-suggestions step §6.2's xG Grid diagram already
+  documents, plus a REQ-207 reference in the section heading — a real,
+  if small, data-flow addition (this interaction didn't happen for xG Path
+  before S-091); boundary rule 5's autocomplete/correctness separation text
+  was already fully game-agnostic and needed no change.
+  `docs/implementation-document.md`'s frontend project-structure `/path`
+  entry corrected: it previously stated (accurately as of S-086, now
+  stale) that xG Path had no autocomplete at all — updated to describe
+  S-091's addition while confirming the disambiguation picker (REQ-209)
+  and REQ-215 suggestion entry point remain out of scope. No new ADR:
+  both `architecture-reviewer` and `quality-architect` confirmed during
+  S-091's own quality gate this is pure reuse of an already-generic,
+  already-documented capability (`GET /players/autocomplete`,
+  ADR-0007) by a second consumer, not a new structural decision, and this
+  doc-sync pass found nothing to contradict that.
+- 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.59 →
+  v0.60), `docs/implementation-document.md` (v0.83 → v0.84) — Doc-sync for
+  S-086 (SCREEN-10 xG Path puzzle screen, growing timeline), covering both
+  commits (`18b1cc2` implementation + tests, `928bd85` quality-gate
+  fixes — the narrower doc updates that commit already made, covered by
+  its own CHANGELOG entry immediately below, are not duplicated here).
+  `docs/backlog.md`'s S-086 entry marked "— done, 2026-08-01" with a
+  "Built as:" paragraph (matching S-085/S-084's convention) naming both
+  commits, the `CategoryLabel`/`CategoryGlyph` relocation to
+  `frontend/src/components/` as a deliberate scope addition (same spirit
+  as S-085's own `HeaderNav.tsx` addition), and cross-referencing
+  `docs/design-document.md`'s status notes for the two deviations from the
+  story's literal text (the photo-fallback wording, and "Next puzzle"
+  appearing on locked-but-unsolved as well as solved).
+  `docs/design-document.md`'s SCREEN-10 section header updated from
+  "Design only — no code yet" to "Built as specified" (with the one real
+  deviation flagged, not silently claimed as zero-deviation like
+  SCREEN-09's own update was). Added a new inline status note below the
+  solved-state bullet: the spec's "falling back to the same initials-avatar
+  treatment REQ-214 already established" doesn't match anything REQ-214
+  has ever actually done — REQ-214/SCREEN-01a's no-photo case has, at
+  every point in its history, rendered plain text (name) plus a checkmark,
+  never an avatar of any kind — `PathTimeline.tsx`'s `SolvedNode` renders
+  today's real text-only fallback rather than a nonexistent avatar
+  component; this note was not covered by the quality-gate-fix commit's
+  own narrower re-fetch-failure status note. Also documented the "Next
+  puzzle on locked-unsolved, not only solved" deviation inline on the same
+  bullet.
+  `docs/implementation-document.md`'s frontend project-structure section
+  updated: added a `/path` entry (mirroring `/grid`'s), a new
+  `/components` entry for the relocated `CategoryLabel`/`CategoryGlyph`,
+  removed `CategoryLabel` from `/grid`'s own listing, and added
+  `pathRules.ts`/`CurrentPathResponse`/`fetchCurrentPath` to the `/lib`
+  entry. `docs/requirements-document.md` checked and left unchanged:
+  REQ-1203/1204/1205's acceptance criteria are backend-scoped (clue
+  sequencing, guess resolution, attempt-cap logic served by `GET
+  /path/current`), with no "so I can see/open the app" framing the way
+  REQ-303 has — matching the precedent set when REQ-201/202/210 (xG Grid's
+  equivalent backend rules) never gained a frontend-build status note when
+  their own UI (SCREEN-01/02) shipped; SCREEN-10 is design-doc-owned
+  territory, covered above instead. `docs/architecture-document.md`
+  checked and left unchanged: no COMP boundary, responsibility, or data
+  flow changed (frontend-only diff; `architecture-reviewer` already
+  confirmed no boundary drift during the quality gate, and the doc has no
+  reference to any of the touched frontend paths to go stale). No new ADR:
+  the `CategoryLabel` relocation is a straightforward extension of the
+  established per-game-screen-module pattern, not a new structural
+  decision, per `architecture-reviewer`'s own quality-gate finding.
+- 2026-08-01 — `docs/design-document.md` (v0.58 → v0.59) — S-086
+  (SCREEN-10 xG Path puzzle) quality-gate follow-up fixes: moved
+  `CategoryLabel`/`CategoryGlyph` from `frontend/src/grid/` to the shared
+  `frontend/src/components/` location (was a cross-game-module import from
+  `frontend/src/path/PathTimeline.tsx`), fixed a comment/type mismatch on
+  `PathClueKind` in `frontend/src/lib/types.ts`, fixed `PathScreen.tsx`'s
+  guess-submit handler to distinguish a genuine submission failure from a
+  failed/null post-submit re-fetch (documented as a new SCREEN-10 status
+  note, since neither case was previously specified), added a same-session
+  image-load-failure fallback to `PathTimeline.tsx`'s solved-state photo
+  (matching `CellState.tsx`'s existing pattern), dropped the redundant JS
+  `usePrefersReducedMotion` hook (`frontend/src/lib/motion.ts`, removed) in
+  favor of the CSS-only `@media (prefers-reduced-motion: reduce)` override
+  `PathTimeline.css` already had, and fixed a duplicate React key on
+  `PathScreen.tsx`'s sibling `PathTimeline`/`PathGuessInput` elements. No
+  REQ/ADR changes — implementation-level fixes plus one new design-doc
+  status note.
+- 2026-08-01 — `docs/requirements-document.md` (v1.29 → v1.30),
+  `docs/architecture-document.md` (v0.70 → v0.71), `docs/backlog.md`,
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (2026-08-01 status note added) — Live-incident follow-up to ADR-0052:
+  added `PairLookupFailureCleaner` (`XGArcade.Data.Seeding`) and its
+  `clear-pair-lookup-failures` CLI verb (`Program.cs`,
+  `.github/workflows/clear-pair-lookup-failures.yml`) — a pair-scoped
+  alternative to `clean-stale-club-attributes` for clearing
+  `PairLookupFailure` rows stuck at/above `PersistentFailureThreshold`,
+  after the first real run under ADR-0052's tracking left 125 Club x Club
+  pairs stuck across all 32 seeded clubs, where the existing club-name-
+  scoped tool would have wiped ~850 other pairs' worth of good cached data
+  to clear them. Touches only `PairLookupFailure`, never
+  `PlayerAttribute`/`PlayerData`/`ConfirmedLowMatchPair`. Added a REQ-110
+  status note and test-level addendum covering `PairLookupFailureCleanerTests.cs`
+  (6 NUnit tests: at-threshold removed, above-threshold removed,
+  below-threshold left alone, mixed set only removes the stuck ones,
+  empty-table no-op, safe to re-run). No new ADR number — but ADR-0052's
+  own "For AI agents" section explicitly required updating that ADR before
+  adding a third `PairLookupFailure` invalidation path, so it was amended
+  in place (a dated status note, same pattern as ADR-0046's 2026-07-27
+  amendment) rather than left to silently drift out of sync — caught by
+  `architecture-reviewer` before this was considered done. Backend claims
+  were hand-traced against existing patterns, not built or run against a
+  live `dotnet` SDK — unavailable in this sandbox; confirm in CI.
+- 2026-08-01 — `docs/backlog.md`, `docs/design-document.md` (v0.57 →
+  v0.58), `docs/requirements-document.md` (v1.29 → v1.30),
+  `docs/implementation-document.md` (v0.82 → v0.83) — Doc-sync for S-085
+  (SCREEN-09 multi-tile game select), covering both commits (`58a3ca2`
+  implementation + tests, `3829e0d` quality-gate fixes: `aria-describedby`
+  for tile descriptions, exhaustive `gameKey` switch typing).
+  `GameSelectScreen.tsx` gained a second tile (`XG_PATH_GAME_KEY`) for xG
+  Path per SCREEN-09; `App.tsx`'s `Screen` union gained `'path'`
+  (placeholder screen only — SCREEN-10's real clue-reveal UI is S-086,
+  not yet built); `onSelectGame` is now typed as the exact two-member
+  literal union with an exhaustive `switch`/`never` dispatch. A deliberate
+  scope addition beyond the story's two literally-named files:
+  `frontend/src/nav/HeaderNav.tsx` gained a mirrored "xG Path" entry
+  (`isPathCurrent`/`onSelectPath`) so its "Games" list and
+  `GameSelectScreen`'s tile order stay in agreement, per REQ-720's own
+  "one entry per game" criterion. `docs/backlog.md`'s S-085 entry marked
+  "— done, 2026-08-01" with a "Built as:" paragraph (matching S-084's
+  convention) naming both commits and the `HeaderNav.tsx`/placeholder-screen
+  deviations. `docs/design-document.md`'s SCREEN-09 section updated from
+  "design only, no code yet" to "built as specified, no deviations," and
+  its matching §7 open-question entry marked resolved-and-built (it had
+  previously only been marked spec-resolved). `docs/requirements-document.md`:
+  REQ-720's two "Tier 0: exactly one game" asides (the disclosure-list
+  criterion and its own "ships now, ahead of a second game" bullet) were
+  point-in-time descriptions, not the graded behavior itself (both
+  criteria were always written generically, "one entry per game xG Arcade
+  currently hosts") — added a status note rather than rewriting the
+  criteria, since xG Path becoming real doesn't change what REQ-720
+  requires, only which point-in-time aside is now stale; REQ-303's S-021
+  bullet got the same treatment (the "no list games endpoint" behavior is
+  still exactly true — both game keys remain client-side constants — only
+  its "while Tier 0 has exactly one game" framing needed a status note).
+  `docs/implementation-document.md`'s `/games` folder-structure entry
+  updated from "one static tile for xG Grid" to two tiles, xG Grid then xG
+  Path. `docs/architecture-document.md` checked and left unchanged — no
+  reference to `GameSelectScreen`/`HeaderNav`/frontend routing exists
+  there to go stale, and `architecture-reviewer` confirmed no boundary
+  drift during the quality gate (this follows the pre-existing
+  `grid`/`isGridCurrent`/`onSelectGrid` pattern exactly, extended to a
+  second game). No new ADR: this is UI wiring following an established
+  pattern, not a new structural decision — confirmed, not just taken on
+  faith from the quality-gate pass. Noted but not resolved (pre-existing,
+  predates S-085, out of this doc-sync's scope): REQ-720's own "Flag for
+  architecture-reviewer" note about whether the nested "Games" disclosure
+  needs an ADR/ADR-0030 amendment is still open. Also noted, not fixed:
+  `frontend/tests/e2e/header-nav.spec.ts`'s stale "xG Grid (Tier 0's only
+  game)" comment, flagged low-severity by quality-architect, untouched by
+  S-085. REQ/ADR refs: REQ-303, REQ-720, ADR-0030 (open flag, unchanged).
+- 2026-08-01 — `docs/requirements-document.md`, `MVP-SCOPE.md` — Closed a
+  gap the S-089 doc-sync flagged: REQ-215's "Tier framing" note still
+  read "flagged, not resolved" even though S-089 had already been built.
+  Resolved it explicitly — the player-suggestion pipeline (REQ-215/509/510)
+  was pulled forward by deliberate product decision (requested directly,
+  by name, same basis as REQ-108/REQ-214/REQ-402-403/REQ-717's own
+  precedent), recorded as a new `MVP-SCOPE.md` Tier 1 entry rather than
+  left as an unresolved §7 open question.
+- 2026-08-01 — `docs/requirements-document.md` (v1.28 → v1.29),
+  `docs/architecture-document.md` (v0.69 → v0.70), `docs/backlog.md` —
+  Doc-sync for S-089 (REQ-215: player-submitted answer suggestion),
+  covering the full session arc: backend (`52f213b`, `POST
+  /rounds/{roundId}/cells/{cellId}/suggestions` — guest rejected 403
+  server-side, validates playerName/clubs/nationality, persists a
+  `PlayerSuggestion`/`PlayerSuggestionClub` row as `Pending`, never writes
+  `PlayerAttribute`/`PlayerOverride`/`PlayerNameIndex`/`Guess`), frontend
+  (`22608b2`, `SuggestionEntry.tsx` mounted by `GuessInput.tsx` at the two
+  REQ-215 trigger points — an incorrect scored guess now shows an outcome
+  view instead of closing immediately, and a `LiveLookupUnavailable`
+  timeout), test coverage (`ab93894`, `SuggestionEndpointTests.cs` — 11
+  NUnit tests — plus `SuggestionEntry.test.tsx`/updated `GuessInput.test.tsx`
+  — 382/382 Vitest passing, clean `tsc -b`, clean `oxlint`, all directly
+  run), and a same-session architecture fix (`e81189c`): the original
+  commit resolved a cell's row/col category types via a direct
+  `IGridInstanceRepository`/`GridCell` read from the Api layer, a boundary
+  rule 2 violation (ADR-0003) caught by `architecture-reviewer` before
+  merge; fixed by adding `IGameModule.GetCellCategoryTypesAsync`
+  (implemented by `GridGameModule` and, throwing `NotSupportedException`,
+  by `XGPathGameModule`), resolved via the standard `Round.GameKey →
+  IGameModuleResolver` path — re-verified as resolved. REQ-215's status
+  note now reads "Implemented (submission half only)"; REQ-509's status
+  note was checked and needs no change (still correctly "not yet
+  implemented," S-090). `architecture-document.md` gained: a COMP-05/
+  COMP-11 status note for the new `GetCellCategoryTypesAsync` method, a
+  `PlayerSuggestion`/`PlayerSuggestionClub` note on COMP-06's row
+  (ADR-0053's "COMP-06-adjacent" placement), and a new §6.2c data-flow
+  diagram — closing the gap that no architecture-doc pass happened when
+  the feature was first built. Backend claims in this entry (and in
+  REQ-215's own status note) were **hand-traced against existing patterns,
+  not built or run against a live `dotnet` SDK** — unavailable in this
+  sandbox throughout; confirm in CI. One minor, non-blocking gap recorded
+  as known-and-accepted, not fixed: `XGPathGameModule
+  .GetCellCategoryTypesAsync`'s `NotSupportedException` currently falls
+  through to ASP.NET's bare default `500` rather than an explicit
+  `ProblemDetails` response — unreachable today since nothing wires
+  REQ-215's frontend up for `GameKey = "xg-path"`, worth a deliberate
+  `501`/`409` response if that ever changes. `docs/backlog.md`'s S-089
+  entry marked "— done, 2026-08-01," matching the convention other
+  completed stories (e.g. S-084) already use. No change to
+  `docs/design-document.md` (SCREEN-02b already correctly added by the
+  frontend implementer) or to REQ-509/REQ-510/S-090, which remain
+  correctly not-yet-implemented. REQ/ADR refs: REQ-215, REQ-509, ADR-0003,
+  ADR-0053.
+- 2026-08-01 — `docs/requirements-document.md` (v1.27 → v1.28),
+  `docs/decisions/0052-player-suggestions-separate-admin-view.md` (new),
+  `docs/backlog.md` — Finalized the two product decisions the product
+  owner made for the REQ-215/509/510 player-suggestion feature drafted
+  2026-07-28. (1) **No retroactive rescoring, confirmed final**: REQ-215's
+  "No retroactive rescoring" clause is no longer flagged as an open
+  question — an admin-approved suggestion (REQ-509) fixes the underlying
+  data for future guesses only; the guess that prompted it, and any
+  identical guess from another player against the same cell that round,
+  keep their original scored outcome unchanged. §7's matching entry is now
+  marked resolved 2026-08-01. (2) **Separate admin view, not merged into
+  REQ-503's queue**: REQ-509's status note now records this as decided,
+  referencing new ADR-0053, which also explicitly reconfirms ADR-0007's
+  autocomplete/correctness boundary applies to REQ-509/510's commit paths
+  (`PlayerAttribute`/`PlayerOverride` only, never `PlayerNameIndex`) —
+  ADR-0007 predates this pipeline and didn't name it explicitly before now.
+  Also added two backlog stories implementing this feature: **S-089**
+  (REQ-215 backend `PlayerSuggestion` entity/submission endpoint + frontend
+  entry point/form, not yet started) and **S-090** (REQ-509/510 admin
+  review/commit/manual-search backend + the new separate Suggestions admin
+  screen, not yet started, depends on S-089 and ADR-0053). No code was
+  written this session — documentation only. REQ/ADR refs: REQ-215,
+  REQ-509, REQ-510, REQ-501, REQ-502, REQ-503, ADR-0007, ADR-0053.
+- 2026-08-01 — `docs/requirements-document.md` (v1.26 → v1.27) — Flipped
+  REQ-718's "UI: logout confirmation and guest-expiry copy" addendum
+  (rules 4/5) from "Not yet implemented — drafted only" to "Implemented,
+  2026-08-01": `GuestLogoutConfirm.tsx`/`.css`
+  (`frontend/src/nav/`) gates a guest's "Log out" click behind a
+  confirmation dialog before the existing, unmodified `handleLogout` fires
+  (rule 4); `guestExpiryCopy.ts` (`frontend/src/lib/`) is the single
+  source of the 7-day/30-day expiry copy shown in the guest banner and
+  `SettingsScreen.tsx`'s guest claim section (rule 5). Added and wired in
+  `68e09ed`; covered by 8 new tests (`App.test.tsx` x6,
+  `SettingsScreen.test.tsx` x2) in `2e36be4` — full suite green at
+  367/367 Vitest tests, clean `tsc -b`, clean `oxlint`. No change to
+  `docs/architecture-document.md` (client-side-only gate in front of the
+  already-documented REQ-718/ADR-0038 deletion flow — no new boundary or
+  data flow) or to REQ-215/509/510, which remain correctly drafted-only
+  with no code. REQ/ADR refs: REQ-718, ADR-0038.
+- 2026-08-01 — `docs/requirements-document.md` (v1.26) — Drafted three new
+  requirements for a not-yet-built feature (REQ-215: logged-in,
+  non-guest players may submit an answer suggestion — asserted club(s) +
+  nationality — after a guess is scored incorrect or a REQ-211 live lookup
+  times out, visibly advertised-but-disabled for guests with a
+  registration prompt; REQ-509: admin review of pending suggestions with
+  an admin-triggered live Wikidata lookup and a commit path that writes
+  only through the existing `PlayerAttribute`/`PlayerOverride` mechanism,
+  never `PlayerNameIndex`, per ADR-0007's boundary; REQ-510: the same
+  admin fetch/review/commit flow usable standalone, with no suggestion
+  required). All three are explicitly flagged Tier 1/2-sized new
+  pipeline work relative to `MVP-SCOPE.md` — not pulled forward by this
+  change — and REQ-509 flags an open question (recorded in §7) on whether
+  a new ADR should govern how these suggestions relate to REQ-503's
+  existing unverified-data queue. Also added a small additive UI-only
+  addendum to REQ-718 (guest account lifecycle): a confirmation prompt
+  before a guest's logout-triggered account deletion, and guest-facing
+  copy stating the actual 7-day/30-day expiry thresholds — both drafted
+  only, no code yet, and no change to REQ-718's existing deletion
+  mechanism. §7 gained one new open question (retroactive rescoring on an
+  approved suggestion — REQ-215 defaults to "no," unconfirmed by the
+  product owner).
+- 2026-08-01 — `docs/requirements-document.md` (1.25 → 1.26),
+  `docs/architecture-document.md` (0.69 → 0.70),
+  `docs/implementation-document.md` (0.81 → 0.82),
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (new), `NOTES.md` — REQ-110 extended (ADR-0052): `warm-player-cache.yml`
+  was reliably getting cancelled at its 90-minute CI ceiling since the
+  2026-07-28 same-run-retry extension shipped, and its logs had become
+  unreadable. Root cause: the same-run retry doubled every technical
+  failure's cost, and nothing persisted a failure across runs, so the same
+  structurally-doomed pairs (traced to
+  `WikidataClient.BuildClubClubIntersectionQuery`'s plain join producing a
+  real 250,000+ row WDQS response for two clubs with a large, overlapping
+  squad) got retried at that doubled cost on every run forever. Fixed by
+  three changes: removed the same-run retry
+  (`PlayerCacheWarmingService.LookupWithSameRunRetryAsync`/
+  `MaxAttemptsPerPair` deleted); added a new `PairLookupFailure` table
+  (`XGArcade.Data`, migration `AddPairLookupFailure`) reachable only via
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync`/
+  `RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync`, so a pair
+  failing on 2 consecutive runs is skipped without a live query on the
+  third (`CacheWarmingResult.PairsSkippedPersistentFailure`), same
+  invalidation surface as `ConfirmedLowMatchPair` (`StaleClubAttributeCleaner`,
+  `purge-player-pool`); and `BuildClubClubIntersectionQuery` now wraps each
+  club's P54 match in its own `FILTER EXISTS { }` block instead of a plain
+  join, eliminating the statement-count cross product at the source.
+  Separately, `WikidataClient.RunIntersectionQueryAsync`'s two per-pair
+  failure logs moved from `Warning` to `Debug` (filtered out by the
+  project's default `Information` log level) since they were the dominant
+  contributor to the unreadable logs. See ADR-0052 for the full incident
+  and reasoning, and NOTES.md's 2026-08-01 entry for the diagnosis
+  narrative.
+- 2026-07-28 — `docs/decisions/0051-per-gamekey-round-scheduling.md`
+  renumbered from `0050-per-gamekey-round-scheduling.md` while rebasing onto
+  `main`, which had independently assigned ADR-0050 to
+  `docs/decisions/0050-confirmed-low-match-pair-persistence.md` (REQ-110,
+  below) on a diverged branch. Every `ADR-0050` reference belonging to the
+  round-scheduling decision (this file, `architecture-document.md`,
+  `requirements-document.md`, `implementation-document.md`, `backlog.md`)
+  was updated to `ADR-0051`; the cache-warming ADR keeps 0050 unchanged,
+  having merged to `main` first. No content change to either decision, only
+  the number — same renumbering precedent as ADR-0049's own entry below.
+- 2026-07-28 — `docs/requirements-document.md` (1.24 → 1.25),
+  `docs/architecture-document.md` (0.68 → 0.69),
+  `docs/implementation-document.md` (0.80 → 0.81), `docs/backlog.md` —
+  S-084 implemented (REQ-1202's round-scheduling half, ADR-0051): `"xg-path"`
+  rounds are now generated on the same schedule `"xg-grid"`'s already are.
+  New `IRoundSchedulingOptionsResolver`/`RoundSchedulingOptionsResolver`
+  (`XGArcade.Core.Rounds`) resolves one `RoundSchedulingOptions` instance
+  per `GameKey` — mirroring `IScoringStrategyResolver`'s per-`GameKey`
+  shape (ADR-0040) — rather than a single directly-injected singleton; two
+  instances are now registered (`"xg-grid"`, `"xg-path"`), each with its own
+  configured `RoundDuration`. `RoundGenerationService
+  .GenerateNextRoundIfNeededAsync` gained a leading `gameKey` parameter.
+  `POST /internal/generate-round` gained an optional `gameKey` query
+  parameter (default `"xg-grid"` for back-compat), dispatching narrowly to
+  either the existing `GridTemplateResolver` or a new `PathTemplateResolver`
+  (`XGArcade.Api.Path`) to produce the round's opaque `TemplateId`; an
+  unrecognized `gameKey` returns 400 "Invalid gameKey" (a quality-gate
+  follow-up correcting an initial fall-through 500). `GridSize` moved off
+  `RoundSchedulingOptions` onto `Games.XGGrid.GridGenerationOptions`; new
+  `Games.XGPath.PathGenerationOptions.PuzzleCount` (default 4) holds
+  xG Path's own equivalent. Per the story's own flagged judgment call,
+  architecture-reviewer was consulted before implementation and recommended
+  extending the existing scheduled job rather than adding a second one:
+  `generate-round.yml`'s single daily cron now generates both `GameKey`s'
+  rounds, each with its own independent 3-attempt retry loop (ADR-0027's
+  own new S-084 addendum). Test coverage:
+  `RoundSchedulingOptionsResolverTests.cs` (new, per-`GameKey` resolution
+  and isolation, unregistered-`GameKey` failure); extended
+  `RoundGenerationServiceTests.cs` (proves REQ-301/REQ-302 hold for
+  `"xg-path"` exactly as for `"xg-grid"`, with no cross-`GameKey`
+  interference); extended `RoundEndpointTests.cs` (end-to-end
+  `POST /internal/generate-round?gameKey=xg-path`, an omitted-`gameKey`
+  regression, and the unrecognized-`gameKey` 400). Requirements doc:
+  REQ-1202's status note updated from "no round-scheduling wiring yet" to
+  implemented, and REQ-301's status note extended to note the same
+  per-`GameKey` resolver mechanism now also serves `"xg-path"`. Architecture
+  doc: COMP-11's status note and §6.1's round-generation flow description
+  both updated to describe `IRoundSchedulingOptionsResolver` and the
+  endpoint's `gameKey` dispatch. Implementation doc: project-structure
+  entries for `XGArcade.Core`, `XGArcade.Games.XGGrid`, and
+  `XGArcade.Games.XGPath` updated to name the new/moved files. Backlog:
+  S-084's entry corrected from forward-looking to record what was actually
+  decided and built, matching the precedent set correcting S-083's entry.
+  New ADR-0051 (already added to architecture doc's ADR table; not
+  duplicated here) records the four-part decision. Refs: REQ-1202,
+  REQ-301, REQ-302, ADR-0051, ADR-0027.
+- 2026-07-28 — `docs/decisions/0049-confirmed-low-match-pair-persistence.md`
+  renumbered to `docs/decisions/0050-confirmed-low-match-pair-persistence.md`
+  while resolving a merge conflict with the concurrently-merged
+  `docs/decisions/0049-scoring-strategy-guess-and-max-attempts-parameter-shape.md`
+  (S-083/REQ-1206, below) — both were independently assigned ADR-0049 on
+  diverged branches. Every `ADR-0049` reference belonging to the
+  cache-warming decision (this file, `architecture-document.md`,
+  `implementation-document.md`, `PlayerCacheWarmingServiceTests.cs`) was
+  updated to `ADR-0050`; the scoring-strategy ADR keeps 0049 unchanged, having
+  merged to `main` first. No content change to either decision, only the
+  number.
+- 2026-07-28 — `docs/architecture-document.md` (0.67 → 0.68),
+  `docs/implementation-document.md` (0.79 → 0.80), `docs/backlog.md` —
+  synced docs to the shipped code for REQ-110's three same-day extensions
+  (`docs/requirements-document.md` 1.21 → 1.23 and
+  `docs/decisions/0050-confirmed-low-match-pair-persistence.md` were
+  already updated earlier this session by `requirements-writer`, verified
+  here against final code, not re-touched): `CacheWarmingResult
+  .PairsWithTechnicalFailure`/`FailingPairs` and `IWikidataClient`/
+  `IWikidataLookupService`'s new `onTechnicalFailure` callback (COMP-05,
+  COMP-07); the new `WikidataQueryTimeoutTier.CacheWarming` (45s) budget
+  and `PlayerCacheWarmingService.LookupWithSameRunRetryAsync` same-run
+  retry (COMP-07); and the new `ConfirmedLowMatchPair` table (COMP-06,
+  `IPlayerStoreRepository.IsConfirmedLowAsync`/`RecordConfirmedLowAsync`,
+  ADR-0050), invalidated by `StaleClubAttributeCleaner` (REQ-111) and
+  `purge-player-pool` (REQ-112/S-038). Architecture doc: updated the
+  COMP-05/COMP-06/COMP-07 table rows to name the new table/enum/callback
+  and confirm boundary rule 1 was respected (COMP-05 reaches
+  `ConfirmedLowMatchPair` only via `IPlayerStoreRepository`); no data-flow
+  diagram change needed (cache warming isn't one of §6's diagrammed
+  request flows). Implementation doc: added `ConfirmedLowMatchPair` to
+  the §5 data model, updated §6/§6a's Wikidata-timeout and
+  CLI-verb (`warm-player-cache`/`clean-stale-club-attributes`/
+  `purge-player-pool`) descriptions. Backlog: appended a short "Resolved
+  same day" note to the two 2026-07-28 REQ-110 follow-up entries so they
+  no longer read as still-pending. No new ADR written beyond the
+  renumbering above (ADR-0050 already covers the one structural decision
+  here, confirmed by `architecture-reviewer`). `docs/legal/*.md` checked and
+  left unchanged — `ConfirmedLowMatchPair` holds only category-value
+  names/an int/a timestamp, no user or player-identifying data, so no data
+  collection/retention/third-party-sharing text is affected. REQ-110,
+  ADR-0050.
+- 2026-07-28 — `docs/requirements-document.md` (1.21 → 1.22),
+  `docs/architecture-document.md` (0.67 → 0.68),
+  `docs/implementation-document.md` (0.79 → 0.80), `docs/backlog.md`,
+  `docs/decisions/0049-scoring-strategy-guess-and-max-attempts-parameter-shape.md`
+  (new), `docs/decisions/0040-per-game-scoring-strategy.md` (status line) —
+  S-083 implemented (REQ-1206, xG Path's clue-efficiency scoring):
+  `ClueEfficiencyScoringStrategy` (`XGArcade.Core.Scoring`) computes
+  `round(cluesUsed / maxAttemptsForCell * MaxPointsPerCell)` for a correct
+  guess (`cluesUsed` read from the winning `Guess.AttemptCount`, no new
+  column) and always reports a null `FinalUniquenessScore`; registered
+  against `XGPathGameModule.XGPathGameKey` in `Program.cs`, mirroring
+  `UniquenessScoringStrategy`'s `"xg-grid"` registration. Building this for
+  real resolved ADR-0040's own deferred "parameter shape" follow-up: added
+  ADR-0049, which changes `IScoringStrategy.ScoreCorrectGuess`'s signature
+  to take the whole `Guess` being scored plus a plain `int
+  maxAttemptsForCell` (resolved once per cell, not per guess, by
+  `ScoreLockingService` via ADR-0041's existing `IGameModule
+  .GetMaxAttemptsForCellAsync`) rather than giving `IScoringStrategy` a
+  direct dependency on `IGameModule`; `UniquenessScoringStrategy` was
+  adapted to the new signature with no formula/behavior change. ADR-0040's
+  own status line now cross-references ADR-0049 as closing its follow-up,
+  same precedent as ADR-0016/ADR-0048. Architecture doc: COMP-11's status
+  note and COMP-04's S-083 status note both updated to reflect
+  `ClueEfficiencyScoringStrategy` being registered and implemented (no
+  longer stubbed); new ADR-0049 row added to the ADR table. Requirements
+  doc: REQ-1206's status changed from "Not started (design only)" to
+  "Implemented," with an implementation note naming the strategy class,
+  how `cluesUsed`/`maxCluesForThisPuzzle` are sourced, and the covering
+  `REQ1206_...`-named tests. Implementation doc: the stale "No
+  IScoringStrategy registration yet — S-083" project-structure note
+  corrected, and a new S-083 correction note added alongside the existing
+  S-076 `IScoringStrategy` note describing the signature change. Backlog:
+  S-083's entry corrected to describe the actual parameter shape
+  (`Guess` + per-cell `maxAttemptsForCell`, resolved once per cell) rather
+  than leaving it undescribed. Refs: REQ-1206, ADR-0040, ADR-0049.
+- 2026-07-27 — `docs/requirements-document.md` (1.19 → 1.21),
+  `docs/architecture-document.md` (0.66 → 0.67),
+  `docs/implementation-document.md` (0.78 → 0.79), `docs/backlog.md`,
+  `docs/decisions/0048-per-game-display-read-endpoints-confirmed.md` (new),
+  `docs/decisions/0016-display-reads-bypass-igamemodule.md` (status line) —
+  S-082 implemented (REQ-1203 clue reveal, REQ-1204 guess correctness,
+  REQ-1205 fixed 7-attempt cap) end to end: `PathClueSequenceBuilder`/
+  `PathClueTurn`, the new `GET /path/current` read endpoint
+  (`XGArcade.Api.Path.PathEndpoints`), and
+  `XGPathGameModule.ScoreSubmissionAsync`/`GetMaxAttemptsForCellAsync`
+  (no longer `NotImplementedException`). REQ-1207 (Wikidata P413/P569
+  sourcing for `Player.Position`/`Player.BirthYear`) was drafted and folded
+  into this same story mid-session, after REQ-1203's position/nationality/
+  age clues turned out to depend on `Player` fields that didn't exist yet.
+  Quality-gate follow-up: `GuessScoringException` (`Games.XGGrid`) and
+  `PathScoringException` (`Games.XGPath`) now both derive from a new shared
+  `XGArcade.Core.Games.GameEntityNotFoundException`, mirroring
+  `LiveLookupUnavailableException`'s existing cross-boundary precedent, so
+  the game-agnostic `GuessEndpoints` no longer needs compile-time knowledge
+  of either game's own exception type; also closed a test coverage gap and
+  fixed a stale test comment found during the same pass. Guess submission
+  added **no new write endpoint** — xG Path guesses reuse the existing
+  generic `POST /rounds/{roundId}/cells/{cellId}/guesses`. Added ADR-0048,
+  confirming ADR-0016's direct-repository-read pattern (`GET /path/current`
+  reading `PathInstance`/`PathPuzzle` directly, same as `GET /rounds/current`
+  reads `GridInstance`/`GridCell`) as the platform's permanent shape for
+  read-only display endpoints rather than a Tier-0 stopgap awaiting a
+  generic `IGameModule` read method; ADR-0016's own status line now
+  cross-references it. Architecture doc: COMP-11's status note updated to
+  reflect both previously-stubbed methods now being implemented, a new
+  §6.2b data-flow entry covers `GET /path/current` and the reused guess-
+  submission path, and xG Path's deliberate lack of a fuzzy-matching stage/
+  REQ-209-style disambiguation prompt is recorded as a reviewed, confirmed
+  scope decision (not a gap to "fix" later). Requirements doc: REQ-1203's
+  Test level note now reads "Unit, API" (new `PathEndpointTests`); REQ-1202's
+  stale "no API route exposes this game yet" note corrected without
+  implying REQ-1202 itself has API-level coverage (it doesn't — that
+  endpoint is REQ-1203's); REQ-1201's eligibility status note corrected,
+  since `Player` no longer has "no BirthYear field at all" now that
+  REQ-1207 added it (the eligibility check still doesn't read it — same
+  correction applied to `docs/backlog.md`'s matching S-081 note). Backlog:
+  S-082's entry now names REQ-1207 and why it was folded in.
+  REQ-1203/1204/1205 status notes moved from "Not started (design only)" to
+  "Implemented." Refs: REQ-1203, REQ-1204, REQ-1205, REQ-1207, ADR-0016,
+  ADR-0048.
+- 2026-07-27 — `docs/requirements-document.md` (1.18 → 1.19),
+  `docs/architecture-document.md` (0.65 → 0.66),
+  `docs/decisions/0047-xg-path-seeded-club-appearance-threshold.md` (new,
+  renumbered from a draft ADR-0046 during merge — ADR-0046 was already
+  claimed by the live-lookup-timeout ADR below, landed on `main` first),
+  `docs/backlog.md`, `backend/src/XGArcade.Games.XGPath/
+  XGPathGameModule.cs`, `backend/tests/XGArcade.Games.XGPath.Tests/
+  XGPathGameModuleTests.cs` — tightened REQ-1201's xG Path eligibility: a
+  candidate's seeded-club stint now also needs ≥20 recorded appearances
+  there (or an unknown count) to count, closing the gap where a single
+  loan/fringe appearance at a big club was enough to qualify an otherwise
+  obscure player as a target — ADR-0047. `IsEligible`'s seeded-club check
+  now also filters on `PlayerCareerStint.AppearanceCount`; 3 new REQ1201-
+  named tests cover below/at/unknown appearance count. `dotnet test` run
+  locally: 16/16 passing (13 existing + 3 new).
+- 2026-07-27 — `docs/requirements-document.md` (1.17 → 1.18),
+  `docs/architecture-document.md` (0.64 → 0.65), `docs/decisions/0041-
+  per-cell-attempt-cap.md`, `docs/backlog.md` — revised REQ-1203's xG Path
+  clue-reveal mechanic per a product decision: club stints are no longer
+  capped at 5 and revealed one-per-clue; every documented stint is now
+  revealed, split across exactly 3 club-reveal turns (`N` divided into 3
+  as evenly as possible, smallest turn first — e.g. `N=4` → 1-1-2, `N=10`
+  → 3-3-4, `N=11` → 3-4-4), each club still carrying its appearance count
+  when known. The bundled year-range clue and the fixed
+  position/nationality/age tail are unchanged. Net effect: a puzzle's
+  total clue count (REQ-1205/1206) becomes a fixed **7** for every xG Path
+  puzzle instead of the earlier `min(club stint count, 5) + 4`, which
+  varied by target player — updated the stale formula references in
+  ADR-0041 and `architecture-document.md` §COMP-04 to match (the ADR's
+  actual decision, per-cell resolution through `IGameModule`, is
+  unaffected). No code exists for REQ-1203/1205/1206 yet (still "design
+  only," S-082/S-083), so this is a pure documentation change.
+- 2026-07-27 — `docs/implementation-document.md` (0.77 → 0.78),
+  `docs/design-document.md` (0.55 → 0.56) — while merging the two entries
+  above against `main`, found two more stale references to the old
+  "club-stint clues capped at 5" design that the REQ-1203 revision above
+  had missed: `implementation-document.md`'s `IGameModule` interface
+  comment ("xG Path's varies per puzzle") and `design-document.md`'s
+  SCREEN-10 spec (an explicit "capped at 5" bullet, written before the
+  revision). Corrected both to describe the current design (a fixed
+  `MinAppearancesAtSeededClub`-independent 7-clue total; all stints shown
+  across 3 grouped reveal turns) — no behavior change, both docs were
+  already stale relative to `requirements-document.md`.
+- 2026-07-27 — `docs/requirements-document.md` (1.16 → 1.17),
+  `docs/decisions/0046-live-lookup-timeout-exception-signal.md` — follow-up
+  to #123: real usage showed guessing "Clarence Seedorf" for Ajax × AC Milan
+  consistently returned `LiveLookupUnavailable` (503) rather than ever
+  resolving, since `WikidataClient`'s 15s budget (REQ-103's own, reused
+  unmodified by #123's fix) doesn't cover the up-to-27s WDQS latency
+  ADR-0011 already documented for this club-club query shape. Added a
+  second, wider budget (`guessTimeFallbackQueryTimeout`, 28s) used only when
+  `throwOnTimeout` is set (i.e. only `WikidataLookupOrigin.GuessTimeFallback`)
+  — REQ-103/grid generation's 15s budget is completely unaffected. New
+  status notes on REQ-211 and ADR-0046 explain why this doesn't reopen
+  ADR-0046's own rejected "increase the timeout instead" alternative (that
+  alternative was rejected in the context of the fallback firing on every
+  unresolved guess; REQ-211's `PlayerNameIndex` gate, landed in the same
+  PR, already narrowed that to only real, indexed players before this
+  follow-up widened the budget further).
+- 2026-07-27 — `docs/backlog.md`, `docs/architecture-document.md`
+  (0.62 → 0.63), `docs/CHANGELOG.md` — doc-sync pass over S-081's diff
+  (REQ-1201/1202, ADR-0045). `docs/backlog.md`'s S-081 Accept-criteria
+  sentence previously read as if a test exists for "a candidate outside
+  REQ-112's pool" — no such fixture is possible (`Player` has no
+  `BirthYear`/`Gender` field), so the wording now matches what was
+  actually built: that criterion is satisfied by construction and
+  confirmed by inspection, same as `XGPathGameModuleTests`'s own class doc
+  comment and REQ-1201's status note already say (flagged independently by
+  `architecture-reviewer` and `quality-architect`). Corrected this same
+  entry's own prior wording ("REQ-1201's four independent rejection
+  rules") to say three rules covered by real fixtures (one, undeterminable
+  order, tested via two fixtures) plus the fourth confirmed by inspection.
+  `docs/architecture-document.md`'s §10 ADR index table was missing rows
+  for ADR-0040 through ADR-0044 as well as the new ADR-0045 (a pre-existing
+  gap predating this branch, not introduced by S-081) — added all five so
+  ADR-0045 is actually discoverable from the index. Verified
+  `docs/requirements-document.md`, `docs/implementation-document.md`, and
+  ADR-0045 itself were otherwise accurate against the code; no change to
+  `docs/legal/*.md` needed (no data collection/retention/third-party
+  change in this story).
+- 2026-07-27 — `docs/requirements-document.md` (1.14 → 1.15),
+  `docs/architecture-document.md` (0.61 → 0.62),
+  `docs/implementation-document.md` (0.76 → 0.77), `docs/decisions/0045-xg-
+  path-puzzle-generation-model-and-eligibility.md` (new) — implemented
+  S-081 (REQ-1201/1202): `XGPathGameModule.GenerateInstanceAsync`/
+  `GetCellIdsAsync` (`XGArcade.Games.XGPath`) now do real work instead of
+  throwing `NotImplementedException`. New entities `PathTemplate`/
+  `PathInstance`/`PathPuzzle` (`XGArcade.Data`, migration
+  `20260727130000_AddPathInstance`) mirror `GridTemplate`/`GridInstance`/
+  `GridCell`'s shape; unlike `GridCell`, `PathPuzzle.TargetPlayerId` is a
+  real FK into `Player` — see ADR-0045 for why this doesn't cross
+  ADR-0003's Core/game boundary. New repository `IPathInstanceRepository`/
+  `PathInstanceRepository` (COMP-11's own persistence) and a new
+  `IPlayerStoreRepository.GetAllCareerStintsByPlayerAsync` bulk read
+  (COMP-06) — the only new cross-component call, same "tolerate a
+  full-table-scale read at Tier 0's player-pool size" precedent
+  `GetPlayersMissingPhotoAsync` already sets. REQ-1201's eligibility check
+  reads two of its acceptance-criteria phrases in specific, documented ways
+  (ADR-0045): "≥3 distinct stints" as ≥3 stint *rows*, not 3 distinct
+  clubs; "chronological order determinable from start/end dates" as
+  rejecting any candidate with two stints sharing an identical
+  `(StartYear, EndYear)` pair (including two simultaneously "ongoing"
+  stints). REQ-112 pool membership is verified by construction (`Player`
+  has no `BirthYear`/`Gender` field), not a runtime check — same precedent
+  `GridGameModule` already established. `ScoreSubmissionAsync`/
+  `GetMaxAttemptsForCellAsync` (REQ-1204/1205) are untouched, still
+  throwing `NotImplementedException` — that's S-082. New
+  `XGPathGameModuleTests` (NUnit, real InMemory-backed repositories, no
+  fakes, same pattern as `GridGameModuleTests`) covers three of REQ-1201's
+  four rejection criteria with real fixtures (fewer than 3 stints; an
+  undeterminable stint order, including the two-simultaneously-"ongoing"-
+  stints edge case; no stint at a seeded club) plus a positive "3 stints at
+  the same club is still eligible" control. The fourth criterion — a
+  candidate outside REQ-112's pool — has no corresponding fixture: `Player`
+  has no `BirthYear`/`Gender` field to construct a violation against, so
+  this is confirmed by inspection instead, per the class-level doc comment
+  on `XGPathGameModuleTests` (same scope-note precedent S-079's own
+  CHANGELOG entry above used). Also covers REQ-1202's exactly-N/
+  insufficient-pool/unknown-template/cell-id-lookup behavior.
+- 2026-07-27 — `docs/requirements-document.md` (1.15 → 1.16),
+  `docs/architecture-document.md` (0.63 → 0.64),
+  `docs/implementation-document.md` (0.76 → 0.77),
+  `docs/design-document.md` (0.54 → 0.55, previously landed by the frontend
+  half of this same bundle — folded in here rather than left as a separate
+  entry), `docs/decisions/0046-live-lookup-timeout-exception-signal.md`
+  (new) — doc sync for the `claude/xg-grid-perf-search-r0q708` bug-fix
+  bundle (commits f5d10da/f6d06e3), which fixed slow/unreliable guessing,
+  stale name-index words, and an autocomplete answer leak:
+  - **REQ-211** (requirements-document.md): the guess-time live-lookup
+    fallback now gates on a real `IPlayerNameIndexRepository` match before
+    calling Wikidata — closing a stale "Tier 1, not built" gap in this
+    REQ's own status text (`PlayerNameIndex` has existed since S-032,
+    2026-07-17; the un-gated trigger was the dominant cost of the reported
+    "guessing is slow" symptom, not a deliberate simplification). Also adds
+    a new `GuessSubmissionOutcome.LiveLookupUnavailable` branch (HTTP 503,
+    no `Guess` row written, no REQ-210 attempt consumed) so a Wikidata
+    timeout during this fallback is distinguishable from a confirmed
+    incorrect guess (previously conflated — the reported "guessed Clarence
+    Seedorf, got a fetch error, retried, scored incorrect" symptom). New
+    acceptance-criterion bullet added. See ADR-0046.
+  - **REQ-210** (requirements-document.md): status note cross-referencing
+    the new `LiveLookupUnavailable` branch as a fourth "doesn't consume an
+    attempt" case, alongside REQ-209's existing disambiguation branch.
+  - **REQ-207** (requirements-document.md): 2026-07-27 correction recording
+    that the shipped `PlayerAutocompleteSuggestion` DTO leaked
+    `Nationality` — a real violation of this REQ's "implies nothing about
+    correctness" criterion for nationality-based categories — now removed
+    from both the backend DTO and the frontend suggestion type/caption
+    (`GuessInput.tsx`, already fixed in this bundle's frontend half,
+    f5d10da); `BirthYear` stays, since no xG Grid category is
+    birth-year-based.
+  - **REQ-208** (requirements-document.md): addendum recording that
+    pre-2026-07-26-migration `PlayerNameIndex` rows had no
+    `PlayerNameIndexWord` rows (so surname-only search still failed for
+    them, e.g. "Seedorf") — fixed by a new, idempotent
+    `PlayerNameIndexWordBackfiller` wired into `migrate-and-seed`.
+  - **New ADR-0046**: the structural decision behind the
+    `LiveLookupUnavailableException`/`GuessSubmissionOutcome
+    .LiveLookupUnavailable`/503 signal — a new, narrow exception-based
+    cross-boundary contract between `Games.XGGrid` (COMP-05) and
+    `Core.Scoring` (COMP-04), kept inside `Core.Games` per ADR-0003, so a
+    live-lookup infra failure is never conflated with a confirmed-incorrect
+    guess. Covers the alternatives considered (result-type/nullable signal,
+    a longer timeout, accepting the false-negative rate) and why the
+    exception-based signal was chosen instead.
+  - **architecture-document.md** §6.2: corrected the REQ-211 guess-time
+    fallback's trigger-condition description (now matches the diagram's
+    full shape, per the fix above) and added a note on the new
+    exception-based signal crossing the `Games.XGGrid` → `Core.Scoring`
+    boundary.
+  - **implementation-document.md**: fixed two now-stale references to
+    `WikidataLookupService.GetOrCreatePlayerAsync` (replaced by
+    `IPlayerStoreRepository.GetOrCreatePlayersByWikidataQidAsync`,
+    called from the newly-batched `PersistMatchesAsync` — root cause #2 of
+    this bundle, one `SaveChangesAsync` per batch instead of per player,
+    per `docs/coding-guidelines.md`'s own rule), and corrected the
+    intersection-queries'-never-throw claim to note the new opt-in
+    `throwOnTimeout` parameter (REQ-211/ADR-0046 only; REQ-103's default
+    behavior is unchanged).
+  - Not touched: `docs/design-document.md` was already updated correctly by
+    this bundle's frontend commit (f5d10da) — reviewed and left as-is,
+    consolidated into this entry rather than duplicated as its own.
+- 2026-07-27 — `docs/implementation-document.md` (0.75 → 0.76) — S-080's
+  §4 project-structure list gained the two new `XGArcade.Games.XGPath`/
+  `XGArcade.Games.XGPath.Tests` folders (a gap the two S-080 code reviews
+  below didn't catch, found by `doc-sync`) — no other content change.
+- 2026-07-27 — `docs/architecture-document.md` (0.60 → 0.61) — S-080
+  scaffolded `XGArcade.Games.XGPath`: a new `XGArcade.Games.XGPath` project
+  (plus `XGArcade.Games.XGPath.Tests`) implementing `IGameModule`
+  (`GameKey = "xg-path"`), added to `backend/XGArcade.sln` and registered
+  in `Program.cs` (`AddScoped<IGameModule, XGPathGameModule>()`) alongside
+  the existing `GridGameModule` registration, so `IGameModuleResolver`
+  now resolves two implementations by `GameKey`. Every `IGameModule`
+  method (`GenerateInstanceAsync`, `ScoreSubmissionAsync`,
+  `GetCellIdsAsync`, `GetMaxAttemptsForCellAsync`) throws
+  `NotImplementedException` — no puzzle-generation or scoring logic yet;
+  that's S-081+. No `IScoringStrategy` is registered for `"xg-path"` and
+  no route exposes this game. This is the second `IGameModule`
+  implementation to exist, so it's also the first real exercise of
+  ADR-0003's stated follow-up ("when a second game module is actually
+  built, use it to verify this pattern holds") — it held: `Core.Rounds`
+  needed no change. The one incidental fix this forced:
+  `InternalGridEndpoints.cs`'s `/internal/grid/generate` endpoint took a
+  raw `IGameModule` by DI, which is only safe with exactly one
+  implementation registered — with two, ASP.NET Core resolves whichever
+  was registered last, an implementation detail rather than a documented
+  guarantee, silently pointing this xG-Grid-only debug endpoint at the
+  wrong module. Switched to `IGameModuleResolver.Resolve(GridGameModule.XGGridGameKey)`,
+  matching the pattern every other caller already uses. No new ADR: this
+  is a straight application of ADR-0002 (modular monolith, one project per
+  game) and ADR-0003 (generic `GameKey`/`GameInstanceId` reference), not a
+  new structural decision. `docs/requirements-document.md` REQ-1201–REQ-1206
+  are unchanged (still "Not started (design only)") — this story is
+  scaffold-only, no gameplay behavior was implemented.
+- 2026-07-27 — `docs/architecture-document.md` (0.59 → 0.60),
+  `docs/implementation-document.md` (0.74 → 0.75) — implemented S-079
+  (ADR-0042, already accepted; no change to the ADR itself): a new
+  `PlayerCareerStint` entity (COMP-06, alongside `PlayerAttribute`/
+  `PlayerAlias`/`PlayerOverride` in `XGArcade.Data`), a migration, and two
+  new `IPlayerStoreRepository` methods (`GetCareerStintsAsync`/
+  `AddCareerStintsAsync`). `WikidataClient`'s shared SPARQL query-building
+  helper now also captures P580/P582/P1350 statement qualifiers
+  (start year/end year/appearance count) already present on the existing
+  P54 club-membership statement — no new SPARQL query shape, no new
+  external call. `SequenceOrder` is resolved at write time across a
+  player's full stint set (existing rows plus newly discovered ones), so a
+  stint found later that chronologically precedes existing ones re-numbers
+  the whole sequence; `AppearanceCount` is `null`, never `0`, when
+  Wikidata's P1350 qualifier isn't present. Persisted only by
+  `WikidataLookupService.LookupAndPersistAsync` (the country/nationality x
+  club path) — a deliberate scope limit, not an oversight: the other three
+  `Lookup*Async` callers (club-club, trophy-country, trophy-club)
+  deliberately do not populate this table yet, extending that is a
+  separate future decision. No consumer yet — S-081 is the first reader;
+  this story is backend data-model plumbing only. `requirements-document.md`
+  §4.12 (REQ-1201-REQ-1206) is unchanged — those describe xG Path's
+  gameplay behavior, none of which this story implements, so their
+  "Not started (design only)" status is still accurate.
+- 2026-07-27 — `docs/architecture-document.md` (0.58 → 0.59),
+  `docs/requirements-document.md` (REQ-410, 1.13 → 1.14),
+  `docs/implementation-document.md` (0.73 → 0.74) — implemented
+  S-078 (ADR-0043): `ILeaderboardService.GetGlobalLeaderboardAsync` and
+  `IGuessRepository.GetPerRoundFinalPointsByUserIdsAsync` gained a
+  required `gameKey` parameter, filtering the latter's existing
+  `Guess`-`Round` join with `round.GameKey == gameKey` — no schema change,
+  no new join, and REQ-409's median/5-round-qualification formula itself
+  is untouched. `LeaderboardEndpoints` passes `GridGameModule.XGGridGameKey`
+  explicitly, same convention the other three `ILeaderboardService` scopes
+  already used, bringing all four into line. Every existing REQ-409-named
+  test now supplies the shared `GameKey` constant explicitly (behavior for
+  xG Grid, the only shipped game, is unchanged), and four new REQ-410-named
+  tests in `LeaderboardServiceTests.cs` seed a second, real `"xg-path"`
+  `GameKey` and confirm qualifying rounds, medians, and the 5-round
+  minimum are computed independently per game and never blended, exercised
+  through the real EF InMemory `Guess`-`Round` join. Not included in this
+  pass: an API-level cross-game test (blocked on `LeaderboardEndpoints` not
+  yet accepting a `gameKey` query parameter) and the frontend game-switcher
+  (S-087/SCREEN-03) — both tracked as separate
+  follow-ups.
+- 2026-07-26 — `docs/architecture-document.md` (0.57 → 0.58),
+  `docs/implementation-document.md` (0.72 → 0.73),
+  `docs/requirements-document.md` (REQ-210, 1.12 → 1.13) — implemented
+  S-077 (ADR-0041): `IGameModule` gained
+  `GetMaxAttemptsForCellAsync(instanceId, cellId)`, resolved through
+  `IGameModuleResolver` the same way `GetCellIdsAsync` already is. xG
+  Grid's `GridGameModule` implementation returns `2` unconditionally,
+  identical to the old `GuessRules.MaxAttemptsPerCell` global constant it
+  replaces, which is now deleted outright (not left as dead code, per
+  ADR-0041's own follow-up). `GuessSubmissionService` (REQ-210's lock/cap
+  check), `LiveRoundContributionService`, and `RoundEndpoints` all now
+  read the cap through the module instead of the deleted constant. Pure
+  extraction — no REQ-210 acceptance criteria changed; new tests prove no
+  call site hardcodes `2` (a module reporting a non-standard cap is
+  actually honored) and that the cap is resolved exactly once per
+  submission attempt.
+- 2026-07-26 — `docs/architecture-document.md` (0.56 → 0.57),
+  `docs/implementation-document.md` (0.71 → 0.72) — implemented S-076
+  (ADR-0040): `Core.Scoring` now resolves an `IScoringStrategy` per
+  `Round.GameKey` through a new `IScoringStrategyResolver`, mirroring
+  `IGameModuleResolver`'s resolution shape exactly. xG Grid's existing
+  REQ-204/205 formula is extracted unchanged into
+  `UniquenessScoringStrategy` (`GameKey` supplied by `Program.cs`, never
+  hardcoded in `XGArcade.Core`, per ADR-0003); `ScoreLockingService` calls
+  the resolved strategy instead of `UniquenessCalculator`/`ScoringRules`
+  directly for a correct guess. `MaterializeUnansweredCellsAsync`'s
+  unanswered-cell penalty is untouched. Pure extraction — no REQ-204/205
+  acceptance criteria changed; new tests cover
+  `IScoringStrategyResolver`'s resolve/throw behavior.
+- 2026-07-26 — `docs/backlog.md` — added Epic 6 (xG Path, second game),
+  S-076 through S-088: three shared-infrastructure refactors ordered
+  first (S-076 scoring-strategy pluggability/ADR-0040, S-077 per-cell
+  attempt cap/ADR-0041, S-078 per-game leaderboard scoping/ADR-0043/
+  REQ-410 — each a no-behavior-change extraction for xG Grid), then
+  xG Path's own data model (S-079, ADR-0042), module scaffold (S-080),
+  generation/clue-reveal/scoring (S-081-083), round scheduling (S-084),
+  and three frontend stories (S-085/086/087) plus E2E coverage (S-088).
+  Turns the design-only REQ-1201-1206/REQ-410 and ADR-0040-0043 into a
+  concrete, dependency-ordered build sequence — no code changed.
+- 2026-07-26 — `docs/design-document.md` (0.53 → 0.54) — added SCREEN-09
+  (game select, multi-tile — resolves the §7 open question flagged since
+  S-021) and SCREEN-10 (xG Path puzzle/clue-reveal screen — design only,
+  no code yet, `requirements-document.md` REQ-1201-1206), validated
+  against two working prototypes (growing-timeline chosen over a
+  spotlight-stepper alternative). Updated SCREEN-03 (Leaderboard) with a
+  game-switcher note for the All-time scope (ADR-0043/REQ-410) — the
+  only scope not already `gameKey`-scoped. No new colors, typefaces, or
+  animation families introduced; both new screens reuse existing tokens
+  and the badge-dock/shake motion vocabulary.
+- 2026-07-26 — `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (Consequences section corrected), `docs/implementation-document.md`
+  (0.70 → 0.71) — quality-gate correction to the REQ-208/ADR-0044 fix:
+  `PlayerNameIndexRepository.SearchByPrefixAsync`'s two candidate-id
+  branches (`NormalizedName` and `PlayerNameIndexWord.Word` `StartsWith`
+  scans) were each unbounded before their union, which could pull a large
+  candidate-id list into memory for a short prefix at scale — the exact
+  thing ADR-0044 was meant to avoid. Each branch now applies its own
+  `OrderBy(...).Take(limit)` before the union; ADR-0044's Consequences
+  section now documents this as a real gap the original write-up missed,
+  not just "two round trips." Also fixed `PlayerNameIndexWord`'s doc code
+  sample (missing `required` on `Word`, drifted from the real entity).
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.11 → 1.12),
+  `docs/architecture-document.md` (0.55 → 0.56),
+  `docs/implementation-document.md` (0.69 → 0.70),
+  `docs/decisions/0044-player-name-index-per-word-prefix-matching.md`
+  (new), `infra/scripts/lib/game-data-tables.sh` — implemented REQ-208's
+  2026-07-26 correction: `PlayerNameIndexRepository.SearchByPrefixAsync`
+  now also matches a query as a prefix of any individual word within a
+  player's normalized name (e.g. a surname-only query), not just the whole
+  name, via a new `PlayerNameIndexWord` child table/migration
+  (`20260726120000_AddPlayerNameIndexWord`) rather than a leading-wildcard
+  scan, to stay index-backed at `PlayerNameIndex`'s bulk-imported scale. See
+  ADR-0044 for why a per-word table was chosen over `pg_trgm`. Added the new
+  table to the prod/dev sync allowlist alongside `PlayerNameIndexEntries` so
+  the two never drift apart.
+- 2026-07-26 — `docs/requirements-document.md` (REQ-208, 1.10 → 1.11) —
+  corrected REQ-208's acceptance criteria: `PlayerNameIndexRepository
+  .SearchByPrefixAsync` only ever matched a query against the prefix of a
+  player's *whole* normalized name, so a surname-only autocomplete query
+  (e.g. "Ibrahimovic") returned no suggestions. Added an acceptance
+  criterion requiring the query to also match as a prefix of any
+  individual word within the normalized name, additive to the existing
+  whole-name-prefix behavior. Diacritic-insensitive matching is unaffected
+  and already correct. Documentation only — the corresponding code fix in
+  `backend/src/XGArcade.Data/Repositories/PlayerNameIndexRepository.cs` is
+  tracked separately.
+- 2026-07-26 — `docs/decisions/0043-global-leaderboard-scoped-per-game.md`
+  (new), `docs/architecture-document.md` (0.54 → 0.55),
+  `docs/requirements-document.md` (§4.4, REQ-410 new, 1.09 → 1.10) —
+  planning xG Path's platform integration found the Global League's
+  all-time ranking (REQ-409) was the one leaderboard scope with no
+  per-`GameKey` filter (the other three already had one). ADR-0043
+  documents the fix: `GetGlobalLeaderboardAsync`/
+  `GetPerRoundFinalPointsByUserIdsAsync` gain a required `gameKey`
+  parameter (no schema change). Added REQ-410 (Status: Not started, design
+  only) and forward-pointing status notes on REQ-401/404/409. Updated
+  `architecture-document.md`'s COMP-02 status accordingly.
+- 2026-07-26 — `docs/decisions/0040-per-game-scoring-strategy.md`,
+  `docs/decisions/0041-per-cell-attempt-cap.md`,
+  `docs/decisions/0042-player-career-stint-data-model.md`,
+  `docs/architecture-document.md` (0.53 → 0.54) — initial design pass for
+  xG Path, the platform's second game (guess a player from a
+  progressively-revealed career path). Three new ADRs, all Accepted:
+  ADR-0040 makes `Core.Scoring` resolve a scoring strategy per `GameKey`
+  instead of hardcoding xG Grid's uniqueness formula for every game;
+  ADR-0041 makes the guess-attempt cap per-cell (resolved via
+  `IGameModule`) instead of the shared `GuessRules.MaxAttemptsPerCell`
+  constant; ADR-0042 adds a new `PlayerCareerStint` entity (COMP-06) for
+  ordered/dated/appearance-count career data, populated from Wikidata `P54`
+  qualifiers the existing query already returns but currently discards.
+  Added COMP-11 (Games.XGPath, design only, no code yet) to
+  `architecture-document.md`'s component table, updated COMP-06's entry for
+  `PlayerCareerStint`, and added a COMP-04 status note tying the two
+  scoring/attempt-cap ADRs together — this note also resolves the open
+  question on `Guess.CellId` recorded 2026-07-04 below ("revisit when a
+  second game is built"): there is no actual EF Core foreign key from
+  `Guess` to `GridCell`, so no schema change is needed for a second game to
+  use the same column. See the entry directly below for the companion
+  `docs/requirements-document.md` REQ-1201–REQ-1206 addition.
+- 2026-07-26 — `docs/requirements-document.md` (§4.12, REQ-1201–REQ-1206,
+  new; 1.08 → 1.09) — added xG Path's design-only requirements (target
+  player eligibility, round structure, clue reveal order, guess
+  correctness, per-puzzle attempt cap, clue-efficiency scoring), all
+  marked `Status: Not started (design only)` — no xG Path code exists yet.
+  References ADR-0040 (per-game scoring strategy) and ADR-0041 (per-cell
+  attempt cap), both already Accepted. Does not touch
+  `architecture-document.md` or `implementation-document.md` — those
+  updates are tracked separately in the same design session.
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
+  third time: dropped the ball accent added earlier the same day, per
+  direct feedback ("too much", didn't look good) — removed outright, not
+  kept as an option. `Logo`/`LogoMark`/`favicon.svg` are back to plain
+  `x`/`G`/`Arcade` text (still two-tone in `Logo`) with no ball glyph.
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note a
+  second time: adopted user-supplied inspiration selectively (two-tone
+  "xG" letters, a flat ball glyph) while explicitly declining the parts
+  that conflict with §1/§2's flat, gradient-free direction (motion swoosh,
+  dissolving pixels, gradient shading). `Logo` is now badge-less
+  (`accent-green`/`accent-gold-text` directly on `bg-base`); `LogoMark`
+  (favicon/icon use) keeps its white-on-green treatment since raw
+  `accent-gold` doesn't read reliably against `accent-green` at icon
+  sizes. Recorded two accessible-name gotchas hit and fixed along the way
+  (child-element name-joining, flex ignoring whitespace-only text nodes
+  for layout).
+- 2026-07-26 — `docs/design-document.md` — extended the "Brand mark" note:
+  `Logo` moved from `frontend/src/splash/` to `frontend/src/components/` and
+  now also replaces the header's plain-text "xG Arcade" title in `App.tsx`
+  (both the button and `<h1>` variant), sized down for the header line. Same
+  mark, same accessible-name mechanism, no test changes needed.
+- 2026-07-26 — `docs/design-document.md` — added a "Brand mark" note
+  documenting the new `Logo`/`LogoMark` icon that replaces the plain "xG
+  Arcade" text on `SplashScreen`, and the matching `favicon.svg`. Direct
+  follow-up to REQ-719, which explicitly shipped without a logo asset.
+  Revised same day: the first version used a 2x2-grid glyph, replaced
+  outright with an "xG" monogram after direct feedback asked for xG itself
+  to be the mark's visual center. No new tokens; reuses `accent-green`
+  (fixed across themes) plus a literal white for the monogram text, same
+  reasoning as `overlay-scrim`'s theme-invariant foreground pairings.
+- 2026-07-25 — `frontend/src/App.test.tsx` — `test-writer` closed a gap
+  quality-architect found in the REQ-720/REQ-721 review: `grid`/
+  `leaderboard`/`admin` hashes had no navigate-sets-hash or
+  reload-restores-screen assertion (only `game-select`/`settings`/
+  `leagues` did). All six `Screen` values now have both. 353 → 359
+  Vitest tests.
+- 2026-07-25 — `frontend/src/App.tsx`, `frontend/src/nav/HeaderNav.tsx`
+  (+`.css`/`.test.tsx`), `frontend/src/App.test.tsx`,
+  `frontend/tests/unit/App.test.tsx`, `frontend/tests/unit/setup.ts`,
+  `frontend/tests/e2e/header-nav.spec.ts`,
+  `frontend/tests/e2e/url-routing.spec.ts` (new),
+  `docs/design-document.md` (SCREEN-07 rewritten for the new nested
+  "Games" disclosure and a pre-existing "Leagues" nav-entry doc gap
+  fixed in the same edit, 0.49 → 0.50) — REQ-720/REQ-721 implemented
+  by `ui-implementer`, per ADR-0039. `architecture-reviewer`: pass, no
+  drift, ADR-0039 fully complied with (no router dependency, no
+  popstate/hashchange listener). `quality-architect`: pass; one
+  medium finding (REQ-721's `grid`/`leaderboard`/`admin` hashes have no
+  test assertion, only `game-select`/`settings`/`leagues` do) routed to
+  `test-writer`.
+- 2026-07-25 — `docs/decisions/0039-hash-based-hand-rolled-client-routing.md`
+  (new), `docs/architecture-document.md` (§10 ADR table, 0.52 → 0.53) —
+  ADR-0039: hash-based URLs (`#/grid`), hand-rolled (no `react-router`),
+  for REQ-721's URL-reflected navigation. Chosen over path-based routing
+  because the frontend's Azure Static Web App host has no
+  `staticwebapp.config.json`/SPA-fallback configured, and Playwright E2E
+  runs against the Vite dev server (which has its own fallback baked in)
+  so a path-based bug would only surface against the real deployed host —
+  a known recurring failure class for this project (region restriction,
+  `GHCR_TOKEN` expiry, Npgsql format, per `infra/README.md`/`NOTES.md`).
+  Hand-rolled chosen over `react-router` since REQ-721 explicitly excludes
+  browser back/forward (the library's main value-add) and `Screen` is a
+  flat 6-value union with no nesting/params. Also fixed a pre-existing gap
+  in the same table: ADR-0038 (guest account cleanup, added 2026-07-25 in
+  an earlier session) was missing its row entirely.
+- 2026-07-25 — `docs/requirements-document.md` (REQ-720, REQ-721, new) —
+  REQ-720: header nav gains a "Games" disclosure listing available games,
+  a documented deliberate reversal of S-029's nav simplification now that
+  a second game is actually planned. REQ-721: current screen reflected in
+  the URL so a reload restores it; implementation left to ADR-0039;
+  browser back/forward explicitly out of scope; resolves how URL
+  restoration interacts with REQ-303 (post-login always lands on
+  game-select, unchanged) and REQ-719 (splash gate never bypassed by a
+  URL). Frontmatter version 1.07 → 1.08.
+- 2026-07-25 — `docs/requirements-document.md` (REQ-719, new),
+  `docs/design-document.md` (0.48 → 0.49) — added REQ-719: an
+  unauthenticated splash/landing screen shown before `AuthScreen` on
+  every unauthenticated render (first visit, reload, or return from
+  logout/account-deletion/a failed silent refresh) — no persisted
+  "seen it" flag, so it's never skipped after the first time. Built as
+  `frontend/src/splash/SplashScreen.tsx`, token-only styling (no new
+  color/typeface/animation, no logo/brand-mark image — that's tracked
+  separately), single CTA into the existing login/signup form. Does not
+  change REQ-303/S-021's post-login → game-select routing.
+  `docs/design-document.md` gets a new §7 open-item entry flagging
+  `SplashScreen` alongside `AuthScreen`/`GameSelectScreen` as another
+  built-but-unspec'd screen. `architecture-reviewer`: pass, no ADR (pure
+  frontend render-state addition, no new component boundary or data
+  flow). `quality-architect`: pass; one stale comment in `App.tsx`
+  fixed to say "splash screen" instead of "AuthScreen" post-deletion;
+  an unrelated pre-existing flaky test (`AdminScreen.test.tsx` REQ-507)
+  noted in `NOTES.md`, not fixed as part of this change.
+- 2026-07-25 — `CLAUDE.md`, `README.md`, `TODO.md`,
+  `docs/architecture-document.md`, `docs/design-document.md`,
+  `docs/implementation-document.md`, `docs/requirements-document.md`,
+  `mockups/design-mockups.html` — product decision: "xG Arcade" is the
+  final product name, not a placeholder. Removed "(working title —
+  placeholder name, find-and-replace when a real name is chosen)" and
+  equivalent naming-note wording from all doc titles/naming notes; no code
+  changes needed since "xG Arcade" was already used throughout the
+  codebase (localStorage keys, UI title, etc.). No REQ/ADR affected — this
+  is editorial, not a behavior or structural change.
+- 2026-07-25 — `docs/decisions/0037-turnstile-captcha-for-guest-creation.md`
+  (third amendment), `docs/requirements-document.md`, `SETUP.md`,
+  `NOTES.md` — follow-up to the sign-in latency investigation
+  (`infra/README.md`'s "Sign-in latency" section, this same day): live
+  evidence (an Azure Container App log the product owner shared, showing
+  a real login completing server-side in ~1.1s) plus their own repeated
+  testing (consistent 8-12s spinners, back-to-back, felt immediately
+  after clicking Login, not improving with repetition) pointed away from
+  backend/Supabase latency and at the client-side Cloudflare Turnstile
+  step instead — `getTurnstileToken()` only ran after the click, so the
+  whole chain (script download if uncached, widget render, verification)
+  was serialized in front of the actual request. Two fixes shipped in the
+  same PR (`frontend/src/lib/turnstile.ts`, `AuthScreen.tsx`,
+  `DeleteAccountScreen.tsx`, `ui-implementer`): (1) preload the Turnstile
+  *script* on screen mount via new `preloadTurnstileScript()`, never the
+  widget render or token mint (tokens expire quickly and are single-use,
+  so minting one before the form is filled in risks a stale-token
+  rejection — only the script download moves earlier); (2) switched the
+  widget from invisible/managed mode to an **always-visible checkbox**
+  (`size: 'normal'`), a deliberate product-owner decision, not a bug fix —
+  reverses ADR-0037's original Widget UX recommendation, recorded as that
+  ADR's third amendment, since an invisible widget shows nothing while
+  verifying (read as the app being stuck) and a genuinely invisible-type
+  Turnstile site has no interactive fallback if Cloudflare's risk scoring
+  is unsure, unlike a visible checkbox. `getTurnstileToken()`'s signature
+  changed to take a caller-supplied container element (no longer a single
+  hidden `document.body` div `turnstile.ts` owned itself), since a visible
+  checkbox needs to render inline in the right spot on whichever screen
+  invoked it — `AuthScreen.tsx` now has two containers (login/signup
+  share one, "Play as guest" has its own) and `DeleteAccountScreen.tsx`
+  has one. Signup's existing second, follow-up-login token call (needed
+  because tokens are single-use) now shows an explicit "Verifying again
+  to log you in…" status line, since a second visible checkbox appearing
+  right after the first is completed needs an explanation it didn't need
+  when both renders were invisible. `docs/requirements-document.md`'s
+  REQ-717 Widget UX recommendation section and its 2026-07-21
+  open-questions log entry corrected to match (marked superseded in
+  place, not renumbered/deprecated — this was always documented as a
+  recommendation, never a hard acceptance criterion, so no REQ acceptance
+  criteria actually changed). `SETUP.md` step 6 corrected: the Cloudflare
+  dashboard's widget-mode setting (Managed/Non-Interactive/Invisible) is
+  a property of the Turnstile *site itself*, not something the frontend's
+  `size` parameter can override after the fact — so an existing dev/prod
+  site created under the old "invisible/managed" instruction that
+  actually picked Invisible needs its mode switched to Managed in
+  Cloudflare's dashboard directly, or the code change alone won't surface
+  a checkbox. `docs/architecture-document.md`'s ADR-0037 summary row
+  needed no change (already scope-level, doesn't describe widget mode).
+  `docs/design-document.md` (0.46 → 0.47) gained matching status notes on
+  the still-unspecced login/signup screen (§7) and SCREEN-05 (account
+  deletion), following the same pattern already used there for "Play as
+  guest"/the guest banner — flagged by `architecture-reviewer`'s gate
+  review as a real, if low-priority, documentation-completeness gap since
+  this addition (unlike the earlier invisible-mode captcha ones) has an
+  actual visible footprint on the rendered screen. `NOTES.md` gained a
+  matching entry with the log-evidence timeline. No new ADR: reused
+  ADR-0037's established in-place-amendment pattern (this is its third
+  same-general-topic amendment, following the two 2026-07-25 scope
+  amendments already there) rather than a new ADR number, since the core
+  wiring decision (provider, mediation-through-Supabase, secret-key
+  boundary) is unchanged — only the widget's visual mode reversed.
+  **`quality-architect`'s gate review on this change (same day) found a
+  real reliability gap, fixed in the same PR:** `loadTurnstileScript()`
+  cached a script-load rejection forever, never clearing it — harmless
+  while only `getTurnstileToken()` called it (a failure only ever hit in
+  direct response to a user's own submit), but now that
+  `preloadTurnstileScript()` fires unattended on every screen mount, one
+  transient failure at mount time (a flaky network, a security extension
+  blocking the first request) would have silently disabled every
+  login/signup/guest/delete attempt for the rest of that page's lifetime,
+  recoverable only by a full reload. Fixed by clearing the cache back to
+  `null` on rejection (guarded by an object-identity check so a
+  since-replaced cache entry can't be clobbered by a stale, late-running
+  `.catch`) so a later call gets a genuinely fresh script attempt. The
+  review also caught a new test whose name/comment claimed a retry
+  already happened when neither the code nor the test itself actually
+  demonstrated that — rewritten to test the real (now-fixed) behavior
+  instead, plus a matching test for the same gap reached via
+  `getTurnstileToken()` directly rather than `preloadTurnstileScript()`.
+  Also added container-identity assertions to `AuthScreen.test.tsx`
+  (`getTurnstileToken` now takes a caller-supplied container, and the
+  form/guest actions each use their own — nothing previously asserted
+  the *correct* one was passed, so a copy-paste mix-up between them would
+  have compiled and passed every existing test while rendering the wrong
+  screen's checkbox in the wrong place).
+- 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/implementation-document.md`, `docs/backlog.md`,
+  `docs/design-document.md` — doc-sync pass (`doc-sync`) for the backend
+  half of REQ-507 (admin guest/user metrics view) and REQ-508 (admin bulk
+  force-clear guest accounts), both implemented this session: new
+  `XGArcade.Api.Admin.AdminAccountsEndpoints` (`GET /admin/accounts/metrics`,
+  `GET /admin/accounts/guests/count`, `POST /admin/accounts/guests/clear`,
+  registered unconditionally including Production, Admin policy) and four
+  new `IUserRepository` methods (`CountUsersAsync`/`CountGuestsAsync`/
+  `CountClaimedGuestsAsync`/`GetAllGuestIdsAsync`); the bulk-clear action
+  reuses `IAccountDeletionService.DeleteAccountAsync` per ADR-0038's mandate
+  (a new `AccountDeletionService.UserNotFoundErrorMessage` const, no
+  behavior change, lets it classify per-account outcomes). Added
+  `**Status: Implemented**` markers and "Built as (S-073)" notes to both
+  REQs (neither had one), and corrected the REQ-508 "Relationship to
+  REQ-718" section, which still described REQ-718 as drafted/not-yet-
+  implemented even though it shipped earlier this same session (S-072) —
+  also resolved the "shared selection-logic building block" question that
+  section had left open (the two REQs ended up with deliberately separate
+  filtered-vs-unfiltered queries, not a shared one). Added matching
+  `architecture-document.md` COMP-01 status note (S-073) and a §6.8 "S-073
+  addition" entry (a sixth `IAccountDeletionService` caller). Corrected two
+  now-stale literal claims in `implementation-document.md`'s `User` entity
+  comments (`IsGuest`/`ClaimedAt` "consulted in exactly one place" no longer
+  held once S-072's purge queries and now S-073's admin queries also read
+  them). Added backlog entry S-073 (no prior story text existed — these
+  REQs were scoped directly, not from a pre-written story — noted
+  explicitly in the entry). Fixed a stray "S-076" story reference in
+  `design-document.md`'s SCREEN-04 subsection (added by the earlier
+  `ui-implementer` frontend pass) to the correct S-073; did not duplicate
+  that pass's own CHANGELOG entry below. Reviewed `docs/legal/*.md`
+  independently and concluded no update is needed — REQ-507 surfaces only
+  aggregate counts of already-collected fields and REQ-508 triggers the
+  same anonymize-and-keep deletion mechanism the privacy policy already
+  discloses for guest accounts (REQ-718), just on demand instead of on a
+  schedule; no new data collected, retained differently, or shared with a
+  new party. No new ADR: `architecture-reviewer` had already concluded this
+  reuses ADR-0038's existing mandate and REQ-507/508's own already-accepted
+  environment/authorization scope rather than a new structural decision —
+  confirmed independently.
+
+- 2026-07-25 — `docs/design-document.md` — added SCREEN-04's "Accounts /
+  guest-clear (REQ-507/508)" subsection (`ui-implementer`): frontend for the
+  admin guest/user metrics view (REQ-507) and bulk force-clear-guests action
+  (REQ-508), against `backend/src/XGArcade.Api/Admin/AdminAccountsEndpoints.cs`
+  (already landed this session, commit d207a74). Implemented
+  `AccountMetricsSection`/`GuestClearSection` in
+  `frontend/src/admin/AdminScreen.tsx` — deliberately rendered unconditionally
+  (not nested inside the existing `activeRound !== null` Non-Production-only
+  gate that round control/user deletion share), since both REQs are
+  Production-visible. New `fetchAdminAccountMetrics`/`fetchGuestAccountCount`/
+  `clearGuestAccounts` in `frontend/src/lib/api.ts`, matching types in
+  `frontend/src/lib/types.ts`. New tokens-only `.admin-screen__metrics`/
+  `.admin-screen__metric*` CSS (no new colors/fonts). Judgment calls made
+  without prior spec (two sections not one, zero-dry-run-count special case,
+  403-hides-section-not-page handling, raw `userId` in the outcome list) are
+  recorded in the design doc itself rather than left implementation-only.
+  8 new Vitest cases added to `frontend/src/admin/AdminScreen.test.tsx`
+  (330 total passing); `tsc -b` and `oxlint` clean. Requirements/architecture
+  docs already carry REQ-507/508 from an earlier iteration this same
+  session and were not touched here.
+
+- 2026-07-25 — `docs/requirements-document.md`, `docs/architecture-document.md`,
+  `docs/implementation-document.md`, `docs/backlog.md`,
+  `docs/legal/privacy-policy-draft.md` — implemented REQ-718/ADR-0038 (S-072):
+  `User.LastActiveAt` (migration `20260725120000_AddUserLastActiveAt`,
+  non-nullable, initialized from `CreatedAt`), updated unconditionally on
+  login/guest-creation/claim/guess-submission; new `POST /auth/logout`
+  ([Authorize]) deleting an unclaimed guest via the existing
+  `IAccountDeletionService`, best-effort, always `204`; new
+  `POST /internal/purge-guest-accounts` (bearer-token-gated, same pattern as
+  `/internal/generate-round`, run daily by new `purge-guest-accounts.yml`
+  at 07:00 UTC) implementing the 30-day-unclaimed and 7-day-inactive purges
+  via two new `IUserRepository` queries, deduped before deletion. Extracted
+  the existing `/internal/generate-round` bearer-token check into a shared
+  `XGArcade.Api.Internal.InternalJobAuthorization` helper rather than
+  duplicating it for the new endpoint. Frontend: `lib/api.ts` gained
+  `logout()`, called best-effort/non-blocking from `App.tsx`'s
+  `handleLogout` so REQ-715's instant local logout is unaffected. Updated
+  the privacy policy draft (`docs/legal/privacy-policy-draft.md`) to
+  disclose the new `LastActiveAt` tracking and the automatic guest-account
+  removal rules, per CLAUDE.md's legal-drafts rule. Added NUnit/API test
+  coverage (`AuthEndpointTests.cs`, `GuessEndpointTests.cs`,
+  `InternalGuestCleanupEndpointTests.cs`, `UserRepositoryTests.cs`)
+  covering REQ-718's own Unit/API/Integration test-level note, including
+  the exactly-30-days/exactly-7-days boundary cases and claimed-account
+  exclusion. Neither the implementation nor the tests were run against a
+  real `dotnet test`/`dotnet build` in this session — no `.NET` SDK
+  available in the sandbox; both were hand-traced against REQ-718's own
+  acceptance criteria instead and need confirming in CI. REQ/ADR
+  refs: REQ-718, REQ-710, REQ-715, REQ-201, ADR-0038, ADR-0036, ADR-0022.
+- 2026-07-25 — `docs/requirements-document.md`, `docs/decisions/0038-guest-account-cleanup.md`
+  — added REQ-718 (guest account lifecycle cleanup: delete at logout,
+  30-day unclaimed purge, 7-day inactive purge), bundling all three
+  related behaviors into one REQ per REQ-717's own precedent for a single
+  guest-identity-lifecycle requirement. Added ADR-0038 to record the three
+  structural decisions this required: a new `User.LastActiveAt` field
+  updated only on login/guest-creation/claim/guess-submission (never on
+  every request, and never branching on `IsGuest`); reuse of REQ-710's
+  existing `IAccountDeletionService` anonymize-and-keep mechanism for all
+  three cleanup paths rather than a second deletion code path (a guest's
+  `Guess` rows have the identical "other players' uniqueness/leaderboard
+  denominators" corruption risk REQ-710 already solved for); and a
+  best-effort logout-triggered deletion backed by the 7-day purge as a
+  safety net, following the existing `generate-round.yml`/
+  `/internal/generate-round` scheduled-job pattern (ADR-0022/ADR-0027) for
+  the two time-boxed purges. Flagged, not resolved here: this REQ implies
+  a schema change and new endpoints/cron workflow (`architecture-document.md`/
+  `implementation-document.md` updates), and a new backend logout call
+  where none currently exists (REQ-715's logout is client-side only
+  today) — left for `doc-sync`/implementation work, not made here. No
+  entry added to §7 — all three open questions the task raised were
+  resolved as technical defaults with existing precedent to follow, not
+  genuine open product decisions. REQ/ADR refs: REQ-718, REQ-710, REQ-717,
+  REQ-201, REQ-204, REQ-409, REQ-715, ADR-0036, ADR-0038, ADR-0022,
+  ADR-0027.
+- 2026-07-25 — `infra/README.md`, `NOTES.md` — investigated a live report
+  that sign-in became slow after the Cloudflare Turnstile captcha rollout
+  (ADR-0037). Measured real cold-vs-warm latency against the deployed dev
+  Container App via a temporary `workflow_dispatch` diagnostic workflow
+  (added, run, then deleted in the same PR — this repo's own sandbox
+  environments can't reach `*.azurecontainerapps.io` directly, same proxy
+  restriction NOTES.md already documents for `wikidata.org`). Confirmed
+  both hypotheses are real and additive, not either/or: a cold
+  `GET /health` after ~22 idle minutes took 9.93s (0.13s of that was the
+  TCP connect — the rest was `minReplicas: 0`'s Container Apps cold
+  start, pre-existing since ADR-0004/S-001, not new); a warm `/health`
+  took ~0.35s; the first `POST /auth/login` on an already-warm backend
+  cost 1.97s (a ~1.6s one-time premium for the backend's first
+  Supabase-mediated call, which now also verifies the captcha token
+  against Cloudflare), dropping to ~0.45s on the next two attempts. Added
+  a new `infra/README.md` section (after the cost-reality-check table)
+  documenting the numbers, the two distinct additive causes (Container
+  Apps cold start vs. captcha's added external hop, the latter split into
+  a backend→Supabase→Cloudflare cost measured here and a frontend
+  Turnstile-widget cost that is real but wasn't measured by this
+  backend-only probe), and the explicit decision to keep `minReplicas: 0`
+  given this project's stated free-tier-only constraint rather than pay
+  ~$10–12/month to eliminate the cold start — recorded as a known,
+  accepted Tier 0 trade-off (`MVP-SCOPE.md`), not a bug, with a named but
+  not-implemented free-tier-compatible mitigation (an hours-scoped
+  keep-alive ping) for if this is revisited later. No requirements/
+  architecture/implementation-document changes — no application behavior
+  changed, investigation and doc-only. `NOTES.md` gained a matching entry
+  with the same numbers, since this is exactly the kind of "surprising
+  enough to want to have known it going in" gotcha that file exists for.
+- 2026-07-25 — `docs/architecture-document.md` (0.48 → 0.49),
+  `docs/implementation-document.md` (0.65 → 0.66), `docs/
+  requirements-document.md` (1.00 → 1.01), `SETUP.md` — doc-sync pass for
+  the captcha-scope-widening bug fix on `claude/captcha-login-signup-fui8nb`
+  (10 commits since `5ebcb08`; REQ-717/REQ-701/REQ-710, ADR-0037's two
+  same-day amendments). Root cause and fix are already fully recorded in
+  ADR-0037's two 2026-07-25 amendments and the requirements-document.md
+  edits made mid-implementation (REQ-717's scope-correction addition,
+  REQ-701's new signup/login captcha criterion, REQ-710's new
+  account-deletion password re-confirmation captcha criterion) — this pass
+  only closes what those changes explicitly flagged as deferred to
+  `doc-sync`, plus a wording correctness check now that all the code
+  actually exists.
+  `architecture-document.md` §10's ADR-0037 row updated to describe the
+  widened scope (guest + signup + login + account-deletion
+  re-confirmation, not guest-only) — flagged directly in the ADR's own
+  Consequences/Follow-up section as this agent's own scope boundary
+  (`requirements-writer`/`backend-implementer` never edit
+  `architecture-document.md` directly). No other architecture-document.md
+  section needed a change: the "For AI agents"/boundary rules and COMP-01
+  status note were already accurate, since this fix widened which
+  endpoints participate in an unchanged mediate-through-Supabase pattern,
+  not any component boundary or responsibility (`architecture-reviewer`
+  already confirmed this same judgement mid-session — no new ADR).
+  `implementation-document.md` §4's project-structure listing for
+  `frontend/tests/e2e` now names the new `turnstile-stub.ts` helper (stubs
+  `window.turnstile` via `page.addInitScript()` so E2E specs that only
+  need an authenticated session aren't blocked by a captcha widget that
+  can't mint a real token in CI) — judged worth a one-line mention at the
+  same level of detail already given to named `/lib` files, not a deeper
+  treatment; the `ISupabaseAuthClient.SignUpAsync`/
+  `SignInWithPasswordAsync` signature change (added `captchaToken`
+  parameter) was judged adequately covered by ADR-0037/REQ-701/REQ-710
+  already, since this document doesn't track individual interface method
+  signatures anywhere else either. Pre-existing gap noted but *not* fixed
+  in this pass (out of scope of this diff): `implementation-document.md`
+  §1's tech-stack table has never listed Cloudflare Turnstile as an
+  adopted third-party service, even from ADR-0037's original guest-only
+  landing — flagged for a human/future pass, not fixed here.
+  `requirements-document.md`: fixed a genuine inconsistency a
+  `ui-implementer` mid-session review flagged and this pass verified
+  directly against `AuthController.cs` before trusting it — REQ-701's and
+  REQ-710's 2026-07-25 captcha additions each said the requirement "holds
+  regardless of whether Supabase's captcha protection setting happens to
+  be enabled ... when it is disabled, no token is required," which
+  contradicts the shipped code: `AuthController.Signup`/`Login`/
+  `DeleteAccount` all reject a missing `CaptchaToken` unconditionally,
+  with no code path that checks or could check Supabase's dashboard
+  toggle state at request time (matching REQ-717's own guest-flow
+  phrasing, which never had this conditional framing to begin with). Both
+  bullets corrected in place, plus their "not yet built as of this
+  addition" status notes updated to reflect that the code is now built.
+  `SETUP.md` step 6 corrected per ADR-0037's own flagged follow-up (both
+  amendments): it read as if Supabase's "Enable Captcha Protection" toggle
+  only affected guest-account creation, which is what let this bug reach a
+  live deployment undetected; now explains the toggle is project-wide
+  (covers `signup`, `token?grant_type=password`, and anonymous sign-in
+  alike) and that all four call sites now send a token, so enabling it is
+  safe. No new ADR: this pass reused the mid-session judgement already
+  made twice on this branch (amend ADR-0037 in place rather than write
+  ADR-0038/0039) — the wiring decision (provider, mediation-through-
+  Supabase, secret-key boundary) never changed, only which endpoints
+  participate, confirmed again here rather than re-litigated. Open
+  question for a human: whether `docs/legal/*.md` needs updating too, since
+  every signup/login/account-deletion page now loads Cloudflare's Turnstile
+  script (a new-to-those-flows third-party runtime dependency, same class
+  of change the Google Fonts CDN entry in `implementation-document.md` §1
+  already treats as privacy-doc-relevant) — not touched in this pass since
+  it wasn't in this task's explicit scope and legal drafts need human
+  review regardless. ADR-0037/REQ-717/REQ-701/REQ-710.
 - 2026-07-22 — `SETUP.md`, `MVP-SCOPE.md`, `docs/backlog.md` (new S-071
   entry) — final doc-consolidation pass for REQ-717's captcha hardening
   (ADR-0037) now that both backend and frontend halves are merged and

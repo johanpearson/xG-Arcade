@@ -1,0 +1,34 @@
+name: audit-club-gaps
+
+# One-off, READ-ONLY diagnostic — NOT an automatic seeder, NOT scheduled.
+# Surfaces real, empirically-observed clubs that already have
+# PlayerCareerStint data (via ADR-0054's guess-time byproduct lookups and
+# ADR-0055's prefetch-player-careers job) but no matching seeded
+# ClubDefinition, ranked by how many distinct players already have a
+# recorded stint there — a signal for which clubs would be worth adding to
+# ReferenceDataSeeder to widen xG Path's target-player pool. The output is a
+# ranked list in this job's own log for a human to read; nothing is written
+# anywhere. Same discipline as every existing ReferenceDataSeeder entry
+# already documents: a human must manually verify each candidate club's
+# Wikidata QID before adding anything — this job never adds a club itself,
+# and nothing about seeding is decided by running it.
+#
+# Manual trigger only, deliberately no recurring schedule — this is a
+# one-off scoping tool, not a recurring job like warm-player-cache.yml/
+# import-player-name-index.yml.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  audit-club-gaps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Audit club gaps
+        run: dotnet run --project backend/src/XGArcade.Api -- audit-club-gaps
+        env:
+          ConnectionStrings__Database: ${{ secrets.DEV_DATABASE_CONNECTION_STRING }}

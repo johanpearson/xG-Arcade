@@ -67,6 +67,16 @@
   text-align: center;
 }
 
+/* REQ-718 UI addendum (rule 5, 2026-08-01): the 7-day/30-day expiry
+   sentence — forced onto its own line within the banner's wrapping flex
+   row (basis: 100%) so it reads as a distinct statement rather than
+   running on from "Playing as {name}." on the same line. Same font-size/
+   color as the rest of the banner (inherited from .app__guest-banner) —
+   no new tokens. */
+.app__guest-banner-expiry {
+  flex-basis: 100%;
+}
+
 .app__guest-banner-action {
   min-height: var(--touch-target-min);
   padding: 0 var(--space-2);
@@ -85,6 +95,14 @@
   display: flex;
   flex-direction: column;
 }
+
+/* S-085/S-086 removal note: this file used to carry the 'path' screen's
+   "coming soon" placeholder rules here (.app__coming-soon and its h2/p
+   children) — removed, not just left in place, now that S-086 replaced
+   App.tsx's placeholder branch with the real <PathScreen> (own styles in
+   frontend/src/path/PathScreen.css), the same "provably unreachable, not
+   speculative dead CSS" discipline CellState.css's own S-048 removal notes
+   already establish for this codebase. */
 
 /* S-002's health check, kept small/unobtrusive per S-010's instructions —
    frontend/tests/e2e/app-loads.spec.ts still asserts on this element. */

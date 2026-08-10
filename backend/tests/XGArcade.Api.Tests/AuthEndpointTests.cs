@@ -103,7 +103,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_BlockedWithoutAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false);
+        var request = new SignupRequest("unconfirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -117,7 +117,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_BlockedWithMismatchedConfirmPassword()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("mismatched-password@example.com", "a-reasonable-password", "a-different-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("mismatched-password@example.com", "a-reasonable-password", "a-different-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -134,7 +134,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_BlockedWithPasswordUnder8Characters()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("short-password@example.com", "short12", "short12", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("short-password@example.com", "short12", "short12", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -152,7 +152,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_SucceedsWithPasswordExactly8Characters()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("eight-char-password@example.com", "eightchr", "eightchr", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("eight-char-password@example.com", "eightchr", "eightchr", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -168,7 +168,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
         var client = _factory.CreateClient();
-        var request = new SignupRequest("already-registered-2@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("already-registered-2@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -191,7 +191,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Unable to validate email address: invalid format" };
         var client = _factory.CreateClient();
-        var request = new SignupRequest("some-other-rejection-reason@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("some-other-rejection-reason@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -205,7 +205,7 @@ public class AuthEndpointTests
     public async Task REQ701_Signup_SucceedsWithAgeConfirmedCheckbox()
     {
         var client = _factory.CreateClient();
-        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("confirmed-age@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -249,7 +249,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        var request = new SignupRequest("new-signup-same-name@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("new-signup-same-name@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -279,7 +279,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        var request = new SignupRequest("new-signup-different-casing@example.com", "a-reasonable-password", "a-reasonable-password", "TEST PLAYER", AgeConfirmed: true);
+        var request = new SignupRequest("new-signup-different-casing@example.com", "a-reasonable-password", "a-reasonable-password", "TEST PLAYER", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -310,7 +310,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        var request = new SignupRequest("new-signup-untrimmed@example.com", "a-reasonable-password", "a-reasonable-password", "  Test Player  ", AgeConfirmed: true);
+        var request = new SignupRequest("new-signup-untrimmed@example.com", "a-reasonable-password", "a-reasonable-password", "  Test Player  ", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -338,7 +338,7 @@ public class AuthEndpointTests
         }
 
         var client = _factory.CreateClient();
-        var request = new SignupRequest("new-signup-should-fail@example.com", "a-reasonable-password", "a-reasonable-password", "test player", AgeConfirmed: true);
+        var request = new SignupRequest("new-signup-should-fail@example.com", "a-reasonable-password", "a-reasonable-password", "test player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Conflict));
@@ -360,7 +360,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignUpResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "User already registered" };
         var client = _factory.CreateClient();
-        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true);
+        var request = new SignupRequest("already-registered@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/signup", request);
 
@@ -378,7 +378,7 @@ public class AuthEndpointTests
             RefreshToken = "a-fake-refresh-token",
         };
         var client = _factory.CreateClient();
-        var request = new LoginRequest("known-user@example.com", "a-reasonable-password");
+        var request = new LoginRequest("known-user@example.com", "a-reasonable-password", "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/login", request);
 
@@ -394,7 +394,7 @@ public class AuthEndpointTests
     {
         _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials" };
         var client = _factory.CreateClient();
-        var request = new LoginRequest("known-user@example.com", "the-wrong-password");
+        var request = new LoginRequest("known-user@example.com", "the-wrong-password", "a-fake-turnstile-token");
 
         var response = await client.PostAsJsonAsync("/auth/login", request);
 
@@ -423,13 +423,13 @@ public class AuthEndpointTests
         {
             lastWithinLimitResponse = await client.PostAsJsonAsync(
                 "/auth/signup",
-                new SignupRequest($"rate-limit-signup-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+                new SignupRequest($"rate-limit-signup-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false, CaptchaToken: "a-fake-turnstile-token"));
         }
         Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest), "The 10th request in the window should still be processed normally.");
 
         var overLimitResponse = await client.PostAsJsonAsync(
             "/auth/signup",
-            new SignupRequest("rate-limit-signup-11@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+            new SignupRequest("rate-limit-signup-11@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false, CaptchaToken: "a-fake-turnstile-token"));
 
         Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
         var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
@@ -450,13 +450,13 @@ public class AuthEndpointTests
         {
             lastWithinLimitResponse = await client.PostAsJsonAsync(
                 "/auth/login",
-                new LoginRequest("rate-limit-login@example.com", "the-wrong-password"));
+                new LoginRequest("rate-limit-login@example.com", "the-wrong-password", "a-fake-turnstile-token"));
         }
         Assert.That(lastWithinLimitResponse!.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized), "The 10th request in the window should still be processed normally.");
 
         var overLimitResponse = await client.PostAsJsonAsync(
             "/auth/login",
-            new LoginRequest("rate-limit-login@example.com", "the-wrong-password"));
+            new LoginRequest("rate-limit-login@example.com", "the-wrong-password", "a-fake-turnstile-token"));
 
         Assert.That(overLimitResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
         var body = await overLimitResponse.Content.ReadFromJsonAsync<ProblemDetailsBody>();
@@ -477,19 +477,19 @@ public class AuthEndpointTests
         {
             await client.PostAsJsonAsync(
                 "/auth/signup",
-                new SignupRequest($"rate-limit-isolation-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+                new SignupRequest($"rate-limit-isolation-{i}@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false, CaptchaToken: "a-fake-turnstile-token"));
         }
 
         // Sanity check: signup really is exhausted at this point.
         var signupResponse = await client.PostAsJsonAsync(
             "/auth/signup",
-            new SignupRequest("rate-limit-isolation-confirm@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false));
+            new SignupRequest("rate-limit-isolation-confirm@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: false, CaptchaToken: "a-fake-turnstile-token"));
         Assert.That(signupResponse.StatusCode, Is.EqualTo((HttpStatusCode)429));
 
         // Login uses a separate policy/counter, so it's still unaffected.
         var loginResponse = await client.PostAsJsonAsync(
             "/auth/login",
-            new LoginRequest("known-user@example.com", "a-reasonable-password"));
+            new LoginRequest("known-user@example.com", "a-reasonable-password", "a-fake-turnstile-token"));
         Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
     }
 
@@ -648,36 +648,116 @@ public class AuthEndpointTests
         Assert.That(body!.Title, Is.EqualTo("Guest sign-in failed"));
     }
 
-    // ---- REQ-717/ADR-0037 scope regression: the captcha check is scoped to
-    // POST /auth/guest only — SupabaseAuthResult.IsCaptchaRejection is
-    // computed by SupabaseAuthClient for every call on ISupabaseAuthClient
-    // (see SupabaseAuthClientCaptchaTests.cs in XGArcade.Core.Tests), but
-    // only AuthController.Guest reads it. These tests set the flag `true` on
-    // Login/Signup/Refresh/Claim's own result — which the real
-    // SupabaseAuthClient would never realistically do for these calls' own
-    // failure modes, but a fake can — to prove those four actions ignore it
-    // entirely and keep returning their own pre-existing generic responses,
-    // never a "Captcha verification failed" response leaking out of an
-    // endpoint that was never supposed to have a captcha check at all. ----
+    // ---- REQ-701/REQ-717/ADR-0037's 2026-07-25 amendment: captcha now
+    // covers Signup and Login too, not just Guest — SupabaseAuthResult
+    // .IsCaptchaRejection is shared plumbing computed by SupabaseAuthClient
+    // for every call on ISupabaseAuthClient (see
+    // SupabaseAuthClientCaptchaTests.cs in XGArcade.Core.Tests), and as of
+    // this amendment AuthController.Signup/Login both read it (previously
+    // only AuthController.Guest did — this section used to assert the
+    // opposite, "these four actions ignore it entirely," which is now wrong
+    // for Signup/Login specifically; see NOTES.md's 2026-07-25 entry for the
+    // root cause). Refresh and Claim are unaffected by this amendment:
+    // RefreshTokenAsync/LinkEmailPasswordAsync take no captchaToken
+    // parameter at all and are not among ADR-0037's four call sites, so
+    // their own generic failure responses must stay exactly as before even
+    // when a fake sets the flag on their result — the Refresh test below
+    // proves that; see REQ717_Claim_Post_IgnoresIsCaptchaRejection_
+    // ReturnsExistingGenericClaimFailedResponse above for the identical
+    // proof on Claim. ----
 
+    // REQ-701's 2026-07-25 addition: a missing token is treated exactly like
+    // an invalid one — checked before Supabase Auth is ever called, so
+    // there's nothing to verify with a token that was never supplied. No
+    // CaptchaToken field in the request body at all (rather than
+    // LoginRequest's own CaptchaToken constructor arg set to null) for the
+    // same reason REQ717_Guest_Post_ReturnsDistinctCaptchaRejection_
+    // WhenCaptchaTokenIsMissing uses an anonymous object above: proves the
+    // field being entirely absent from the wire payload (not just
+    // programmatically null) reaches this check rather than ASP.NET Core's
+    // own automatic model-validation response.
     [Test]
-    public async Task REQ717_Login_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericLoginFailedResponse()
+    public async Task REQ701_Login_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing()
     {
-        _fakeAuthClient.SignInResult = (_, _) =>
-            new SupabaseAuthResult { Success = false, ErrorMessage = "Invalid login credentials", IsCaptchaRejection = true };
         var client = _factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/auth/login", new LoginRequest("someone@example.com", "the-wrong-password"));
+        var response = await client.PostAsJsonAsync("/auth/login", new { Email = "someone@example.com", Password = "a-reasonable-password" });
 
-        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
         Assert.That(body, Is.Not.Null);
-        Assert.That(body!.Title, Is.EqualTo("Login failed"));
-        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Login failed"));
+        Assert.That(_fakeAuthClient.SignInWithPasswordCallCount, Is.EqualTo(0), "Supabase must never be called when no token was supplied at all");
     }
 
+    // The single most important assertion in this whole fix (REQ-701's
+    // 2026-07-25 addition / ADR-0037's amendment): a captcha rejection must
+    // be distinguished from every other login failure (wrong password,
+    // unconfirmed account, etc.) — this used to assert the exact opposite
+    // (that Login ignored IsCaptchaRejection entirely) before this REQ was
+    // widened to cover Login; see this section's own comment above.
     [Test]
-    public async Task REQ717_Signup_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericSignupResponse()
+    public async Task REQ701_Login_Post_ReturnsDistinctCaptchaRejection_WhenSupabaseRejectsAsCaptchaFailure()
+    {
+        _fakeAuthClient.SignInResult = (_, _) =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/login", new LoginRequest("someone@example.com", "the-wrong-password", "an-expired-or-invalid-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Login failed"));
+        Assert.That(_fakeAuthClient.SignInWithPasswordCalledWithCaptchaToken, Is.EqualTo("an-expired-or-invalid-turnstile-token"));
+    }
+
+    // Same "missing token treated like an invalid one" check as Login above,
+    // checked before the first DB round trip (DisplayNameExistsAsync) and
+    // before Supabase Auth is ever called.
+    [Test]
+    public async Task REQ701_Signup_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/signup", new
+        {
+            Email = "captcha-missing-signup@example.com",
+            Password = "a-reasonable-password",
+            ConfirmPassword = "a-reasonable-password",
+            DisplayName = "Test Player",
+            AgeConfirmed = true,
+        });
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Signup could not be completed"));
+        Assert.That(_fakeAuthClient.SignUpCalled, Is.False, "Supabase must never be called when no token was supplied at all");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Users.AnyAsync(), Is.False, "no User row should be created for a rejected signup");
+    }
+
+    // The single most important assertion in this whole fix (REQ-701's
+    // 2026-07-25 addition / ADR-0037's amendment): a captcha rejection must
+    // never be swallowed by REQ-701's own account-enumeration-safe generic
+    // fallback message ("Check your email to confirm your account...") —
+    // that message stays correct for every other signup-rejection reason,
+    // but a captcha rejection must be carved out first. This used to assert
+    // the exact opposite (that Signup ignored IsCaptchaRejection entirely
+    // and always fell through to the generic message) before this REQ was
+    // widened to cover Signup — that was the real production bug (see
+    // NOTES.md's 2026-07-25 entry): a captcha rejection was silently
+    // reported as "Signup could not be completed" / "Check your email...",
+    // exactly the fallback this test now proves is no longer reachable for
+    // this specific failure reason.
+    [Test]
+    public async Task REQ701_Signup_Post_ReturnsDistinctCaptchaRejection_WhenSupabaseRejectsAsCaptchaFailure()
     {
         _fakeAuthClient.SignUpResult = (_, _) =>
             new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
@@ -685,15 +765,28 @@ public class AuthEndpointTests
 
         var response = await client.PostAsJsonAsync(
             "/auth/signup",
-            new SignupRequest("someone@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true));
+            new SignupRequest("someone-captcha@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "an-expired-or-invalid-turnstile-token"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
         var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
         Assert.That(body, Is.Not.Null);
-        Assert.That(body!.Title, Is.EqualTo("Signup could not be completed"));
-        Assert.That(body.Title, Is.Not.EqualTo("Captcha verification failed"));
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Signup could not be completed"));
+        Assert.That(body.Detail, Is.Not.EqualTo("Check your email to confirm your account, or reset your password if you already have one."));
+        Assert.That(_fakeAuthClient.SignUpCalledWithCaptchaToken, Is.EqualTo("an-expired-or-invalid-turnstile-token"));
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        Assert.That(await dbContext.Users.AnyAsync(), Is.False, "no User row should be created for a rejected signup");
     }
 
+    // Refresh is NOT among ADR-0037's four call sites — RefreshTokenAsync
+    // takes no captchaToken parameter at all, so AuthController.Refresh has
+    // nothing to check and IsCaptchaRejection being set on a fake's result
+    // (something the real SupabaseAuthClient would never realistically do
+    // for this call's own failure modes) must still fall through to the
+    // endpoint's own pre-existing generic response, unaffected by this
+    // REQ-701/REQ-717 widening.
     [Test]
     public async Task REQ717_Refresh_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericRefreshFailedResponse()
     {
@@ -944,12 +1037,12 @@ public class AuthEndpointTests
 
         var signupResponse = await client.PostAsJsonAsync(
             "/auth/signup",
-            new SignupRequest("guest-rate-limit-isolation@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true));
+            new SignupRequest("guest-rate-limit-isolation@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token"));
         Assert.That(signupResponse.StatusCode, Is.EqualTo(HttpStatusCode.Created));
 
         var loginResponse = await client.PostAsJsonAsync(
             "/auth/login",
-            new LoginRequest("known-user@example.com", "a-reasonable-password"));
+            new LoginRequest("known-user@example.com", "a-reasonable-password", "a-fake-turnstile-token"));
         Assert.That(loginResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
     }
 
@@ -1051,18 +1144,21 @@ public class AuthEndpointTests
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
     }
 
-    // REQ-717/ADR-0037: the captcha check is explicitly scoped to guest
-    // *creation* (POST /auth/guest) only — this ADR's own "For AI agents"
-    // section calls out that extending it to another endpoint would be a
-    // scope change needing its own product decision. ClaimAccountRequest
-    // (AuthDtos.cs) carries no CaptchaToken field at all, so this is true by
-    // construction, not just by absence of a check in AuthController.Claim —
-    // this test documents that intentionally, and doubles as the same
-    // IsCaptchaRejection-ignored regression as the Login/Signup/Refresh
-    // tests above, for the one remaining unauthenticated-session call
-    // (LinkEmailPasswordAsync) that also flows through
-    // SupabaseAuthClient.ReadFailureResultAsync's shared IsCaptchaRejection
-    // computation.
+    // REQ-717/ADR-0037: the captcha check covers four call sites as of the
+    // 2026-07-25 amendments (guest, signup, login, account-deletion's
+    // password re-confirmation) — Claim is deliberately not among them; this
+    // ADR's own "For AI agents" section calls out that extending it to a
+    // fifth call site would be a scope change needing its own product
+    // decision, not something to infer from this file's edit history.
+    // ClaimAccountRequest (AuthDtos.cs) carries no CaptchaToken field at
+    // all, so this is true by construction, not just by absence of a check
+    // in AuthController.Claim — this test documents that intentionally, and
+    // doubles as the same IsCaptchaRejection-ignored proof as
+    // REQ717_Refresh_Post_IgnoresIsCaptchaRejection_
+    // ReturnsExistingGenericRefreshFailedResponse above, for the one
+    // remaining unauthenticated-session call (LinkEmailPasswordAsync) that
+    // also flows through SupabaseAuthClient.ReadFailureResultAsync's shared
+    // IsCaptchaRejection computation.
     [Test]
     public async Task REQ717_Claim_Post_IgnoresIsCaptchaRejection_ReturnsExistingGenericClaimFailedResponse()
     {
@@ -1459,6 +1555,15 @@ public class AuthEndpointTests
         var response = await client.SendAsync(BuildDeleteRequest("the-wrong-password"));
 
         Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        // REQ-710's 2026-07-25 addition / ADR-0037's second amendment (no
+        // regression): a wrong password with a valid captcha token must
+        // still return "Incorrect password" exactly as before —
+        // BuildDeleteRequest's default captchaToken argument is a valid
+        // (non-empty) placeholder, so this exercises the ordinary
+        // wrong-password path, not the captcha-rejection carve-out.
+        Assert.That(body!.Title, Is.EqualTo("Incorrect password"));
         // The important assertion: nothing was touched — deletion never even
         // reached IAccountDeletionService, let alone Supabase.
         Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
@@ -1467,6 +1572,66 @@ public class AuthEndpointTests
         var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
         var remainingUser = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
         Assert.That(remainingUser, Is.Not.Null);
+    }
+
+    // REQ-710's 2026-07-25 addition: same "missing token treated exactly
+    // like an invalid one" check as Signup/Login above, checked before the
+    // password re-verification call (SignInWithPasswordAsync) is ever made
+    // — placed after the guest check (REQ-717) since a guest can't reach
+    // this flow at all regardless of captcha.
+    [Test]
+    public async Task REQ710_DeleteAccount_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId);
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password", captchaToken: null));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Incorrect password"));
+        Assert.That(_fakeAuthClient.SignInWithPasswordCallCount, Is.EqualTo(0), "Supabase must never be called when no token was supplied at all");
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+    }
+
+    // The single most important assertion in this whole fix (REQ-710's
+    // 2026-07-25 addition / ADR-0037's second amendment, this REQ's own
+    // Test-level note calls out explicitly): a captcha rejection must never
+    // be reported as "Incorrect password" — that title collision would tell
+    // a person with a perfectly correct password that it was wrong.
+    // AuthController.DeleteAccount's ordering (captcha check before the
+    // "Incorrect password" response) is what this test pins down.
+    [Test]
+    public async Task REQ710_DeleteAccount_ReturnsDistinctCaptchaRejection_NotIncorrectPassword_WhenSupabaseRejectsAsCaptchaFailure()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedDeletableUserAsync(authProviderUserId);
+        _fakeAuthClient.SignInResult = (_, _) =>
+            new SupabaseAuthResult { Success = false, ErrorMessage = "captcha verification process failed", IsCaptchaRejection = true };
+
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.SendAsync(BuildDeleteRequest("the-correct-password", captchaToken: "an-expired-or-invalid-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+        var body = await response.Content.ReadFromJsonAsync<ProblemDetailsBody>();
+        Assert.That(body, Is.Not.Null);
+        Assert.That(body!.Title, Is.EqualTo("Captcha verification failed"));
+        Assert.That(body.Title, Is.Not.EqualTo("Incorrect password"));
+        Assert.That(_fakeAuthClient.SignInWithPasswordCalledWithCaptchaToken, Is.EqualTo("an-expired-or-invalid-turnstile-token"));
+        // Never even reaches IAccountDeletionService/Supabase's delete call.
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remainingUser = await assertDbContext.Users.AsNoTracking().AnyAsync();
+        Assert.That(remainingUser, Is.True, "the account must be untouched by a rejected deletion attempt");
     }
 
     [Test]
@@ -1560,10 +1725,250 @@ public class AuthEndpointTests
         Assert.That(stillThere, Is.Not.Null, "the guest row must be untouched by the rejected request");
     }
 
-    private static HttpRequestMessage BuildDeleteRequest(string password) =>
+    // ---- REQ-718/ADR-0038: guest account lifecycle cleanup ----
+
+    // ---- LastActiveAt activity tracking (four events: signup/guest/login/
+    // claim/guess — guess-submission is covered in GuessEndpointTests.cs,
+    // the endpoint that actually owns that write path) ----
+
+    [Test]
+    public async Task REQ718_Signup_Post_SetsLastActiveAtEqualToCreatedAt()
+    {
+        var client = _factory.CreateClient();
+        var request = new SignupRequest("last-active-signup@example.com", "a-reasonable-password", "a-reasonable-password", "Test Player", AgeConfirmed: true, CaptchaToken: "a-fake-turnstile-token");
+
+        var response = await client.PostAsJsonAsync("/auth/signup", request);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created));
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync(u => u.Email == "last-active-signup@example.com");
+        // AuthController.Signup captures `now` once for both fields, so a
+        // brand-new account's first 7-day inactivity window starts exactly
+        // at creation — not merely "close to it."
+        Assert.That(user.LastActiveAt, Is.EqualTo(user.CreatedAt));
+    }
+
+    [Test]
+    public async Task REQ718_Guest_Post_SetsLastActiveAtEqualToCreatedAt()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync("/auth/guest", new GuestRequest("a-fake-turnstile-token"));
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var user = await dbContext.Users.SingleAsync(u => u.IsGuest);
+        Assert.That(user.LastActiveAt, Is.EqualTo(user.CreatedAt));
+    }
+
+    [Test]
+    public async Task REQ718_Login_Post_UpdatesLastActiveAtOnExistingUser()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "last-active-login@example.com");
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var tracked = await dbContext.Users.SingleAsync(u => u.Id == user.Id);
+            tracked.LastActiveAt = DateTime.UtcNow.AddDays(-10);
+            await dbContext.SaveChangesAsync();
+        }
+        _fakeAuthClient.SignInResult = (_, _) => new SupabaseAuthResult
+        {
+            Success = true,
+            AuthProviderUserId = authProviderUserId,
+            AccessToken = "a-fake-access-token",
+            RefreshToken = "a-fake-refresh-token",
+        };
+        var client = _factory.CreateClient();
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync("/auth/login", new LoginRequest("last-active-login@example.com", "a-reasonable-password", "a-fake-turnstile-token"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    [Test]
+    public async Task REQ718_Claim_Post_UpdatesLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var before = DateTime.UtcNow;
+        var response = await client.PostAsJsonAsync("/auth/claim", new ClaimAccountRequest("last-active-claim@example.com", "a-reasonable-password", "a-reasonable-password"));
+        var after = DateTime.UtcNow;
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == guest.Id);
+        Assert.That(reloaded.LastActiveAt, Is.InRange(before, after));
+    }
+
+    // The important negative: a passive read (GET /auth/me) must never
+    // update LastActiveAt — the signal this field exists to capture is
+    // genuine play, not viewing a profile.
+    [Test]
+    public async Task REQ718_Me_Get_DoesNotUpdateLastActiveAt()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "last-active-readonly@example.com");
+        var oldLastActiveAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var tracked = await dbContext.Users.SingleAsync(u => u.Id == user.Id);
+            tracked.LastActiveAt = oldLastActiveAt;
+            await dbContext.SaveChangesAsync();
+        }
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.GetAsync("/auth/me");
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var reloaded = await assertDbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        Assert.That(reloaded.LastActiveAt, Is.EqualTo(oldLastActiveAt));
+    }
+
+    // ---- Rule 1: deletion at logout ----
+
+    [Test]
+    public async Task REQ718_Logout_Post_UnclaimedGuest_DeletesAccount_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var guest = await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.EqualTo(authProviderUserId));
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == guest.Id);
+        Assert.That(remaining, Is.Null);
+    }
+
+    // The important assertion: once logout has deleted the account, the
+    // exact same still-technically-valid JWT can no longer be used to reach
+    // this account's own data — REQ-718's "subsequent request ... is
+    // rejected" clause. AuthController.Me resolves the local row by
+    // AuthProviderUserId and returns 404 once that row is gone (the JWT
+    // itself is stateless and remains cryptographically valid until it
+    // expires, but no local account backs it anymore).
+    [Test]
+    public async Task REQ718_Logout_Post_UnclaimedGuest_SubsequentRequestWithSameTokenIsRejected()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        await SeedGuestUserAsync(authProviderUserId);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+        var logoutResponse = await client.PostAsync("/auth/logout", content: null);
+        Assert.That(logoutResponse.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+
+        var meResponse = await client.GetAsync("/auth/me");
+
+        Assert.That(meResponse.StatusCode, Is.Not.EqualTo(HttpStatusCode.OK));
+        Assert.That(meResponse.StatusCode, Is.EqualTo(HttpStatusCode.NotFound));
+    }
+
+    // REQ-718's own explicit clause: a since-claimed account's logout must
+    // behave exactly like any other account's — deletes nothing.
+    [Test]
+    public async Task REQ718_Logout_Post_ClaimedAccount_DeletesNothing_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        Guid claimedUserId;
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var dbContext = seedScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+            var claimed = new User
+            {
+                Id = Guid.NewGuid(),
+                AuthProviderUserId = authProviderUserId,
+                Email = "since-claimed@example.com",
+                DisplayName = "Since Claimed",
+                EmailConfirmed = true,
+                IsGuest = false,
+                ClaimedAt = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
+                LastActiveAt = DateTime.UtcNow.AddDays(-1),
+            };
+            dbContext.Users.Add(claimed);
+            await dbContext.SaveChangesAsync();
+            claimedUserId = claimed.Id;
+        }
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == claimedUserId);
+        Assert.That(remaining, Is.Not.Null);
+
+        // The account is still fully usable afterward — logout for a
+        // claimed account is a pure no-op, not a partial/soft deletion.
+        var meResponse = await client.GetAsync("/auth/me");
+        Assert.That(meResponse.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+    }
+
+    // A plain, ordinary (never-guest) account's logout must equally delete
+    // nothing — REQ-718 only ever removes IsGuest = true rows.
+    [Test]
+    public async Task REQ718_Logout_Post_NonGuestAccount_DeletesNothing_ReturnsNoContent()
+    {
+        var authProviderUserId = Guid.NewGuid();
+        var user = await SeedDeletableUserAsync(authProviderUserId, email: "ordinary-logout@example.com");
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", LocalE2EAuth.MintToken(authProviderUserId));
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+        using var assertScope = _factory.Services.CreateScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<XGArcadeDbContext>();
+        var remaining = await assertDbContext.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == user.Id);
+        Assert.That(remaining, Is.Not.Null);
+    }
+
+    [Test]
+    public async Task REQ718_Logout_Post_ReturnsUnauthorized_WithoutBearerToken()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.PostAsync("/auth/logout", content: null);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(_fakeAuthClient.DeleteUserCalledWith, Is.Null);
+    }
+
+    // captchaToken defaults to the same fixed placeholder every other
+    // non-captcha-focused test in this file uses (REQ-710/ADR-0037's second
+    // amendment) — callers exercising the captcha check itself pass `null`
+    // (missing token) or override SignInResult to simulate Supabase's own
+    // rejection, same idiom as Signup/Login's captcha tests below.
+    private static HttpRequestMessage BuildDeleteRequest(string password, string? captchaToken = "a-fake-turnstile-token") =>
         new(HttpMethod.Delete, "/auth/account")
         {
-            Content = JsonContent.Create(new DeleteAccountRequest(password)),
+            Content = JsonContent.Create(new DeleteAccountRequest(password, captchaToken)),
         };
 
     // Minimal shape for reading a ProblemDetails-style JSON body back in
@@ -1594,14 +1999,32 @@ public class AuthEndpointTests
         public Func<string, string, SupabaseAuthResult> SignInResult { get; set; } =
             (_, _) => new SupabaseAuthResult { Success = true, AuthProviderUserId = Guid.NewGuid(), AccessToken = "fake-access-token" };
 
-        public Task<SupabaseAuthResult> SignUpAsync(string email, string password, CancellationToken cancellationToken = default)
+        // REQ-701/ADR-0037's 2026-07-25 amendment: captures the token
+        // AuthController.Signup forwarded, same idiom as
+        // SignInAnonymouslyCalledWithCaptchaToken below.
+        public string? SignUpCalledWithCaptchaToken { get; private set; }
+
+        public Task<SupabaseAuthResult> SignUpAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default)
         {
             SignUpCalled = true;
+            SignUpCalledWithCaptchaToken = captchaToken;
             return Task.FromResult(SignUpResult(email, password));
         }
 
-        public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default) =>
-            Task.FromResult(SignInResult(email, password));
+        // REQ-701/ADR-0037's 2026-07-25 amendment: how many times this was
+        // actually invoked and with what token — used by the
+        // REQ701_Login_ReturnsDistinctCaptchaRejection_WhenCaptchaTokenIsMissing
+        // test to prove a missing token never reaches Supabase at all, the
+        // same way SignInAnonymouslyCallCount already does for Guest.
+        public int SignInWithPasswordCallCount { get; private set; }
+        public string? SignInWithPasswordCalledWithCaptchaToken { get; private set; }
+
+        public Task<SupabaseAuthResult> SignInWithPasswordAsync(string email, string password, string captchaToken, CancellationToken cancellationToken = default)
+        {
+            SignInWithPasswordCallCount++;
+            SignInWithPasswordCalledWithCaptchaToken = captchaToken;
+            return Task.FromResult(SignInResult(email, password));
+        }
 
         // REQ-715: controllable per-test, same idiom as SignInResult above —
         // default succeeds so most tests don't need to set it up.

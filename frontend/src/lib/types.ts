@@ -38,6 +38,27 @@ export interface CurrentRoundGuess {
   // "no photo," same as an explicit `null` — never a type error and never a
   // fabricated photo.
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-216/ADR-0057: the mirror-image case of resolvedPlayerName/
+  // resolvedPlayerPhotoUrl above — non-null ONLY when this guess locked the
+  // cell with its final attempt still INCORRECT (state 3, or state 4's
+  // incorrect branch) AND the submitted guess string matched a real
+  // PlayerNameIndex candidate (never for state 2, and never for a guess
+  // that matched nothing at all — a typo/gibberish/fictional name). Field
+  // name confirmed against the backend half
+  // (`CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerName` in
+  // `XGArcade.Api.Rounds.RoundEndpoints`, already merged) — camelCase JSON
+  // matches exactly, same convention as every other field on this shape.
+  // Deliberately optional (`?:`), not just nullable, for the same
+  // older-cached-response-degrades-safely reason resolvedPlayerPhotoUrl
+  // above already documents.
+  incorrectGuessMatchedPlayerName?: string | null;
+  // REQ-216/ADR-0057: a nullable Wikidata photo URL for the same
+  // incorrect-but-real matched player above — independently nullable even
+  // when incorrectGuessMatchedPlayerName is set (ADR-0057's Wikidata-only
+  // lookup can time out, error, or genuinely have no photo; this is its own
+  // silent, graceful fallback, never a fail-closed outcome). Confirmed
+  // against `CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerPhotoUrl`.
+  incorrectGuessMatchedPlayerPhotoUrl?: string | null;
 }
 
 export interface CurrentRoundCell {
@@ -90,6 +111,15 @@ export interface SubmitGuessResponse {
   // revealed immediately after submitting (not just after a later reload)
   // needs it on this shape as well.
   resolvedPlayerPhotoUrl?: string | null;
+  // REQ-216/ADR-0057: see CurrentRoundGuess.incorrectGuessMatchedPlayerName/
+  // incorrectGuessMatchedPlayerPhotoUrl — present here too (mirrors why
+  // resolvedPlayerPhotoUrl is on this shape as well) since
+  // GridScreen.applyScoredGuess spreads this response directly into the
+  // cell's guess without an intervening GET /rounds/current, so a
+  // just-locked incorrect cell shows its matched name/photo (or the
+  // placeholder avatar) immediately, not only after a later reload.
+  incorrectGuessMatchedPlayerName?: string | null;
+  incorrectGuessMatchedPlayerPhotoUrl?: string | null;
   // REQ-209/REQ-210: null (and every other field behaves exactly as always)
   // on a normal, scored response. Non-null and non-empty ONLY when the
   // submitted name resolved to more than one fitting candidate — in that
@@ -117,14 +147,18 @@ export interface LoginResponse {
 // (COMP-10) only — a name appearing here implies nothing about whether
 // it's correct for the current cell. Never merge this shape/path with
 // PlayerAttribute/PlayerOverride correctness data (ADR-0007's boundary
-// rule). birthYear/nationality are optional disambiguation context only
-// (e.g. two players sharing a name), not a correctness signal, and must
-// never be styled to suggest one is "more right" than another.
+// rule). birthYear is optional disambiguation context only (e.g. two
+// players sharing a name), not a correctness signal, and must never be
+// styled to suggest one is "more right" than another. `nationality` was
+// removed from this shape (and the API response) entirely — unlike
+// birthYear, it can directly leak the answer for nationality-based xG
+// Grid categories (e.g. Country × Club), since seeing which suggestions
+// carry the target nationality tells the player who's eligible before
+// they even guess.
 export interface PlayerAutocompleteSuggestion {
   playerId: string;
   name: string;
   birthYear?: number;
-  nationality?: string;
 }
 
 // SCREEN-03 (REQ-401/404's Tier 0 slice: the global league only).
@@ -276,6 +310,237 @@ export interface AdminActiveRound {
 export interface UpdateDisplayNameResponse {
   id: string;
   displayName: string;
+}
+
+// REQ-507: GET /admin/accounts/metrics's response shape (SCREEN-04's
+// "Accounts" section) — live counts as of the moment of the request, never a
+// cached/stale snapshot. Visible to any authenticated admin in every
+// environment, including Production (unlike REQ-505/506's Non-Production-only
+// round-control/user-deletion probe) — see AdminAccountsEndpoints.cs.
+// currentGuestCount and claimedGuestCount can never disagree with
+// IsGuest/ClaimedAt by construction (REQ-717/ADR-0036), but both are
+// surfaced anyway so an admin doesn't need to know that invariant to read
+// this view correctly.
+export interface AdminAccountMetrics {
+  totalUserCount: number;
+  currentGuestCount: number;
+  claimedGuestCount: number;
+}
+
+// REQ-508 step 1: GET /admin/accounts/guests/count's response shape — the
+// dry-run count shown before the bulk force-clear-guests action's confirm
+// step, so the admin confirms a known, specific number rather than an
+// open-ended action.
+export interface GuestAccountCountResponse {
+  count: number;
+}
+
+// REQ-508 step 2: one account's outcome from POST /admin/accounts/guests/clear
+// — mirrors the per-row outcome shape REQ-503's bulk approve/remove actions
+// already use (PlayerDataApprovalResult/PlayerDataRemovalResult above), but
+// with three possible outcomes rather than two: a guest account can fail to
+// delete for a reason other than "already gone" (surfaced via errorMessage),
+// unlike removing a PlayerData row. errorMessage is null exactly when
+// outcome is "Succeeded" (mirrors AdminAccountsEndpoints.cs's
+// GuestAccountClearResult).
+export type ClearGuestAccountOutcome = 'Succeeded' | 'NotFound' | 'Failed';
+
+export interface ClearGuestAccountResult {
+  userId: string;
+  outcome: ClearGuestAccountOutcome;
+  errorMessage: string | null;
+}
+
+// REQ-508 step 2: POST /admin/accounts/guests/clear's response shape —
+// always 200 with one result per account matching IsGuest = true at the
+// moment the action ran, never an all-or-nothing batch result (same
+// reporting discipline as ApprovePlayerDataResponse/RemovePlayerDataResponse
+// above).
+export interface ClearGuestAccountsResponse {
+  results: ClearGuestAccountResult[];
+}
+
+// REQ-1209/ADR-0058: GET /admin/xg-path/cycle's response shape
+// (XGArcade.Api.Admin.AdminXGPathCycleResponse) — a pure read of REQ-1208's
+// persisted `PathTargetCycle` state, never a trigger for a new eligible-pool
+// computation. `hasData: false` (every other field null) is the normal,
+// non-error "no xG Path round has ever generated yet" case — always a 200,
+// never a 404. `remainingInCycleCount` is derived server-side
+// (observedPoolSize - usedInCycleCount), not independently persisted, so it
+// can never drift out of sync with the two figures it's computed from.
+export interface AdminXGPathCycleState {
+  hasData: boolean;
+  cycleNumber: number | null;
+  observedPoolSize: number | null;
+  usedInCycleCount: number | null;
+  remainingInCycleCount: number | null;
+  lastCycleCompletedAt: string | null;
+}
+
+// REQ-215 (S-089): the persisted PlayerSuggestion row returned by
+// POST /rounds/{roundId}/cells/{cellId}/suggestions
+// (SuggestionEndpoints.SubmitSuggestionResponse). Always "Pending" at
+// creation — this endpoint never auto-commits to PlayerAttribute/
+// PlayerOverride/PlayerNameIndex (REQ-215's own explicit rule); a later
+// "Approved"/"Rejected" value only ever comes from REQ-509/S-090's separate
+// admin review surface, not from this response.
+export interface SubmitSuggestionResponse {
+  id: string;
+  playerName: string;
+  assertedClubs: string[];
+  assertedNationality: string;
+  status: string;
+  createdAt: string;
+}
+
+// REQ-1203 (S-086): one club revealed within a ClubReveal turn — mirrors
+// `PathClubClueResponse` (backend/src/XGArcade.Api/Path/PathEndpoints.cs)
+// exactly. appearanceCount is null exactly when Wikidata's appearance-count
+// qualifier wasn't recorded for that stint — the club is still shown,
+// without a count, never delayed/omitted and never a fabricated "0 apps".
+export interface PathClubClue {
+  clubName: string;
+  appearanceCount: number | null;
+}
+
+// REQ-1203 (S-086): one turn of the fixed 7-turn clue-reveal sequence —
+// mirrors `PathClueTurnResponse` exactly. `kind` is the backend's
+// `PathClueKind` enum serialized as its name ("ClubReveal" | "YearRange" |
+// "Position" | "Nationality" | "Age") — declared here as a literal union,
+// not a plain string. Unlike `CategoryType` (types.ts's own top-of-file
+// note), which is a plain string because *which* axis is country vs. club
+// is derived dynamically and isn't a fixed set, `PathClueKind` is a closed,
+// backend-fixed set of five turn kinds — a literal union is more type-safe
+// here and nothing in this codebase depends on forward-compat string
+// behavior for an unrecognized value. (`PathTimeline`'s render switch still
+// falls back to a generic text-clue rendering for any value that isn't
+// `ClubReveal`/`YearRange`, so an unrecognized kind wouldn't crash even if
+// the backend ever sent one outside this union — but that's a defensive
+// runtime fallback, not something this type intentionally allows.)
+// Exactly one of clubs/yearRanges/textValue is non-null per turn, selected
+// by kind — see PathClueTurn's own backend doc comment for which.
+export type PathClueKind = 'ClubReveal' | 'YearRange' | 'Position' | 'Nationality' | 'Age';
+
+export interface PathClueTurn {
+  turnNumber: number;
+  kind: PathClueKind;
+  clubs: PathClubClue[] | null;
+  yearRanges: string[] | null;
+  textValue: string | null;
+}
+
+// REQ-1204 (S-086): mirrors `CurrentPathGuessResponse` exactly — same
+// only-when-isCorrect rule for resolvedPlayerName/resolvedPlayerPhotoUrl as
+// CurrentRoundGuess above (an incorrect or in-progress guess never reveals
+// the target player's identity).
+export interface CurrentPathGuess {
+  isCorrect: boolean;
+  attemptCount: number;
+  locked: boolean;
+  submittedName: string;
+  resolvedPlayerName: string | null;
+  resolvedPlayerPhotoUrl: string | null;
+  // REQ-1206 (2026-08-08 frontend addition): non-null only when `locked` is
+  // true (solved, or the 7-attempt cap exhausted unsolved — REQ-1205).
+  // Mirrors `CurrentPathGuessResponse.Points` exactly. Deliberately NOT the
+  // same shape/wording as CurrentRoundGuess.livePoints above: livePoints is
+  // genuinely provisional (it depends on how many other players have also
+  // solved the same cell, which can keep growing until round close).
+  // ClueEfficiencyScoringStrategy's formula has no such dependency — both
+  // inputs (cluesUsed, the fixed 7-clue cap) are fully determined the
+  // instant a puzzle locks and never change afterward — so this value is
+  // arithmetically identical to what the leaderboard will eventually show
+  // as FinalPoints, not an estimate. Render it with plain "N pts" wording
+  // (PathTimeline.tsx), never "~"/"estimated"/"provisional" — see
+  // REQ-1206's "Important asymmetry from REQ-204's LivePoints" note in
+  // requirements-document.md.
+  points: number | null;
+}
+
+// REQ-1203 (S-086): mirrors `CurrentPathPuzzleResponse` exactly. `clues` is
+// only ever the turns unlocked so far for the requesting player — this array
+// growing (via a re-fetch of GET /path/current after each guess) IS the
+// "revealed so far" state; there is no separate reveal endpoint.
+export interface CurrentPathPuzzle {
+  puzzleId: string;
+  clues: PathClueTurn[];
+  guess: CurrentPathGuess | null;
+}
+
+// REQ-1201/1202 (S-086): mirrors `CurrentPathResponse` exactly — the active
+// xg-path round's whole puzzle list at once, same shape/auth/404-as-empty
+// idiom as CurrentRoundResponse above.
+export interface CurrentPathResponse {
+  roundId: string;
+  startTime: string;
+  endTime: string;
+  allowGuessChange: boolean;
+  puzzles: CurrentPathPuzzle[];
+}
+
+// REQ-509/510 (S-090)/ADR-0053: a single pending PlayerSuggestion row, as
+// returned by GET /admin/suggestions — mirrors PendingSuggestionResponse
+// (backend/src/XGArcade.Api/Admin/AdminSuggestionEndpoints.cs) exactly.
+// Deliberately its own type, never merged with UnverifiedPlayerData above —
+// ADR-0053 is explicit that PlayerSuggestion never shares a row shape with
+// REQ-503's PlayerData queue. submittingUserDisplayName is null exactly when
+// the submitting user has since been deleted (REQ-710 anonymizes rather than
+// hard-deletes Guess rows, but SubmittingUserId here has no FK — see
+// PlayerSuggestion's own backend doc comment), never an error case.
+export interface PendingSuggestion {
+  id: string;
+  playerName: string;
+  assertedClubs: string[];
+  assertedNationality: string;
+  submittingUserId: string;
+  submittingUserDisplayName: string | null;
+  rowCategoryType: string;
+  colCategoryType: string;
+  createdAt: string;
+}
+
+// REQ-509/510: the shared lookup response shape for both
+// POST /admin/suggestions/{id}/lookup and POST /admin/player-search/lookup
+// (WikidataPlayerLookupResponse). `found: false` (every other field
+// null/empty) is a normal, valid "Wikidata has no matching footballer for
+// this name" outcome — never conflated with a 503 "lookup unavailable"
+// failure (ADR-0046's timeout-vs-no-match distinction); a 503 is left to
+// throw as an ApiError by lib/api.ts's lookup functions rather than ever
+// resolving to this shape.
+export interface WikidataPlayerLookupResult {
+  found: boolean;
+  wikidataQid: string | null;
+  fullName: string | null;
+  nationality: string | null;
+  clubs: string[];
+}
+
+// REQ-509/510: the admin's reviewed/confirmed values sent to both
+// POST /admin/suggestions/{id}/commit and POST /admin/player-search/commit
+// (CommitPlayerDataRequest) — typically pre-filled from a prior lookup
+// response and then hand-edited before submitting; the admin's own review is
+// the point, never a blind rubber-stamp of whatever Wikidata returned.
+// `nationality: null`/blank means "don't touch this player's nationality
+// override," `clubs: []` means "don't add any new club attributes" — the
+// backend 400s if both end up empty, so the UI should avoid submitting that
+// combination in the first place (defense in depth, not a substitute for
+// the server's own validation).
+export interface CommitPlayerDataPayload {
+  wikidataQid: string;
+  fullName: string;
+  nationality: string | null;
+  clubs: string[];
+  reason: string;
+}
+
+// REQ-509/510: both commit endpoints' shared response shape
+// (CommitPlayerDataResponse) — exactly what ended up confirmed after the
+// write (deduped/trimmed), not a per-club new-vs-already-effective
+// breakdown.
+export interface CommitPlayerDataResult {
+  playerId: string;
+  nationality: string | null;
+  clubs: string[];
 }
 
 // REQ-402/403: a custom league, as returned by POST /leagues,
