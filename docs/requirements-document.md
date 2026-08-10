@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.60"
+version: "1.61"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -4432,7 +4432,11 @@ suggestion may only ever write `PlayerAttribute`/`PlayerOverride`, never
   marks it correct
 - Then the corresponding `PlayerAttribute`/`PlayerOverride` data is
   written the same way REQ-501's manual-override path writes it today
-  (admin-authenticated, a reason recorded, audit fields set) — never
+  (admin-authenticated, audit fields set; a reason is required and recorded
+  whenever the commit includes a nationality, since that's the only path
+  with a column to persist it to — a clubs-only commit does not require a
+  reason, since `PlayerAttribute` carries no audit columns for it to be
+  written to; see ADR-0060's 2026-08-10 status note) — never
   through `PlayerNameIndex` (ADR-0007's autocomplete/correctness boundary
   applies here without exception: committing a suggestion changes
   correctness-checking data only, and must never be implemented as a

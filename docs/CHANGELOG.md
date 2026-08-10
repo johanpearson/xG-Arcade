@@ -22,6 +22,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   scoped to `Issues: write` on this repo only, never exposed to the client;
   guests rejected server-side `403`, same boundary REQ-215 already
   established. No code written yet — REQ-903/ADR-0064 only.
+
+- 2026-08-10 — `docs/requirements-document.md` (v1.60 → v1.61),
+  `docs/decisions/0060-suggestion-commit-write-path-split-by-cardinality.md`
+  (new status note) — admin reported the mandatory "reason" field on
+  `/admin/suggestions/{id}/commit` as unwanted friction; investigation found
+  it was a real bug, not just friction: `Reason` is only ever persisted
+  (`PlayerOverride.Reason`) when a nationality is committed — `PlayerAttribute`
+  has no audit columns, so a clubs-only commit validated the field as
+  required then discarded it, satisfying no audit trail. Fixed by making
+  `Reason` conditionally required: still mandatory and persisted whenever a
+  commit includes a nationality, optional for clubs-only commits.
+  `AdminSuggestionEndpoints.ValidateCommitRequest` and
+  `SuggestionsScreen.tsx`'s `PlayerReviewPanel` (`canCommit`, the `Reason`
+  field's `required` attribute) updated together; new backend test
+  (`REQ509_Commit_SucceedsWithoutReason_WhenClubsOnly_NoNationality`) and
+  frontend test (`SuggestionsScreen.test.tsx`) added. REQ-509, ADR-0060.
+  **Backend caveat: `dotnet` SDK unavailable in this sandbox** — the new
+  backend test was hand-traced against the existing, already-verified
+  `REQ509_Commit_ReturnsBadRequest_WhenReasonMissing` pattern, not actually
+  built or run; confirm in CI.
+
+- 2026-08-10 — `docs/design-document.md` (v0.67 → v0.68) — player-name
+  autocomplete's debounce lowered from 275ms to 150ms (`GuessInput.tsx`,
+  `PathGuessInput.tsx`), now that a superseded in-flight request is actually
+  aborted (`AbortController`, new REQ-207 test coverage) rather than merely
+  ignored client-side — the shorter debounce no longer risks piling up
+  redundant concurrent requests the way it would have before that fix.
+  REQ-207.
+
 - 2026-08-10 — new `docs/decisions/0063-duplicate-career-stint-cleaner-appearance-count-merge-widening.md`,
   `docs/decisions/0059-career-stint-club-name-canonicalization.md`
   ("For AI agents" section) — quality-gate follow-up on commit `237439c`

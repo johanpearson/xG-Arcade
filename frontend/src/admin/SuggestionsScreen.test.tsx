@@ -141,6 +141,49 @@ describe('SuggestionsScreen', () => {
     expect(screen.queryByText('Clarence Seedorf')).not.toBeInTheDocument();
   });
 
+  it('REQ509/ADR-0060: a clubs-only commit (no nationality) succeeds without a reason, since PlayerAttribute has nowhere to store one', async () => {
+    let listCallCount = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/admin/suggestions') && method === 'GET') {
+        listCallCount += 1;
+        return jsonResponse(listCallCount === 1 ? [suggestion1] : []);
+      }
+      if (path.includes('/admin/suggestions/sugg-1/lookup')) {
+        return jsonResponse(foundLookupResult);
+      }
+      if (path.includes('/admin/suggestions/sugg-1/commit')) {
+        return jsonResponse({ playerId: 'player-1', nationality: null, clubs: ['AC Milan', 'Real Madrid'] });
+      }
+      throw new Error(`Unexpected fetch: ${method} ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<SuggestionsScreen accessToken="token" onAuthError={vi.fn()} onBackToAdmin={vi.fn()} />);
+    await screen.findByText('Clarence Seedorf');
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+    await screen.findByText('Suggested by player');
+
+    // Clear the nationality field — this commit only confirms clubs.
+    await user.clear(screen.getByLabelText('Nationality'));
+
+    // No reason typed, and the field is not marked required for this path.
+    expect(screen.getByLabelText(/^Reason/)).not.toBeRequired();
+    await user.click(screen.getByRole('button', { name: 'Commit' }));
+
+    await waitFor(() => {
+      const commitCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/suggestions/sugg-1/commit'));
+      expect(commitCall).toBeDefined();
+    });
+    const [, commitInit] = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/suggestions/sugg-1/commit'))!;
+    const body = JSON.parse((commitInit as RequestInit).body as string);
+    expect(body.reason).toBe('');
+    expect(body.nationality).toBeNull();
+    expect(await screen.findByText('No pending suggestions to review.')).toBeInTheDocument();
+  });
+
   // ---- REQ-509/ADR-0046: found:false vs. 503, never conflated -----------
 
   it('REQ509: found:false renders a distinct "no match" state, and a 503 renders a distinct "lookup unavailable" state — never the same text', async () => {

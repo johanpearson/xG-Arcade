@@ -415,14 +415,6 @@ public static class AdminSuggestionEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (string.IsNullOrWhiteSpace(request.Reason))
-        {
-            return Results.Problem(
-                title: "Invalid commit",
-                detail: "reason is required.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
         var hasNationality = !string.IsNullOrWhiteSpace(request.Nationality);
         var hasClubs = request.Clubs is { Count: > 0 } && request.Clubs.Any(c => !string.IsNullOrWhiteSpace(c));
         if (!hasNationality && !hasClubs)
@@ -430,6 +422,18 @@ public static class AdminSuggestionEndpoints
             return Results.Problem(
                 title: "Invalid commit",
                 detail: "At least one of nationality or clubs must be provided.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // Reason is only persisted when a nationality is committed (written to
+        // PlayerOverride.Reason for REQ-501 audit purposes) - PlayerAttribute has
+        // no audit columns, so requiring it for a clubs-only commit would validate
+        // input that's discarded immediately after. See ADR-0060.
+        if (hasNationality && string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return Results.Problem(
+                title: "Invalid commit",
+                detail: "reason is required when committing a nationality.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
 

@@ -537,7 +537,14 @@ function PlayerReviewPanel({
   const hasClubText = clubsText
     .split('\n')
     .some((club) => club.trim().length > 0);
-  const canCommit = fullName.trim().length > 0 && reason.trim().length > 0 && (nationality.trim().length > 0 || hasClubText);
+  const hasNationalityText = nationality.trim().length > 0;
+  // Reason is only ever persisted when a nationality is committed (written to
+  // PlayerOverride.Reason for REQ-501 audit purposes) - PlayerAttribute has no
+  // audit columns, so a clubs-only commit has nowhere to store it. See ADR-0060.
+  const canCommit =
+    fullName.trim().length > 0 &&
+    (hasNationalityText || hasClubText) &&
+    (!hasNationalityText || reason.trim().length > 0);
 
   return (
     <div className="suggestions-screen__review">
@@ -590,10 +597,10 @@ function PlayerReviewPanel({
           />
         </label>
         <label className="suggestions-screen__field">
-          <span>Reason</span>
+          <span>Reason{hasNationalityText ? '' : ' (optional — clubs-only commits have nowhere to store it)'}</span>
           <input
             type="text"
-            required
+            required={hasNationalityText}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             disabled={committing}
@@ -603,7 +610,9 @@ function PlayerReviewPanel({
 
         {!canCommit && (
           <p className="suggestions-screen__hint">
-            Enter a reason and at least one of nationality or clubs before committing.
+            {hasNationalityText
+              ? 'Enter a reason before committing a nationality.'
+              : 'Enter at least one of nationality or clubs before committing.'}
           </p>
         )}
         {commitError && (
