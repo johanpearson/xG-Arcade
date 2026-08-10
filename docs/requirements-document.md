@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.66"
+version: "1.67"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -4610,6 +4610,85 @@ applicable; write actions reject `401`/`403` under the Admin policy with
 no state change on rejection), UI (an active banner is visible to a
 logged-in user, a guest, and a fully logged-out visitor; an admin can
 create/edit/activate/deactivate it from the existing admin area)
+
+---
+
+**REQ-512 – Admin notification badge for pending player suggestions**
+> As an admin, I want a clear notification (a count/badge) in the admin UI
+> when there are pending player-submitted suggestions waiting for review,
+> so I don't have to open the Suggestions screen just to check.
+
+**Badge count source and display:**
+- Given at least one `PlayerSuggestion` row is in `Pending` status
+  (REQ-215/509)
+- When an admin who satisfies the existing `"Admin"` authorization policy
+  loads `AdminScreen.tsx` (SCREEN-04)
+- Then the "Player suggestions" entry point shows a count equal to the
+  number of pending suggestions, derived from the same pending-suggestion
+  data REQ-509's `GET /admin/suggestions` already returns — no new
+  backend count endpoint, and no second data source duplicating that
+  list, is introduced by this REQ
+- Given zero `PlayerSuggestion` rows are in `Pending` status
+- When an admin loads `AdminScreen.tsx`
+- Then no badge is shown next to "Player suggestions" — a zero count is
+  represented by the badge's absence, not a badge displaying "0"
+
+**Badge freshness:**
+- Given an admin resolves a suggestion (commits or rejects it, REQ-509)
+  from `SuggestionsScreen.tsx`, changing the number of pending
+  suggestions
+- When the admin navigates back to `AdminScreen.tsx`
+- Then the badge reflects the updated count as of that navigation — the
+  same "fetch on load, no polling" behavior REQ-511's banner and
+  REQ-503/504's existing admin queue already use; no push/real-time
+  update is required
+- Given the admin remains on `AdminScreen.tsx` without navigating away,
+  and a suggestion is resolved by a different admin session in the
+  meantime
+- Then the badge is not required to reflect that change until the admin
+  next loads or reloads `AdminScreen.tsx` — this REQ does not require a
+  live-updating count within a single page view, and no
+  polling/websocket mechanism is introduced to provide one
+
+**Authorization boundary:**
+- Given a request for the pending-suggestion data this badge is derived
+  from
+- When the caller has no valid session, or is authenticated but not in
+  the `Admin:UserIds` allowlist
+- Then the request is rejected the same way REQ-509's existing
+  `GET /admin/suggestions` already rejects it (`401`/`403`) — no new
+  authorization policy is introduced, and no suggestion data or count is
+  exposed to a non-admin or guest as a side effect of this REQ
+- Given a non-admin or guest is using the site
+- Then no pending-suggestion badge or count is rendered anywhere in their
+  UI — the badge is only ever visible from within the already-gated
+  `AdminScreen.tsx`, the same reachability boundary the existing "Player
+  suggestions" entry point (REQ-504/509) already has
+
+**Out of scope for this REQ:** a live/polling/websocket-driven badge that
+updates without a page load or navigation (no push mechanism exists
+anywhere in this system); breaking the count down by category, age, or
+any other dimension — the badge is a single aggregate count; a badge for
+anything other than pending player suggestions (REQ-903's incident
+reports are S-098, an explicitly separate story with no existing data
+source to badge against — see that backlog entry).
+
+**Tier framing:** same admin-review-area extension pattern as
+REQ-501–511, not a new pipeline. Per `docs/backlog.md` S-097's own note,
+this is low-risk relative to S-098: REQ-509's pending-suggestion data
+already exists and is already fetched for `SuggestionsScreen.tsx`; this
+REQ adds a read of that same existing data to a second screen
+(`AdminScreen.tsx`), not a new data source, endpoint, or pipeline.
+
+**Test level:** Unit (a positive pending count renders a badge; a zero
+count renders no badge, not a "0" badge), API (the pending-suggestion
+data this badge is derived from is reachable only under the existing
+`"Admin"` policy — `401` with no session, `403` for a non-admin,
+consistent with REQ-509's existing endpoint), UI (the badge appears next
+to "Player suggestions" on `AdminScreen.tsx` when pending suggestions
+exist, and reflects an updated count after navigating back from
+resolving one on `SuggestionsScreen.tsx`; no badge/count is rendered for
+a non-admin or guest)
 
 ---
 
