@@ -29,6 +29,25 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   byte-for-byte SPARQL-string assertions in `WikidataClientTests.cs`
   (`REQ100_Query*IntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput`),
   full existing suite otherwise unchanged.
+- 2026-08-10 — no docs changed beyond this entry — S-101 (`docs/backlog.md`
+  Epic 7): extends S-100's spec table to the remaining six trophy-involving
+  intersection pairs (`QueryTrophyCountryIntersectionAsync`,
+  `QueryTrophyClubIntersectionAsync`, `QueryTeamTrophyCountryIntersectionAsync`,
+  `QueryTeamTrophyNationalTeamIntersectionAsync`,
+  `QueryTeamTrophyClubIntersectionAsync`,
+  `QueryTrophyNationalTeamIntersectionAsync`) — `CategoryType.cs` gains
+  `Trophy`/`TeamTrophy`, `IntersectionQuerySpecs.cs` gains the six
+  corresponding spec entries, and all 9 `Query*IntersectionAsync` methods on
+  `WikidataClient.cs` are now thin wrappers over the shared
+  `QueryIntersectionAsync` driver. The now-dead standalone `Build*Query`
+  methods for these six pairs are deleted (moved, unchanged, to
+  `IntersectionQuerySpecs.cs`). Public method signatures/behavior unchanged;
+  pure refactor, no new REQ IDs, no component boundary crossed — no ADR,
+  same reasoning as S-100. Regression proof: six new byte-for-byte
+  SPARQL-string assertions in `WikidataClientTests.cs`
+  (`REQ100_Query*IntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput`),
+  full existing suite otherwise unchanged. `WikidataClient.cs` line count:
+  1,977 → 1,815 (-162 lines).
 - 2026-08-10 — `docs/backlog.md` (new Epic 7: S-099 through S-105) — added
   a technical-debt-remediation epic from `CODEBASE_ANALYSIS.md`'s findings
   (WikidataClient.cs duplication/size, Program.cs composition-root sprawl,
