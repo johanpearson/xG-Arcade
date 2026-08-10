@@ -69,6 +69,11 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
     public DbSet<PlayerSuggestionClub> PlayerSuggestionClubs => Set<PlayerSuggestionClub>();
 
+    // REQ-511: the site-wide announcement banner — see AnnouncementBanner's
+    // own doc comment for why this table is a true singleton (at most one
+    // row, ever) rather than a list/queue.
+    public DbSet<AnnouncementBanner> AnnouncementBanners => Set<AnnouncementBanner>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Dedup identity for players fetched across multiple intersection

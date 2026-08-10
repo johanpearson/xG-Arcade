@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using XGArcade.Api.Admin;
+using XGArcade.Api.Announcements;
 using XGArcade.Api.Auth;
 using XGArcade.Api.Grid;
 using XGArcade.Api.Guesses;
@@ -934,6 +935,11 @@ builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
 // interface's own doc comment for why this is never folded into
 // IPlayerStoreRepository above.
 builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionRepository>();
+// REQ-511: the site-wide announcement banner's own repository — see
+// IAnnouncementBannerRepository's own doc comment for why this table's
+// singleton invariant lives here rather than in IPlayerStoreRepository or
+// any other existing repository.
+builder.Services.AddScoped<IAnnouncementBannerRepository, AnnouncementBannerRepository>();
 // REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
 // Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)
 // and exposes standalone (REQ-407) — recomputed on every call, never
@@ -1198,6 +1204,16 @@ app.MapPlayerAutocompleteEndpoints();
 // REQ-903/ADR-0064/COMP-12: in-app bug reports -> GitHub issues in this
 // repo, non-guest only (enforced server-side inside the handler itself).
 app.MapIncidentEndpoints();
+// REQ-511: the public, unauthenticated read path (GET /announcement-banner)
+// — see AnnouncementBannerEndpoints.cs's own doc comment for why this is
+// registered unconditionally, with no .RequireAuthorization() anywhere in
+// it, same as GET /health above.
+app.MapAnnouncementBannerEndpoints();
+// REQ-511: admin create/edit/activate/deactivate — its own file/
+// registration, never folded into MapAdminEndpoints above, same
+// "submission file vs. admin file" split as MapSuggestionEndpoints/
+// MapAdminSuggestionEndpoints.
+app.MapAdminAnnouncementBannerEndpoints();
 
 app.Run();
 
