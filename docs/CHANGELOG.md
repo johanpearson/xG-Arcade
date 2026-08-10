@@ -13,6 +13,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-10 — `docs/design-document.md` (v0.68 → v0.69, new SCREEN-11),
+  `docs/requirements-document.md` (REQ-903, v1.63 → v1.64),
+  `docs/architecture-document.md` (COMP-12, v0.89 → v0.90) — moved
+  REQ-903's incident-report entry point, same day as its original build,
+  from a section inside `SettingsScreen.tsx` to an app-wide footer button
+  (`App.tsx`'s `.app__footer-report-link`) opening a new
+  `frontend/src/incidents/IncidentReportDialog.tsx` modal — requested
+  directly, so a player can report a problem from whatever screen they're
+  actually looking at rather than navigating to Settings first. Structural/
+  accessibility pattern taken from `GuestLogoutConfirm.tsx`/
+  `ScoringExplainer.tsx` (`role="dialog"`, Escape/backdrop-click-to-close,
+  focus-in/focus-return). The footer button itself only renders while
+  `accessToken` is set (matches REQ-903's own 401 rule — no entry point at
+  all while signed out); a guest still sees it, disabled, per REQ-215's
+  "advertised, not hidden" precedent, unchanged from the original build.
+  The dialog is opened with `App.tsx`'s current `screen` state passed
+  straight through as REQ-903's `route` field, so triage context now
+  reflects wherever the report was actually filed from instead of always
+  saying "/settings". Added a second, explicitly requested change:
+  `lib/incidentReportCopy.ts` gained `INCIDENT_REPORT_DESCRIPTION_PLACEHOLDER`,
+  concrete example wording shown as the textarea's placeholder, addressing
+  reports that tended to be too vague to act on. **Screenshot/image
+  attachment was requested and explicitly deferred, not built**: GitHub's
+  issue-creation API has no attach-a-file endpoint, so the only two real
+  paths are widening the PAT past ADR-0064's locked-in `Issues: write`
+  scope (to also write repo contents) or adding a new third-party image
+  host (its own ToS check, secret, and privacy-policy disclosure per
+  CLAUDE.md's external-data-source rule) — both are genuine architectural
+  decisions flagged rather than silently picked; the product owner chose
+  to ship the placement/example-copy change now and revisit screenshots as
+  its own story. `SettingsScreen.tsx`/`.test.tsx`/`.css` had the section,
+  its six tests, and its now-unused styles removed entirely (no
+  duplication with the new footer/dialog location); `App.test.tsx` and the
+  new `IncidentReportDialog.test.tsx` cover the relocation (28 + 13 + 4 net
+  new/moved tests). `npm run test` (508/508), `tsc -b`, and `oxlint` all
+  pass locally.
+
 - 2026-08-10 — `docs/decisions/0064-backend-mediated-github-incident-reporting.md`
   (Status: Proposed → Accepted), `docs/requirements-document.md` (REQ-903,
   v1.62 → v1.63), `docs/architecture-document.md` (COMP-12, v0.88 → v0.89),

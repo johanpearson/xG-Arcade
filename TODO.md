@@ -79,9 +79,13 @@ should be triggered by an actual observed problem, not by this list existing:
 - [ ] Legal docs finalized (required before any real public launch, not optional)
 - [x] In-app incident reporting to GitHub Issues (REQ-903, ADR-0064) — pulled
   forward and built 2026-08-10 (`POST /incidents`, `Core.IncidentReporting`,
-  Settings' "Report a problem" section). The `INCIDENT_REPORT_PAT` secret
-  (see `SETUP.md` step 6 for exact scopes, `infra/README.md` for the full
-  wiring) has now been created.
+  a footer-accessible "Report a problem" button opening a modal, reachable
+  from any screen — moved out of Settings the same day). The
+  `INCIDENT_REPORT_PAT` secret (see `SETUP.md` step 6 for exact scopes,
+  `infra/README.md` for the full wiring) has now been created. Screenshot
+  attachment was requested and deliberately deferred — see SCREEN-11
+  (`docs/design-document.md`) for why (no GitHub API for it without
+  widening the PAT's scope or adding a third-party image host).
 - [ ] Do the one required manual end-to-end test of incident reporting
   against a throwaway repo (not this one) before relying on it in
   production (REQ-903's "Test level" note) — the real secret is set now,

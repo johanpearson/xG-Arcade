@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, claimAccount, describeError, reportIncident, updateDisplayName } from '../lib/api';
+import { ApiError, claimAccount, describeError, updateDisplayName } from '../lib/api';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
 import type { CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';
 import { GUEST_EXPIRY_COPY } from '../lib/guestExpiryCopy';
-import { INCIDENT_REPORT_GUEST_LOCKED_COPY, INCIDENT_REPORT_SUBMITTED_COPY } from '../lib/incidentReportCopy';
 import './SettingsScreen.css';
 
 // REQ-716: the toggle's own option list — order matches the three-state
@@ -56,11 +55,6 @@ export interface SettingsScreenProps {
 }
 
 const DISPLAY_NAME_MAX_LENGTH = 30;
-
-// REQ-903/ADR-0064: matches IncidentEndpoints.DescriptionMaxLength on the
-// backend — client-side enforcement is defense in depth, not the primary
-// guard (the server re-checks this regardless of what the client sends).
-const INCIDENT_REPORT_DESCRIPTION_MAX_LENGTH = 4000;
 
 // SCREEN-08 (design-document.md §3), REQ-713: the single "Settings" nav
 // entry's destination, consolidating what used to be two standalone
@@ -121,14 +115,6 @@ export function SettingsScreen({
   const [claimSubmitting, setClaimSubmitting] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // REQ-903/ADR-0064: the incident-report form's own state, separate from
-  // every form above — a different submit action, a different error
-  // surface, no shared state between the two.
-  const [reportDescription, setReportDescription] = useState('');
-  const [reportSubmitting, setReportSubmitting] = useState(false);
-  const [reportError, setReportError] = useState<string | null>(null);
-  const [reportIssueUrl, setReportIssueUrl] = useState<string | null>(null);
-
   useEffect(() => {
     if (!touched) {
       setNewDisplayName(displayName);
@@ -173,47 +159,6 @@ export function SettingsScreen({
       setClaimError(describeError(err));
     } finally {
       setClaimSubmitting(false);
-    }
-  }
-
-  // REQ-903/ADR-0064: submits an in-app bug report — server-rejected for a
-  // guest (403) regardless of what the client sends, same "advertised, not
-  // hidden, but disabled" gating REQ-215's suggestion entry point already
-  // established; the disabled `<button>`/`<textarea>` below is the primary
-  // guard for a guest account, this is defense in depth only.
-  async function handleReportSubmit(event: FormEvent) {
-    event.preventDefault();
-    setReportError(null);
-    setReportIssueUrl(null);
-
-    const trimmed = reportDescription.trim();
-    if (trimmed.length === 0) {
-      setReportError('Please describe the problem.');
-      return;
-    }
-    if (trimmed.length > INCIDENT_REPORT_DESCRIPTION_MAX_LENGTH) {
-      setReportError(`Please keep the description under ${INCIDENT_REPORT_DESCRIPTION_MAX_LENGTH} characters.`);
-      return;
-    }
-
-    setReportSubmitting(true);
-    try {
-      const created = await reportIncident(accessToken, trimmed, '/settings');
-      setReportIssueUrl(created.issueUrl);
-      setReportDescription('');
-    } catch (err) {
-      // Same "any other 401 is a dead token" handling every other
-      // authenticated screen in this app already uses.
-      if (err instanceof ApiError && err.status === 401) {
-        onAuthError();
-        return;
-      }
-      // A 429 (rate limit) or 503 (GitHub call failed) both surface here
-      // with the server's own detail text — describeError already prefers
-      // ApiError.detail over a generic message, no special-casing needed.
-      setReportError(describeError(err));
-    } finally {
-      setReportSubmitting(false);
     }
   }
 
@@ -403,60 +348,6 @@ export function SettingsScreen({
 
           <button type="submit" className="settings-screen__display-name-submit" disabled={submitting}>
             {submitting ? 'Saving…' : 'Save name'}
-          </button>
-        </form>
-      </section>
-
-      {/* REQ-903/ADR-0064: the incident-report entry point — always
-          rendered (guest or not), same "advertised, not hidden" rule
-          REQ-215's suggestion entry point already established. A guest sees
-          this section present but disabled/inert (isGuest below), never
-          missing entirely; the real 403 rejection is still enforced
-          server-side regardless (IncidentEndpoints), this is UX only. */}
-      <section className="settings-screen__section settings-screen__section--report">
-        <h3 className="settings-screen__section-title">Report a problem</h3>
-        {isGuest && (
-          <p className="settings-screen__claim-hint" data-testid="incident-report-guest-locked-copy">
-            {INCIDENT_REPORT_GUEST_LOCKED_COPY}
-          </p>
-        )}
-        <form className="settings-screen__report-form" onSubmit={handleReportSubmit}>
-          <label className="settings-screen__field">
-            <span>What went wrong?</span>
-            <textarea
-              className="settings-screen__report-textarea"
-              maxLength={INCIDENT_REPORT_DESCRIPTION_MAX_LENGTH}
-              rows={4}
-              value={reportDescription}
-              onChange={(event) => {
-                setReportIssueUrl(null);
-                setReportDescription(event.target.value);
-              }}
-              disabled={isGuest || reportSubmitting}
-            />
-          </label>
-
-          {reportError && (
-            <p className="settings-screen__report-error" role="alert">
-              {reportError}
-            </p>
-          )}
-
-          {reportIssueUrl && !reportError && (
-            <p className="settings-screen__report-success" role="status">
-              {INCIDENT_REPORT_SUBMITTED_COPY}{' '}
-              <a href={reportIssueUrl} target="_blank" rel="noreferrer">
-                View report
-              </a>
-            </p>
-          )}
-
-          <button
-            type="submit"
-            className="settings-screen__report-submit"
-            disabled={isGuest || reportSubmitting}
-          >
-            {reportSubmitting ? 'Sending…' : 'Send report'}
           </button>
         </form>
       </section>

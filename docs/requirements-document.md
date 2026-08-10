@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.63"
+version: "1.64"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -6345,12 +6345,17 @@ notification arrives)
 **Status: Built, 2026-08-10 (ADR-0064).** `POST /incidents`
 (`XGArcade.Api.Incidents.IncidentEndpoints`), `Core.IncidentReporting`
 (`IGitHubIssueClient`/`GitHubIssueClient`, `IIncidentReportService`/
-`IncidentReportService`) and a Settings-screen entry point
-(`SettingsScreen.tsx`'s "Report a problem" section) implement every
-acceptance criterion below. See COMP-12's own status note
-(`architecture-document.md`) for the concrete shape, and this REQ's
-"Verification status" note at the end of this section for what's still
-outstanding before this is production-ready.
+`IncidentReportService`) implement every backend acceptance criterion
+below. Frontend entry point: originally a section inside `SettingsScreen.tsx`;
+moved the same day, directly requested, into an app-wide footer button
+(`App.tsx`) opening `IncidentReportDialog.tsx` as a modal — reachable from
+whatever screen a player is actually on, not just Settings (see
+design-document.md's new SCREEN-11 for the concrete shape and the
+screenshot-attachment question this raised, deliberately deferred rather
+than folded into this pass). See COMP-12's own status note
+(`architecture-document.md`) for the backend's concrete shape, and this
+REQ's "Verification status" note at the end of this section for what's
+still outstanding before this is production-ready.
 
 **Tier framing — pulled forward by deliberate product decision, 2026-08-10,
 same pattern as REQ-108/REQ-214/REQ-402-403/REQ-717/REQ-215's own

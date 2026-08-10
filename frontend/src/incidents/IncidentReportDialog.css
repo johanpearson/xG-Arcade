@@ -1,0 +1,131 @@
+/* z-index: 40, deliberately above every other overlay this app currently
+   opens (GuestLogoutConfirm: 30, ScoringExplainer: 20, GuessInput: 10) —
+   reachable from the footer on any authenticated screen, so it must always
+   end up the topmost overlay regardless of what else happens to be open
+   underneath it. Same backdrop tint as those overlays
+   (rgba(26, 31, 28, 0.35), --color-text-primary's own hue). */
+.incident-report-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 31, 28, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: var(--space-4);
+}
+
+.incident-report-dialog {
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - var(--space-4) * 2);
+  overflow-y: auto;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 12px;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Header/close-button treatment taken from ScoringExplainer.css exactly —
+   same tokens, same shape (a content/form panel, not a two-choice
+   confirm, so a single "×" close rather than GuestLogoutConfirm's
+   Cancel/Confirm pair). */
+.incident-report-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.incident-report-dialog__header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.incident-report-dialog__close {
+  min-height: var(--touch-target-min);
+  min-width: 44px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.incident-report-dialog__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.incident-report-dialog__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.incident-report-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.incident-report-dialog__textarea {
+  min-height: calc(var(--touch-target-min) * 2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: 16px;
+  resize: vertical;
+}
+
+.incident-report-dialog__textarea:disabled {
+  opacity: 0.6;
+}
+
+.incident-report-dialog__error {
+  color: var(--color-accent-red);
+  font-size: 13px;
+  margin: 0;
+}
+
+.incident-report-dialog__success {
+  color: var(--color-accent-green-text);
+  font-size: 13px;
+  margin: 0;
+}
+
+.incident-report-dialog__success a {
+  color: inherit;
+}
+
+.incident-report-dialog__submit {
+  align-self: flex-start;
+  min-height: var(--touch-target-min);
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 8px;
+  background: var(--color-accent-green-text);
+  color: var(--color-surface-card);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.incident-report-dialog__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

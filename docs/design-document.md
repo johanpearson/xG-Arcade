@@ -1,7 +1,7 @@
 ---
 doc_id: design-document
 title: UX & Design Document
-version: "0.68"
+version: "0.69"
 status: draft
 last_updated: 2026-08-10
 owner: Johan
@@ -2446,6 +2446,80 @@ extension of REQ-213's existing content:
   active, showing Grid-specific content that doesn't describe xG Path's
   rules. Pre-existing, unrelated to this screen, and out of this change's
   scope — noted here as a candidate for a follow-up, not addressed now.
+
+### SCREEN-11: Footer incident-report entry point (REQ-903, ADR-0064)
+
+New for this story — no prior SCREEN entry covered this. Built first
+(2026-08-10) as a section inside SCREEN-08 (Settings); moved the same day,
+directly requested, to the app-wide footer instead, documented here after
+the fact per this doc's own discipline for undocumented gaps found
+mid-build (same situation SCREEN-02b's own top note describes).
+
+**Placement decision.** REQ-903's entry point needs to be usable from
+whatever screen a player is actually looking at when something breaks —
+Settings is the wrong home for that, since reaching it first means
+navigating away from the very screen showing the problem. `App.tsx`'s
+`<footer>` already renders unconditionally beneath `<main>` regardless of
+`screen`, the same element that already shows the health-check status
+(S-002) — the "Report a problem" button lives there, and opens
+`IncidentReportDialog` as a modal over whatever screen is currently
+showing, rather than navigating anywhere.
+
+```
+Footer (every authenticated screen):
+┌───────────────────────────────────────────────┐
+│                    API status: ok  Report a problem │
+└───────────────────────────────────────────────┘
+
+Dialog (opened over whatever screen was showing):
+┌─────────────────────────────┐
+│ Report a problem          × │
+│                               │
+│ What went wrong?              │
+│ ┌───────────────────────────┐│
+│ │ e.g. "The grid froze       ││
+│ │ after I submitted a guess  ││
+│ │ for Brazil × Arsenal"…     ││
+│ └───────────────────────────┘│
+│                               │
+│         [ Send report ]      │
+└─────────────────────────────┘
+```
+
+- **Component: `IncidentReportDialog.tsx`**, structural/accessibility shell
+  taken from `GuestLogoutConfirm.tsx`/`ScoringExplainer.tsx` (`role="dialog"`,
+  `aria-modal="true"`, backdrop-click-to-close, Escape-to-close, header
+  `×` close button, focus moves in on open and returns to the footer button
+  on close) — no new interaction pattern invented for this screen.
+- **Guest visibility**: present but disabled — same "advertised, not
+  hidden" rule REQ-215's `SuggestionEntry` (SCREEN-02b) already
+  established, not a new decision. Signed-out (no session at all) renders
+  no footer button at all, matching REQ-903's own 401 requirement — there
+  is no meaningful "advertise it, disabled" state for a visitor who isn't
+  authenticated at all.
+- **Example guidance, not blank silence**: the textarea's placeholder
+  shows two concrete example reports (what happened, what was expected)
+  rather than an empty box with only a label — requested directly
+  alongside the footer relocation, addressing real reports that tended to
+  be too vague to act on.
+- **Route context**: the dialog is opened with the current screen's own
+  name (`App.tsx`'s `screen` state, e.g. `"grid"`, `"leaderboard"`) passed
+  straight through as REQ-903's optional `route` field — accurate by
+  construction, never a value the player types or edits themselves.
+- **Screenshots: explicitly out of scope for this pass.** Considered and
+  deliberately deferred — GitHub's issue-creation API has no attach-a-file
+  endpoint; the two real options are widening the PAT past ADR-0064's
+  locked-in `Issues: write` scope (to write repo contents) or adding a new
+  third-party image host (its own ToS review, secret, and privacy-policy
+  disclosure, per CLAUDE.md's external-data-source rule) — both are
+  decisions to make deliberately later, not something to fold into this
+  placement change.
+- **Tokens only**: `--color-surface-card`/`--color-border-hairline` for
+  the dialog card, `--color-text-muted` for the footer button and hint/
+  placeholder-adjacent copy, `--color-accent-red`/`--color-accent-green-text`
+  for error/success text — the exact same palette `SettingsScreen.css`'s
+  claim/display-name forms already used before this moved, no new value
+  introduced by the relocation.
 
 ## 4. Responsive strategy
 

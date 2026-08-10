@@ -12,3 +12,12 @@ export const INCIDENT_REPORT_GUEST_LOCKED_COPY =
 // Shown once a report submits successfully, alongside the created issue's
 // (non-secret) URL.
 export const INCIDENT_REPORT_SUBMITTED_COPY = 'Thanks — your report was filed.';
+
+// Textarea placeholder — concrete examples of a good report, requested
+// directly (2026-08-10) alongside moving this entry point into the footer.
+// Not real event data, just guidance on the level of detail that's useful
+// (what you did, what you expected, what happened instead); disappears the
+// moment the player starts typing, same as any placeholder.
+export const INCIDENT_REPORT_DESCRIPTION_PLACEHOLDER =
+  'What happened, and what did you expect instead? e.g. "The grid froze after I ' +
+  'submitted a guess for Brazil × Arsenal" or "My score didn\'t update after the round closed."';

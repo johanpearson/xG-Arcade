@@ -8,6 +8,7 @@ import { AuthScreen } from './auth/AuthScreen';
 import { Logo } from './components/Logo';
 import { GameSelectScreen, XG_GRID_GAME_KEY, XG_PATH_GAME_KEY } from './games/GameSelectScreen';
 import { GridScreen } from './grid/GridScreen';
+import { IncidentReportDialog } from './incidents/IncidentReportDialog';
 import { GuestLogoutConfirm } from './nav/GuestLogoutConfirm';
 import { HeaderNav } from './nav/HeaderNav';
 import { LeaderboardScreen } from './leaderboard/LeaderboardScreen';
@@ -127,6 +128,11 @@ function App() {
   // handleLogoutClick below. Never true for a non-guest account, since
   // that branch calls handleLogout directly and never sets this.
   const [guestLogoutConfirmOpen, setGuestLogoutConfirmOpen] = useState(false);
+  // REQ-903/ADR-0064: gates IncidentReportDialog, opened from the footer's
+  // "Report a problem" button — deliberately state here (not inside any
+  // one screen component) so it's reachable regardless of which screen is
+  // currently showing, same reasoning as the theme preference below.
+  const [incidentReportOpen, setIncidentReportOpen] = useState(false);
   // REQ-716/ADR-0034: mounted here (not inside SettingsScreen) so the
   // "system" preference's reactive prefers-color-scheme listener stays
   // active regardless of which screen is showing, not only while Settings
@@ -538,7 +544,37 @@ function App() {
 
       <footer className="app__footer">
         API status: <code data-testid="health-status">{describeHealth(health)}</code>
+        {/* REQ-903/ADR-0064 (moved 2026-08-10 out of Settings): always in
+            the footer once logged in — reachable from whatever screen a
+            player is actually looking at when something goes wrong, rather
+            than only from Settings. No session at all (unauthenticated,
+            splash/auth screen) means no entry point at all, matching
+            REQ-903's own 401 rule — a guest still sees it (isGuest below
+            disables the dialog's form, never hides the button itself, same
+            "advertised, not hidden" rule REQ-215 established). */}
+        {accessToken && (
+          <button
+            type="button"
+            className="app__footer-report-link"
+            onClick={() => setIncidentReportOpen(true)}
+          >
+            Report a problem
+          </button>
+        )}
       </footer>
+
+      {incidentReportOpen && accessToken && (
+        <IncidentReportDialog
+          accessToken={accessToken}
+          isGuest={isGuest}
+          route={screen}
+          onClose={() => setIncidentReportOpen(false)}
+          onAuthError={() => {
+            setIncidentReportOpen(false);
+            handleLogout();
+          }}
+        />
+      )}
     </div>
   )
 }
