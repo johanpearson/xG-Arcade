@@ -43,6 +43,35 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   `REQ509_Commit_ReturnsBadRequest_WhenReasonMissing` pattern, not actually
   built or run; confirm in CI.
 
+- 2026-08-10 — `docs/requirements-document.md` (v1.61 → v1.62),
+  `docs/decisions/0052-pair-lookup-failure-persistence-and-club-club-query-fix.md`
+  (new status note) — player reported REQ-211's guess-time live-lookup
+  fallback timing out "quite often" on guesses they expected to be
+  incorrect. Root cause: `GridGameModule.RefreshCellFromLiveLookupAsync`
+  never consulted `PairLookupFailure` (ADR-0052) — a Country×Club/Club×Club
+  pair `PlayerCacheWarmingService` had already confirmed, independently, as
+  a persistent technical failure still paid the full ~28s guess-time
+  timeout on every guess against it. Fixed by checking
+  `IPlayerStoreRepository.IsPersistentTechnicalFailureAsync` before
+  attempting the live call — a known-doomed pair now fails fast
+  (`LiveLookupUnavailableException`) instead of re-waiting out a timeout
+  already known to happen. Correctness-neutral: still reports the pair as
+  genuinely unknown, not incorrect, and still never consumes a REQ-210
+  attempt — purely removes a redundant wait. `PlayerCacheWarmingService
+  .PersistentFailureThreshold` changed `private` → `internal` so
+  `GridGameModule` can reference the same value instead of duplicating it
+  (both live in `Games.XGGrid`, no project-boundary issue). New tests in
+  `GridGameModuleTests.cs` (`REQ211_ScoreSubmissionAsync_
+  PairAlreadyKnownPersistentFailure_ThrowsLiveLookupUnavailableException_
+  WithoutCallingWikidata`, `REQ211_ScoreSubmissionAsync_
+  PairBelowPersistentFailureThreshold_StillAttemptsLiveLookup`). Only
+  benefits Country×Club/Club×Club — `PlayerCacheWarmingService` doesn't
+  track Trophy pairings. REQ-211, ADR-0052. **Backend caveat: `dotnet` SDK
+  unavailable in this sandbox** — hand-traced against the existing,
+  already-verified `REQ211_ScoreSubmissionAsync_LiveLookupTimesOut_
+  ThrowsLiveLookupUnavailableException` test pattern, not built or run;
+  confirm in CI.
+
 - 2026-08-10 — `docs/design-document.md` (v0.67 → v0.68) — player-name
   autocomplete's debounce lowered from 275ms to 150ms (`GuessInput.tsx`,
   `PathGuessInput.tsx`), now that a superseded in-flight request is actually

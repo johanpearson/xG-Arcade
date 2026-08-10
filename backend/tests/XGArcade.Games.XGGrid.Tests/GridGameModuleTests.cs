@@ -1249,6 +1249,62 @@ public class GridGameModuleTests
             await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka")));
     }
 
+    // 2026-08-10 fix: PlayerCacheWarmingService may already know, from its
+    // own independent runs, that this exact pair's Wikidata query
+    // structurally fails (PairLookupFailure.ConsecutiveFailureCount >=
+    // PersistentFailureThreshold, ADR-0052) — before this fix, a guess
+    // against such a pair still paid the full guess-time-fallback timeout
+    // live, every guess, only to land on the same
+    // LiveLookupUnavailableException anyway. Proves the new check
+    // short-circuits before ever calling the live lookup at all, not merely
+    // that it eventually throws the same exception.
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_PairAlreadyKnownPersistentFailure_ThrowsLiveLookupUnavailableException_WithoutCallingWikidata()
+    {
+        SeedCountry("France");
+        SeedClub("Arsenal");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
+        SeedNameIndexEntry("Nicolas Anelka");
+        // PlayerCacheWarmingService.PersistentFailureThreshold consecutive
+        // failures, recorded independently of this guess (as cache-warming
+        // would) — simulates a pair already confirmed doomed.
+        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
+        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
+        // Configured on the fake but must never be reached — proves the
+        // short-circuit skips the live call entirely rather than racing it
+        // to the same exception.
+        _wikidataLookupService.SetMatches(
+            "France", "Arsenal", [new Player { Id = Guid.NewGuid(), FullName = "Should Never Be Reached", WikidataQid = "Qunreached" }]);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        Assert.ThrowsAsync<LiveLookupUnavailableException>(async () =>
+            await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Nicolas Anelka")));
+        Assert.That(_wikidataLookupService.GetCallCount("France", "Arsenal"), Is.EqualTo(0),
+            "a pair already known as a persistent technical failure must skip the live call entirely, not just race it to the same exception");
+    }
+
+    // A pair with only 1 recorded failure (below PersistentFailureThreshold)
+    // must still get a real, independent live-lookup chance — proves the
+    // short-circuit only trips at the threshold, not on any recorded failure.
+    [Test]
+    public async Task REQ211_ScoreSubmissionAsync_PairBelowPersistentFailureThreshold_StillAttemptsLiveLookup()
+    {
+        SeedCountry("Argentina");
+        SeedClub("Barcelona");
+        var (instanceId, cellId) = await SeedGridInstanceAsync("Argentina", "Barcelona");
+        await SeedPlayerAsync("Javier Mascherano", "Argentina", "Barcelona");
+        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "Argentina", "club", "Barcelona", CancellationToken.None);
+        var messi = new Player { Id = Guid.NewGuid(), FullName = "Lionel Messi", WikidataQid = "Qmessi" };
+        _wikidataLookupService.SetMatches("Argentina", "Barcelona", [messi]);
+        SeedNameIndexEntry("Lionel Messi");
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
+
+        var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Lionel Messi"));
+
+        Assert.That(result.IsCorrect, Is.True);
+        Assert.That(_wikidataLookupService.GetCallCount("Argentina", "Barcelona"), Is.EqualTo(1));
+    }
+
     [Test]
     public async Task REQ211_ScoreSubmissionAsync_LiveLookupFallback_NeverTriggeredWhenCachedDataAlreadyAnswersTheGuess()
     {

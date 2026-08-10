@@ -616,6 +616,30 @@ public class GridGameModule(
         if (row is null || col is null)
             return false;
 
+        // 2026-08-10 fix: PlayerCacheWarmingService already knows, from its
+        // own independent runs, when this exact pair's Wikidata query
+        // structurally fails/times out on 2+ consecutive runs
+        // (PairLookupFailure, ADR-0052) - before this fix, a guess against
+        // such a pair still paid the full guess-time-fallback timeout
+        // (currently 28s) live, every single guess, only to end up at the
+        // same LiveLookupUnavailableException below anyway. This is purely a
+        // latency short-circuit: the pair is still genuinely UNKNOWN, not
+        // "incorrect" (ADR-0046's guarantee is unchanged - no attempt is
+        // consumed either way), it just skips a live call already known to
+        // be doomed rather than waiting it out again. Only ever true for
+        // Country×Club/Club×Club pairs - PlayerCacheWarmingService doesn't
+        // track Trophy pairings (see its own WarmAsync scope), so this is a
+        // guaranteed-false, effectively free read for those, never a false
+        // positive that would wrongly skip a live check that could resolve.
+        if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
+                MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
+                PlayerCacheWarmingService.PersistentFailureThreshold, cancellationToken))
+        {
+            throw new LiveLookupUnavailableException(
+                $"Cell {cell.Id}'s category pair is a known persistent Wikidata lookup failure (ADR-0052) - skipping a repeat live call.");
+        }
+
         IReadOnlyList<Player>? liveMatches;
         try
         {

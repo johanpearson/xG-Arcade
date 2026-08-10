@@ -110,7 +110,15 @@ public class PlayerCacheWarmingService(
     // treated as structural and stops being retried until an operator
     // investigates or a query-shape fix clears it (StaleClubAttributeCleaner/
     // purge-player-pool, same invalidation surface as ConfirmedLowMatchPair).
-    private const int PersistentFailureThreshold = 2;
+    // internal, not private: GridGameModule.RefreshCellFromLiveLookupAsync
+    // (2026-08-10) reuses this exact value so a guess-time fallback call
+    // agrees with cache-warming on what counts as "already known doomed" -
+    // both live in this same project (Games.XGGrid), so a real shared
+    // reference doesn't invert the project-reference graph the way
+    // PairLookupFailureCleaner's own duplicated copy had to (ADR-0052's
+    // 2026-08-01 status note, XGArcade.Data.Seeding sitting below this
+    // project). Do not duplicate this value instead of referencing it.
+    internal const int PersistentFailureThreshold = 2;
 
     public async Task<CacheWarmingResult> WarmAsync(CancellationToken cancellationToken = default)
     {
