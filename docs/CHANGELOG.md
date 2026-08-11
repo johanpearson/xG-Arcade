@@ -13,6 +13,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `CODEBASE_ANALYSIS.md` (root) + `docs/backlog.md` (new
+  Epic 8: S-106 through S-113) — extended the codebase analysis from a
+  top-5 to a top-10 list now that Epic 7's items and security are settled
+  ground. New actionable findings: `PlayerStoreRepository.cs`/
+  `IPlayerStoreRepository.cs` spans 9 unrelated concerns across 44 methods
+  (confirmed the outlier via a method-count comparison across every
+  repository in the codebase — split into S-106/S-107); `AdminScreen.tsx`'s
+  9 S-103-extracted components have zero dedicated tests (S-108/S-109);
+  `architecture-document.md`/`implementation-document.md` still describe
+  the pre-S-102 shape of `Program.cs` (S-110, docs-only); `api.ts`'s size,
+  carried over unaddressed since the original report (S-111);
+  `CliVerbDispatcher.cs` is one 649-line method, a direct byproduct of
+  S-102 (S-112); `CompositionRoot/*.cs`'s testing strategy was defaulted
+  into rather than decided (S-113). Four watch-only items (large test
+  files, `LeaderboardScreen.tsx`, `AuthController.cs`,
+  `SuggestionsScreen.tsx`) were deliberately left without stories per this
+  epic's own low-churn doctrine. Two suspected findings (Grid/Path frontend
+  "duplication," two separate `FakeWikidataClient.cs` fakes) were
+  investigated and explicitly cleared rather than reported. No
+  requirements/architecture changes accompany this entry beyond what S-110
+  itself will make when it runs — this entry only plans the work.
 - 2026-08-11 — `CODEBASE_ANALYSIS.md` (root, not `docs/` — noted here for
   traceability) — full re-scan of `main` now that Epic 7 (S-099–S-105) is
   fully merged, including S-104. Closed out Epic 7 in the report (all 7

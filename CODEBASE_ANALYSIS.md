@@ -1,133 +1,139 @@
 # xG Arcade — Codebase Analysis
 
 **Scope:** `backend/`, `frontend/`, `infra/`, `docs/`
-**Method:** static line/comment counting (custom Python scanner — `cloc`/`tokei` not available in this environment), `git log` churn analysis, targeted `grep`/manual review for security and duplication patterns, `npm audit` for frontend dependencies. `dotnet` CLI and frontend `node_modules` are not available in this environment, so no build, no `dotnet test`/`npm run test`, and no NuGet vulnerability audit were run directly — package-version and behavioral claims for already-merged work are taken from the merging PRs' own CI-gated results, not re-executed here. Everything reported as "verified in this pass" (SLOC, churn, `npm audit`, grep-based security/duplication checks) **was** re-run live against current `main`.
+**Method:** static line/comment counting (custom Python scanner — `cloc`/`tokei` not available in this environment), `git log` churn analysis, targeted `grep`/manual review for security and duplication patterns, `npm audit` for frontend dependencies. `dotnet` CLI and frontend `node_modules` are not available in this environment, so no build, no `dotnet test`/`npm run test`, and no NuGet vulnerability audit were run directly — package-version and behavioral claims for already-merged work are taken from the merging PRs' own CI-gated results, not re-executed here. Everything reported as "verified in this pass" (SLOC, churn, `npm audit`, grep-based security/duplication checks, method-count/nesting inspections) **was** re-run live against current `main`.
 
 **Revision history:**
-- **2026-08-10** — original analysis. Flagged `WikidataClient.cs` duplication, a high-severity `undici` transitive dependency, `Program.cs` composition-root sprawl, `AdminScreen.tsx`'s God Component, and `GridGameModule.cs`'s nesting as the top targets → became Epic 7 (`docs/backlog.md`, S-099–S-105).
-- **2026-08-11 (first update)** — re-verified 6 of 7 Epic 7 stories merged; flagged S-104 (`GridGameModule.cs`) as not started.
-- **2026-08-11 (this revision)** — S-104 has since merged (#175). Epic 7 is now **fully complete (7/7)**. This revision re-scans the whole codebase from scratch, past the original finding list, to surface the *next* batch of priorities.
+- **2026-08-10** — original analysis, top 5 targets. Flagged `WikidataClient.cs` duplication, a high-severity `undici` transitive dependency, `Program.cs` composition-root sprawl, `AdminScreen.tsx`'s God Component, and `GridGameModule.cs`'s nesting → became Epic 7 (`docs/backlog.md`, S-099–S-105).
+- **2026-08-11 (first update)** — re-verified 6 of 7 Epic 7 stories merged; flagged S-104 as not started.
+- **2026-08-11 (second update)** — S-104 merged; Epic 7 fully complete (7/7). Fresh sweep found 5 next-batch targets.
+- **2026-08-11 (this revision)** — extended the sweep from top 5 to **top 10**, now that security and the original hotspots are settled ground. Two candidates were investigated and explicitly **cleared** rather than reported — see the note at the end of §1 — to keep this list honest rather than padded.
 
 ---
 
-## 0. Epic 7 Closeout
+## 0. Epic 7 Closeout (unchanged from the last revision)
 
-| Story | Target | Result |
-| :--- | :--- | :--- |
-| S-099 | `undici` high-severity dependency | ✅ `npm audit` (full and `--omit=dev`): **0 vulnerabilities**, re-confirmed live in this pass |
-| S-100/S-101 | `WikidataClient.cs` query-builder duplication | ✅ 2,034 → **1,815 lines**; SPARQL-injection guard now centralized instead of duplicated 9× |
-| S-102 | `Program.cs` composition root | ✅ 1,245 → **29 lines**, logic moved to `CompositionRoot/*.cs` |
-| S-103 | `AdminScreen.tsx` God Component | ✅ 1,432 → **190 lines**, 9 sections extracted |
-| S-104 | `GridGameModule.cs` nesting | ✅ Deep-nesting heuristic (lines at ≥5 indent levels): **25 → 3** |
-| S-105 | Comment dedup vs. ADRs | ✅ `Grid.css` 266%→156%, `CellState.css` 134%→118% |
-
-No open items remain from the original report. `npm audit`, CORS config, SQL/SPARQL-injection guards, and secret-pattern scans were all re-run directly against current `main` in this pass and remain clean — **no security findings, P1 or otherwise.** The rest of this report is a fresh sweep for the next batch of priorities, not a re-check of resolved items.
+All 7 stories (S-099–S-105) are merged and verified: `undici` fixed, `WikidataClient.cs` deduplicated (2,034→1,815 lines), `Program.cs` decomposed (1,245→29 lines), `AdminScreen.tsx` extracted (1,432→190 lines), `GridGameModule.cs` nesting flattened (25→3 deep-indent lines), CSS/TS comment dedup done. `npm audit`, CORS, SQL/SPARQL-injection guards, and secret scans remain clean, re-verified again in this pass. **No security or P1 findings anywhere in this revision.**
 
 ---
 
-## 1. Executive Summary & Next Priorities
+## 1. Executive Summary & Top 10 Priorities
 
-**Overall health: Good, and meaningfully better structured than either prior report.** With every original hotspot resolved, the next batch of findings is lower-severity by nature — there is **no P1 material in this pass**. That's a genuine result, not a gap in the scan: the codebase's largest, highest-churn files are now all either fixed-size compositions (`Program.cs`, `AdminScreen.tsx`) or already-addressed duplication (`WikidataClient.cs`). What's left is normal, second-tier maintainability debt.
+**Overall health: Good.** With every original hotspot resolved and security clean, this revision's findings are second- and third-tier maintainability items by nature — real, but none of them P1. They fall into three groups: two genuine structural gaps (§#1–2), a docs-drift item unique to this revision (§#3), and a tail of real-but-lower-urgency items included because you asked for depth now that the bigger fish are handled.
 
-**Top priorities for the next batch:**
+| # | Target | Priority | One-line why |
+| :-- | :--- | :--- | :--- |
+| 1 | `PlayerStoreRepository.cs` / `IPlayerStoreRepository.cs` | **P2** | 44 methods spanning 9 unrelated sub-entity concerns in one 772/482-line file/interface — confirmed the outlier by comparing method counts across *every* repository in the codebase (next-highest is 16) |
+| 2 | `AdminScreen.tsx`'s 9 extracted components have zero dedicated tests | **P2** | S-103's correctly-scoped "pure mechanical extraction" left all coverage in one unsplit `AdminScreen.test.tsx` |
+| 3 | `architecture-document.md`/`implementation-document.md` still describe `Program.cs` as holding DI/auth/CLI-verb/endpoint-mapping logic | **P2** | That logic moved to `CompositionRoot/*.cs` in S-102 (2026-08-11) and the docs were never updated — a factually wrong statement in two governing docs, not a code issue |
+| 4 | `frontend/src/lib/api.ts` (1,057 lines, 51 exports) | P3 | Flagged P3 in the *original* 2026-08-10 report, never one of Epic 7's 7 stories, still the largest unaddressed frontend file |
+| 5 | `CliVerbDispatcher.cs` (649 lines, one single method) | P3 | S-102 moved the CLI-verb logic out of `Program.cs` but didn't restructure it — `TryHandleAsync` is 649 lines of sequential verb handling in one method |
+| 6 | `CompositionRoot/*.cs` has no dedicated unit tests | P3 | Only indirect coverage via `XGArcade.Api.Tests`' `WebApplicationFactory` integration suite — may be a deliberate, correct choice (composition-root code is often better integration-tested), but it hasn't been *decided*, just defaulted into |
+| 7 | Large test files continuing to grow (`WikidataClientTests.cs` now 3,463 lines, `GridGameModuleTests.cs` 2,474, `AuthEndpointTests.cs` 2,095) | P4 — watch | Growing for the right reasons (real regression coverage); navigability-only concern |
+| 8 | `LeaderboardScreen.tsx` (1,130 lines, 6 `useEffect`, low churn) | P4 — watch | Large but stable; per this report's own doctrine, not an action item until something else touches it |
+| 9 | `AuthController.cs` (773 lines, churn 1) | P4 — watch | Same reasoning as #8 |
+| 10 | `SuggestionsScreen.tsx` (645 lines, 8 `useState`, 2 `useEffect`) | P4 — watch | Already has its own dedicated test file (unlike the `AdminScreen.tsx` components at #2) and is proportionate today; flagged only so it isn't the next surprise God Component |
 
-1. **`PlayerStoreRepository.cs` / `IPlayerStoreRepository.cs` (772 / 482 lines, 44 methods, 10 commits) — a single repository spanning at least 9 distinct sub-entity concerns**: `Player` CRUD, `PlayerData` (unverified/approve/remove), `PlayerAttribute`, `PlayerAlias`, `PlayerOverride`, photo backfill, position/birth-year backfill, `PlayerCareerStint`, and confirmed-low/technical-failure tracking. This is the strongest genuine Single-Responsibility-Principle violation left in the codebase — not a nesting or churn problem (0 deep-nesting lines, moderate churn), but a scope problem: an unrelated change to career-stint sync logic and a change to override management both touch the same 772-line file and its 482-line interface. **P2.**
-2. **Test-architecture drift following S-103** — `AdminScreen.tsx`'s extraction (correctly, per its own "pure mechanical extraction" scope) split the implementation into 10 files but left all test coverage in the single, unsplit `AdminScreen.test.tsx`. The 9 newly extracted components (`PlayerSuggestionsEntry.tsx`, `IncidentReportsEntry.tsx`, `AnnouncementBannerSection.tsx`, `UnverifiedDataSection.tsx`, `AccountMetricsSection.tsx`, `GuestClearSection.tsx`, `XGPathCycleSection.tsx`, `RoundControlSection.tsx`, `UserDeletionSection.tsx`) have **zero dedicated test files** — every one is still only exercised indirectly through `AdminScreen.test.tsx`'s full-tree rendering. This was the right call *during* S-103 (don't touch tests when behavior doesn't change), but it's now a natural, direct follow-on: as these 9 components evolve independently, only a large, slow, full-tree test file will catch a regression in any one of them. **P2.**
-3. **`frontend/src/lib/api.ts` (1,057 lines, 51 exports, ~47 near-identically-shaped fetch-wrapper functions)** — flagged as P3 in the original report and never addressed by Epic 7 (it wasn't one of the 7 stories). Now the largest unaddressed hand-written frontend file. Candidate for the same domain-split treatment `Program.cs` got: `auth.ts`, `rounds.ts`, `leaderboard.ts`, `admin.ts`, `path.ts`. **P3** — real, but breadth-driven size, not complexity; lower urgency than #1/#2.
-4. **Large test files continuing to grow**: `WikidataClientTests.cs` is now **3,463 lines** (was 3,107 at the original report — S-100/S-101 added byte-for-byte SPARQL regression assertions, which is exactly the right kind of growth, but the file is now the single largest file in the repo by a wide margin), `GridGameModuleTests.cs` (2,474), `AuthEndpointTests.cs` (2,095). Not urgent — large test files aren't unhealthy the way large production files are — but worth a watch note since navigability/run-time will keep degrading as they grow further. **P4.**
-5. **`LeaderboardScreen.tsx` (1,130 lines, 6 `useEffect`, low churn) and `AuthController.cs` (773 lines, churn 1)** — both large but low-churn. Per this report's own priority-matrix doctrine (P2 = "low churn + potentially low health — leave alone until active development touches it"), these are explicitly **not** action items now; noted so they aren't rediscovered as a surprise the next time either file gets touched. **P4/watch.**
-
-One thing checked and *cleared*, not a finding: several of S-103's extracted components (`GuestClearSection.tsx`, `RoundControlSection.tsx`, `UnverifiedDataSection.tsx`, `UserDeletionSection.tsx`) don't use the shared `useAdminSectionFetch` hook that `#167`/S-103 established. On inspection this is intentional, not inconsistent — `AdminScreen.tsx` retained exactly 3 `useState` calls (`pageState`, `unverifiedRows`, `activeRound`) per its own PR description, and these sections receive that data as props from the parent rather than fetching it themselves (action-only sections like guest-clear/user-deletion don't fetch at all). No action needed.
+**Cleared, not reported (checked and found to be fine):**
+- **Grid vs. Path frontend "duplication"** (`GuessInput.tsx`/`PathGuessInput.tsx`, `ScoringExplainer.tsx`/`PathScoringExplainer.tsx`): these looked like copy-paste candidates by file-pair naming, but inspection found substantial real behavioral differences (different attempt/clue models, no shared "uniqueness" concept in xG Path) *and*, in `PathScoringExplainer.tsx`'s own comments, an explicit, reasoned decision already on record for why a shared abstraction was rejected — right down to citing this repo's own "three similar lines is better than a premature abstraction" convention. Re-litigating a decision that was already made deliberately and correctly isn't a finding.
+- **Two separate `FakeWikidataClient.cs` test doubles** (`XGArcade.DataSync.Tests`, `XGArcade.Games.XGGrid.Tests`): looked like duplicated test infrastructure at a glance. On inspection, each is independently and narrowly scoped to what its own test project's system-under-test actually calls (339 lines with full intersection/photo-batch stubbing vs. 125 lines stubbing almost nothing, since `GridGameModule` only calls one method on the interface) — this is the repo's documented "don't over-mock" convention working correctly, not lazy duplication.
+- **Design-token discipline**: grepped for hardcoded hex colors outside `index.css`'s own token definitions — zero found. Still clean.
+- **Dead/unused API exports**: checked every `frontend/src/lib/api.ts` export for at least one call site elsewhere in the frontend — zero unused.
+- A nesting false-positive on `AdminSuggestionEndpoints.cs` surfaced by this report's own line-indentation heuristic turned out to be multi-line method-call argument lists (record construction, multi-parameter logger calls), not real control-flow nesting — worth naming since it's a limitation of the heuristic used throughout this report, not a finding about that file.
 
 ---
 
 ## 2. Codebase Size & Comment Hygiene
 
-| Language / Ext | Total Files | Source Lines (SLOC) | Comment Lines | Comment Ratio (%) |
-| :--- | ---: | ---: | ---: | ---: |
-| C# (`.cs`) | 332 | 46,595 | 15,038 | 32.3% |
-| TSX (`.tsx`) | 63 | 16,161 | 3,663 | 22.7% |
-| JSON (`.json`) | 11 | 3,128 | 0 | 0.0% |
-| CSS (`.css`) | 27 | 3,033 | 987 | 32.5% |
-| TypeScript (`.ts`) | 27 | 2,407 | 1,686 | 70.0% |
-| Markdown (`.md`, code dirs only) | 2 | 364 | 0 | — |
-| Bicep (`.bicep`) | 4 | 287 | 29 | 10.1% |
-| Shell (`.sh`) | 3 | 177 | 167 | 94.4% |
-| HTML (`.html`) | 1 | 20 | 0 | 0.0% |
-| **Overall Total** | **470** | **72,172** | **21,570** | **29.9%** |
+Unchanged in shape from the last revision (S-104 added modest line count without moving these numbers materially): **72,172 SLOC, 21,570 comment lines, 29.9% overall ratio**, backend tests ~2.3× production code, frontend tests ~1.5×. No new under-documented or noise-comment finding in this pass. Full breakdown in the previous revision (see git history on this file) — omitted here to keep this revision focused on the new findings, per your steer that ground already covered doesn't need repeating at length.
 
-Essentially flat since the last revision (S-104's nesting fix added modest line count without materially changing comment density). Comment hygiene remains a strength, not a gap — re-scanning after S-104, no new under-documented complex file and no new noise/dead-code comment was introduced. `GridGameModule.cs`'s refactor kept its REQ/ADR-tagged rationale comments attached to the newly-extracted private methods rather than dropping them.
-
-Test-vs-production LOC ratios are unchanged from prior revisions (backend ~2.3×, frontend ~1.5×) — still a strong signal for this codebase's size.
+One data point worth naming rather than flagging: `IWikidataClient.cs` is 563 lines but only 92 are code — 454 are comments (a per-method rationale paragraph for each of the 9 query methods, mirroring the style `WikidataClient.cs` itself used before its refactor). Consistent with this codebase's established, deliberate documentation style (see prior revisions' analysis of `types.ts`/`Grid.css`) — not a new instance of bloat, just noted for completeness since it's the single highest-ratio file found in this pass.
 
 ---
 
-## 3. Security & Secrets Findings
+## 3. Security Findings
 
-Re-verified fresh in this pass, not carried over from a prior report:
-
-- **Hardcoded secrets:** none, repository-wide.
-- **`npm audit` (full and `--omit=dev`):** **0 vulnerabilities.**
-- **NuGet package versions:** unchanged, still current .NET 10 releases (`Microsoft.AspNetCore.*`/`Microsoft.EntityFrameworkCore.*` 10.0.10, `Npgsql.EntityFrameworkCore.PostgreSQL` 10.0.3).
-- **SQL injection:** no `FromSqlRaw`/`ExecuteSqlRaw` anywhere in the tree.
-- **SPARQL injection:** `WikidataQid.IsValid(...)` guard confirmed still present and centralized post-refactor.
-- **CORS:** still an explicit `WithOrigins(...)` allow-list (now in `CompositionRoot/AuthSetup.cs`), no `AllowAnyOrigin()`.
-- **`eval()`/`innerHTML`/`dangerouslySetInnerHTML`:** none in production code, repository-wide.
-
-**No P1 security findings.** This section is included in full despite being unchanged, specifically because it was re-run rather than assumed — see the Method note at the top of this document.
+Re-verified fresh again in this pass: `npm audit` (full and `--omit=dev`) **0 vulnerabilities**; no hardcoded secrets; no `FromSqlRaw`/`ExecuteSqlRaw`; `WikidataQid.IsValid` guard still centralized and present; CORS still an explicit allow-list; no `eval()`/`innerHTML`/`dangerouslySetInnerHTML` in production code; NuGet packages unchanged, still current .NET 10. **No P1 security findings.** This section stays short because there is nothing new to say — see §0/§3 of the prior revision for the full original sweep.
 
 ---
 
-## 4. High-Risk Hotspots (Churn × Complexity Matrix) — This Revision
+## 4. Priority Detail — New Findings
 
-Churn = commit count over the repo's full history (66 commits, 2026-07-26 → 2026-08-11 — still too short a window for the "6–12 months" framing this report format assumes; read churn as "build-out attention," not "decay signal").
+### #1 (P2): `PlayerStoreRepository.cs` — repository spanning too many concerns
 
-| File / Module Path | Churn | Size / Complexity | Priority |
-| :--- | ---: | :--- | :--- |
-| `backend/src/XGArcade.Data/Repositories/PlayerStoreRepository.cs` + `IPlayerStoreRepository.cs` | 10 + 10 | 772 + 482 lines, 44 methods spanning 9 distinct sub-entity concerns; 0 deep-nesting (not a complexity problem, a scope problem) | **P2 — new top target** |
-| `frontend/src/admin/AdminScreen.test.tsx` (+ 9 untested extracted components) | 8 | 1,328 lines covering what is now 10 separate implementation files; 0 dedicated test files for the 9 newly extracted components | **P2 — new** |
-| `frontend/src/lib/api.ts` | 10 | 1,057 lines, 51 exports, ~47 near-identical fetch-wrapper functions in one file | P3 — carried over, unaddressed |
-| `backend/tests/XGArcade.DataSync.Tests/Wikidata/WikidataClientTests.cs` | 21 | 3,463 lines — largest file in the repo; growth from S-100/S-101's regression assertions is expected/correct, but the file is now very large | P4 — watch (test-only) |
-| `frontend/src/leaderboard/LeaderboardScreen.tsx` | 3 | 1,130 lines, 6 `useEffect`, 1 `useState` | P4 — watch, low churn |
-| `backend/src/XGArcade.Api/Auth/AuthController.cs` | 1 | 773 lines, 13 methods, 0 deep-nesting | P4 — watch, low churn |
-| `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs` | 12 | 417 lines, 0 deep-nesting — **confirmed it did not inherit `GridGameModule.cs`'s pre-fix nesting pattern**, so S-104 doesn't need a follow-on here | Cleared, no action |
-| `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs` | new (from S-102) | 649 lines — the largest of the five files `Program.cs` was split into | Watch — if this grows the way `Program.cs`'s CLI-verb section once did, it's the next composition-root file to revisit |
+Confirmed as a genuine outlier, not just a "large file," by comparing method counts across **every** repository in `backend/src/XGArcade.Data/Repositories/`:
 
-**Resolved and no longer listed** (full detail in prior revisions, summarized in §0): `WikidataClient.cs`, `Program.cs`, `AdminScreen.tsx`'s own size, `GridGameModule.cs`'s nesting, `Grid.css`/`CellState.css`'s comment ratios, the `undici` dependency.
+| Repository | Methods | Lines |
+| :--- | ---: | ---: |
+| **`PlayerStoreRepository.cs`** | **44** | **772** |
+| `UserRepository.cs` | 16 | 161 |
+| `GuessRepository.cs` | 11 | 146 |
+| `PathInstanceRepository.cs` | 11 | 145 |
+| `LeagueRepository.cs` | 9 | 97 |
+| `RoundRepository.cs` | 8 | 80 |
+| *(6 more, all ≤6 methods)* | | |
+
+The 44 methods span at least 9 distinct sub-entity concerns: `Player` CRUD, `PlayerData` (unverified/approve/remove), `PlayerAttribute`, `PlayerAlias`, `PlayerOverride`, photo backfill, position/birth-year backfill, `PlayerCareerStint`, and confirmed-low/technical-failure tracking. Zero deep-nesting — this isn't a complexity problem, it's a scope problem: an unrelated change to career-stint merge logic and a change to override management both touch the same file and its 482-line interface.
+
+### #2 (P2): `AdminScreen.tsx`'s 9 extracted components — test coverage didn't follow the code split
+
+S-103 correctly scoped itself to a pure, behavior-preserving extraction and correctly left `AdminScreen.test.tsx` untouched as its regression net. Confirmed in this pass: `frontend/src/admin/*.test.tsx` contains exactly two files — `AdminScreen.test.tsx` and `SuggestionsScreen.test.tsx` — for what is now 10+ implementation files. `PlayerSuggestionsEntry.tsx`, `IncidentReportsEntry.tsx`, `AnnouncementBannerSection.tsx`, `UnverifiedDataSection.tsx`, `AccountMetricsSection.tsx`, `GuestClearSection.tsx`, `XGPathCycleSection.tsx`, `RoundControlSection.tsx`, `UserDeletionSection.tsx`, and `useAdminSectionFetch.ts` all have zero dedicated tests.
+
+### #3 (P2, new this revision): governing docs still describe the pre-S-102 shape of `Program.cs`
+
+`docs/implementation-document.md` §4's folder-structure block still reads `/XGArcade.Api -> Controllers, DTOs, Program.cs`, and both `docs/architecture-document.md` and `docs/implementation-document.md` describe auth wiring, admin authorization, and scoring-strategy registration as happening "in `Program.cs`" in several places. Since S-102 (2026-08-11), `Program.cs` is a 29-line entry point and that logic lives in `backend/src/XGArcade.Api/CompositionRoot/{AuthSetup,CliVerbDispatcher,EndpointMapping,ServiceRegistration,WikidataHttpClientConfiguration}.cs`. Neither doc mentions `CompositionRoot` at all (confirmed via grep — zero hits). This is the first doc-drift finding in any revision of this report — worth naming precisely because `CLAUDE.md`'s own workflow treats "behavior changed, doc didn't" as a signal to double back, and S-102 was scoped as "no behavior change" so it's an easy one for the normal per-story doc-sync check to have waved through.
+
+### #4 (P3): `frontend/src/lib/api.ts` — carried over, unaddressed
+
+Unchanged assessment from the original report: 1,057 lines, 51 exports, ~47 similarly-shaped fetch-wrapper functions (average ~20 lines each) — breadth-driven size, not complexity (each function does something genuinely different). Never one of Epic 7's 7 stories. Now the largest hand-written frontend file with no plan against it.
+
+### #5 (P3, new this revision): `CliVerbDispatcher.cs` — one 649-line method
+
+A direct, unrestructured byproduct of S-102: the CLI-verb dispatch logic moved out of `Program.cs` into its own file, but is still a single `public static async Task<bool> TryHandleAsync(string[] args)` handling every verb (`--all-clubs` and its siblings — there are 10+ CLI-triggered workflows in `.github/workflows/` alone) sequentially in one method body. Confirmed via direct inspection: only one method declaration in the whole 649-line file.
+
+### #6 (P3, new this revision): `CompositionRoot/*.cs` has no dedicated unit tests
+
+Confirmed via search: no `AuthSetupTests.cs`, `ServiceRegistrationTests.cs`, `EndpointMappingTests.cs`, or `CliVerbDispatcherTests.cs` exist anywhere in `backend/tests/`. Coverage is entirely indirect, through `XGArcade.Api.Tests`' `WebApplicationFactory`-based integration suite. This may well be the *right* call — composition-root code (DI wiring, endpoint registration) is often more naturally integration-tested than unit-tested — but it's worth flagging as a decision that should be made deliberately (and written down, e.g. in `coding-guidelines.md`) rather than one that happened by default because S-102 was scoped as a pure move with no new tests required.
 
 ---
 
-## 5. Structural & Architectural Anomalies — Re-checked
+## 5. Watch-Only Items (#7–10) — Explicitly Not Action Items
 
-- **Architecture-boundary check (ADR-0003):** re-ran the `Core`/game-module co-change check against the fuller history; still no violation — no commit adds a game-specific reference to a `Core` entity.
-- **Duplication:** the one major cluster (`WikidataClient.cs`) is resolved and stayed resolved (no regression). `frontend/src/lib/api.ts`'s ~47 similarly-shaped fetch wrappers (see §1/§4) is the next most significant repetition in the codebase, but it's breadth (many independent small endpoints), not logic duplication — each function is doing a genuinely different thing, just with a similar shape. Lower-severity than `WikidataClient.cs`'s pattern was.
-- **New structural finding — repository scope:** `PlayerStoreRepository.cs` (see §1/§4) is the clearest SRP violation now in the codebase. Worth noting it wasn't visible in either prior report because those reports were scoped to the original P1 items and their direct remediation — this is the first pass to sweep the rest of the codebase for new candidates since Epic 7 started.
-- **New structural finding — test/implementation shape mismatch:** `AdminScreen.test.tsx` vs. its 10 post-extraction implementation files (see §1/§4) is a specific, nameable instance of "test structure didn't follow code structure" — worth flagging precisely because it's a *direct* consequence of otherwise-good refactoring work, not a pre-existing problem.
+Per this report's own priority-matrix doctrine (low churn + not-yet-a-problem = leave alone until something else touches the file), these four are listed for visibility only:
+
+- **#7 — Large test files**: `WikidataClientTests.cs` (3,463 lines, now the single largest file in the repo), `GridGameModuleTests.cs` (2,474), `AuthEndpointTests.cs` (2,095). Growing for legitimate reasons (S-100/S-101 added real regression assertions). A future split-by-scenario pass would help navigability but isn't urgent.
+- **#8 — `LeaderboardScreen.tsx`**: 1,130 lines, 6 `useEffect`, only 1 `useState` (a single state-object pattern, not 16 independent `useState` calls — actually a *healthier* shape than `AdminScreen.tsx`'s pre-S-103 form). Low churn (3 commits). No action.
+- **#9 — `AuthController.cs`**: 773 lines, 13 methods, zero deep-nesting, churn of 1 commit in the repo's entire history. No action.
+- **#10 — `SuggestionsScreen.tsx`**: 645 lines, 8 `useState`, 2 `useEffect`, but — unlike the `AdminScreen.tsx` components at #2 — already has its own dedicated `SuggestionsScreen.test.tsx`. Proportionate today. Named here only so that if it keeps growing, this report will have been the first to say so.
 
 ---
 
-## 6. Concrete Action Plan for the Top Two New Targets
+## 6. Action Plan — Newly Actionable Items (#3, #5, #6)
 
-### P2-1: `PlayerStoreRepository.cs` — repository spanning too many concerns
+(#1 and #2's action plans are unchanged from the prior revision — see git history on this file — and both are large enough to warrant their own backlog stories rather than repeating the plan here.)
 
-**Root Cause / Risk:** The repository grew the same way `WikidataClient.cs` originally did — by accretion, one new sub-entity's data-access methods at a time (`PlayerAttribute`, then `PlayerAlias`, then `PlayerOverride`, then career stints, then confirmed-low/technical-failure tracking), each addition reasonable in isolation. The risk: `IPlayerStoreRepository`'s 482-line interface means every consumer (real implementation, test fakes, any future implementation) must implement all 44 methods regardless of which sub-entity it actually needs, and any change to one concern (e.g. career-stint merge logic) requires touching a file that also contains unrelated override-management and photo-backfill logic — raising review cost and merge-conflict risk as more of these concerns get touched concurrently.
+### #3: Sync governing docs with the S-102 `CompositionRoot` split
 
-**Proposed Fix:** Split by sub-entity into focused repositories/interfaces — e.g. `IPlayerRepository` (core CRUD), `IPlayerAttributeRepository`, `IPlayerAliasRepository`, `IPlayerOverrideRepository`, `IPlayerCareerStintRepository`, `IPlayerDataQualityRepository` (confirmed-low/technical-failure tracking, photo/position backfill). Each becomes its own file, registered separately in DI (now straightforward to wire up via `CompositionRoot/ServiceRegistration.cs`, itself a product of S-102). Existing callers that need multiple concerns take multiple injected repositories rather than one wide one — check call sites first (`GridGameModule.cs`, `XGPathGameModule.cs`, `DataSync` services, admin endpoints) to see how many actually need cross-concern access in a single method, since that determines whether a thin facade over the split repositories is worth keeping for convenience.
+**Fix:** Update `docs/implementation-document.md` §4's folder-structure block (`/XGArcade.Api -> Controllers, DTOs, Program.cs` → mention `CompositionRoot/`) and every place in `docs/architecture-document.md`/`docs/implementation-document.md` that says a specific behavior is wired "in `Program.cs`" where it's now actually wired in one of the `CompositionRoot/*.cs` files. This is exactly `doc-sync`'s job — run it directly against the S-102 diff (PR #172) rather than against current uncommitted work.
 
-**Verification Strategy:** This is a larger refactor than any single Epic 7 story — consider splitting it into 2–3 stories the same way `WikidataClient.cs` was (S-100/S-101), e.g. one story per 2–3 sub-entities. For each split-out repository, the existing `PlayerStoreRepositoryTests.cs` (1,401 lines) should already have close to 1:1 method coverage — move/rename its tests to match the new repository boundaries rather than rewriting assertions, which keeps this a structural-only change. No behavior change, no new REQ IDs, same as Epic 7's other stories; add an ADR since "split one repository into N" is exactly the kind of structural, reversible-but-not-obviously-reversible choice `CLAUDE.md` asks for one on.
+**Verification:** grep both docs for `Program.cs` afterward and confirm every remaining hit is either still accurate (e.g. `Program.cs` still calls the `CompositionRoot` extension methods, so a reference to "wired via `Program.cs`'s composition root" is fine) or has been corrected.
 
-### P2-2: Backfill test coverage for `AdminScreen.tsx`'s 9 extracted components
+### #5: Restructure `CliVerbDispatcher.cs` from one method into a verb registry
 
-**Root Cause / Risk:** S-103 correctly scoped itself to a pure, mechanical, behavior-preserving extraction and correctly left `AdminScreen.test.tsx` untouched as its regression net. The gap this leaves: going forward, a change scoped to just one extracted component (say, `IncidentReportsEntry.tsx`) has no fast, focused test to run — only the full `AdminScreen.test.tsx` suite, which renders the entire composed admin screen tree.
+**Fix:** Same shape as `WikidataClient.cs`'s spec-table fix (S-100/S-101) — replace the sequential if/else-per-verb body with a `Dictionary<string, Func<...>>` (or similar) mapping each `--verb` string to its own named private method, populated once. `TryHandleAsync` becomes a lookup-and-dispatch, not 649 lines of inline logic.
 
-**Proposed Fix:** For each of the 9 extracted components, add a dedicated `<ComponentName>.test.tsx` covering its own props/state/rendering in isolation, then either trim the now-redundant coverage from `AdminScreen.test.tsx` (keeping only composition-level tests — "does `AdminScreen` render all its sections," "does prop-passing work") or leave `AdminScreen.test.tsx` as a thinner integration-level check on top of the new focused unit tests. `useAdminSectionFetch.ts` (the shared hook from `#167`) should get its own test file too if it doesn't have one already — it's shared infrastructure now used by 5 of the 9 components.
+**Verification:** pure refactor, no behavior change — existing coverage for each CLI verb (wherever it lives today, likely `XGArcade.Api.Tests` or manual verification per the workflow files) must exercise the same verb the same way before and after. No new REQ IDs.
 
-**Verification Strategy:** This is naturally splittable into one story per component (or per 2–3 related components), each independently mergeable, no dependencies between them. Acceptance per story: new dedicated test file passes, existing `AdminScreen.test.tsx` still passes unchanged (or is deliberately trimmed with an explicit note on what moved where), no behavior change.
+### #6: Decide (and document) `CompositionRoot/*.cs`'s testing strategy
+
+**Fix:** Not necessarily code — a deliberate decision, written down. Either (a) confirm integration-only coverage via `WebApplicationFactory` is the intended strategy for composition-root code and say so explicitly in `docs/coding-guidelines.md`, or (b) add focused unit tests for the parts of `AuthSetup.cs`/`ServiceRegistration.cs`/`EndpointMapping.cs` that have real conditional logic worth isolating (e.g. `AuthSetup.cs`'s `useLocalE2EAuth` branch). Either outcome is fine; what's not fine is the current state of neither being a decision.
+
+**Verification:** if (b), new focused tests pass; either way, `coding-guidelines.md` gains a stated convention so the next composition-root-adjacent file doesn't re-litigate this.
 
 ---
 
 ## Appendix: What Was Not Assessed
 
-- **`dotnet build` / `dotnet test` / `npm run test`:** not runnable in this environment (no `dotnet` CLI, no `node_modules` installed). All churn, SLOC, `npm audit`, and grep-based security/duplication findings in this revision **were** re-run live; test-pass claims for already-merged Epic 7 work are taken from those PRs' own CI-gated results.
-- **True cyclomatic/cognitive complexity numbers:** still no AST-based complexity tool available; `PlayerStoreRepository.cs`'s "too many concerns" finding is a manual read of its method list grouped by entity, not a computed coupling/cohesion metric.
-- **Temporal coupling and code-age/decay over a 6–12 month window:** still not possible — the repository is under 3 weeks old in total.
+- **`dotnet build` / `dotnet test` / `npm run test`:** still not runnable in this environment. All churn, SLOC, `npm audit`, method-count, and grep-based checks in this revision **were** re-run live.
+- **True cyclomatic/cognitive complexity numbers:** still no AST-based tool available. This revision surfaced and explicitly corrected one false positive from the line-indentation nesting heuristic (`AdminSuggestionEndpoints.cs`) — a reminder that heuristic findings in this report should be read as directional, not exact, and are cross-checked by hand before being reported wherever feasible.
+- **Temporal coupling and code-age/decay over a 6–12 month window:** still not possible — the repository remains under 3 weeks old in total.

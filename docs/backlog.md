@@ -5118,3 +5118,146 @@ rationale, only de-duplicate it.
 trim points at an ADR/doc section that still contains the full
 explanation).
 *Deps:* none.
+
+## Epic 8 — Technical debt remediation, round 2 (`CODEBASE_ANALYSIS.md` follow-up)
+
+Source: `CODEBASE_ANALYSIS.md`'s 2026-08-11 revision, written after Epic 7
+(S-099–S-105) fully landed and a fresh sweep — extended to a top-10 list
+since security and the original hotspots were already settled ground —
+found the next batch. Same house rules as Epic 7: independent of the Tier
+0 build sequence, **every story here is a pure refactor/doc-sync — no
+behavior change, no new REQ IDs** (S-110 is docs-only). Acceptance
+criteria are "existing tests/docs pass or match reality," not new
+REQ-tagged tests. Work in any order/parallel unless a story says
+otherwise; each is scoped to one PR/session. The report's own P4
+"watch-only" items (#7–10: large test files, `LeaderboardScreen.tsx`,
+`AuthController.cs`, `SuggestionsScreen.tsx`) deliberately have **no**
+story here — per this epic's own doctrine, low-churn/not-yet-a-problem
+files get left alone until something else touches them, not turned into
+busywork.
+
+**S-106 · Split PlayerStoreRepository.cs, part 1 (Player/PlayerData/PlayerAttribute/PlayerAlias)**
+`PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` (772/482 lines, 44
+methods) is the clearest Single-Responsibility violation left in the
+codebase — confirmed an outlier by comparing method counts across every
+repository in `backend/src/XGArcade.Data/Repositories/` (next-highest is
+16). Split out the first four concerns into their own repository/interface
+pairs: `IPlayerRepository` (core CRUD: `GetPlayerByWikidataQidAsync`,
+`GetPlayerByIdAsync`, `GetPlayersByIdsAsync`, `AddPlayerAsync`,
+`GetOrCreatePlayersByWikidataQidAsync`,
+`GetPlayersByNormalizedFullNameAsync`), `IPlayerDataRepository`
+(unverified/approve/remove), `IPlayerAttributeRepository`, and
+`IPlayerAliasRepository`. Register each separately in
+`CompositionRoot/ServiceRegistration.cs`. Check call sites first
+(`GridGameModule.cs`, `XGPathGameModule.cs`, `DataSync` services, admin
+endpoints) — a caller needing multiple concerns takes multiple injected
+repositories rather than one wide one; don't build a facade unless call
+sites show a real need for one.
+*Accept:* existing `PlayerStoreRepositoryTests.cs` (1,401 lines) coverage
+for these four concerns moves/renames to match the new boundaries rather
+than being rewritten — structural-only change, no behavior change, no new
+REQ IDs. Add an ADR (per `CLAUDE.md`'s own "could reasonably have gone
+another way" test — splitting one repository into several is exactly that
+kind of choice).
+*Deps:* none.
+
+**S-107 · Split PlayerStoreRepository.cs, part 2 (Override/photo+position backfill/CareerStint/data-quality tracking)**
+Continues S-106 (independent of it — no shared new infrastructure between
+the two halves, unlike `WikidataClient.cs`'s spec table, so this can run
+before, after, or in parallel with S-106). Split out the remaining five
+concerns: `IPlayerOverrideRepository`, a photo/position/birth-year backfill
+repository, `IPlayerCareerStintRepository`, and a data-quality-tracking
+repository for the confirmed-low/technical-failure methods
+(`IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
+`IsPersistentTechnicalFailureAsync`/etc.). Once both halves land, delete
+the original `PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs`.
+*Accept:* same as S-106 — tests move/rename, not rewritten; no behavior
+change; extend S-106's ADR (or add a second one) if the split boundaries
+here raise a new structural question S-106 didn't.
+*Deps:* none (can run independent of S-106, but both must land before
+either deletes the original files).
+
+**S-108 · Backfill tests for AdminScreen.tsx's extracted components, batch 1**
+S-103's "pure mechanical extraction" correctly left `AdminScreen.test.tsx`
+as the only test coverage for what's now 10+ implementation files. Add
+dedicated test files for the first 5: `PlayerSuggestionsEntry.tsx`,
+`IncidentReportsEntry.tsx`, `AnnouncementBannerSection.tsx`,
+`AccountMetricsSection.tsx`, `XGPathCycleSection.tsx`.
+*Accept:* each new `<Component>.test.tsx` passes, covering that
+component's own props/state/rendering in isolation; existing
+`AdminScreen.test.tsx` still passes unchanged (or is deliberately trimmed
+in the same PR with an explicit note on what moved where); no behavior
+change.
+*Deps:* none.
+
+**S-109 · Backfill tests for AdminScreen.tsx's extracted components, batch 2**
+Same as S-108, for the remaining components: `UnverifiedDataSection.tsx`,
+`GuestClearSection.tsx`, `RoundControlSection.tsx`,
+`UserDeletionSection.tsx`, and the shared `useAdminSectionFetch.ts` hook
+(used by 5 of the 9 extracted components — give it its own test file too
+if it doesn't already effectively have one via the batch-1/S-108
+components' tests).
+*Accept:* same as S-108.
+*Deps:* none — independent of S-108, not sequential.
+
+**S-110 · Sync architecture-document.md/implementation-document.md with the S-102 CompositionRoot split (docs-only)**
+`docs/implementation-document.md` §4's folder-structure block still reads
+`/XGArcade.Api -> Controllers, DTOs, Program.cs`, and both that doc and
+`docs/architecture-document.md` describe auth wiring, admin authorization,
+and scoring-strategy registration as happening "in `Program.cs`" in
+several places — stale since S-102 (2026-08-11) moved that logic to
+`backend/src/XGArcade.Api/CompositionRoot/{AuthSetup,CliVerbDispatcher,
+EndpointMapping,ServiceRegistration,WikidataHttpClientConfiguration}.cs`.
+Run `doc-sync` directly against S-102's diff (PR #172) rather than against
+new work — there is none here.
+*Accept:* grep both docs for `Program.cs` afterward; every remaining hit
+is either still accurate (e.g. "`Program.cs` calls the `CompositionRoot`
+extension methods") or corrected. No code changes in this story.
+*Deps:* none.
+
+**S-111 · Split frontend/src/lib/api.ts by domain**
+Flagged P3 in the *original* 2026-08-10 analysis, never one of Epic 7's 7
+stories — still the largest unaddressed hand-written frontend file (1,057
+lines, 51 exports, ~47 similarly-shaped fetch-wrapper functions). Split
+into domain files mirroring the backend's own `CompositionRoot` precedent:
+`auth.ts` (signup/login/guest/claim/refresh/logout/delete-account),
+`rounds.ts` (current round/path, guess submission, suggestions),
+`leaderboard.ts` (all `fetch*Leaderboard*` variants), `admin.ts` (if any
+admin-specific calls live here rather than being colocated with their
+admin components already), `path.ts`. Keep `ApiError`/`describeError`
+and any genuinely shared helpers in a slimmed-down `api.ts` or a new
+`apiClient.ts` the domain files import from.
+*Accept:* every existing call site's import path updates; no behavior
+change; existing frontend test suite passes unchanged.
+*Deps:* none.
+
+**S-112 · Restructure CliVerbDispatcher.cs from one method into a verb registry**
+S-102 moved the CLI-verb dispatch logic out of `Program.cs` but didn't
+restructure it — `TryHandleAsync` is a single 649-line method handling
+every verb (`--all-clubs` and its siblings —10+ CLI-triggered workflows
+exist under `.github/workflows/`) sequentially. Same shape as
+`WikidataClient.cs`'s S-100/S-101 fix: replace the sequential if/else body
+with a lookup table (`Dictionary<string, Func<...>>` or similar) mapping
+each `--verb` string to its own named private method, populated once.
+*Accept:* pure refactor, no behavior change — whatever coverage exists per
+verb today (integration tests, or manual verification per the relevant
+`.github/workflows/*.yml` file) exercises the same verb the same way
+before and after. No new REQ IDs.
+*Deps:* none.
+
+**S-113 · Decide and document CompositionRoot/*.cs's testing strategy**
+No dedicated unit tests exist for `AuthSetup.cs`/`CliVerbDispatcher.cs`/
+`EndpointMapping.cs`/`ServiceRegistration.cs` (confirmed: no
+`AuthSetupTests.cs` etc. anywhere in `backend/tests/`) — coverage is
+entirely indirect via `XGArcade.Api.Tests`'s `WebApplicationFactory`
+integration suite. This may be the right call (composition-root code is
+often better integration-tested than unit-tested), but it happened by
+default when S-102 was scoped as a pure move, not as a deliberate
+decision. Either (a) confirm integration-only coverage is intentional and
+state so explicitly in `docs/coding-guidelines.md`, or (b) add focused
+unit tests for real conditional logic worth isolating (e.g.
+`AuthSetup.cs`'s `useLocalE2EAuth` branch).
+*Accept:* if (b), new tests pass; either way, `docs/coding-guidelines.md`
+gains a stated convention so this doesn't get re-litigated per new
+composition-root file.
+*Deps:* none.
