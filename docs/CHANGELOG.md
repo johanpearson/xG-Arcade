@@ -47,9 +47,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   from an initial `S118_*` prefix to match the `REQ###_*` convention
   `docs/coding-guidelines.md` and S-100/S-101's own tests already use),
   full existing suite otherwise unchanged. `WikidataClient.cs` line count:
-  1,815 → 1,770 (-45 lines; the new shared driver's own doc comment
-  accounts for most of the difference between that and the larger
-  per-method savings — see the PR description for the full breakdown).
+  1,815 → 1,778 (-37 lines; the new shared driver's own doc comment offsets
+  most of the six per-method savings it enables).
   Not run against `dotnet test` from this sandbox (no SDK available) —
   hand-traced against each method's pre-refactor source instead; CI must
   confirm. `quality-architect` review pass: refactor correctness, the
