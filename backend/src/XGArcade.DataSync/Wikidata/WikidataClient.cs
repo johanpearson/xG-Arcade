@@ -996,6 +996,10 @@ public class WikidataClient(
     // ADR-0054: xG Path's own direct career fetch — see IWikidataClient's own
     // doc comment for why this is a different query shape from every other
     // method in this file.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync — see IWikidataClient's
+    // own doc comment for why.
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -1009,37 +1013,9 @@ public class WikidataClient(
         }
 
         var query = BuildPlayerCareerStintsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
-        // QueryPlayerPositionsAndBirthYearsByQidsAsync — see IWikidataClient's
-        // own doc comment for why.
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseCareerStintBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s)",
+            ParseCareerStintBindings, cancellationToken);
     }
 
     // Full P54 statement path (p:P54/ps:P54, MINUS deprecated rank), same
