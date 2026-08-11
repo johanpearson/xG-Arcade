@@ -1514,6 +1514,15 @@ public class WikidataClient(
     // comment, which independently already reuses _queryTimeout for its own
     // reason (cost/urgency shape), not because the two methods need to
     // match.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // always-throws contract as every other by-QID/by-name lookup in this
+    // interface except the five swallow-to-[] intersection queries (see this
+    // method's own doc comment on IWikidataClient). Uses
+    // _adminLookupQueryTimeout (45s), NOT _queryTimeout — see that field's
+    // own doc comment above for why this method deliberately does not share
+    // a budget (or a WikidataQueryTimeoutTier value) with cache warming's
+    // _cacheWarmingQueryTimeout, even though the two happen to be the same
+    // 45s today.
     public async Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
         string playerName, CancellationToken cancellationToken = default)
     {
@@ -1521,34 +1530,9 @@ public class WikidataClient(
             return null;
 
         var query = BuildPlayerCareerAndNationalityByNameQuery(playerName);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_adminLookupQueryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePlayerCareerAndNationalityByNameBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata admin career/nationality-by-name query for '{playerName}' timed out after {_adminLookupQueryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata admin career/nationality-by-name query for '{playerName}' failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _adminLookupQueryTimeout, $"Wikidata admin career/nationality-by-name query for '{playerName}'",
+            ParsePlayerCareerAndNationalityByNameBindings, cancellationToken);
     }
 
     // ADR-0062 (2026-08-09): the candidate-selection subquery below used to
