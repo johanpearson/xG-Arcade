@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `docs/backlog.md` — implemented S-108 (`docs/backlog.md`
+  Epic 8, batch 1): backfilled dedicated test files for 5 of the 9
+  components S-103 extracted from `AdminScreen.tsx`
+  (`PlayerSuggestionsEntry.test.tsx`, `IncidentReportsEntry.test.tsx`,
+  `AnnouncementBannerSection.test.tsx`, `AccountMetricsSection.test.tsx`,
+  `XGPathCycleSection.test.tsx`), each rendering its component directly and
+  stubbing only the routes that component itself calls, rather than the
+  full `AdminScreen` tree. Pure test-coverage backfill — no behavior
+  change, no new REQ IDs; `AdminScreen.test.tsx` left unchanged (its
+  existing full-tree coverage of these 5 components is now redundant with,
+  not replaced by, the new files — same "left unchanged" option the story
+  itself allows). Remaining 4 components + `useAdminSectionFetch.ts` are
+  S-109 (batch 2, not yet landed).
 - 2026-08-11 — `docs/architecture-document.md` + `docs/requirements-document.md`
   + `docs/implementation-document.md` + `docs/decisions/0067-player-store-repository-split.md`
   + `docs/backlog.md` — implemented S-107 (`docs/backlog.md` Epic 8, the

@@ -5242,6 +5242,14 @@ component's own props/state/rendering in isolation; existing
 in the same PR with an explicit note on what moved where); no behavior
 change.
 *Deps:* none.
+**Built as:** matches the plan — added the 5 named test files, each
+rendering its component directly (not through `AdminScreen`) and stubbing
+only the fetch routes that component itself calls. `AdminScreen.test.tsx`
+was left unchanged, the story's explicit alternative to trimming — its
+existing REQ-507/508/511/512/904/1209 assertions against the full tree
+still pass unmodified and now overlap with, rather than being replaced by,
+the new isolated coverage. Full frontend suite (`npm run test`, 34 files/
+581 tests) and `tsc -b`/`oxlint` all green.
 
 **S-109 · Backfill tests for AdminScreen.tsx's extracted components, batch 2**
 Same as S-108, for the remaining components: `UnverifiedDataSection.tsx`,
