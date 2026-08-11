@@ -364,22 +364,34 @@ public class GridGameModule(
         // (Program.cs) always supplies the real client.
         if (wikidataClient is not null)
         {
-            try
-            {
-                var lookup = await wikidataClient.QueryPlayerPhotoByNameAsync(submittedName, cancellationToken);
-                if (lookup is not null)
-                    return new WrongGuessPlayerInfo(lookup.FullName, lookup.PhotoUrl);
-            }
-            catch (WikidataQueryException ex)
-            {
-                logger.LogInformation(ex,
-                    "REQ-216/ADR-0057: Wikidata-only wrong-guess photo lookup failed — showing " +
-                    "PlayerNameIndex's canonical name with no photo, never fail-closed (no correctness " +
-                    "verdict left to compute for a guess already known to be wrong).");
-            }
+            var livePhoto = await TryLookupLivePhotoAsync(submittedName, cancellationToken);
+            if (livePhoto is not null)
+                return livePhoto;
         }
 
         return new WrongGuessPlayerInfo(nameIndexEntry.PrimaryName, null);
+    }
+
+    // Isolates the try/catch around ResolveWrongGuessPlayerAsync's optional
+    // live photo lookup — same fail-closed behavior as before (swallow
+    // WikidataQueryException, fall back to null so the caller shows
+    // PlayerNameIndex's own PrimaryName with no photo), only called once the
+    // caller has already confirmed wikidataClient is non-null.
+    private async Task<WrongGuessPlayerInfo?> TryLookupLivePhotoAsync(string submittedName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var lookup = await wikidataClient!.QueryPlayerPhotoByNameAsync(submittedName, cancellationToken);
+            return lookup is null ? null : new WrongGuessPlayerInfo(lookup.FullName, lookup.PhotoUrl);
+        }
+        catch (WikidataQueryException ex)
+        {
+            logger.LogInformation(ex,
+                "REQ-216/ADR-0057: Wikidata-only wrong-guess photo lookup failed — showing " +
+                "PlayerNameIndex's canonical name with no photo, never fail-closed (no correctness " +
+                "verdict left to compute for a guess already known to be wrong).");
+            return null;
+        }
     }
 
     // REQ-208's three-stage matching order — exact primary name, then
@@ -509,19 +521,30 @@ public class GridGameModule(
         var candidates = new List<DisambiguationCandidate>(matching.Count);
         foreach (var player in matching.OrderBy(p => p.Id))
         {
-            IReadOnlyList<string> distinguishing = attributesByPlayerId.TryGetValue(player.Id, out var attributes)
-                ? attributes
-                    .Where(a => !(a.AttributeType == rowAttributeType && a.AttributeValue == cell.RowCategoryValue) &&
-                                !(a.AttributeType == colAttributeType && a.AttributeValue == cell.ColCategoryValue))
-                    .Select(a => a.AttributeValue)
-                    .Distinct()
-                    .ToList()
-                : [];
-
+            var distinguishing = GetDistinguishingAttributeValues(
+                cell, rowAttributeType, colAttributeType, attributesByPlayerId, player.Id);
             candidates.Add(new DisambiguationCandidate(player.Id, player.FullName, distinguishing));
         }
 
         return candidates;
+    }
+
+    // The non-redundant half of a matching player's attributes —
+    // BuildDisambiguationCandidatesAsync's own doc comment explains why the
+    // cell's two own categories are excluded here.
+    private static IReadOnlyList<string> GetDistinguishingAttributeValues(
+        GridCell cell, string rowAttributeType, string colAttributeType,
+        IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>> attributesByPlayerId, Guid playerId)
+    {
+        if (!attributesByPlayerId.TryGetValue(playerId, out var attributes))
+            return [];
+
+        return attributes
+            .Where(a => !(a.AttributeType == rowAttributeType && a.AttributeValue == cell.RowCategoryValue) &&
+                        !(a.AttributeType == colAttributeType && a.AttributeValue == cell.ColCategoryValue))
+            .Select(a => a.AttributeValue)
+            .Distinct()
+            .ToList();
     }
 
     // REQ-208's fuzzy/edit-distance pass. Bounded candidate pool: only
@@ -776,38 +799,14 @@ public class GridGameModule(
 
         while (accepted.Count < rowHeaders.Count)
         {
-            if (remaining.Count == 0)
-                throw new GridGenerationException("Ran out of candidates before completing the grid.");
-            if (attempts >= options.MaxAttempts)
-                throw new GridGenerationException($"Grid generation aborted after {attempts} attempts.");
-            if (_timeProvider.GetUtcNow() >= deadline)
-            {
-                logger.LogWarning(
-                    "Grid generation aborted after exceeding MaxDuration ({MaxDuration}): {Accepted}/{Needed} headers " +
-                    "found in {Attempts} attempts, {Remaining} candidates left untried.",
-                    options.MaxDuration, accepted.Count, rowHeaders.Count, attempts, remaining.Count);
-                throw new GridGenerationException(
-                    $"Grid generation aborted after exceeding {options.MaxDuration} " +
-                    $"(found {accepted.Count}/{rowHeaders.Count} valid headers in {attempts} attempts).");
-            }
+            EnsurePickingCanContinue(remaining.Count, attempts, accepted.Count, rowHeaders.Count, deadline);
 
             var candidate = remaining[^1];
             remaining.RemoveAt(remaining.Count - 1);
             attempts++;
 
-            var matchCounts = new int[rowHeaders.Count];
-            var isValid = true;
-            for (var i = 0; i < rowHeaders.Count; i++)
-            {
-                matchCounts[i] = await GetMatchCountAsync(rowCategoryType, rowHeaders[i], colCategoryType, candidate, cancellationToken);
-                if (matchCounts[i] < options.MinValidAnswers)
-                {
-                    isValid = false;
-                    break;
-                }
-            }
-
-            if (!isValid)
+            var matchCounts = await TryComputeMatchCountsAsync(rowCategoryType, rowHeaders, colCategoryType, candidate, cancellationToken);
+            if (matchCounts is null)
             {
                 logger.LogDebug("Rejected {ColCategoryType} candidate '{Candidate}' — below MinValidAnswers on at least one row.",
                     colCategoryType, candidate.Name);
@@ -820,6 +819,50 @@ public class GridGameModule(
         }
 
         return accepted;
+    }
+
+    // PickHeadersAsync's three abort conditions (pool exhausted, MaxAttempts
+    // hit, MaxDuration elapsed), unchanged from the original inline checks —
+    // same order, same exception messages, still whichever trips first.
+    private void EnsurePickingCanContinue(int remainingCount, int attempts, int acceptedCount, int neededCount, DateTimeOffset deadline)
+    {
+        if (remainingCount == 0)
+            throw new GridGenerationException("Ran out of candidates before completing the grid.");
+        if (attempts >= options.MaxAttempts)
+            throw new GridGenerationException($"Grid generation aborted after {attempts} attempts.");
+        if (_timeProvider.GetUtcNow() >= deadline)
+            ThrowDeadlineExceeded(remainingCount, attempts, acceptedCount, neededCount);
+    }
+
+    private void ThrowDeadlineExceeded(int remainingCount, int attempts, int acceptedCount, int neededCount)
+    {
+        logger.LogWarning(
+            "Grid generation aborted after exceeding MaxDuration ({MaxDuration}): {Accepted}/{Needed} headers " +
+            "found in {Attempts} attempts, {Remaining} candidates left untried.",
+            options.MaxDuration, acceptedCount, neededCount, attempts, remainingCount);
+        throw new GridGenerationException(
+            $"Grid generation aborted after exceeding {options.MaxDuration} " +
+            $"(found {acceptedCount}/{neededCount} valid headers in {attempts} attempts).");
+    }
+
+    // The inner per-candidate validity check PickHeadersAsync's while loop
+    // runs against every fixed row header — null means this candidate is
+    // rejected (below MinValidAnswers against at least one row), matching
+    // the original inline for-loop's early break exactly, just out of the
+    // caller's way.
+    private async Task<int[]?> TryComputeMatchCountsAsync(
+        string rowCategoryType, IReadOnlyList<CategoryCandidate> rowHeaders,
+        string colCategoryType, CategoryCandidate candidate, CancellationToken cancellationToken)
+    {
+        var matchCounts = new int[rowHeaders.Count];
+        for (var i = 0; i < rowHeaders.Count; i++)
+        {
+            matchCounts[i] = await GetMatchCountAsync(rowCategoryType, rowHeaders[i], colCategoryType, candidate, cancellationToken);
+            if (matchCounts[i] < options.MinValidAnswers)
+                return null;
+        }
+
+        return matchCounts;
     }
 
     // REQ-103/REQ-109 waterfall (Tier 0: Wikidata-only half, S-006): a local
@@ -958,21 +1001,27 @@ public class GridGameModule(
         {
             for (var col = 0; col < columns.Count; col++)
             {
-                cells.Add(new GridCell
-                {
-                    Id = Guid.NewGuid(),
-                    GridInstanceId = gridInstanceId,
-                    Row = row,
-                    Col = col,
-                    RowCategoryType = rowCategoryType,
-                    RowCategoryValue = rowHeaders[row].Name,
-                    ColCategoryType = colCategoryType,
-                    ColCategoryValue = columns[col].Candidate.Name,
-                });
+                cells.Add(CreateCell(
+                    gridInstanceId, row, rowCategoryType, rowHeaders[row], col, colCategoryType, columns[col].Candidate));
             }
         }
         return cells;
     }
+
+    private static GridCell CreateCell(
+        Guid gridInstanceId, int row, string rowCategoryType, CategoryCandidate rowHeader,
+        int col, string colCategoryType, CategoryCandidate colHeader) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            GridInstanceId = gridInstanceId,
+            Row = row,
+            Col = col,
+            RowCategoryType = rowCategoryType,
+            RowCategoryValue = rowHeader.Name,
+            ColCategoryType = colCategoryType,
+            ColCategoryValue = colHeader.Name,
+        };
 
     private static List<T> Shuffle<T>(IReadOnlyList<T> source)
     {
