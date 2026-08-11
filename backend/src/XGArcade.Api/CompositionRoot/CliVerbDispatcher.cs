@@ -68,6 +68,35 @@ public static class CliVerbDispatcher
         return await handler(args);
     }
 
+    // S-114 (pure refactor, follow-up to S-112's own doc comment above): the
+    // shared boilerplate every handler below used to repeat inline — read
+    // ConnectionStrings:Database from environment variables and build a
+    // configured XGArcadeDbContext, throwing the same
+    // InvalidOperationException today's callers already depend on when it's
+    // missing. One shared place instead of ten copies.
+    private static XGArcadeDbContext BuildDbContext()
+    {
+        var config = new ConfigurationBuilder()
+            .AddEnvironmentVariables()
+            .Build();
+
+        var connectionString = config.GetConnectionString("Database")
+            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+        var options = new DbContextOptionsBuilder<XGArcadeDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+
+        return new XGArcadeDbContext(options);
+    }
+
+    // S-114: same shared-boilerplate extraction as BuildDbContext above, for
+    // the 6 handlers that also need an ILoggerFactory.
+    private static ILoggerFactory BuildLoggerFactory() =>
+        LoggerFactory.Create(b => b
+            .AddConsole()
+            .SetMinimumLevel(LogLevel.Information));
+
     // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
     // server start) used by ci.yml's local E2E stack. Applies pending EF Core
     // migrations against ConnectionStrings:Database, then seeds Tier 0's
@@ -77,17 +106,7 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var migrationConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var connectionString = migrationConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var optionsBuilder = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(connectionString);
-
-        await using var migrationDbContext = new XGArcadeDbContext(optionsBuilder.Options);
+        await using var migrationDbContext = BuildDbContext();
         await migrationDbContext.Database.MigrateAsync();
         await ReferenceDataSeeder.SeedAsync(migrationDbContext);
         // S-009: backfills Player.NormalizedFullName for any row that predates
@@ -133,22 +152,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var warmingConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var warmingLoggerFactory = BuildLoggerFactory();
 
-        var warmingConnectionString = warmingConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var warmingDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(warmingConnectionString)
-            .Options;
-
-        using var warmingLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
+        await using var warmingDbContext = BuildDbContext();
         var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
         // S-106/S-107 (pure refactor): the sibling repositories
         // WikidataLookupService/PlayerCacheWarmingService now depend on,
