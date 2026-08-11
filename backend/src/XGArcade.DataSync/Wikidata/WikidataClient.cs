@@ -435,6 +435,106 @@ public class WikidataClient(
         }
     }
 
+    // S-118 (docs/backlog.md, Epic 9): the shared HTTP/timeout/retry driver
+    // for the six "throwing" query methods S-118 scoped in —
+    // QueryPlayerPoolBirthYearAsync, QueryPlayerPoolByNationalityAsync,
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync, QuerySitelinkCountsByQidsAsync,
+    // QueryPlayerCareerStintsByQidsAsync, and QueryPlayerCareerAndNationalityByNameAsync —
+    // all of which used to hand-roll this exact HTTP send / timeout-CTS /
+    // catch/throw shape independently (nine near-identical copies before
+    // S-100/S-101 fixed this for the intersection queries; these six were
+    // added afterward by later ADRs and never migrated).
+    //
+    // NOT yet migrated onto this driver: QueryPlayerPhotosByQidsAsync and
+    // QueryPlayerPhotoByNameAsync also hand-roll the identical throw-on-failure
+    // HTTP send / timeout-CTS / catch shape but are outside S-118's scoped
+    // method list (docs/backlog.md's S-118 entry names exactly the six
+    // above) — left as-is here rather than pulled in opportunistically;
+    // worth a small follow-up story in the same regression-net style if this
+    // file gets touched again. This is the "throwing" sibling of
+    // RunIntersectionQueryAsync above — deliberately a SEPARATE method, not a
+    // generalization of RunIntersectionQueryAsync itself, since the two have
+    // genuinely different error contracts (swallow-to-[] unless
+    // throwOnTimeout vs. always throw WikidataQueryException) that a single
+    // shared method would have to reintroduce a flag to distinguish — see
+    // this file's own "never conflate a real failure with a genuine empty
+    // result" convention (IWikidataClient's per-method doc comments) for why
+    // that distinction is worth keeping structurally separate, not just
+    // parameterized away.
+    //
+    // Deliberately takes an explicit TimeSpan `timeout`, not a
+    // WikidataQueryTimeoutTier — that enum's whole reason to exist is
+    // resolving a timeout from TWO independent axes (throwOnTimeout AND
+    // timeoutTier, see WikidataQueryTimeoutTier's own doc comment), which
+    // only the five intersection queries need. None of the six callers here
+    // have a throwOnTimeout parameter at all (they always throw), so there is
+    // only ever one axis: which one of this class's four fixed budget fields
+    // (_queryTimeout/_guessTimeFallbackQueryTimeout/_cacheWarmingQueryTimeout/
+    // _adminLookupQueryTimeout) a given method always uses. Forcing that
+    // single fixed choice through the tier enum would need either reusing
+    // Default (misleading — Default's own resolution logic depends on
+    // throwOnTimeout, which doesn't exist here) or adding a tier whose value
+    // (45s) happens to coincide with CacheWarming's today — but
+    // _adminLookupQueryTimeout and _cacheWarmingQueryTimeout are two
+    // independently-reasoned budgets that simply happen to share a number
+    // right now (see _adminLookupQueryTimeout's own doc comment, which is
+    // explicit that this is "not a nobody's waiting" budget the way cache
+    // warming's is) — collapsing them into one shared tier would silently
+    // couple two call sites that could reasonably diverge in the future.
+    // Passing the field directly keeps that decoupling intact and needs no
+    // enum change at all.
+    //
+    // `description` is the query's own human-readable identity (e.g.
+    // "Wikidata player-pool query for birth year 1977") — every one of the
+    // six callers' pre-refactor timeout/failure exception messages already
+    // followed the exact "{description} timed out after {N}s."/
+    // "{description} failed: {message}" shape, so building both messages
+    // here from one shared description string reproduces each method's
+    // original wording byte-for-byte (see WikidataClientTests.cs's existing
+    // per-method timeout/error tests, none of which needed to change).
+    private async Task<T> RunThrowingQueryAsync<T>(
+        string query,
+        TimeSpan timeout,
+        string description,
+        Func<SparqlResponse?, T> parseResponse,
+        CancellationToken cancellationToken)
+    {
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return parseResponse(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // Same caller-cancellation-vs-own-timeout distinction every
+            // migrated method's own pre-refactor catch filter already made
+            // (see e.g. QueryPlayerPoolBirthYearAsync_CallerCancellation_
+            // PropagatesAsOperationCanceledException_NotWikidataQueryException) —
+            // a genuine caller cancellation (cancellationToken itself
+            // triggered) falls through this filter and propagates as an
+            // ordinary OperationCanceledException, never misclassified as
+            // this client's own query failure.
+            throw new WikidataQueryException($"{description} timed out after {timeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException($"{description} failed: {ex.Message}", ex);
+        }
+    }
+
     // Shared shape between the two intersection query builders below —
     // extracted after REQ-214's P18 addition had to be hand-duplicated into
     // both (flagged in quality-gate review as exactly the kind of place
@@ -526,6 +626,11 @@ public class WikidataClient(
     // P1344/P3450/P1346 edition-winner join) moved with them — see that
     // file, not here, for all 9.
 
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — see
+    // that method's own doc comment for the shared HTTP/timeout/error-
+    // handling shape. Signature and behavior (including the
+    // caller-cancellation-vs-own-timeout distinction) are unchanged for
+    // every caller (PlayerNameIndexImporter, WikidataClientTests.cs).
     public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolBirthYearAsync(
         int birthYear, CancellationToken cancellationToken = default)
     {
@@ -534,45 +639,9 @@ public class WikidataClient(
                 $"birthYear must be {FirstEligibleBirthYear} or later (ADR-0025's player-pool floor).");
 
         var query = BuildPlayerPoolBirthYearQuery(birthYear);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Unlike every other public method on this client, this one THROWS
-        // (WikidataQueryException) on timeout/HTTP/parse failure instead of
-        // returning [] — an empty list from this method means exactly "no
-        // eligible players born this year" (a real thing for sparse early
-        // years), never "the query failed." The original swallow-to-[]
-        // contract made a WDQS timeout indistinguishable from end-of-data,
-        // and the import-player-name-index job exited 0 having imported
-        // nothing (NOTES.md 2026-07-18). The intersection queries above keep
-        // their never-throw contract untouched — REQ-103's "never block grid
-        // generation on a Wikidata failure" depends on it; this bulk-import
-        // method has the opposite requirement (fail loudly, re-run the job).
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseNameIndexBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-pool query for birth year {birthYear} timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-pool query for birth year {birthYear} failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player-pool query for birth year {birthYear}",
+            ParseNameIndexBindings, cancellationToken);
     }
 
     // S-032/ADR-0007's broad "association football player" pool query, no
@@ -612,40 +681,18 @@ public class WikidataClient(
     // ADR-0055: PlayerCareerPrefetchService's per-country pool query — see
     // IWikidataClient's own doc comment for why this is a nationality-scoped
     // sibling to QueryPlayerPoolBirthYearAsync above, not a replacement.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPoolBirthYearAsync, see that
+    // method's own doc comment (IWikidataClient) for why. No QID validation
+    // here, matching the pre-refactor method exactly — nationalityWikidataQid
+    // was never guarded by WikidataQid.IsValid before this refactor either.
     public async Task<IReadOnlyList<WikidataNameIndexEntry>> QueryPlayerPoolByNationalityAsync(
         string nationalityWikidataQid, bool useCountryForSportProperty, CancellationToken cancellationToken = default)
     {
         var query = BuildPlayerPoolByNationalityQuery(nationalityWikidataQid, useCountryForSportProperty);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPoolBirthYearAsync —
-        // see this method's own doc comment (IWikidataClient) for why.
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseNameIndexBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-pool query for nationality {nationalityWikidataQid} timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player-pool query for nationality {nationalityWikidataQid} failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player-pool query for nationality {nationalityWikidataQid}",
+            ParseNameIndexBindings, cancellationToken);
     }
 
     // ADR-0055: the nationality-scoped sibling of BuildPlayerPoolBirthYearQuery
@@ -858,6 +905,10 @@ public class WikidataClient(
     // why this is a different query shape from the intersection queries
     // above and why its error contract (throw, not swallow-to-empty) matches
     // QueryPlayerPhotosByQidsAsync rather than them.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync (see that
+    // method's own comment) — a swallowed failure here would be
+    // indistinguishable from "none of these QIDs have this data."
     public async Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -871,37 +922,9 @@ public class WikidataClient(
         }
 
         var query = BuildPlayerPositionsAndBirthYearsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync
-        // (see that method's own comment) — a swallowed failure here would
-        // be indistinguishable from "none of these QIDs have this data."
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePositionBirthYearBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s)",
+            ParsePositionBirthYearBindings, cancellationToken);
     }
 
     // Same "VALUES clause over the batch, no candidate-matching filter" shape
@@ -981,6 +1004,10 @@ public class WikidataClient(
     // ADR-0054: xG Path's own direct career fetch — see IWikidataClient's own
     // doc comment for why this is a different query shape from every other
     // method in this file.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync — see IWikidataClient's
+    // own doc comment for why.
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>>> QueryPlayerCareerStintsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -994,37 +1021,9 @@ public class WikidataClient(
         }
 
         var query = BuildPlayerCareerStintsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
-        // QueryPlayerPositionsAndBirthYearsByQidsAsync — see IWikidataClient's
-        // own doc comment for why.
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseCareerStintBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player career-stint batch query for {wikidataQids.Count} QID(s)",
+            ParseCareerStintBindings, cancellationToken);
     }
 
     // Full P54 statement path (p:P54/ps:P54, MINUS deprecated rank), same
@@ -1308,6 +1307,11 @@ public class WikidataClient(
     // PlayerCareerStintRefreshService's own catch) — this client method
     // itself must not silently conflate "this player really has 0 sitelinks"
     // with "the query failed."
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync/QueryPlayerCareerStintsByQidsAsync
+    // (see this method's own doc comment on IWikidataClient for the full
+    // reasoning).
     public async Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -1321,34 +1325,9 @@ public class WikidataClient(
         }
 
         var query = BuildSitelinkCountsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseSitelinkCountBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s)",
+            ParseSitelinkCountBindings, cancellationToken);
     }
 
     // Same "VALUES clause over the batch, no candidate-matching filter"
@@ -1543,6 +1522,15 @@ public class WikidataClient(
     // comment, which independently already reuses _queryTimeout for its own
     // reason (cost/urgency shape), not because the two methods need to
     // match.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // always-throws contract as every other by-QID/by-name lookup in this
+    // interface except the five swallow-to-[] intersection queries (see this
+    // method's own doc comment on IWikidataClient). Uses
+    // _adminLookupQueryTimeout (45s), NOT _queryTimeout — see that field's
+    // own doc comment above for why this method deliberately does not share
+    // a budget (or a WikidataQueryTimeoutTier value) with cache warming's
+    // _cacheWarmingQueryTimeout, even though the two happen to be the same
+    // 45s today.
     public async Task<WikidataPlayerCareerLookupResult?> QueryPlayerCareerAndNationalityByNameAsync(
         string playerName, CancellationToken cancellationToken = default)
     {
@@ -1550,34 +1538,9 @@ public class WikidataClient(
             return null;
 
         var query = BuildPlayerCareerAndNationalityByNameQuery(playerName);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_adminLookupQueryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePlayerCareerAndNationalityByNameBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata admin career/nationality-by-name query for '{playerName}' timed out after {_adminLookupQueryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata admin career/nationality-by-name query for '{playerName}' failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _adminLookupQueryTimeout, $"Wikidata admin career/nationality-by-name query for '{playerName}'",
+            ParsePlayerCareerAndNationalityByNameBindings, cancellationToken);
     }
 
     // ADR-0062 (2026-08-09): the candidate-selection subquery below used to
