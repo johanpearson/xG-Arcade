@@ -115,7 +115,7 @@ Churn = commit count over the repo's full 16-day history (see caveat above — t
 | `frontend/src/admin/AdminScreen.tsx` | 7 | 1,432 lines, 16 `useState`, 4 `useEffect` — God Component; partial extraction already underway (`#167`) | P2/P3 |
 | `frontend/src/lib/types.ts` | 11 | 620 lines, very dense per-field rationale comments; churns with every new API field | P3 (healthy churn — this is the frontend/backend contract file, expected to move often) |
 | `frontend/src/lib/api.ts` | 10 | 1,057 lines, single file for the entire API client surface | P3 |
-| `backend/src/XGArcade.Games.XGGrid/GridGameModule.cs` | 12 | 983 lines, 23 methods, deepest nesting of any hand-written file scanned (25 lines at ≥5 indent levels) | P3 |
+| `backend/src/XGArcade.Games.XGGrid/GridGameModule.cs` | 12 | 1,032 lines, 30 methods; deepest-nested branches flattened into named private methods/early-returns (S-104, docs/backlog.md) — down to 3 lines at ≥5 indent levels, from a baseline of 25 | P4 — resolved |
 | `backend/src/XGArcade.Data/Repositories/PlayerStoreRepository.cs` | 10 | 772 lines | P4 |
 | `backend/src/XGArcade.Games.XGPath/XGPathGameModule.cs` | 12 | (newer sibling module to Grid; mirrors its shape) | P4 — watch, don't act yet |
 

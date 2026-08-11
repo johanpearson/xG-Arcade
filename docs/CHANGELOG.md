@@ -48,6 +48,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   (`REQ100_Query*IntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput`),
   full existing suite otherwise unchanged. `WikidataClient.cs` line count:
   1,977 → 1,815 (-162 lines).
+- 2026-08-11 — `CODEBASE_ANALYSIS.md` (§4 hotspot row updated, no version
+  header) — S-104 (`docs/backlog.md` Epic 7): flattened
+  `backend/src/XGArcade.Games.XGGrid/GridGameModule.cs`'s deepest-nested
+  branches into named private methods/early-returns. Four extractions: the
+  `ResolveWrongGuessPlayerAsync` try/catch around the optional live-photo
+  lookup → `TryLookupLivePhotoAsync`; `BuildDisambiguationCandidatesAsync`'s
+  ternary/LINQ block → `GetDistinguishingAttributeValues`;
+  `PickHeadersAsync`'s three abort-condition checks →
+  `EnsurePickingCanContinue`/`ThrowDeadlineExceeded`, and its inner
+  match-count for-loop → `TryComputeMatchCountsAsync`; `BuildCells`'s nested
+  for-loop object initializer → `CreateCell`. Public method
+  signatures/behavior unchanged — same exception types/messages, same log
+  templates, same generation/scoring outcomes; pure refactor, no new REQ
+  IDs, no component boundary crossed (still entirely inside
+  `XGArcade.Games.XGGrid`) — no ADR, same reasoning as S-100/S-101/S-103.
+  Regression proof: full `GridGameModuleTests.cs` suite (119 tests)
+  unchanged and passing, full backend suite (1,384 tests across all 6 test
+  projects) unchanged and passing. Nesting (lines at ≥5 indent levels, same
+  heuristic `CODEBASE_ANALYSIS.md` §4 used): 25 → 3. `GridGameModule.cs`:
+  983 → 1,032 lines, 23 → 30 methods (net +49 lines from the extracted
+  methods' own doc comments, offset by removed duplication).
 - 2026-08-11 — `docs/coding-guidelines.md` (path correction only) — S-103
   (`docs/backlog.md` Epic 7): finished the `AdminScreen.tsx` God-Component
   extraction that `#167` started (`useAdminSectionFetch`).
