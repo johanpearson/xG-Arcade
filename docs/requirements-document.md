@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.69"
+version: "1.70"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -24,14 +24,18 @@ Version 0.75 · 2026-07-20
 > rounds, scoring — everything shared across games). **xG Grid** is the
 > name of the first game built on the xG Arcade, not the platform itself.
 
-> **Repository-split note (2026-08-11, S-106, ADR-0067):** any
+> **Repository-split note (2026-08-11, S-106+S-107, ADR-0067):** any
 > `IPlayerStoreRepository.<Method>` reference below dated before 2026-08-11
-> may refer to a method that has since moved to one of four new sibling
+> refers to a method that has since moved to one of eight new sibling
 > repositories (`IPlayerRepository`/`IPlayerDataRepository`/
-> `IPlayerAttributeRepository`/`IPlayerAliasRepository`) — see
-> `architecture-document.md`'s COMP-06 entry and ADR-0067 for the full
-> mapping. This was a pure refactor (no behavior change, no REQ changed),
-> so historical dated entries below were not individually rewritten.
+> `IPlayerAttributeRepository`/`IPlayerAliasRepository`/
+> `IPlayerOverrideRepository`/`IPlayerBackfillRepository`/
+> `IPlayerCareerStintRepository`/`IPlayerDataQualityRepository`) —
+> `IPlayerStoreRepository`/`PlayerStoreRepository.cs` no longer exist, now
+> that both halves of the split have landed. See `architecture-document.md`'s
+> COMP-06 entry and ADR-0067 for the full mapping. This was a pure refactor
+> (no behavior change, no REQ changed), so historical dated entries below
+> were not individually rewritten.
 
 ## 0. xG Arcade vs. game
 

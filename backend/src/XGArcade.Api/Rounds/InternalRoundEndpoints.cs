@@ -303,11 +303,11 @@ public static class InternalRoundEndpoints
         // GridGameModule.
         app.MapPost("/internal/test-data/seed-guessable-path-round", async (
             IPathInstanceRepository pathInstanceRepository,
-            IPlayerStoreRepository playerStoreRepository,
-            // S-106 (pure refactor): CreateUniqueTestPlayerAsync's own
-            // AddPlayerAsync call moved out of IPlayerStoreRepository —
-            // playerStoreRepository above is kept for AddCareerStintsAsync,
-            // which hasn't moved (S-107 territory).
+            // S-106/S-107 (pure refactor): CreateUniqueTestPlayerAsync's own
+            // AddPlayerAsync call moved out of the original, now-deleted
+            // IPlayerStoreRepository — AddCareerStintsAsync now lives on
+            // IPlayerCareerStintRepository (see ADR-0067).
+            IPlayerCareerStintRepository playerCareerStintRepository,
             IPlayerRepository playerRepository,
             IRoundRepository roundRepository,
             TimeProvider timeProvider,
@@ -327,7 +327,7 @@ public static class InternalRoundEndpoints
             // here is illustrative only; AddCareerStintsAsync recomputes it
             // for the player's full stint set by (StartYear, EndYear), never
             // trusting the caller's own value.
-            await playerStoreRepository.AddCareerStintsAsync(
+            await playerCareerStintRepository.AddCareerStintsAsync(
                 player.Id,
                 [
                     new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Ajax", StartYear = 2010, EndYear = 2013, SequenceOrder = 0 },

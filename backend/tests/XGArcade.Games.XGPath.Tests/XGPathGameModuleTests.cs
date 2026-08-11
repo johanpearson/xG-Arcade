@@ -36,12 +36,11 @@ public class XGPathGameModuleTests
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IPathInstanceRepository _pathInstanceRepository = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): the two sibling repositories carrying the
-    // methods XGPathGameModule needs that moved out of IPlayerStoreRepository
-    // — _playerStoreRepository above is kept for
-    // GetCareerStintCandidatePlayerIdsAsync/GetCareerStintsByPlayerIdsAsync,
-    // which haven't moved.
+    // S-106/S-107 (pure refactor): the sibling repositories carrying the
+    // methods split out of the original, now-deleted IPlayerStoreRepository
+    // — see ADR-0067. _playerCareerStintRepository carries
+    // GetCareerStintCandidatePlayerIdsAsync/GetCareerStintsByPlayerIdsAsync.
+    private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private IPlayerAliasRepository _playerAliasRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
@@ -55,7 +54,7 @@ public class XGPathGameModuleTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _pathInstanceRepository = new PathInstanceRepository(_dbContext);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _playerAliasRepository = new PlayerAliasRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
@@ -97,7 +96,7 @@ public class XGPathGameModuleTests
     {
         _careerStintRefreshService = new FakePlayerCareerStintRefreshService();
         _playerFamiliarityService = new FakePlayerFamiliarityService();
-        return new(_pathInstanceRepository, _playerStoreRepository, _playerRepository, _playerAliasRepository, _categoryValueRepository,
+        return new(_pathInstanceRepository, _playerCareerStintRepository, _playerRepository, _playerAliasRepository, _categoryValueRepository,
             _careerStintRefreshService, _playerFamiliarityService, random ?? new SequentialRandom(), timeProvider);
     }
 

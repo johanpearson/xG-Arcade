@@ -5,7 +5,7 @@
          ScoreResult) live in XGArcade.Core. -->
     <ProjectReference Include="..\XGArcade.Core\XGArcade.Core.csproj" />
     <!-- S-081 (REQ-1201/1202): COMP-06 (Data.PlayerStore) repositories
-         (IPlayerStoreRepository for PlayerCareerStint, ICategoryValueRepository
+         (IPlayerCareerStintRepository for PlayerCareerStint, ICategoryValueRepository
          for ClubDefinition) and COMP-11's own persistence
          (IPathInstanceRepository/PathTemplate/PathInstance/PathPuzzle) —
          boundary rule 1: Games.XGPath reaches player/category/its-own data

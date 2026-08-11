@@ -25,13 +25,13 @@ namespace XGArcade.DataSync.Wikidata;
 // is a small, hand-seeded (~15 rows, MVP-SCOPE.md) reference table, so
 // re-reading it once per refresh call is not a perf concern the way
 // PlayerCareerStint's ~608K rows are.
-// S-106 (pure refactor): playerRepository carries GetPlayersByIdsAsync,
-// split out of IPlayerStoreRepository — playerStore is kept for
-// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync, which haven't
-// moved (S-107 territory).
+// S-106/S-107 (pure refactor): playerRepository carries
+// GetPlayersByIdsAsync (split out of the original, now-deleted
+// IPlayerStoreRepository); playerCareerStintRepository carries
+// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync — see ADR-0067.
 public class PlayerCareerStintRefreshService(
     IWikidataClient wikidataClient,
-    IPlayerStoreRepository playerStore,
+    IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     ICategoryValueRepository categoryValueRepository,
     ILogger<PlayerCareerStintRefreshService> logger) : IPlayerCareerStintRefreshService
@@ -78,13 +78,13 @@ public class PlayerCareerStintRefreshService(
             return;
 
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
-        var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
+        var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
         var clubNameByClubQid = await BuildClubNameByClubQidAsync(categoryValueRepository, cancellationToken);
 
         var newStintsByPlayerId = BuildNewStintsByPlayerId(stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
         if (newStintsByPlayerId.Count > 0)
-            await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,

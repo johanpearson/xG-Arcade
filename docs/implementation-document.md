@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.94"
+version: "0.95"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -28,16 +28,20 @@ References: `requirements-document.md`, `architecture-document.md`
 > solution/repo is named after the xG Arcade; xG Grid lives in its own
 > `XGArcade.Games.XGGrid` project, not the root namespace.
 
-> **Repository-split note (2026-08-11, S-106, ADR-0067):** any
+> **Repository-split note (2026-08-11, S-106+S-107, ADR-0067):** any
 > `IPlayerStoreRepository.<Method>` reference below dated before 2026-08-11
-> may refer to a method that has since moved to one of four new sibling
+> refers to a method that has since moved to one of eight new sibling
 > repositories — `IPlayerRepository` (core `Player` CRUD), `IPlayerDataRepository`
 > (`PlayerData`), `IPlayerAttributeRepository` (`PlayerAttribute`, plus
 > `GetPlayersWithEitherAttributeAsync`/`CountPlayersWithBothAttributesAsync`),
-> `IPlayerAliasRepository` (`PlayerAlias`, plus `GetPlayersByNormalizedAliasAsync`).
-> `IPlayerStoreRepository` itself still exists, now scoped to
-> `PlayerOverride`, the photo/position/birth-year backfill cursors,
-> `PlayerCareerStint`, and `ConfirmedLowMatchPair`/`PairLookupFailure` — see
+> `IPlayerAliasRepository` (`PlayerAlias`, plus `GetPlayersByNormalizedAliasAsync`),
+> `IPlayerOverrideRepository` (`PlayerOverride`, plus `HasEffectiveAttributeAsync`),
+> `IPlayerBackfillRepository` (the photo/position/birth-year backfill
+> cursors), `IPlayerCareerStintRepository` (`PlayerCareerStint`),
+> `IPlayerDataQualityRepository` (`ConfirmedLowMatchPair`/`PairLookupFailure`,
+> plus `GetUnseededClubCandidatesAsync`). `IPlayerStoreRepository`/
+> `PlayerStoreRepository.cs` no longer exist — both halves of the split
+> (S-106, S-107) have landed and the original files were deleted — see
 > ADR-0067 for the full method-to-interface mapping. Historical dated
 > entries below were not individually rewritten to the new interface names
 > (this was a pure refactor, no behavior change) — treat the interface name

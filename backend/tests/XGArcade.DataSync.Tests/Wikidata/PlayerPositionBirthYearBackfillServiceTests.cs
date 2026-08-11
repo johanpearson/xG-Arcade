@@ -16,13 +16,13 @@ namespace XGArcade.DataSync.Tests.Wikidata;
 public class PlayerPositionBirthYearBackfillServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): AddPlayerAsync/GetPlayerByIdAsync moved to
+    // S-106/S-107 (pure refactor): AddPlayerAsync/GetPlayerByIdAsync live on
     // IPlayerRepository — used only for this file's own seed/assert
     // helpers; BuildService's BackfillAsync target,
     // GetPlayersMissingPositionOrBirthYearAsync/UpdatePlayerPositionsAndBirthYearsAsync,
-    // hasn't moved (S-107 territory), so _playerStoreRepository stays the
-    // service's own dependency.
+    // lives on IPlayerBackfillRepository (see ADR-0067), the service's own
+    // dependency.
+    private IPlayerBackfillRepository _playerBackfillRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
@@ -33,7 +33,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _dbContext = new XGArcadeDbContext(options);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerBackfillRepository = new PlayerBackfillRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
@@ -42,7 +42,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerPositionBirthYearBackfillService BuildService() =>
-        new(_playerStoreRepository, _wikidataClient, NullLogger<PlayerPositionBirthYearBackfillService>.Instance);
+        new(_playerBackfillRepository, _wikidataClient, NullLogger<PlayerPositionBirthYearBackfillService>.Instance);
 
     private async Task<Player> SeedPlayerAsync(string wikidataQid, string? position = null, int? birthYear = null)
     {

@@ -4,15 +4,15 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.DataSync.Wikidata;
 
-// S-106 (pure refactor): playerRepository/playerAttributeRepository/
+// S-106/S-107 (pure refactor): playerRepository/playerAttributeRepository/
 // playerAliasRepository/playerDataRepository carry the methods split out of
-// IPlayerStoreRepository that this class needs for PersistMatchesAsync's
-// batch upsert — playerStore is kept only for
-// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync
-// (PersistCareerStintsAsync), which haven't moved (S-107 territory).
+// the original, now-deleted IPlayerStoreRepository that this class needs
+// for PersistMatchesAsync's batch upsert; playerCareerStintRepository
+// carries GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync
+// (PersistCareerStintsAsync) — see ADR-0067.
 public class WikidataLookupService(
     IWikidataClient wikidataClient,
-    IPlayerStoreRepository playerStore,
+    IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     IPlayerAttributeRepository playerAttributeRepository,
     IPlayerAliasRepository playerAliasRepository,
@@ -352,7 +352,7 @@ public class WikidataLookupService(
         if (playerIdsWithStints.Count == 0)
             return;
 
-        var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(playerIdsWithStints, cancellationToken);
+        var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(playerIdsWithStints, cancellationToken);
 
         var newStintsByPlayerId = new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>();
 
@@ -395,6 +395,6 @@ public class WikidataLookupService(
                 newStintsByPlayerId[playerId] = newStints;
         }
 
-        await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+        await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
     }
 }

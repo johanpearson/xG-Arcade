@@ -16,12 +16,14 @@ public class PlayerCacheWarmingServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): PlayerCacheWarmingService's own
-    // CountPlayersWithBothAttributesAsync moved to IPlayerAttributeRepository
-    // — _playerStoreRepository above is kept for ConfirmedLowMatchPair/
-    // PairLookupFailure, which haven't moved. playerRepository is only used
-    // to build FakeWikidataLookupService's own persistence path below.
+    // S-106/S-107 (pure refactor): PlayerCacheWarmingService's own
+    // CountPlayersWithBothAttributesAsync lives on IPlayerAttributeRepository;
+    // ConfirmedLowMatchPair/PairLookupFailure live on
+    // IPlayerDataQualityRepository (see ADR-0067). _playerOverrideRepository
+    // is only used to build FakeWikidataLookupService's own persistence path
+    // below (HasEffectiveAttributeAsync), same as playerRepository.
+    private IPlayerDataQualityRepository _playerDataQualityRepository = null!;
+    private IPlayerOverrideRepository _playerOverrideRepository = null!;
     private IPlayerAttributeRepository _playerAttributeRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private FakeWikidataLookupService _wikidataLookupService = null!;
@@ -34,17 +36,18 @@ public class PlayerCacheWarmingServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerDataQualityRepository = new PlayerDataQualityRepository(_dbContext);
+        _playerOverrideRepository = new PlayerOverrideRepository(_dbContext);
         _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
-        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository, _playerRepository, _playerAttributeRepository);
+        _wikidataLookupService = new FakeWikidataLookupService(_playerOverrideRepository, _playerRepository, _playerAttributeRepository);
     }
 
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCacheWarmingService BuildService(int minValidAnswers) =>
-        new(_categoryValueRepository, _playerStoreRepository, _playerAttributeRepository, _wikidataLookupService,
+        new(_categoryValueRepository, _playerDataQualityRepository, _playerAttributeRepository, _wikidataLookupService,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers },
             NullLogger<PlayerCacheWarmingService>.Instance);
 
@@ -319,14 +322,14 @@ public class PlayerCacheWarmingServiceTests
 
         var firstRun = await service.WarmAsync();
         Assert.That(firstRun.PairsWithTechnicalFailure, Is.EqualTo(1));
-        Assert.That(await _playerStoreRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.True,
+        Assert.That(await _playerDataQualityRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.True,
             "one technical failure must already be recorded before the recovery run");
 
         var secondRun = await service.WarmAsync();
 
         Assert.That(secondRun.PairsQueriedLive, Is.EqualTo(1));
         Assert.That(secondRun.PairsWithTechnicalFailure, Is.EqualTo(0));
-        Assert.That(await _playerStoreRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.False,
+        Assert.That(await _playerDataQualityRepository.IsPersistentTechnicalFailureAsync("nationality", "France", "club", "Arsenal", threshold: 1), Is.False,
             "the marker must be cleared once the pair gets a real answer, even a below-threshold one — otherwise a pair that recovers would still count toward a future skip");
     }
 
@@ -348,7 +351,7 @@ public class PlayerCacheWarmingServiceTests
         Assert.That(result.PairsQueriedLive, Is.EqualTo(1));
         Assert.That(result.PairsSkippedConfirmedLow, Is.EqualTo(0),
             "a pair confirmed low FOR THE FIRST TIME this run is still counted as queried live, not skipped, this run");
-        Assert.That(await _playerStoreRepository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"), Is.True,
+        Assert.That(await _playerDataQualityRepository.IsConfirmedLowAsync("nationality", "France", "club", "Arsenal"), Is.True,
             "the confirmed-low marker must be persisted so a LATER run can skip it");
     }
 
@@ -361,7 +364,7 @@ public class PlayerCacheWarmingServiceTests
     {
         SeedCountry("France");
         SeedClub("Arsenal");
-        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Arsenal", matchCount: 1);
         var service = BuildService(minValidAnswers: 5);
 
         var result = await service.WarmAsync();
@@ -386,8 +389,8 @@ public class PlayerCacheWarmingServiceTests
         // (Barcelona, Arsenal) — seeding both orders so this test doesn't
         // depend on which one the loop actually uses (same defensive
         // technique as this file's other order-independent assertions).
-        await _playerStoreRepository.RecordConfirmedLowAsync("club", "Arsenal", "club", "Barcelona", matchCount: 0);
-        await _playerStoreRepository.RecordConfirmedLowAsync("club", "Barcelona", "club", "Arsenal", matchCount: 0);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("club", "Arsenal", "club", "Barcelona", matchCount: 0);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("club", "Barcelona", "club", "Arsenal", matchCount: 0);
         var service = BuildService(minValidAnswers: 5);
 
         var result = await service.WarmAsync();
@@ -480,7 +483,7 @@ public class PlayerCacheWarmingServiceTests
         // Seed the state a prior WarmAsync run would have left behind: a
         // real confirmed-low marker for this exact pair, mirroring
         // PlayerCacheWarmingService's own nationality-then-club ordering.
-        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 1);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 1);
 
         // REQ-111 named-mode cleanup — e.g. after Napoli's WikidataQid was
         // corrected — must clear the stale marker alongside the stale
@@ -514,7 +517,7 @@ public class PlayerCacheWarmingServiceTests
         // which exists there only because that file's other tests seed
         // players without a matching ClubDefinition row at all).
         Assert.That(await _dbContext.ClubDefinitions.AnyAsync(c => c.Id == napoli.Id), Is.True);
-        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
 
         // REQ-111 --all-clubs mode — e.g. after the 2026-07-17 truthy-wdt:P54
         // incident tainted every seeded club's cached data at once — must
@@ -552,7 +555,7 @@ public class PlayerCacheWarmingServiceTests
         // regression test or WarmAsync's downstream behavior can observe.
         SeedCountry("France");
         SeedClub("Napoli");
-        await _playerStoreRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
+        await _playerDataQualityRepository.RecordConfirmedLowAsync("nationality", "France", "club", "Napoli", matchCount: 0);
 
         var staleConfirmedLow = await _dbContext.ConfirmedLowMatchPairs.ToListAsync();
         _dbContext.ConfirmedLowMatchPairs.RemoveRange(staleConfirmedLow);
@@ -583,8 +586,8 @@ public class PlayerCacheWarmingServiceTests
     {
         SeedCountry("France");
         SeedClub("Napoli");
-        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
-        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Napoli");
 
         var staleLookupFailures = await _dbContext.PairLookupFailures.ToListAsync();
         _dbContext.PairLookupFailures.RemoveRange(staleLookupFailures);

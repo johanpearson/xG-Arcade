@@ -47,11 +47,10 @@ public static class PathEndpoints
             IRoundRepository roundRepository,
             IPathInstanceRepository pathInstanceRepository,
             IGuessRepository guessRepository,
-            IPlayerStoreRepository playerStoreRepository,
-            // S-106 (pure refactor): GetPlayersByIdsAsync/
-            // GetPlayerAttributesByPlayerIdsAsync moved out of
-            // IPlayerStoreRepository — playerStoreRepository above is kept
-            // for GetCareerStintsByPlayerIdsAsync, which hasn't moved.
+            // S-106/S-107 (pure refactor): the sibling repositories carrying
+            // the methods split out of the original, now-deleted
+            // IPlayerStoreRepository — see ADR-0067.
+            IPlayerCareerStintRepository playerCareerStintRepository,
             IPlayerRepository playerRepository,
             IPlayerAttributeRepository playerAttributeRepository,
             IGameModuleResolver gameModuleResolver,
@@ -115,7 +114,7 @@ public static class PathEndpoints
             // the batch, never one per cell" discipline RoundEndpoints
             // already follows for its own player lookups.
             var targetPlayerIds = instance.Puzzles.Select(p => p.TargetPlayerId).Distinct().ToList();
-            var stintsByPlayerId = await playerStoreRepository.GetCareerStintsByPlayerIdsAsync(targetPlayerIds, cancellationToken);
+            var stintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(targetPlayerIds, cancellationToken);
             var playersById = await playerRepository.GetPlayersByIdsAsync(targetPlayerIds, cancellationToken);
             var attributesByPlayerId = await playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync(targetPlayerIds, cancellationToken);
 

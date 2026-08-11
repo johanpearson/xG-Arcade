@@ -145,10 +145,7 @@ public static class AdminEndpoints
         app.MapPost("/admin/player-overrides", async (
             CreatePlayerOverrideRequest request,
             ClaimsPrincipal principal,
-            IPlayerStoreRepository playerStoreRepository,
-            // S-106 (pure refactor): GetPlayerByIdAsync moved to
-            // IPlayerRepository — playerStoreRepository above is kept for
-            // GetOverrideAsync/AddOverrideAsync, which haven't moved.
+            IPlayerOverrideRepository playerOverrideRepository,
             IPlayerRepository playerRepository,
             CancellationToken cancellationToken) =>
         {
@@ -164,7 +161,7 @@ public static class AdminEndpoints
             if (player is null)
                 return Results.NotFound();
 
-            var existing = await playerStoreRepository.GetOverrideAsync(request.PlayerId, request.Field, cancellationToken);
+            var existing = await playerOverrideRepository.GetOverrideAsync(request.PlayerId, request.Field, cancellationToken);
             if (existing is not null)
             {
                 return Results.Problem(
@@ -184,17 +181,17 @@ public static class AdminEndpoints
                 LockedByAdminId = principal.GetAuthProviderUserId()!.Value,
                 LockedAt = DateTime.UtcNow,
             };
-            await playerStoreRepository.AddOverrideAsync(playerOverride, cancellationToken);
+            await playerOverrideRepository.AddOverrideAsync(playerOverride, cancellationToken);
 
             return Results.Created($"/admin/player-overrides/{playerOverride.Id}", ToResponse(playerOverride));
         }).RequireAuthorization("Admin");
 
         app.MapGet("/admin/player-overrides/{id:guid}", async (
             Guid id,
-            IPlayerStoreRepository playerStoreRepository,
+            IPlayerOverrideRepository playerOverrideRepository,
             CancellationToken cancellationToken) =>
         {
-            var playerOverride = await playerStoreRepository.GetOverrideByIdAsync(id, cancellationToken);
+            var playerOverride = await playerOverrideRepository.GetOverrideByIdAsync(id, cancellationToken);
             return playerOverride is null ? Results.NotFound() : Results.Ok(ToResponse(playerOverride));
         }).RequireAuthorization("Admin");
 
@@ -202,7 +199,7 @@ public static class AdminEndpoints
             Guid id,
             UpdatePlayerOverrideRequest request,
             ClaimsPrincipal principal,
-            IPlayerStoreRepository playerStoreRepository,
+            IPlayerOverrideRepository playerOverrideRepository,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.Value) || string.IsNullOrWhiteSpace(request.Reason))
@@ -213,7 +210,7 @@ public static class AdminEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var playerOverride = await playerStoreRepository.GetOverrideByIdAsync(id, cancellationToken);
+            var playerOverride = await playerOverrideRepository.GetOverrideByIdAsync(id, cancellationToken);
             if (playerOverride is null)
                 return Results.NotFound();
 
@@ -222,17 +219,17 @@ public static class AdminEndpoints
             // Policy above already required a valid "sub" claim to reach here.
             playerOverride.LockedByAdminId = principal.GetAuthProviderUserId()!.Value;
             playerOverride.LockedAt = DateTime.UtcNow;
-            await playerStoreRepository.UpdateOverrideAsync(playerOverride, cancellationToken);
+            await playerOverrideRepository.UpdateOverrideAsync(playerOverride, cancellationToken);
 
             return Results.Ok(ToResponse(playerOverride));
         }).RequireAuthorization("Admin");
 
         app.MapDelete("/admin/player-overrides/{id:guid}", async (
             Guid id,
-            IPlayerStoreRepository playerStoreRepository,
+            IPlayerOverrideRepository playerOverrideRepository,
             CancellationToken cancellationToken) =>
         {
-            var deleted = await playerStoreRepository.DeleteOverrideAsync(id, cancellationToken);
+            var deleted = await playerOverrideRepository.DeleteOverrideAsync(id, cancellationToken);
             return deleted ? Results.NoContent() : Results.NotFound();
         }).RequireAuthorization("Admin");
     }

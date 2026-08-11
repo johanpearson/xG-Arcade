@@ -37,7 +37,7 @@ namespace XGArcade.DataSync.Wikidata;
 // player again — accepted for the same "occasional job, not a tight
 // recurring schedule" reasoning.
 public class PlayerPositionBirthYearBackfillService(
-    IPlayerStoreRepository playerStoreRepository,
+    IPlayerBackfillRepository playerBackfillRepository,
     IWikidataClient wikidataClient,
     ILogger<PlayerPositionBirthYearBackfillService> logger)
 {
@@ -60,7 +60,7 @@ public class PlayerPositionBirthYearBackfillService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var batch = await playerStoreRepository.GetPlayersMissingPositionOrBirthYearAsync(
+            var batch = await playerBackfillRepository.GetPlayersMissingPositionOrBirthYearAsync(
                 attemptedPlayerIds, BatchSize, cancellationToken);
             if (batch.Count == 0)
                 break;
@@ -121,7 +121,7 @@ public class PlayerPositionBirthYearBackfillService(
 
             if (updatesByPlayerId.Count > 0)
             {
-                await playerStoreRepository.UpdatePlayerPositionsAndBirthYearsAsync(updatesByPlayerId, cancellationToken);
+                await playerBackfillRepository.UpdatePlayerPositionsAndBirthYearsAsync(updatesByPlayerId, cancellationToken);
                 playersBackfilled += updatesByPlayerId.Count;
             }
 
