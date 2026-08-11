@@ -5358,3 +5358,21 @@ unit tests for real conditional logic worth isolating (e.g.
 gains a stated convention so this doesn't get re-litigated per new
 composition-root file.
 *Deps:* none.
+
+**S-114 · Extract shared DB-context/logger-factory builder in CliVerbDispatcher.cs**
+S-112's `quality-architect` review flagged that, unlike `WikidataClient.cs`'s
+S-100/S-101 driver (which eliminated real query-building duplication), the
+10 verb handlers in `CliVerbDispatcher.cs` still copy-paste the same
+`ConfigurationBuilder`/`GetConnectionString("Database")`/
+`DbContextOptionsBuilder<XGArcadeDbContext>`/(where used)
+`LoggerFactory.Create` boilerplate — deliberately left alone in S-112 to
+keep that story a pure, minimal-diff refactor. Extract a shared private
+helper (e.g. `BuildDbContext()` returning a configured
+`XGArcadeDbContext`, and `BuildLoggerFactory()` for the handlers that need
+one) and have each handler call it instead of repeating the four-line
+setup inline.
+*Accept:* pure refactor, no behavior change — every handler still resolves
+`ConnectionStrings:Database` the same way and throws the same
+`InvalidOperationException` message when it's missing; full test suite
+(and CI, since `dotnet` isn't available in this sandbox) passes unchanged.
+*Deps:* S-112.

@@ -68,6 +68,35 @@ public static class CliVerbDispatcher
         return await handler(args);
     }
 
+    // S-114 (pure refactor, follow-up to S-112's own doc comment above): the
+    // shared boilerplate every handler below used to repeat inline — read
+    // ConnectionStrings:Database from environment variables and build a
+    // configured XGArcadeDbContext, throwing the same
+    // InvalidOperationException today's callers already depend on when it's
+    // missing. One shared place instead of ten copies.
+    private static XGArcadeDbContext BuildDbContext()
+    {
+        var config = new ConfigurationBuilder()
+            .AddEnvironmentVariables()
+            .Build();
+
+        var connectionString = config.GetConnectionString("Database")
+            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
+
+        var options = new DbContextOptionsBuilder<XGArcadeDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+
+        return new XGArcadeDbContext(options);
+    }
+
+    // S-114: same shared-boilerplate extraction as BuildDbContext above, for
+    // the 6 handlers that also need an ILoggerFactory.
+    private static ILoggerFactory BuildLoggerFactory() =>
+        LoggerFactory.Create(b => b
+            .AddConsole()
+            .SetMinimumLevel(LogLevel.Information));
+
     // `dotnet run -- migrate-and-seed` is a distinct CLI verb (not a normal
     // server start) used by ci.yml's local E2E stack. Applies pending EF Core
     // migrations against ConnectionStrings:Database, then seeds Tier 0's
@@ -77,17 +106,7 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var migrationConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var connectionString = migrationConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var optionsBuilder = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(connectionString);
-
-        await using var migrationDbContext = new XGArcadeDbContext(optionsBuilder.Options);
+        await using var migrationDbContext = BuildDbContext();
         await migrationDbContext.Database.MigrateAsync();
         await ReferenceDataSeeder.SeedAsync(migrationDbContext);
         // S-009: backfills Player.NormalizedFullName for any row that predates
@@ -133,22 +152,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var warmingConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var warmingLoggerFactory = BuildLoggerFactory();
 
-        var warmingConnectionString = warmingConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var warmingDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(warmingConnectionString)
-            .Options;
-
-        using var warmingLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
+        await using var warmingDbContext = BuildDbContext();
         var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
         // S-106/S-107 (pure refactor): the sibling repositories
         // WikidataLookupService/PlayerCacheWarmingService now depend on,
@@ -194,22 +200,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var importConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var importLoggerFactory = BuildLoggerFactory();
 
-        var importConnectionString = importConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var importDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(importConnectionString)
-            .Options;
-
-        using var importLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var importDbContext = new XGArcadeDbContext(importDbContextOptions);
+        await using var importDbContext = BuildDbContext();
         var importRepository = new PlayerNameIndexRepository(importDbContext);
 
         using var importHttpClient = new HttpClient();
@@ -260,22 +253,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var backfillConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var backfillLoggerFactory = BuildLoggerFactory();
 
-        var backfillConnectionString = backfillConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var backfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(backfillConnectionString)
-            .Options;
-
-        using var backfillLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
+        await using var backfillDbContext = BuildDbContext();
         var backfillPlayerBackfillRepository = new PlayerBackfillRepository(backfillDbContext);
 
         using var backfillHttpClient = new HttpClient();
@@ -308,22 +288,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var positionBirthYearBackfillConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var positionBirthYearBackfillLoggerFactory = BuildLoggerFactory();
 
-        var positionBirthYearBackfillConnectionString = positionBirthYearBackfillConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var positionBirthYearBackfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(positionBirthYearBackfillConnectionString)
-            .Options;
-
-        using var positionBirthYearBackfillLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var positionBirthYearBackfillDbContext = new XGArcadeDbContext(positionBirthYearBackfillDbContextOptions);
+        await using var positionBirthYearBackfillDbContext = BuildDbContext();
         var positionBirthYearBackfillPlayerBackfillRepository = new PlayerBackfillRepository(positionBirthYearBackfillDbContext);
 
         using var positionBirthYearBackfillHttpClient = new HttpClient();
@@ -359,22 +326,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var prefetchConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var prefetchLoggerFactory = BuildLoggerFactory();
 
-        var prefetchConnectionString = prefetchConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var prefetchDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(prefetchConnectionString)
-            .Options;
-
-        using var prefetchLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
+        await using var prefetchDbContext = BuildDbContext();
         var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
         var prefetchPlayerCareerStintRepository = new PlayerCareerStintRepository(prefetchDbContext);
         // S-106/S-107 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's
@@ -441,18 +395,7 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var verifyConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var verifyConnectionString = verifyConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var verifyDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(verifyConnectionString)
-            .Options;
-
-        await using var verifyDbContext = new XGArcadeDbContext(verifyDbContextOptions);
+        await using var verifyDbContext = BuildDbContext();
         var verifiedCount = await verifyDbContext.PlayerData
             .Where(d => d.Source == "wikidata" && d.Confidence == "unverified")
             .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.Confidence, "verified"));
@@ -477,22 +420,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var auditConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var auditLoggerFactory = BuildLoggerFactory();
 
-        var auditConnectionString = auditConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var auditDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(auditConnectionString)
-            .Options;
-
-        using var auditLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var auditDbContext = new XGArcadeDbContext(auditDbContextOptions);
+        await using var auditDbContext = BuildDbContext();
         var auditPlayerDataQualityRepository = new PlayerDataQualityRepository(auditDbContext);
 
         var auditService = new ClubGapAuditService(auditPlayerDataQualityRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
@@ -535,18 +465,7 @@ public static class CliVerbDispatcher
                 "clean-stale-club-attributes requires a comma-separated club names argument (or the literal `--all-clubs`), " +
                 "e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"` or `clean-stale-club-attributes --all-clubs`.");
 
-        var cleanConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var cleanConnectionString = cleanConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var cleanDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(cleanConnectionString)
-            .Options;
-
-        await using var cleanDbContext = new XGArcadeDbContext(cleanDbContextOptions);
+        await using var cleanDbContext = BuildDbContext();
 
         int removedAttributeCount;
         int removedDataCount;
@@ -609,18 +528,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"clear-pair-lookup-failures takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
 
-        var clearFailuresConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var clearFailuresConnectionString = clearFailuresConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var clearFailuresDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(clearFailuresConnectionString)
-            .Options;
-
-        await using var clearFailuresDbContext = new XGArcadeDbContext(clearFailuresDbContextOptions);
+        await using var clearFailuresDbContext = BuildDbContext();
 
         var clearedPairNames = await PairLookupFailureCleaner.ClearPersistentFailuresAsync(clearFailuresDbContext);
 
@@ -644,18 +552,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"clean-duplicate-career-stints takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
 
-        var cleanDuplicateStintsConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var cleanDuplicateStintsConnectionString = cleanDuplicateStintsConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var cleanDuplicateStintsDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(cleanDuplicateStintsConnectionString)
-            .Options;
-
-        await using var cleanDuplicateStintsDbContext = new XGArcadeDbContext(cleanDuplicateStintsDbContextOptions);
+        await using var cleanDuplicateStintsDbContext = BuildDbContext();
 
         var removedDuplicateStintCount = await DuplicateCareerStintCleaner.CleanAsync(cleanDuplicateStintsDbContext);
 
@@ -707,18 +604,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"purge-player-pool requires the exact confirmation phrase as its argument: `purge-player-pool \"{requiredConfirmationPhrase}\"`.");
 
-        var purgeConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var purgeConnectionString = purgeConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var purgeDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(purgeConnectionString)
-            .Options;
-
-        await using var purgeDbContext = new XGArcadeDbContext(purgeDbContextOptions);
+        await using var purgeDbContext = BuildDbContext();
         var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
         // Same established exception as purge-player-pool's own Players
         // ExecuteDeleteAsync above (see this verb's own doc comment referencing

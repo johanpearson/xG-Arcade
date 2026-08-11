@@ -43,6 +43,37 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   could not be run here — verification was a manual line-by-line re-read of
   each handler against the original plus the normalized-diff check above;
   CI's `dotnet test` run is the actual regression net.
+- 2026-08-11 — no docs changed beyond this entry — S-114 (`docs/backlog.md`
+  Epic 8, direct follow-up to S-112's own `quality-architect` review
+  finding): extracted the boilerplate all 12 `CliVerbDispatcher.cs` verb
+  handlers repeated — `ConfigurationBuilder().AddEnvironmentVariables().Build()`
+  → `GetConnectionString("Database")` (throwing
+  `InvalidOperationException("ConnectionStrings:Database is not configured.")`
+  when missing) → `DbContextOptionsBuilder<XGArcadeDbContext>().UseNpgsql(...)`
+  → `new XGArcadeDbContext(...)` — into a single private static
+  `BuildDbContext()` helper, and the `LoggerFactory.Create(b => b.AddConsole()
+  .SetMinimumLevel(LogLevel.Information))` block 6 of those handlers
+  (`HandleWarmPlayerCacheAsync`, `HandleImportPlayerNameIndexAsync`,
+  `HandleBackfillPlayerPhotosAsync`,
+  `HandleBackfillPlayerPositionBirthYearAsync`,
+  `HandlePrefetchPlayerCareersAsync`, `HandleAuditClubGapsAsync`) also
+  repeated into a `BuildLoggerFactory()` helper. Every handler now calls
+  these instead, keeping its own existing local variable name (e.g.
+  `warmingDbContext`, `auditLoggerFactory`) and its position relative to
+  other statements — including the two handlers
+  (`HandleCleanStaleClubAttributesAsync`, `HandlePurgePlayerPoolAsync`)
+  whose own confirmation-argument validation still runs, unchanged, before
+  the (now one-line) DbContext construction. `CliVerbDispatcher.cs` shrinks
+  from 735 to 621 lines. Confirmed via a whitespace-normalized diff against
+  the pre-refactor (post-S-112) file that the only differences are the two
+  new helper methods plus each handler's boilerplate collapsing to 1-2
+  lines — no `Console.WriteLine`/exception text, control flow, or ordering
+  changed anywhere; `Program.cs`'s call site is untouched. Pure refactor,
+  no behavior change, no new REQ IDs, no component boundary crossed — no
+  ADR, same reasoning as S-112. `dotnet` SDK unavailable in this sandbox,
+  so `dotnet build`/`dotnet test` could not be run here — verification was
+  the normalized-diff check plus a manual top-to-bottom re-read of all 12
+  handlers; CI's `dotnet test` run is the actual regression net.
 - 2026-08-11 — `docs/backlog.md` — implemented S-111 (`docs/backlog.md`
   Epic 8): split `frontend/src/lib/api.ts` (1,057 lines, 51 exports) into a
   shared `apiClient.ts` (`ApiError`/`throwApiError`/`describeError`/
