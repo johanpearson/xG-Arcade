@@ -200,22 +200,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var importConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var importLoggerFactory = BuildLoggerFactory();
 
-        var importConnectionString = importConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var importDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(importConnectionString)
-            .Options;
-
-        using var importLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var importDbContext = new XGArcadeDbContext(importDbContextOptions);
+        await using var importDbContext = BuildDbContext();
         var importRepository = new PlayerNameIndexRepository(importDbContext);
 
         using var importHttpClient = new HttpClient();
@@ -266,22 +253,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var backfillConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var backfillLoggerFactory = BuildLoggerFactory();
 
-        var backfillConnectionString = backfillConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var backfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(backfillConnectionString)
-            .Options;
-
-        using var backfillLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
+        await using var backfillDbContext = BuildDbContext();
         var backfillPlayerBackfillRepository = new PlayerBackfillRepository(backfillDbContext);
 
         using var backfillHttpClient = new HttpClient();
@@ -314,22 +288,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var positionBirthYearBackfillConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var positionBirthYearBackfillLoggerFactory = BuildLoggerFactory();
 
-        var positionBirthYearBackfillConnectionString = positionBirthYearBackfillConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var positionBirthYearBackfillDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(positionBirthYearBackfillConnectionString)
-            .Options;
-
-        using var positionBirthYearBackfillLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var positionBirthYearBackfillDbContext = new XGArcadeDbContext(positionBirthYearBackfillDbContextOptions);
+        await using var positionBirthYearBackfillDbContext = BuildDbContext();
         var positionBirthYearBackfillPlayerBackfillRepository = new PlayerBackfillRepository(positionBirthYearBackfillDbContext);
 
         using var positionBirthYearBackfillHttpClient = new HttpClient();
