@@ -435,6 +435,98 @@ public class WikidataClient(
         }
     }
 
+    // S-118 (docs/backlog.md, Epic 9): the shared HTTP/timeout/retry driver
+    // for every "throwing" query method in this file — QueryPlayerPoolBirthYearAsync,
+    // QueryPlayerPoolByNationalityAsync, QueryPlayerPositionsAndBirthYearsByQidsAsync,
+    // QuerySitelinkCountsByQidsAsync, QueryPlayerCareerStintsByQidsAsync, and
+    // QueryPlayerCareerAndNationalityByNameAsync all used to hand-roll this
+    // exact HTTP send / timeout-CTS / catch/throw shape independently (nine
+    // near-identical copies before S-100/S-101 fixed this for the
+    // intersection queries; these six were added afterward by later ADRs and
+    // never migrated). This is the "throwing" sibling of
+    // RunIntersectionQueryAsync above — deliberately a SEPARATE method, not a
+    // generalization of RunIntersectionQueryAsync itself, since the two have
+    // genuinely different error contracts (swallow-to-[] unless
+    // throwOnTimeout vs. always throw WikidataQueryException) that a single
+    // shared method would have to reintroduce a flag to distinguish — see
+    // this file's own "never conflate a real failure with a genuine empty
+    // result" convention (IWikidataClient's per-method doc comments) for why
+    // that distinction is worth keeping structurally separate, not just
+    // parameterized away.
+    //
+    // Deliberately takes an explicit TimeSpan `timeout`, not a
+    // WikidataQueryTimeoutTier — that enum's whole reason to exist is
+    // resolving a timeout from TWO independent axes (throwOnTimeout AND
+    // timeoutTier, see WikidataQueryTimeoutTier's own doc comment), which
+    // only the five intersection queries need. None of the six callers here
+    // have a throwOnTimeout parameter at all (they always throw), so there is
+    // only ever one axis: which one of this class's four fixed budget fields
+    // (_queryTimeout/_guessTimeFallbackQueryTimeout/_cacheWarmingQueryTimeout/
+    // _adminLookupQueryTimeout) a given method always uses. Forcing that
+    // single fixed choice through the tier enum would need either reusing
+    // Default (misleading — Default's own resolution logic depends on
+    // throwOnTimeout, which doesn't exist here) or adding a tier whose value
+    // (45s) happens to coincide with CacheWarming's today — but
+    // _adminLookupQueryTimeout and _cacheWarmingQueryTimeout are two
+    // independently-reasoned budgets that simply happen to share a number
+    // right now (see _adminLookupQueryTimeout's own doc comment, which is
+    // explicit that this is "not a nobody's waiting" budget the way cache
+    // warming's is) — collapsing them into one shared tier would silently
+    // couple two call sites that could reasonably diverge in the future.
+    // Passing the field directly keeps that decoupling intact and needs no
+    // enum change at all.
+    //
+    // `description` is the query's own human-readable identity (e.g.
+    // "Wikidata player-pool query for birth year 1977") — every one of the
+    // six callers' pre-refactor timeout/failure exception messages already
+    // followed the exact "{description} timed out after {N}s."/
+    // "{description} failed: {message}" shape, so building both messages
+    // here from one shared description string reproduces each method's
+    // original wording byte-for-byte (see WikidataClientTests.cs's existing
+    // per-method timeout/error tests, none of which needed to change).
+    private async Task<T> RunThrowingQueryAsync<T>(
+        string query,
+        TimeSpan timeout,
+        string description,
+        Func<SparqlResponse?, T> parseResponse,
+        CancellationToken cancellationToken)
+    {
+        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        try
+        {
+            using var response = await httpClient.SendAsync(request, linkedCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
+            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
+
+            return parseResponse(parsed);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // Same caller-cancellation-vs-own-timeout distinction every
+            // migrated method's own pre-refactor catch filter already made
+            // (see e.g. QueryPlayerPoolBirthYearAsync_CallerCancellation_
+            // PropagatesAsOperationCanceledException_NotWikidataQueryException) —
+            // a genuine caller cancellation (cancellationToken itself
+            // triggered) falls through this filter and propagates as an
+            // ordinary OperationCanceledException, never misclassified as
+            // this client's own query failure.
+            throw new WikidataQueryException($"{description} timed out after {timeout.TotalSeconds:0}s.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
+        {
+            throw new WikidataQueryException($"{description} failed: {ex.Message}", ex);
+        }
+    }
+
     // Shared shape between the two intersection query builders below —
     // extracted after REQ-214's P18 addition had to be hand-duplicated into
     // both (flagged in quality-gate review as exactly the kind of place
