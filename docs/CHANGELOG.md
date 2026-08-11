@@ -13,6 +13,20 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `docs/architecture-document.md` + `docs/implementation-document.md`
+  + `docs/backlog.md` — implemented S-110 (`docs/backlog.md` Epic 8):
+  synced both docs' `Program.cs` references with S-102's
+  `CompositionRoot/{AuthSetup,CliVerbDispatcher,EndpointMapping,
+  ServiceRegistration,WikidataHttpClientConfiguration}.cs` split — the
+  folder-structure block in `implementation-document.md` §4 now shows
+  `CompositionRoot/` alongside the now-thin `Program.cs`, and every
+  `Program.cs`-attributed statement about pipeline order, auth wiring,
+  admin/test-data-endpoint gating, CLI verbs, and scoring-strategy
+  registration now names the specific `CompositionRoot/*.cs` file that
+  actually contains it, with "(called from `Program.cs`)" where that's
+  still accurate context. Docs-only, no code changes — S-102's own PR
+  #172 was pure reorganization and made none of these docs stale on
+  purpose; this closes the gap.
 - 2026-08-11 — `docs/backlog.md` — implemented S-108 (`docs/backlog.md`
   Epic 8, batch 1): backfilled dedicated test files for 5 of the 9
   components S-103 extracted from `AdminScreen.tsx`

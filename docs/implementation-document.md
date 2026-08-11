@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.95"
+version: "0.96"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -180,15 +180,20 @@ HTTPS redirection
   → Controller action
 ```
 
-**Tier 0 status (S-004, updated S-012):** HTTPS redirection, CORS, JWT
-validation, and admin authorization are wired in `Program.cs` today, in
-that order (`UseHttpsRedirection` → `UseCors("Frontend")` →
-`UseAuthentication` → `UseAuthorization` → `MapControllers`, with the
-"Admin" policy — `AdminRequirement`/`AdminAuthorizationHandler`,
+**Tier 0 status (S-004, updated S-012, updated S-102):** HTTPS redirection,
+CORS, JWT validation, and admin authorization are wired today, in that
+order (`UseHttpsRedirection` → `UseCors("Frontend")` → `UseAuthentication`
+→ `UseAuthorization` → `MapControllers`, with the "Admin" policy —
+`AdminRequirement`/`AdminAuthorizationHandler`,
 `XGArcade.Api.Auth.AdminAuthorization.cs` — registered alongside
 `AddAuthorization` and applied per-endpoint via `.RequireAuthorization
 ("Admin")` on every `/admin/*` route in `XGArcade.Api.Admin
-.AdminEndpoints`, S-012). `AdminAuthorizationHandler` re-parses
+.AdminEndpoints`, S-012). S-102 split this out of `Program.cs` into
+`CompositionRoot/AuthSetup.cs` (CORS/rate limiting/JWT/"Admin" policy
+registration) and `CompositionRoot/EndpointMapping.cs` (the pipeline
+order above and every `app.Map*Endpoints()` call) — both are extension
+methods called from `Program.cs`, now a ~30-line composition root; see
+§4's project-structure block. `AdminAuthorizationHandler` re-parses
 `Admin:UserIds` (env var `Admin__UserIds`, comma-separated GUIDs) on every
 request rather than caching it — see that class's own doc comment for why
 this is a deliberate Tier 0 simplicity choice, not an oversight. Rate
@@ -212,22 +217,35 @@ surfaced the original static-HS256-secret assumption as wrong). A
 test-only branch, `Auth:Mode=local-e2e`, swaps in a locally-signed JWT
 (`LocalE2EAuth`'s fixed signing key/issuer/audience, HS256, purely
 in-process) instead of Supabase's — gated by
-`builder.Environment.IsDevelopment()` checked directly in `Program.cs`
-alongside the config flag, never by the config flag alone (the same
-never-guarded-only-by-config discipline ADR-0006 established for COMP-09).
-See ADR-0013 and ADR-0017.
+`builder.Environment.IsDevelopment()` checked directly in
+`CompositionRoot/AuthSetup.cs`'s shared `IsLocalE2EAuth` helper (called
+from both `ConfigureSupabaseAuthentication` at builder time and
+`LogJwksConfiguration` at app time, so the two can't silently drift; S-102
+moved this out of `Program.cs`) alongside the config flag, never by the
+config flag alone (the same never-guarded-only-by-config discipline
+ADR-0006 established for COMP-09). See ADR-0013 and ADR-0017.
 
 `Testing.SeedManager` (COMP-09) endpoints are only added to the routing
-table when `ASPNETCORE_ENVIRONMENT != Production`, checked in `Program.cs`
-before endpoint registration — not as an attribute that could be
-misconfigured per-endpoint. See ADR-0006.
+table when `ASPNETCORE_ENVIRONMENT != Production`, checked via
+`app.Environment.IsProduction()` inside `InternalGridEndpoints
+.MapInternalGridEndpoints`/`InternalRoundEndpoints
+.MapInternalRoundEndpoints` themselves, before either maps any route —
+both are called from `CompositionRoot/EndpointMapping.cs`'s
+`ConfigurePipeline` (itself called from `Program.cs`, S-102) — not as an
+attribute that could be misconfigured per-endpoint. See ADR-0006.
 
 ## 4. Project structure
 
 ```
 /backend
   /src
-    /XGArcade.Api              -> Controllers, DTOs, Program.cs
+    /XGArcade.Api              -> Controllers, DTOs, CompositionRoot/ (S-102:
+                                   AuthSetup, CliVerbDispatcher,
+                                   EndpointMapping, ServiceRegistration,
+                                   WikidataHttpClientConfiguration — each a
+                                   focused extension-method group), Program.cs
+                                   (thin composition root, ~30 lines, calls
+                                   into CompositionRoot/*.cs in sequence)
     /XGArcade.Core             -> User, League, Round, Scoring, Notifications
                                    (shared domain). S-084 added
                                    Rounds/IRoundSchedulingOptionsResolver
@@ -252,7 +270,9 @@ misconfigured per-endpoint. See ADR-0006.
                                    with Games.XGGrid's GuessScoringException).
                                    S-083 built ClueEfficiencyScoringStrategy
                                    (Core.Scoring, REQ-1206), registered against
-                                   this module's own GameKey in Program.cs.
+                                   this module's own GameKey in
+                                   CompositionRoot/ServiceRegistration.cs
+                                   (called from Program.cs).
                                    S-084 added PathGenerationOptions.PuzzleCount
                                    (default 4), xG Path's own equivalent of
                                    GridGenerationOptions.GridSize, feeding the
@@ -1199,8 +1219,10 @@ infeasible for now.
 iterates every Country × Club and Club × Club pair the reference tables can
 produce, triggering the same live-lookup path `GetMatchCountAsync` uses
 during real generation for any pair not already at `MinValidAnswers`. It's
-invoked via a second `dotnet run --` CLI verb in `Program.cs`
-(`warm-player-cache`, same shape as the existing `migrate-and-seed` verb),
+invoked via a second `dotnet run --` CLI verb in
+`CompositionRoot/CliVerbDispatcher.cs` (`warm-player-cache`, same shape as
+the existing `migrate-and-seed` verb; S-102 moved every CLI verb here out
+of `Program.cs`),
 run by its own `warm-player-cache.yml` workflow — deliberately not an HTTP
 endpoint, and deliberately not a fire-and-forget background task inside
 the deployed app: this job can take a long time (every reference pair, up
@@ -1306,7 +1328,8 @@ mode against an empty `ClubDefinition` table **throws** instead of
 cleaning nothing (zero seeded clubs means a wrong database or a
 never-seeded one, not a genuine "nothing to clean"); (2) in the named
 form, any `-`-prefixed token (e.g. a mistyped `--all-club`) **throws**
-before any deletion in `Program.cs`'s argument handling, rather than
+before any deletion in `CompositionRoot/CliVerbDispatcher.cs`'s argument
+handling, rather than
 matching zero rows and printing a plausible "removed 0 rows" success —
 no seeded club name starts with `-`, so this never rejects a real list.
 Same manual, workflow_dispatch-only friction as the named mode, same
@@ -1740,7 +1763,8 @@ new `IScoringStrategyResolver` (`XGArcade.Core.Scoring`), keyed by
 shape exactly. xG Grid's formula is unchanged, just relocated into
 `UniquenessScoringStrategy` (a pure wrap of the same two calls, same
 order of operations), registered against
-`GridGameModule.XGGridGameKey` in `Program.cs` — the composition root, not
+`GridGameModule.XGGridGameKey` in `CompositionRoot/ServiceRegistration.cs`
+(called from `Program.cs`) — the composition root, not
 `XGArcade.Core` itself, per ADR-0003. `MaterializeUnansweredCellsAsync`'s
 unanswered-cell penalty (immediately above) is untouched: it runs before
 any strategy is consulted and stays `FinalPoints = MaxPointsPerCell`/
@@ -1764,7 +1788,8 @@ with no formula change; `ClueEfficiencyScoringStrategy` (xG Path,
 REQ-1206, new in `XGArcade.Core.Scoring`) reads `cluesUsed` from
 `guess.AttemptCount` and computes `round(cluesUsed / maxAttemptsForCell *
 MaxPointsPerCell)`, registered against `XGPathGameModule.XGPathGameKey`
-in `Program.cs`. `IScoringStrategy` still has no compile-time dependency
+in `CompositionRoot/ServiceRegistration.cs` (called from `Program.cs`).
+`IScoringStrategy` still has no compile-time dependency
 on `IGameModule`/`Core.Games` — see ADR-0049 for the full reasoning.
 
 **2026-08-08 addition (REQ-1206):** `PathEndpoints.cs`'s `GET /path/current`
