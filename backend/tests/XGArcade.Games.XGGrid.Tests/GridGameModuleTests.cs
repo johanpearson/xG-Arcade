@@ -2475,7 +2475,8 @@ public class GridGameModuleTests
         // branch in GridGameModule.ResolveWrongGuessPlayerAsync.
         SeedNameIndexEntry("Clarence Seedorf");
         var module = new GridGameModule(
-            _gridInstanceRepository, _categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
+            _gridInstanceRepository, _categoryValueRepository, _playerStoreRepository,
+            _playerRepository, _playerAliasRepository, _playerAttributeRepository, _wikidataLookupService,
             _playerNameIndexRepository,
             new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 5, MaxDuration = TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,

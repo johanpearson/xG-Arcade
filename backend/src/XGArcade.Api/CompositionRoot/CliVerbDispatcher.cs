@@ -98,14 +98,26 @@ public static class CliVerbDispatcher
             await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
             var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
             var warmingPlayerStoreRepository = new PlayerStoreRepository(warmingDbContext);
+            // S-106 (pure refactor): the four sibling repositories
+            // WikidataLookupService/PlayerCacheWarmingService now depend on
+            // alongside the still-undivided IPlayerStoreRepository above —
+            // same split as CompositionRoot/ServiceRegistration.cs's DI
+            // registrations, just built by hand here since this verb runs
+            // before WebApplication.CreateBuilder.
+            var warmingPlayerRepository = new PlayerRepository(warmingDbContext);
+            var warmingPlayerAttributeRepository = new PlayerAttributeRepository(warmingDbContext);
+            var warmingPlayerAliasRepository = new PlayerAliasRepository(warmingDbContext);
+            var warmingPlayerDataRepository = new PlayerDataRepository(warmingDbContext);
 
             using var warmingHttpClient = new HttpClient();
             WikidataHttpClientConfiguration.Configure(warmingHttpClient);
             var warmingWikidataClient = new WikidataClient(warmingHttpClient, logger: warmingLoggerFactory.CreateLogger<WikidataClient>());
-            var warmingWikidataLookupService = new WikidataLookupService(warmingWikidataClient, warmingPlayerStoreRepository);
+            var warmingWikidataLookupService = new WikidataLookupService(
+                warmingWikidataClient, warmingPlayerStoreRepository,
+                warmingPlayerRepository, warmingPlayerAttributeRepository, warmingPlayerAliasRepository, warmingPlayerDataRepository);
 
             var warmingService = new PlayerCacheWarmingService(
-                warmingCategoryValueRepository, warmingPlayerStoreRepository, warmingWikidataLookupService,
+                warmingCategoryValueRepository, warmingPlayerStoreRepository, warmingPlayerAttributeRepository, warmingWikidataLookupService,
                 new GridGenerationOptions(), warmingLoggerFactory.CreateLogger<PlayerCacheWarmingService>());
 
             await warmingService.WarmAsync();
@@ -299,6 +311,11 @@ public static class CliVerbDispatcher
             await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
             var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
             var prefetchPlayerStoreRepository = new PlayerStoreRepository(prefetchDbContext);
+            // S-106 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's new
+            // home — same split as CompositionRoot/ServiceRegistration.cs's DI
+            // registration, built by hand here since this verb runs before
+            // WebApplication.CreateBuilder.
+            var prefetchPlayerRepository = new PlayerRepository(prefetchDbContext);
 
             using var prefetchHttpClient = new HttpClient();
             WikidataHttpClientConfiguration.Configure(prefetchHttpClient);
@@ -320,7 +337,7 @@ public static class CliVerbDispatcher
                 logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
 
             var prefetchService = new PlayerCareerPrefetchService(
-                prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchWikidataClient,
+                prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchPlayerRepository, prefetchWikidataClient,
                 prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
 
             // Deliberately unhandled — PrefetchAsync throws only after every seeded

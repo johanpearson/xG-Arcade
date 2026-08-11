@@ -13,7 +13,8 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
-- 2026-08-11 — `docs/architecture-document.md` + `docs/decisions/0067-player-store-repository-split.md`
+- 2026-08-11 — `docs/architecture-document.md` + `docs/requirements-document.md`
+  + `docs/implementation-document.md` + `docs/decisions/0067-player-store-repository-split.md`
   — implemented S-106 (`docs/backlog.md` Epic 8): split
   `IPlayerStoreRepository`'s Player/PlayerData/PlayerAttribute/PlayerAlias
   concerns (22 of its original 43 methods) into four new, independently-

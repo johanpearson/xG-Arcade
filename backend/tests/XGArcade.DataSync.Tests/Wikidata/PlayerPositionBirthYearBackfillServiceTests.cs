@@ -17,6 +17,13 @@ public class PlayerPositionBirthYearBackfillServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): AddPlayerAsync/GetPlayerByIdAsync moved to
+    // IPlayerRepository — used only for this file's own seed/assert
+    // helpers; BuildService's BackfillAsync target,
+    // GetPlayersMissingPositionOrBirthYearAsync/UpdatePlayerPositionsAndBirthYearsAsync,
+    // hasn't moved (S-107 territory), so _playerStoreRepository stays the
+    // service's own dependency.
+    private IPlayerRepository _playerRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
     [SetUp]
@@ -27,6 +34,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
 
@@ -46,7 +54,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
             Position = position,
             BirthYear = birthYear,
         };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         return player;
     }
 
@@ -59,7 +67,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("forward"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1977));
     }
@@ -73,7 +81,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("forward"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1977));
     }
@@ -87,7 +95,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("midfielder"), "an already-set field must never be overwritten, even with an identical value");
         Assert.That(reloaded.BirthYear, Is.EqualTo(1987));
     }
@@ -107,13 +115,13 @@ public class PlayerPositionBirthYearBackfillServiceTests
     public async Task REQ1207_BackfillAsync_PlayerWithNoWikidataQid_IsNeverQueried()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.BatchesProcessed, Is.EqualTo(0));
         Assert.That(_wikidataClient.QueriedPositionBirthYearBatches, Is.Empty);
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.Null);
         Assert.That(reloaded.BirthYear, Is.Null);
     }
@@ -146,7 +154,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
         Assert.That(result.PlayersBackfilled, Is.EqualTo(10));
         foreach (var player in players)
         {
-            var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+            var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
             Assert.That(reloaded!.Position, Is.EqualTo("defender"));
             Assert.That(reloaded.BirthYear, Is.EqualTo(1990 + int.Parse(player.WikidataQid![1..])));
         }
@@ -186,7 +194,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
 
         Assert.That(secondResult.BatchesProcessed, Is.EqualTo(0));
         Assert.That(secondResult.PlayersBackfilled, Is.EqualTo(0));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("forward"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1977));
     }
@@ -224,7 +232,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
 
         await BuildService().BackfillAsync();
 
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.Null,
             "a failed batch must leave its players' fields untouched — a later re-run's GetPlayersMissingPositionOrBirthYearAsync will surface them again automatically");
         Assert.That(reloaded.BirthYear, Is.Null);
@@ -257,9 +265,9 @@ public class PlayerPositionBirthYearBackfillServiceTests
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
         Assert.That(result.BatchesFailed, Is.EqualTo(0),
             "a malformed QID on one player is a per-player skip, not a whole-batch failure");
-        var reloadedGood = await _playerStoreRepository.GetPlayerByIdAsync(goodPlayer.Id);
+        var reloadedGood = await _playerRepository.GetPlayerByIdAsync(goodPlayer.Id);
         Assert.That(reloadedGood!.Position, Is.EqualTo("forward"));
-        var reloadedBad = await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id);
+        var reloadedBad = await _playerRepository.GetPlayerByIdAsync(badPlayer.Id);
         Assert.That(reloadedBad!.Position, Is.Null);
         Assert.That(_wikidataClient.QueriedPositionBirthYearBatches, Has.Count.EqualTo(1));
         Assert.That(_wikidataClient.QueriedPositionBirthYearBatches[0], Does.Not.Contain(badPlayer.WikidataQid),
@@ -277,7 +285,7 @@ public class PlayerPositionBirthYearBackfillServiceTests
         Assert.That(result.BatchesProcessed, Is.EqualTo(1));
         Assert.That(result.PlayersBackfilled, Is.EqualTo(0));
         Assert.That(result.BatchesFailed, Is.EqualTo(0));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(badPlayer.Id);
         Assert.That(reloaded!.Position, Is.Null);
     }
 }

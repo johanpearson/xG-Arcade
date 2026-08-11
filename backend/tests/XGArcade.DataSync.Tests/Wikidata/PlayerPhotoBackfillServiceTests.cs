@@ -15,6 +15,13 @@ public class PlayerPhotoBackfillServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): AddPlayerAsync/GetPlayerByIdAsync moved to
+    // IPlayerRepository — used only for this file's own seed/assert
+    // helpers; BuildService's BackfillAsync target,
+    // GetPlayersMissingPhotoAsync/UpdatePlayerPhotosAsync, hasn't moved
+    // (S-107 territory), so _playerStoreRepository stays the service's
+    // own dependency.
+    private IPlayerRepository _playerRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
     [SetUp]
@@ -25,6 +32,7 @@ public class PlayerPhotoBackfillServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
 
@@ -37,7 +45,7 @@ public class PlayerPhotoBackfillServiceTests
     private async Task<Player> SeedPlayerAsync(string wikidataQid, string? photoUrl = null)
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = $"Player {wikidataQid}", WikidataQid = wikidataQid, PhotoUrl = photoUrl };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         return player;
     }
 
@@ -50,7 +58,7 @@ public class PlayerPhotoBackfillServiceTests
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
-        var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.PhotoUrl, Is.EqualTo("https://example.com/henry.jpg"));
     }
 
@@ -69,13 +77,13 @@ public class PlayerPhotoBackfillServiceTests
     public async Task REQ214_BackfillAsync_PlayerWithNoWikidataQid_IsNeverQueried()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         var result = await BuildService().BackfillAsync();
 
         Assert.That(result.BatchesProcessed, Is.EqualTo(0));
         Assert.That(_wikidataClient.QueriedPhotoBatches, Is.Empty);
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null);
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null);
     }
 
     [Test]
@@ -106,7 +114,7 @@ public class PlayerPhotoBackfillServiceTests
         Assert.That(result.PlayersBackfilled, Is.EqualTo(10));
         foreach (var player in players)
         {
-            var reloaded = await _playerStoreRepository.GetPlayerByIdAsync(player.Id);
+            var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
             Assert.That(reloaded!.PhotoUrl, Is.EqualTo($"https://example.com/{player.WikidataQid![1..]}.jpg"));
         }
     }
@@ -145,7 +153,7 @@ public class PlayerPhotoBackfillServiceTests
 
         Assert.That(secondResult.BatchesProcessed, Is.EqualTo(0));
         Assert.That(secondResult.PlayersBackfilled, Is.EqualTo(0));
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.EqualTo("https://example.com/henry.jpg"));
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.EqualTo("https://example.com/henry.jpg"));
     }
 
     [Test]
@@ -180,7 +188,7 @@ public class PlayerPhotoBackfillServiceTests
 
         await BuildService().BackfillAsync();
 
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null,
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null,
             "a failed batch must leave its players' PhotoUrl untouched — a later re-run's GetPlayersMissingPhotoAsync will surface them again automatically");
     }
 
@@ -217,9 +225,9 @@ public class PlayerPhotoBackfillServiceTests
         Assert.That(result.PlayersBackfilled, Is.EqualTo(1));
         Assert.That(result.BatchesFailed, Is.EqualTo(0),
             "a malformed QID on one player is a per-player skip, not a whole-batch failure");
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(goodPlayer.Id))!.PhotoUrl,
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(goodPlayer.Id))!.PhotoUrl,
             Is.EqualTo("https://example.com/henry.jpg"));
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
         Assert.That(_wikidataClient.QueriedPhotoBatches, Has.Count.EqualTo(1));
         Assert.That(_wikidataClient.QueriedPhotoBatches[0], Does.Not.Contain(badPlayer.WikidataQid),
             "the malformed QID must be filtered out before the batch is sent to Wikidata, not just after");
@@ -240,6 +248,6 @@ public class PlayerPhotoBackfillServiceTests
         Assert.That(result.BatchesProcessed, Is.EqualTo(1));
         Assert.That(result.PlayersBackfilled, Is.EqualTo(0));
         Assert.That(result.BatchesFailed, Is.EqualTo(0));
-        Assert.That((await _playerStoreRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(badPlayer.Id))!.PhotoUrl, Is.Null);
     }
 }
