@@ -2286,7 +2286,7 @@ public class WikidataClientTests
     // against). If the driver's request-building ever diverges from what
     // this method built inline before S-118, this test fails.
     [Test]
-    public async Task S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -2314,7 +2314,7 @@ public class WikidataClientTests
     // keep using post-refactor, not a WikidataQueryTimeoutTier lookup this
     // method never had.
     [Test]
-    public void S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    public void REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -2995,10 +2995,10 @@ public class WikidataClientTests
 
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
-    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
     // own comment for the full "why" (same driver, same proof shape).
     [Test]
-    public async Task S118_QueryPlayerCareerStintsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QueryPlayerCareerStintsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3022,11 +3022,11 @@ public class WikidataClientTests
     }
 
     // S-118: same driver-migration regression proof as
-    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
     // — pins the exact _queryTimeout budget this method must keep using
     // post-refactor.
     [Test]
-    public void S118_QueryPlayerCareerStintsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    public void REQ118_QueryPlayerCareerStintsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -3177,10 +3177,10 @@ public class WikidataClientTests
 
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
-    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
     // own comment for the full "why" (same driver, same proof shape).
     [Test]
-    public async Task S118_QueryPlayerPoolByNationalityAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QueryPlayerPoolByNationalityAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3202,11 +3202,11 @@ public class WikidataClientTests
     }
 
     // S-118: same driver-migration regression proof as
-    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
     // — pins the exact _queryTimeout budget this method must keep using
     // post-refactor.
     [Test]
-    public void S118_QueryPlayerPoolByNationalityAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    public void REQ118_QueryPlayerPoolByNationalityAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -3269,10 +3269,10 @@ public class WikidataClientTests
 
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
-    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
     // own comment for the full "why" (same driver, same proof shape).
     [Test]
-    public async Task S118_QueryPlayerPositionsAndBirthYearsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QueryPlayerPositionsAndBirthYearsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3291,11 +3291,11 @@ public class WikidataClientTests
     }
 
     // S-118: same driver-migration regression proof as
-    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
     // — pins the exact _queryTimeout budget this method must keep using
     // post-refactor.
     [Test]
-    public void S118_QueryPlayerPositionsAndBirthYearsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    public void REQ118_QueryPlayerPositionsAndBirthYearsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -3422,10 +3422,10 @@ public class WikidataClientTests
 
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
-    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
     // own comment for the full "why" (same driver, same proof shape).
     [Test]
-    public async Task S118_QuerySitelinkCountsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QuerySitelinkCountsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3442,11 +3442,11 @@ public class WikidataClientTests
     }
 
     // S-118: same driver-migration regression proof as
-    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
     // — pins the exact _queryTimeout budget this method must keep using
     // post-refactor.
     [Test]
-    public void S118_QuerySitelinkCountsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    public void REQ118_QuerySitelinkCountsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
@@ -3694,12 +3694,12 @@ public class WikidataClientTests
 
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
-    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
     // own comment for the full "why" (same driver, same proof shape). Also
     // proves ADR-0062's mwapi EntitySearch subquery text is untouched by this
     // refactor, not just the outer P27/P54 shape.
     [Test]
-    public async Task S118_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    public async Task REQ118_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
     {
         var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
         var client = new WikidataClient(BuildHttpClient(handler));
@@ -3739,12 +3739,12 @@ public class WikidataClientTests
     }
 
     // S-118: same driver-migration regression proof as
-    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // REQ118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
     // — this method's own message-content variant of
     // REQ509_QueryPlayerCareerAndNationalityByNameAsync_UsesAdminLookupBudget_NotQueryTimeout
     // above, pinning the exact wording rather than just "contains 0s.".
     [Test]
-    public void S118_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ReportsAdminLookupBudget_NotAnotherBudget()
+    public void REQ118_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ReportsAdminLookupBudget_NotAnotherBudget()
     {
         var client = new WikidataClient(
             BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),

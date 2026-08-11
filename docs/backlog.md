@@ -5565,3 +5565,18 @@ Check the rest of §6 (§6.2 onward) for the same pattern while in there,
 but don't rewrite what's still accurate just because you're in the file —
 S-116's own conservatism principle applies here too.
 *Deps:* none.
+
+**S-124 · WikidataClient.cs: migrate `QueryPlayerPhotosByQidsAsync`/`QueryPlayerPhotoByNameAsync` onto the shared throwing driver**
+S-118's `quality-architect` review pass found that these two methods
+(REQ-214 backfill/S-045, ADR-0057) hand-roll the identical throw-on-failure
+HTTP send/timeout-CTS/catch shape `RunThrowingQueryAsync` (added by S-118)
+now centralizes for six other methods, but were outside S-118's scoped
+method list (`docs/backlog.md`'s S-118 entry named exactly six methods) so
+were left as-is rather than pulled in opportunistically. `RunThrowingQueryAsync`'s
+own doc comment in `WikidataClient.cs` now names both as not-yet-migrated so
+this gap isn't silently rediscovered.
+*Accept:* same regression-net style as S-118 — byte-for-byte SPARQL/request
+assertions and exact timeout/exception-message assertions for both methods,
+not just non-null; full `WikidataClientTests.cs` suite passes unchanged;
+line count reduction reported in the PR description.
+*Deps:* S-118 (extends its driver without reopening it).

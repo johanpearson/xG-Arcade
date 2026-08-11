@@ -42,15 +42,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   unchanged. Pure refactor, no new REQ IDs, no component boundary crossed
   (still entirely inside `XGArcade.DataSync`) — no ADR, same reasoning as
   S-100/S-101. Regression proof: 12 new tests in `WikidataClientTests.cs`
-  (`S118_*_SentQuery_IsByteForByteIdenticalToPreRefactorOutput` and
-  `S118_*_Timeout_Reports*Budget_NotAnotherBudget` per method), full
-  existing suite otherwise unchanged. `WikidataClient.cs` line count:
+  (`REQ118_*_SentQuery_IsByteForByteIdenticalToPreRefactorOutput` and
+  `REQ118_*_Timeout_Reports*Budget_NotAnotherBudget` per method, renamed
+  from an initial `S118_*` prefix to match the `REQ###_*` convention
+  `docs/coding-guidelines.md` and S-100/S-101's own tests already use),
+  full existing suite otherwise unchanged. `WikidataClient.cs` line count:
   1,815 → 1,770 (-45 lines; the new shared driver's own doc comment
   accounts for most of the difference between that and the larger
   per-method savings — see the PR description for the full breakdown).
   Not run against `dotnet test` from this sandbox (no SDK available) —
   hand-traced against each method's pre-refactor source instead; CI must
-  confirm.
+  confirm. `quality-architect` review pass: refactor correctness, the
+  two-driver design, and the timeout-tier decision all confirmed sound;
+  found the new driver's doc comment overclaimed "every throwing query
+  method in this file" when `QueryPlayerPhotosByQidsAsync`/
+  `QueryPlayerPhotoByNameAsync` also match the shape but were outside
+  S-118's scoped method list — comment corrected in place to name both as
+  not-yet-migrated, and a follow-up story (S-124) added to `docs/backlog.md`
+  to close that gap rather than pulling it in opportunistically here.
 - 2026-08-11 — architecture-document.md (v0.97), CODE_HEALTH_ASSESSMENT.md
   (new) — S-115/S-116 (`docs/backlog.md` Epic 9): added a CodeScene/SonarQube-style
   numeric (1-10) code health assessment covering every backend/frontend/infra

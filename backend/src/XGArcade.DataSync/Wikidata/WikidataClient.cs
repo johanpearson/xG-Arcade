@@ -436,14 +436,22 @@ public class WikidataClient(
     }
 
     // S-118 (docs/backlog.md, Epic 9): the shared HTTP/timeout/retry driver
-    // for every "throwing" query method in this file — QueryPlayerPoolBirthYearAsync,
-    // QueryPlayerPoolByNationalityAsync, QueryPlayerPositionsAndBirthYearsByQidsAsync,
-    // QuerySitelinkCountsByQidsAsync, QueryPlayerCareerStintsByQidsAsync, and
-    // QueryPlayerCareerAndNationalityByNameAsync all used to hand-roll this
-    // exact HTTP send / timeout-CTS / catch/throw shape independently (nine
-    // near-identical copies before S-100/S-101 fixed this for the
-    // intersection queries; these six were added afterward by later ADRs and
-    // never migrated). This is the "throwing" sibling of
+    // for the six "throwing" query methods S-118 scoped in —
+    // QueryPlayerPoolBirthYearAsync, QueryPlayerPoolByNationalityAsync,
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync, QuerySitelinkCountsByQidsAsync,
+    // QueryPlayerCareerStintsByQidsAsync, and QueryPlayerCareerAndNationalityByNameAsync —
+    // all of which used to hand-roll this exact HTTP send / timeout-CTS /
+    // catch/throw shape independently (nine near-identical copies before
+    // S-100/S-101 fixed this for the intersection queries; these six were
+    // added afterward by later ADRs and never migrated).
+    //
+    // NOT yet migrated onto this driver: QueryPlayerPhotosByQidsAsync and
+    // QueryPlayerPhotoByNameAsync also hand-roll the identical throw-on-failure
+    // HTTP send / timeout-CTS / catch shape but are outside S-118's scoped
+    // method list (docs/backlog.md's S-118 entry names exactly the six
+    // above) — left as-is here rather than pulled in opportunistically;
+    // worth a small follow-up story in the same regression-net style if this
+    // file gets touched again. This is the "throwing" sibling of
     // RunIntersectionQueryAsync above — deliberately a SEPARATE method, not a
     // generalization of RunIntersectionQueryAsync itself, since the two have
     // genuinely different error contracts (swallow-to-[] unless
