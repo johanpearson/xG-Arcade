@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — architecture-document.md (v0.97), CODE_HEALTH_ASSESSMENT.md
+  (new) — S-115/S-116 (`docs/backlog.md` Epic 9): added a CodeScene/SonarQube-style
+  numeric (1-10) code health assessment covering every backend/frontend/infra
+  module, complementing `CODEBASE_ANALYSIS.md`'s existing priority-list
+  format. Separately, slimmed `docs/architecture-document.md` §5 (Components)
+  from 629 lines/88K characters down to 125 lines/~13K characters — the
+  per-component table cells and ~600 lines of trailing "COMP-XX status
+  (DATE, story)" prose had accreted an unbounded dated changelog inline
+  (one cell alone was 14,718 characters) since every ADR already records
+  the same history in full. Cells now describe current state only; a new
+  §5.3 "Component evolution reference" points each component to its ADR
+  trail in one line instead of re-narrating it. §6 (data flows, 862 lines)
+  was checked and found not similarly accreted — left untouched — except a
+  smaller ~135-line pocket at the start of §6.1, tracked as a follow-up
+  (see Epic 9, S-123). No boundary rules, current-state facts, or ADR
+  references were removed — see `CODE_HEALTH_ASSESSMENT.md` for the
+  reasoning and `docs/ai/agent-migration-plan.md` §8 for the new
+  `code-health-auditor` agent (S-117) this pattern is now owned by.
 - 2026-08-11 — coding-guidelines.md (v0.7) — S-113 (`docs/backlog.md` Epic
   8): decided and documented `backend/src/XGArcade.Api/CompositionRoot/*.cs`'s
   testing strategy, which had happened by default (integration-only, via

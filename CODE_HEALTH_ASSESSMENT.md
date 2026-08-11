@@ -3,6 +3,7 @@
 **Repository:** `johanpearson/xg-arcade` (single monorepo: `backend/` — C# / ASP.NET Core, `frontend/` — TypeScript / React, `infra/` — Bicep/Azure, `docs/` — governing documentation)
 **Assessment date:** 2026-08-11
 **Method:** CodeScene/SonarQube-style manual review — structural discovery, git-churn analysis, and targeted deep reads of the largest/most-changed files per component, cross-referenced against this repo's own `docs/architecture-document.md` component boundaries and `docs/coding-guidelines.md`.
+**Relationship to `CODEBASE_ANALYSIS.md`:** that document already tracks priority-ranked findings (P1-P4) with its own revision history and has driven two completed remediation epics (`docs/backlog.md` Epics 7-8). This report is a complementary lens — a numeric 1.0-10.0 score per module/component — not a replacement; findings here were cross-checked against Epics 7-8 before being turned into new stories (`docs/backlog.md` Epic 9), so genuinely-already-fixed items aren't re-flagged. Future sweeps of either kind are owned by the `code-health-auditor` agent (`docs/ai/agent-migration-plan.md` §8).
 
 ---
 
