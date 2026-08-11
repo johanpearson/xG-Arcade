@@ -90,6 +90,15 @@ public static class ServiceRegistration
         // see that type's own doc comment for why.
         builder.Services.AddSingleton(new GridGenerationOptions { GridSize = 3 });
         builder.Services.AddScoped<IGridInstanceRepository, GridInstanceRepository>();
+        // S-119 (pure refactor, docs/backlog.md Epic 9): GridGameModule split
+        // into three narrower classes along its own responsibility lines —
+        // generation, name matching, and live-lookup dispatch — following the
+        // same "independently registered, no facade" convention ADR-0067 used
+        // for IPlayerStoreRepository's split. GridGameModule itself is now a
+        // thin IGameModule adapter composing all three.
+        builder.Services.AddScoped<IGridGenerationService, GridGenerationService>();
+        builder.Services.AddScoped<IGridNameMatcher, GridNameMatcher>();
+        builder.Services.AddScoped<IGridLiveLookupDispatcher, GridLiveLookupDispatcher>();
         builder.Services.AddScoped<IGameModule, GridGameModule>();
         // COMP-11 (Games.XGPath) — S-081's puzzle generation (REQ-1201/1202),
         // S-082's guess correctness/attempt-cap (REQ-1204/1205) and clue-reveal read
