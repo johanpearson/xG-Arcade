@@ -22,6 +22,14 @@ public class GridGameModuleTests
     private IGridInstanceRepository _gridInstanceRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): the three sibling repositories carrying the
+    // methods GridGameModule needs that moved out of IPlayerStoreRepository
+    // — _playerStoreRepository above is kept for
+    // HasEffectiveAttributeAsync/IsPersistentTechnicalFailureAsync, which
+    // haven't moved.
+    private IPlayerRepository _playerRepository = null!;
+    private IPlayerAliasRepository _playerAliasRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
     private IPlayerNameIndexRepository _playerNameIndexRepository = null!;
     private FakeWikidataLookupService _wikidataLookupService = null!;
 
@@ -35,8 +43,11 @@ public class GridGameModuleTests
         _gridInstanceRepository = new GridInstanceRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
+        _playerAliasRepository = new PlayerAliasRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
         _playerNameIndexRepository = new PlayerNameIndexRepository(_dbContext);
-        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository);
+        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository, _playerRepository, _playerAttributeRepository);
     }
 
     [TearDown]
@@ -71,9 +82,14 @@ public class GridGameModuleTests
         TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
         IWikidataLookupService? wikidataLookupService = null,
         IPlayerStoreRepository? playerStoreRepository = null,
+        IPlayerRepository? playerRepository = null,
+        IPlayerAliasRepository? playerAliasRepository = null,
+        IPlayerAttributeRepository? playerAttributeRepository = null,
         IPlayerNameIndexRepository? playerNameIndexRepository = null,
         IWikidataClient? wikidataClient = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository, wikidataLookupService ?? _wikidataLookupService,
+        new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository,
+            playerRepository ?? _playerRepository, playerAliasRepository ?? _playerAliasRepository, playerAttributeRepository ?? _playerAttributeRepository,
+            wikidataLookupService ?? _wikidataLookupService,
             playerNameIndexRepository ?? _playerNameIndexRepository,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers, MaxAttempts = maxAttempts, MaxDuration = maxDuration ?? TimeSpan.FromMinutes(10) },
             NullLogger<GridGameModule>.Instance,
@@ -512,7 +528,7 @@ public class GridGameModuleTests
         Assert.That(instance, Is.Not.Null);
         Assert.That(instance!.Cells, Has.Count.EqualTo(1));
         Assert.That(instance.Cells[0].ColCategoryValue, Is.EqualTo("Arsenal"));
-        Assert.That(await _playerStoreRepository.CountPlayersWithBothAttributesAsync(
+        Assert.That(await _playerAttributeRepository.CountPlayersWithBothAttributesAsync(
             "nationality", "France", "club", "Arsenal"), Is.EqualTo(3),
             "a live lookup persists immediately, same request, same as the real WikidataLookupService (ADR-0010) — " +
             "not left for the cache to somehow already have known about");
@@ -1795,7 +1811,7 @@ public class GridGameModuleTests
         // correct if that player fits the cell's categories.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
@@ -1813,7 +1829,7 @@ public class GridGameModuleTests
         // correct just because the name string matched.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "England", "Chelsea");
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
@@ -1853,7 +1869,7 @@ public class GridGameModuleTests
         // stage resolves a fit, the fuzzy stage must never run either.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var aliasPlayer = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = aliasPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = aliasPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
         var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
 
@@ -1889,7 +1905,7 @@ public class GridGameModuleTests
         // not from the player's full legal name.
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var player = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaeka"));
@@ -2009,8 +2025,8 @@ public class GridGameModuleTests
         // Each candidate also has an "other" club, distinct from the cell's
         // own two categories (France/Arsenal) — these are what should
         // surface as DistinguishingAttributes, never France/Arsenal again.
-        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = first.Id, AttributeType = "club", AttributeValue = "Monaco" });
-        await _playerStoreRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = second.Id, AttributeType = "club", AttributeValue = "Lyon" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = first.Id, AttributeType = "club", AttributeValue = "Monaco" });
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = second.Id, AttributeType = "club", AttributeValue = "Lyon" });
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "John Smith"));
@@ -2389,7 +2405,7 @@ public class GridGameModuleTests
         var cached = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", PhotoUrl = "https://example.org/kaka.jpg" };
         _dbContext.Players.Add(cached);
         await _dbContext.SaveChangesAsync();
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = cached.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = cached.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
         var module = BuildModule(minValidAnswers: 1, maxAttempts: 5);
 
         var result = await module.ResolveWrongGuessPlayerAsync(Guid.NewGuid(), "Kaka");

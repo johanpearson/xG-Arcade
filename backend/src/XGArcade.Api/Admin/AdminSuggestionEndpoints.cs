@@ -156,6 +156,14 @@ public static class AdminSuggestionEndpoints
             ClaimsPrincipal principal,
             IPlayerSuggestionRepository playerSuggestionRepository,
             IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): CommitPlayerDataAsync's own
+            // GetOrCreatePlayersByWikidataQidAsync/AddPlayerAttributesBatchAsync
+            // calls moved out of IPlayerStoreRepository — playerStoreRepository
+            // above is kept for CommitPlayerDataAsync's GetOverrideAsync/
+            // UpdateOverrideAsync/AddOverrideAsync/HasEffectiveAttributeAsync,
+            // which haven't moved.
+            IPlayerRepository playerRepository,
+            IPlayerAttributeRepository playerAttributeRepository,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
         {
@@ -179,7 +187,8 @@ public static class AdminSuggestionEndpoints
             var adminId = principal.GetAuthProviderUserId()!.Value;
             var resolvedAt = timeProvider.GetUtcNow().UtcDateTime;
 
-            var result = await CommitPlayerDataAsync(request, adminId, resolvedAt, playerStoreRepository, cancellationToken);
+            var result = await CommitPlayerDataAsync(
+                request, adminId, resolvedAt, playerStoreRepository, playerRepository, playerAttributeRepository, cancellationToken);
 
             // Never pending after this action (REQ-509) — even in the
             // unlikely race where another admin resolved the same suggestion
@@ -292,6 +301,11 @@ public static class AdminSuggestionEndpoints
             CommitPlayerDataRequest request,
             ClaimsPrincipal principal,
             IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): see the identical comment on
+            // /admin/suggestions/{id}/commit above — same
+            // CommitPlayerDataAsync helper, same split.
+            IPlayerRepository playerRepository,
+            IPlayerAttributeRepository playerAttributeRepository,
             ILogger<AdminSuggestionEndpointsLogCategory> logger,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
@@ -304,7 +318,8 @@ public static class AdminSuggestionEndpoints
             var adminId = principal.GetAuthProviderUserId()!.Value;
             var committedAt = timeProvider.GetUtcNow().UtcDateTime;
 
-            var result = await CommitPlayerDataAsync(request, adminId, committedAt, playerStoreRepository, cancellationToken);
+            var result = await CommitPlayerDataAsync(
+                request, adminId, committedAt, playerStoreRepository, playerRepository, playerAttributeRepository, cancellationToken);
 
             logger.LogInformation(
                 "Admin {AdminId} committed player data for WikidataQid {WikidataQid} (Player {PlayerId}) via standalone search at {CommittedAt}",
@@ -350,9 +365,11 @@ public static class AdminSuggestionEndpoints
         Guid adminId,
         DateTime committedAt,
         IPlayerStoreRepository playerStoreRepository,
+        IPlayerRepository playerRepository,
+        IPlayerAttributeRepository playerAttributeRepository,
         CancellationToken cancellationToken)
     {
-        var playersByQid = await playerStoreRepository.GetOrCreatePlayersByWikidataQidAsync(
+        var playersByQid = await playerRepository.GetOrCreatePlayersByWikidataQidAsync(
             [new PlayerCreationRequest(request.WikidataQid, request.FullName, PhotoUrl: null)], cancellationToken);
         var player = playersByQid[request.WikidataQid];
 
@@ -399,7 +416,7 @@ public static class AdminSuggestionEndpoints
                 newAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club });
         }
 
-        await playerStoreRepository.AddPlayerAttributesBatchAsync(newAttributes, cancellationToken);
+        await playerAttributeRepository.AddPlayerAttributesBatchAsync(newAttributes, cancellationToken);
 
         return new CommitPlayerDataResponse(player.Id, nationality, confirmedClubs);
     }

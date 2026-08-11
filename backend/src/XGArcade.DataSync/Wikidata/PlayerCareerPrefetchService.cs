@@ -19,9 +19,14 @@ namespace XGArcade.DataSync.Wikidata;
 // own explicit choice when this was proposed (ADR-0055's Open questions),
 // not a default picked silently. A country with no eligible players simply
 // contributes an empty pool, not a failure.
+// S-106 (pure refactor): playerRepository carries
+// GetOrCreatePlayersByWikidataQidAsync, split out of IPlayerStoreRepository
+// — playerStore is kept for GetCareerStintsByPlayerIdsAsync/
+// AddCareerStintsBatchAsync, which haven't moved (S-107 territory).
 public class PlayerCareerPrefetchService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStore,
+    IPlayerRepository playerRepository,
     IWikidataClient wikidataClient,
     ILogger<PlayerCareerPrefetchService> logger) : IPlayerCareerPrefetchService
 {
@@ -129,7 +134,7 @@ public class PlayerCareerPrefetchService(
         var requests = batch
             .Select(entry => new PlayerCreationRequest(entry.WikidataQid, entry.FullName, PhotoUrl: null, Position: null, entry.BirthYear))
             .ToList();
-        var playersByQid = await playerStore.GetOrCreatePlayersByWikidataQidAsync(requests, cancellationToken);
+        var playersByQid = await playerRepository.GetOrCreatePlayersByWikidataQidAsync(requests, cancellationToken);
 
         IReadOnlyDictionary<string, IReadOnlyList<WikidataCareerStintEntry>> stintsByQid;
         try

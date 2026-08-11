@@ -86,6 +86,10 @@ namespace XGArcade.Games.XGGrid;
 public class PlayerCacheWarmingService(
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
+    // S-106 (pure refactor): CountPlayersWithBothAttributesAsync's new home
+    // — playerStoreRepository above is kept for the ConfirmedLowMatchPair/
+    // PairLookupFailure methods, which haven't moved (S-107 territory).
+    IPlayerAttributeRepository playerAttributeRepository,
     IWikidataLookupService wikidataLookupService,
     GridGenerationOptions options,
     ILogger<PlayerCacheWarmingService> logger) : IPlayerCacheWarmingService
@@ -149,7 +153,7 @@ public class PlayerCacheWarmingService(
                 cancellationToken.ThrowIfCancellationRequested();
                 pairsProcessed++;
 
-                var cachedCount = await playerStoreRepository.CountPlayersWithBothAttributesAsync(
+                var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
                     NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
                 if (cachedCount >= options.MinValidAnswers)
                 {
@@ -230,7 +234,7 @@ public class PlayerCacheWarmingService(
                 cancellationToken.ThrowIfCancellationRequested();
                 pairsProcessed++;
 
-                var cachedCount = await playerStoreRepository.CountPlayersWithBothAttributesAsync(
+                var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
                     ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
                 if (cachedCount >= options.MinValidAnswers)
                 {

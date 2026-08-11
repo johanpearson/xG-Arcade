@@ -23,7 +23,9 @@ public static class RoundEndpoints
             IRoundRepository roundRepository,
             IGridInstanceRepository gridInstanceRepository,
             IGuessRepository guessRepository,
-            IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): GetPlayersByIdsAsync moved to
+            // IPlayerRepository — this endpoint's only player-store call.
+            IPlayerRepository playerRepository,
             IGameModuleResolver gameModuleResolver,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
@@ -85,7 +87,7 @@ public static class RoundEndpoints
                 .Select(g => g.PlayerAnswerId!.Value)
                 .Distinct()
                 .ToList();
-            var playersById = await playerStoreRepository.GetPlayersByIdsAsync(ownCorrectPlayerAnswerIds, cancellationToken);
+            var playersById = await playerRepository.GetPlayersByIdsAsync(ownCorrectPlayerAnswerIds, cancellationToken);
 
             // ADR-0041: a plain foreach, not the previous LINQ .Select(...) —
             // GetMaxAttemptsForCellAsync must be awaited per cell, which a

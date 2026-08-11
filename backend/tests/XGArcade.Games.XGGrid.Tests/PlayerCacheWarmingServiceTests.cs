@@ -17,6 +17,13 @@ public class PlayerCacheWarmingServiceTests
     private XGArcadeDbContext _dbContext = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): PlayerCacheWarmingService's own
+    // CountPlayersWithBothAttributesAsync moved to IPlayerAttributeRepository
+    // — _playerStoreRepository above is kept for ConfirmedLowMatchPair/
+    // PairLookupFailure, which haven't moved. playerRepository is only used
+    // to build FakeWikidataLookupService's own persistence path below.
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
+    private IPlayerRepository _playerRepository = null!;
     private FakeWikidataLookupService _wikidataLookupService = null!;
 
     [SetUp]
@@ -28,14 +35,16 @@ public class PlayerCacheWarmingServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
-        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
+        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository, _playerRepository, _playerAttributeRepository);
     }
 
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCacheWarmingService BuildService(int minValidAnswers) =>
-        new(_categoryValueRepository, _playerStoreRepository, _wikidataLookupService,
+        new(_categoryValueRepository, _playerStoreRepository, _playerAttributeRepository, _wikidataLookupService,
             new GridGenerationOptions { MinValidAnswers = minValidAnswers },
             NullLogger<PlayerCacheWarmingService>.Instance);
 

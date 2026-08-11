@@ -198,7 +198,12 @@ public static class InternalRoundEndpoints
         // boundary rule 4), never a raw table write.
         app.MapPost("/internal/test-data/seed-guessable-round", async (
             IGridInstanceRepository gridInstanceRepository,
-            IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): every call this endpoint makes
+            // (AddPlayerAsync via CreateUniqueTestPlayerAsync,
+            // AddPlayerAttributeAsync) moved out of IPlayerStoreRepository —
+            // no remaining reason to inject that interface here.
+            IPlayerRepository playerRepository,
+            IPlayerAttributeRepository playerAttributeRepository,
             IRoundRepository roundRepository,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
@@ -241,12 +246,12 @@ public static class InternalRoundEndpoints
             // players hermetic; every caller reads the actual generated name
             // back from this response rather than assuming a literal, so no
             // test file needed to change.
-            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Thierry Henry", cancellationToken);
+            var player = await CreateUniqueTestPlayerAsync(playerRepository, "Thierry Henry", cancellationToken);
             var correctPlayerName = player.FullName;
-            await playerStoreRepository.AddPlayerAttributeAsync(
+            await playerAttributeRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
-            await playerStoreRepository.AddPlayerAttributeAsync(
+            await playerAttributeRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" },
                 cancellationToken);
 
@@ -257,12 +262,12 @@ public static class InternalRoundEndpoints
             // sharing the one and only valid answer). A second, equally
             // real Arsenal/France player added here so S-011's E2E suite can
             // have two players each pick a different correct answer.
-            var alternatePlayer = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Robert Pires", cancellationToken);
+            var alternatePlayer = await CreateUniqueTestPlayerAsync(playerRepository, "Robert Pires", cancellationToken);
             var alternateCorrectPlayerName = alternatePlayer.FullName;
-            await playerStoreRepository.AddPlayerAttributeAsync(
+            await playerAttributeRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "nationality", AttributeValue = "France" },
                 cancellationToken);
-            await playerStoreRepository.AddPlayerAttributeAsync(
+            await playerAttributeRepository.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = alternatePlayer.Id, AttributeType = "club", AttributeValue = "Arsenal" },
                 cancellationToken);
 
@@ -299,6 +304,11 @@ public static class InternalRoundEndpoints
         app.MapPost("/internal/test-data/seed-guessable-path-round", async (
             IPathInstanceRepository pathInstanceRepository,
             IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): CreateUniqueTestPlayerAsync's own
+            // AddPlayerAsync call moved out of IPlayerStoreRepository —
+            // playerStoreRepository above is kept for AddCareerStintsAsync,
+            // which hasn't moved (S-107 territory).
+            IPlayerRepository playerRepository,
             IRoundRepository roundRepository,
             TimeProvider timeProvider,
             CancellationToken cancellationToken) =>
@@ -308,7 +318,7 @@ public static class InternalRoundEndpoints
             // Same unique-tag-per-call convention as seed-guessable-round
             // above (REQ-209 fallout) — keeps repeated/concurrent test runs
             // hermetic against a shared CI Postgres instance.
-            var player = await CreateUniqueTestPlayerAsync(playerStoreRepository, "Path Test Player", cancellationToken);
+            var player = await CreateUniqueTestPlayerAsync(playerRepository, "Path Test Player", cancellationToken);
             var correctPlayerName = player.FullName;
 
             // At least 3 chronologically distinct, non-overlapping stints so
@@ -364,12 +374,12 @@ public static class InternalRoundEndpoints
     // prefix. Each call site still owns its own attribute/stint writes,
     // since those differ by game.
     private static async Task<Player> CreateUniqueTestPlayerAsync(
-        IPlayerStoreRepository playerStoreRepository,
+        IPlayerRepository playerRepository,
         string namePrefix,
         CancellationToken cancellationToken)
     {
         var nameTag = Guid.NewGuid().ToString("N")[..8];
-        return await playerStoreRepository.AddPlayerAsync(
+        return await playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = $"{namePrefix} {nameTag}", WikidataQid = $"Qtest-{Guid.NewGuid()}" },
             cancellationToken);
     }

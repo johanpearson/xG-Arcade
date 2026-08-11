@@ -20,6 +20,13 @@ namespace XGArcade.Games.XGPath;
 public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
     IPlayerStoreRepository playerStoreRepository,
+    // S-106 (pure refactor): the two sibling repositories carrying the
+    // methods split out of IPlayerStoreRepository that this module still
+    // needs for its own guess-name-matching path — playerStoreRepository
+    // above is kept for GetCareerStintCandidatePlayerIdsAsync/
+    // GetCareerStintsByPlayerIdsAsync, which haven't moved (S-107 territory).
+    IPlayerRepository playerRepository,
+    IPlayerAliasRepository playerAliasRepository,
     ICategoryValueRepository categoryValueRepository,
     IPlayerCareerStintRefreshService careerStintRefreshService,
     IPlayerFamiliarityService playerFamiliarityService,
@@ -208,9 +215,9 @@ public class XGPathGameModule(
         // fuzzy stage, see this method's own comment above).
         var normalized = PlayerNameNormalizer.Normalize(guessSubmission.SubmittedName);
 
-        var candidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken);
+        var candidates = await playerRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken);
         if (candidates.Count == 0)
-            candidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken);
+            candidates = await playerAliasRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken);
 
         var isCorrect = candidates.Any(c => c.Id == puzzle.TargetPlayerId);
 

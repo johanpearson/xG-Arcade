@@ -23,9 +23,12 @@ namespace XGArcade.DataSync.Wikidata;
 // comment for "why sequential, not concurrent DbContext use" and "why a
 // malformed WikidataQid is filtered out and logged before the batch is sent"
 // reasoning, which applies identically here and isn't repeated in full below.
+// S-106 (pure refactor): IPlayerStoreRepository's own GetPlayersByIdsAsync
+// moved to IPlayerRepository — this class's only player-store call, so it
+// takes the narrower interface directly rather than IPlayerStoreRepository.
 public class PlayerFamiliarityService(
     IWikidataClient wikidataClient,
-    IPlayerStoreRepository playerStore,
+    IPlayerRepository playerRepository,
     ILogger<PlayerFamiliarityService> logger) : IPlayerFamiliarityService
 {
     // ADR-0056: starting threshold, deliberately conservative rather than
@@ -49,7 +52,7 @@ public class PlayerFamiliarityService(
         if (candidatePlayerIds.Count == 0)
             return new HashSet<Guid>();
 
-        var players = await playerStore.GetPlayersByIdsAsync(candidatePlayerIds, cancellationToken);
+        var players = await playerRepository.GetPlayersByIdsAsync(candidatePlayerIds, cancellationToken);
 
         // Same "one bad/missing row costs only that row" discipline as
         // PlayerCareerStintRefreshService.RefreshCareerStintsAsync — a
