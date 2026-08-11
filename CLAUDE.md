@@ -263,6 +263,7 @@ rather than doing it inline.
 | `quality-architect` | Protection | Code quality review against `docs/coding-guidelines.md`, deliberate refactoring, and test architecture (fakes/fixtures/helpers, flakiness, speed) — distinct from `architecture-reviewer`'s structural checks |
 | `requirements-writer` | Product | Drafting new requirements or reviewing existing ones for testability/consistency, in the established Given/When/Then format |
 | `doc-sync` | Stewardship | Reviewing a diff and updating requirements/architecture/implementation docs + CHANGELOG to match |
+| `code-health-auditor` | Protection | Periodic whole-codebase health sweep — scores every file/component/module 1.0-10.0, prioritizes by complexity×churn, fixes small mechanical issues directly, plans the next technical-debt epic for the rest; also detects and slims documentation bloat. Distinct from `quality-architect`, which reviews a single diff/story, not the whole tree |
 
 ## Slash commands available (`.claude/commands/`)
 

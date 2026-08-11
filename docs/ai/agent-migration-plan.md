@@ -1,9 +1,9 @@
 ---
 doc_id: agent-migration-plan
 title: Agent Ecosystem — Migration Plan and Organization Reference
-version: "1.0"
+version: "1.1"
 status: implemented
-last_updated: 2026-07-17
+last_updated: 2026-08-11
 owner: Johan
 related_docs:
   - ../../CLAUDE.md
@@ -161,12 +161,21 @@ was discarded to make the design cleaner.
                 test-writer            (review · refactor ·
                                         test architecture ·
                                         standards · gates)
+                                     code-health-auditor
+                                        (periodic sweep ·
+                                        1-10 scoring ·
+                                        epic planning)
 ```
 
 - **Implementation agents deliver** (backend-implementer, ui-implementer,
   game-scaffolder, test-writer).
 - **Architecture agents protect structure** (architecture-reviewer).
-- **Quality agents protect maintainability** (quality-architect).
+- **Quality agents protect maintainability** (quality-architect for a
+  single diff/story; code-health-auditor for a periodic whole-codebase
+  sweep — same protection concern, different cadence and scope, deliberately
+  not merged into one agent since "review this change" and "score the
+  entire tree and plan an epic" are different-shaped tasks with different
+  triggers).
 - **The orchestrator coordinates** and avoids direct implementation;
   it retains only glue no agent owns — notably git/PR operations, kept
   un-personified by prior deliberate decision (CLAUDE.md).
@@ -195,6 +204,7 @@ CLAUDE.md's definition of done, item by item.
 | Refactoring (deliberate, behavior-preserving, own commits) | quality-architect |
 | Engineering standards (`docs/coding-guidelines.md` enforcement and evolution) | quality-architect |
 | Quality-gate definition and verdicts | quality-architect (definition) via `/quality-gate` (execution) |
+| Periodic whole-codebase health scoring (1-10 per file/component/module), hotspot prioritization by complexity×churn, technical-debt epic planning, documentation-bloat detection/slimming | code-health-auditor |
 | Architecture boundaries, data flows, ADR-needed flagging | architecture-reviewer |
 | Doc/CHANGELOG sync, frontmatter discipline | doc-sync |
 | Git/PR operations and conventions | Orchestrator (native capability; conventions in CLAUDE.md) |
@@ -287,3 +297,41 @@ organization, check: does `/orchestrate` get used or bypassed? Has
 quality-architect actually introduced/consolidated shared test
 infrastructure, or only reviewed? Prune or adjust based on evidence, and
 record the adjustment here.
+
+## 8. 2026-08-11 addition: `code-health-auditor`
+
+**Trigger:** a requested comprehensive code health assessment (see
+`CODE_HEALTH_ASSESSMENT.md`, first produced this session) found real,
+still-open hotspots (`WikidataClient.cs`, `GridGameModule.cs`, the
+frontend's missing shared data-fetching hook) *and*, separately, that
+`docs/architecture-document.md` §5 had accreted the same failure mode in
+prose — 629 lines/88K characters of dated "as of DATE, extended by
+ADR-X..." narrative that the cited ADRs already record in full. Turning
+either kind of finding into a tracked epic (the established
+`CODEBASE_ANALYSIS.md` → Epic 7/8 pattern) was previously done ad hoc by
+the main session, not owned by any agent — the same "orphaned
+responsibility" shape F-2 in §2 already identified for refactoring and
+test architecture before quality-architect absorbed them.
+
+**Decision: new agent, not folded into `quality-architect`.**
+`quality-architect` already owns refactoring and quality review, but at
+diff/story granularity — its process explicitly starts from "review the
+diff (or named code) against `docs/coding-guidelines.md`." A periodic
+"read the whole tree, score every file 1-10, cross-reference against git
+churn, decide what's an epic vs. a direct fix vs. leave-alone" sweep is a
+different-shaped task with a different trigger (a request or a stale
+tracking doc, not a pending change) — same reasoning ADR/CLAUDE.md already
+applies elsewhere for not merging differently-triggered responsibilities
+into one agent. `code-health-auditor` owns: the 1.0-10.0 scoring
+methodology, hotspot prioritization (complexity×churn), authoring the next
+numbered technical-debt epic in `docs/backlog.md` (continuing the Epic
+7/8/9 lineage), and documentation-bloat detection/slimming. It applies only
+small, mechanical, same-session-verifiable fixes itself; anything larger
+becomes a backlog story handed to the normal delivery agents — it does not
+duplicate quality-architect's refactor-execution role for anything
+nontrivial.
+
+**Updated in the same change:** org chart (§4.1), ownership matrix (§4.3),
+`CLAUDE.md`'s agent table, `.claude/README.md`'s agent table and org
+description plus a new "Running a health sweep and refactoring epic"
+workflow section.

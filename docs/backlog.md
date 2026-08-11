@@ -5376,3 +5376,192 @@ setup inline.
 `InvalidOperationException` message when it's missing; full test suite
 (and CI, since `dotnet` isn't available in this sandbox) passes unchanged.
 *Deps:* S-112.
+
+## Epic 9 — Technical debt remediation, round 3 (`CODE_HEALTH_ASSESSMENT.md` follow-up)
+
+Source: `CODE_HEALTH_ASSESSMENT.md` (2026-08-11), a CodeScene/SonarQube-style
+numeric (1.0-10.0) health assessment covering every backend/frontend/infra
+module — a complementary lens to `CODEBASE_ANALYSIS.md`'s priority-list
+format (Epics 7-8), not a replacement for it. Same house rules as Epics 7-8:
+independent of the Tier 0 build sequence, **every story here is a pure
+refactor/doc-sync — no behavior change, no new REQ IDs**. This epic is also
+where the `code-health-auditor` agent (`.claude/agents/code-health-auditor.md`,
+`docs/ai/agent-migration-plan.md` §8) was introduced to own future sweeps
+of this kind, so they don't depend on an ad hoc main-session pass each time.
+Two findings from `CODE_HEALTH_ASSESSMENT.md` were checked against
+`CODEBASE_ANALYSIS.md`/Epic 7-8 before being written up here and turned out
+to already be fully addressed — **not** duplicated into new stories:
+`CliVerbDispatcher.cs`'s DI-bootstrap duplication (fixed by S-114's
+`BuildDbContext()`/`BuildLoggerFactory()` extraction — the fresh sweep's
+own agent had flagged variable-naming differences between handlers, not
+actual unextracted duplication) and `GridGameModule.cs`'s nesting (fixed by
+Epic 7's S-104 — this epic's S-119 addresses a different axis, responsibility
+count/SRP, which S-104 was never scoped to fix).
+
+**S-115 · Comprehensive code health assessment (`CODE_HEALTH_ASSESSMENT.md`)**
+Produced a CodeScene/SonarQube-style 1.0-10.0 score for every backend
+project, the frontend, and infra, plus a component-level breakdown mapped
+to `architecture-document.md`'s own COMP-xx IDs — a numeric-scoring
+complement to `CODEBASE_ANALYSIS.md`'s priority-list format, not a
+duplicate of it (cross-checked against Epic 7/8's completed stories before
+finalizing, per this epic's own intro note above).
+*Accept:* `CODE_HEALTH_ASSESSMENT.md` exists at repo root with the
+requested report structure (Executive Summary, Score Breakdown by Module,
+Score Breakdown by Component/Layer, Priority Refactoring Targets).
+*Deps:* none.
+**Built as:** matches the plan — overall system score 6.4/10, with
+`XGArcade.Core`/`XGArcade.Data`/`XGArcade.Api`/`infra` scoring 7.8-8.3 and
+three concentrated hotspots below 5.0 (`WikidataClient.cs` 2.5,
+`GridGameModule.cs` 4.5, and the frontend's missing shared data-fetching
+abstraction contributing to a 5.5 frontend score). Findings verified via
+parallel `Explore` agent deep-reads of each project plus direct git-churn
+analysis (`git log --format=format: --name-only | sort | uniq -c | sort
+-rn`), not estimated.
+
+**S-116 · Slim `docs/architecture-document.md` §5 (Components) to current-state-only**
+§5's Components table and ~600 lines of trailing "**COMP-XX status (DATE,
+S-xxx):**" prose had accreted an unbounded, dated narrative history since
+the project began — one table cell alone (COMP-05) was 14,718 characters —
+even though every change it described is already fully recorded in its
+cited ADR. This is the same failure mode `CODE_HEALTH_ASSESSMENT.md`
+flagged in code (`WikidataClient.cs`, `GridGameModule.cs`: incremental
+growth with no periodic consolidation), just in prose, in the one document
+`CLAUDE.md` tells every session to read before touching a component
+boundary.
+*Accept:* every component's row describes current state only (no "as of
+DATE" framing); a new evolution-reference subsection points each component
+to its ADR trail in one line instead of re-narrating it; no boundary rule,
+REQ reference, or ADR pointer is lost (verified by grepping the old text
+for everything it pointed at and confirming the new text still points at
+the same places); any internal cross-reference to the removed prose (e.g.
+"see the COMP-X status note above") is fixed to point at where the fact
+now lives; frontmatter `version`/`last_updated` bumped; `docs/CHANGELOG.md`
+gets an entry.
+*Deps:* none.
+**Built as:** matches the plan. §5 went from 629 lines/~88,400 characters
+to 125 lines/~13,000 characters (the whole document: 166,389 → 97,598
+characters, a 41% reduction). §6 (data flows, 862 lines) was checked
+(`awk '{print length, NR}'` for the single-mega-line signature, plus a
+manual read of its opening ~140 lines) and found free of the same pattern
+except a smaller ~135-line pocket of "**COMP-03 status (DATE, S-xxx):**"
+prose at the very start of §6.1 — deliberately left alone rather than
+rushed in the same pass, and tracked as S-123 below. Four dangling
+cross-references in §6 that pointed at the removed §5 prose (lines
+originally referencing "the COMP-01/COMP-03/COMP-04/COMP-11 status note
+above/below") were found via grep and fixed to point at the new §5 table
+rows or restated inline instead. Version bumped 0.96 → 0.97 (both
+frontmatter and the in-body version line, which had already drifted from
+the frontmatter before this story — also fixed).
+
+**S-117 · Add the `code-health-auditor` agent**
+No agent owned "run a periodic whole-codebase health sweep and turn
+findings into a tracked epic" — `CODEBASE_ANALYSIS.md`'s Epic 7/8 sweeps
+happened via ad hoc main-session work, not a defined, invokable
+responsibility, the same "orphaned responsibility" shape
+`docs/ai/agent-migration-plan.md` §2 (F-2) already identified for
+refactoring and test architecture before `quality-architect` absorbed
+them. Deliberately a new agent, not folded into `quality-architect`, since
+that agent's process explicitly starts from "review the diff (or named
+code)" — a different-shaped, different-triggered task from "score the
+whole tree."
+*Accept:* `.claude/agents/code-health-auditor.md` exists with the standard
+frontmatter (`name`/`description`/`tools`); `CLAUDE.md`'s agent table,
+`.claude/README.md`'s agent table/org description/a new workflow section,
+and `docs/ai/agent-migration-plan.md` (org chart §4.1, ownership matrix
+§4.3, a new dated §8 addendum) are all updated in the same change per
+`docs/ai/agent-migration-plan.md`'s own governance rule.
+*Deps:* none.
+**Built as:** matches the plan. The agent applies small, mechanical,
+same-session-verifiable fixes itself (step 2 of its process) but hands
+anything nontrivial or cross-boundary to the existing delivery agents via
+a new backlog epic — deliberately not a second refactor-execution path
+alongside `quality-architect`'s.
+
+**S-118 · WikidataClient.cs: migrate remaining query methods onto the shared HTTP/timeout/retry driver**
+S-100/S-101 (Epic 7) built a shared spec-table-driven HTTP/timeout/retry
+path for the 9 `CategoryType`-intersection queries specifically. Several
+query methods added afterward by later ADRs — `QueryPlayerCareerStintsByQidsAsync`/
+`QueryPlayerPoolByNationalityAsync`/`QueryPlayerPoolBirthYearAsync`
+(ADR-0054/ADR-0055), `QueryPlayerPositionsAndBirthYearsByQidsAsync`/
+`QuerySitelinkCountsByQidsAsync` (ADR-0056), and
+`QueryPlayerCareerAndNationalityByNameAsync` (ADR-0053) — were never
+migrated onto that driver and still hand-roll their own HTTP
+send/timeout-CTS/catch blocks. Extend the shared driver to cover these too.
+*Accept:* same regression-net style as S-100/S-101 — for each migrated
+method, a test asserts behavior (request shape, timeout tier, error
+handling) is unchanged, not just non-null; full `WikidataClientTests.cs`
+suite passes unchanged; line count reduction reported in the PR
+description.
+*Deps:* none (extends S-100/S-101's driver without reopening them).
+
+**S-119 · GridGameModule.cs: split by responsibility (generation / name-matching / live-lookup dispatch)**
+S-104 (Epic 7) flattened `GridGameModule.cs`'s nesting (25→3 deep-indent
+lines) but didn't reduce its responsibility count — it remains 1,039
+lines/26 methods/13 constructor-injected dependencies implementing grid
+generation, three-stage name matching, disambiguation building, live-lookup
+dispatch, and DTO construction all in one `IGameModule` implementation, a
+different axis from what S-104 was scoped to fix. Split into
+`GridGenerationService`, `GridNameMatcher`, and a live-lookup dispatcher,
+composed behind the existing thin `IGameModule` adapter — the same shape
+ADR-0067 already proved for `PlayerStoreRepository`.
+*Accept:* `GridGameModuleTests.cs` coverage moves/renames to match the new
+class boundaries rather than being rewritten — structural-only change, no
+behavior change; `IGameModule`'s public contract unchanged. Add an ADR
+(per `CLAUDE.md`'s own "could reasonably have gone another way" test —
+this is exactly that kind of structural split, same test S-106's ADR-0067
+already applied).
+*Deps:* none.
+
+**S-120 · Frontend: extract a shared `useAuthedFetch`/`usePaginatedFetch` hook**
+Confirmed via review: multiple screens (`LeaderboardScreen.tsx` most
+visibly, but the pattern repeats elsewhere) each hand-roll their own
+`phase: 'loading'|'error'|'ready'` union, cancellation-flag, and
+`handleAuthError`/401-escalation logic independently — unlike the
+backend's consistent repository/service pattern, the frontend has no
+shared data-fetching abstraction at all.
+*Accept:* new hook covers at minimum the common loading/error/cancel/401
+shape; first migration (the lowest-risk screen, not necessarily
+`LeaderboardScreen.tsx` — see S-121) proves it out with existing tests
+passing unchanged; further screens migrate in follow-up stories, not all
+in one PR.
+*Deps:* none.
+
+**S-121 · LeaderboardScreen.tsx: split into per-scope components**
+`LeaderboardScreen.tsx` (1,129 lines) implements 4 independent state
+machines (all-time/live/past-rounds/windowed scopes) with 4 near-identical
+fetch/poll/cancel effects and 4 near-duplicated `handleLoadMore*`
+functions. Split into `AllTimeLeaderboard`/`LiveLeaderboard`/
+`PastRoundsLeaderboard`/`WindowedLeaderboard`, each built on S-120's shared
+hook. *Note:* `CODEBASE_ANALYSIS.md`'s prior revision explicitly marked
+this file "watch-only, no action" on low-churn grounds — this story
+revisits that call because S-120's hook migration touches the file anyway,
+making a combined pass cheaper than two separate ones, not because the
+churn-based reasoning was wrong.
+*Accept:* `LeaderboardScreen.test.tsx` coverage moves to per-component test
+files, not rewritten; no visual/behavior change; `oxlint`/`tsc -b`/`vitest`
+clean.
+*Deps:* S-120.
+
+**S-122 · Add direct repository tests for `PlayerDataQualityRepository`**
+Acknowledged, not-yet-fixed gap from S-107's own "Built as" note (Epic 8):
+`IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/`IsPersistentTechnicalFailureAsync`/
+`RecordTechnicalFailureAsync`/`ClearTechnicalFailureAsync` have no direct
+repository-level test, only indirect coverage via
+`GridGameModuleTests`/`PlayerCacheWarmingServiceTests`.
+*Accept:* new/extended `PlayerDataQualityRepositoryTests.cs` directly
+exercises each of the five methods; no behavior change.
+*Deps:* none.
+
+**S-123 · Slim `docs/architecture-document.md` §6.1's remaining status-note pocket**
+S-116 above slimmed §5 but deliberately left §6 alone after confirming it
+was mostly clean — except a ~135-line pocket of "**COMP-03 status (DATE,
+S-xxx):**" prose at the very start of §6.1 (Grid generation flow, roughly
+the paragraphs between the section heading and the actual flow diagram),
+the same accretion pattern as §5 at smaller scale. Apply the same
+current-state-only treatment S-116 used.
+*Accept:* same as S-116 — current-state only, ADR pointers preserved, no
+dangling cross-references, frontmatter bumped, CHANGELOG entry added.
+Check the rest of §6 (§6.2 onward) for the same pattern while in there,
+but don't rewrite what's still accurate just because you're in the file —
+S-116's own conservatism principle applies here too.
+*Deps:* none.

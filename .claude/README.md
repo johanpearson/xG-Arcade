@@ -21,7 +21,9 @@ toolbox:
   `game-scaffolder`, `test-writer`.
 - **Protection agents guard the system**: `architecture-reviewer`
   (structure/boundaries), `quality-architect` (maintainability, code
-  quality, refactoring, test architecture).
+  quality, refactoring, test architecture — per-diff/per-story),
+  `code-health-auditor` (periodic whole-codebase health sweep — scores
+  everything 1-10, plans the epic that gets low scorers back above 8).
 - **Product and stewardship**: `requirements-writer` (REQs),
   `doc-sync` (docs/CHANGELOG honesty).
 
@@ -45,6 +47,7 @@ it's for. You don't need to explicitly summon them by name, though you can
 | `quality-architect` | ...finish non-trivial code, ask for a review or refactor, or notice test setup getting copy-pasted | Three modes: reviews against `docs/coding-guidelines.md` (readability, duplication, error handling, coverage gaps); performs deliberate behavior-preserving refactors; owns the test architecture (fake/fixture strategy, flaky/slow tests). Doesn't check architecture boundaries; that's `architecture-reviewer`'s job |
 | `requirements-writer` | ...describe a feature that isn't a REQ yet, or ask for a requirements review | Drafts new REQ entries in the established format, or reviews existing ones for testability and consistency |
 | `doc-sync` | ...finish a coding session, or explicitly ask to sync docs | Diffs recent changes against the docs, updates whichever are now stale, appends a CHANGELOG entry |
+| `code-health-auditor` | ...ask for a health/quality sweep, a refactoring epic, or `CODE_HEALTH_ASSESSMENT.md`/`CODEBASE_ANALYSIS.md` haven't been refreshed in a while | Scores every file/component/module 1.0-10.0 (CodeScene/SonarQube-style), prioritizes by complexity×churn hotspot risk, fixes small mechanical issues directly, and turns the rest into the next numbered backlog epic (continuing the Epic 7/8/9 lineage). Also detects and slims documentation bloat (a doc accreting unbounded dated narrative instead of current state). Not for reviewing a single diff — that's `quality-architect` |
 
 **Slash commands** (`.claude/commands/*.md`) — you type these explicitly,
 e.g. `/orchestrate`, when you want that specific workflow to run right now.
@@ -157,6 +160,23 @@ they don't forbid the short ones.
   don't rise to the level of a formal ADR (a third-party API quirk, "this
   took longer than expected because..."). Not agent-managed — just add to
   it directly when something's worth remembering.
+
+## Running a health sweep and refactoring epic
+
+1. Ask for `code-health-auditor` explicitly (e.g. "run a code health
+   sweep") when you want a fresh whole-codebase pass, not a single diff
+   reviewed — that's `quality-architect`'s job instead.
+2. It checks `docs/backlog.md`'s existing technical-debt epics and
+   `CODEBASE_ANALYSIS.md`/`CODE_HEALTH_ASSESSMENT.md` first, so it doesn't
+   re-propose something already built — trust but verify: if a finding
+   looks stale, ask it to re-check against current code.
+3. It scores everything, fixes what's small and mechanical in the same
+   session, and writes the rest up as the next `## Epic N` in
+   `docs/backlog.md` — same story shape (`*Accept:*`/`*Deps:*`, pure
+   refactor, no new REQ IDs) as every prior remediation epic.
+4. Run stories from that epic the normal way — one per session/PR,
+   delegated to `backend-implementer`/`ui-implementer`/`quality-architect`
+   depending on what the story touches.
 
 ## When something doesn't work as expected
 
