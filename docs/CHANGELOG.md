@@ -13,6 +13,36 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — no docs changed beyond this entry — S-112 (`docs/backlog.md`
+  Epic 8): restructured `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`'s
+  single 667-line sequential `TryHandleAsync` into a `Verbs` lookup table
+  (`Dictionary<string, Func<string[], Task<bool>>>`) mapping each literal
+  verb string to its own named `Handle<Verb>Async` method — same
+  spec-table-plus-shared-driver shape as `WikidataClient.cs`'s S-100/S-101
+  refactor. `TryHandleAsync` itself is now a thin `Verbs.TryGetValue`
+  lookup. Preserves both pre-existing match shapes exactly: the 8
+  exact-match verbs (`migrate-and-seed`, `warm-player-cache`,
+  `import-player-name-index`, `backfill-player-photos`,
+  `backfill-player-position-birthyear`, `prefetch-player-careers`,
+  `verify-wikidata-player-data`, `audit-club-gaps`) each start with an
+  explicit `if (args.Length != 1) return false;` to reproduce the old
+  `args is ["verb"]` silent-fallthrough-to-server-start behavior on extra
+  arguments; the 4 prefix-match verbs (`clean-stale-club-attributes`,
+  `clear-pair-lookup-failures`, `clean-duplicate-career-stints`,
+  `purge-player-pool`) keep their own internal argument validation and
+  `throw new InvalidOperationException(...)` on a malformed shape,
+  unchanged. Every verb's body, doc comments, `Console.WriteLine` text, and
+  exception messages were moved verbatim, not rewritten (confirmed via a
+  whitespace-normalized diff against the pre-refactor file — the only
+  differences are the expected structural ones: method signatures, the
+  `Verbs` dictionary, and the new `if (args.Length != 1) return false;`
+  guards). Pure refactor, no behavior change, no new REQ IDs, no component
+  boundary crossed — no ADR, same reasoning as S-100/S-101. No dedicated
+  unit tests exist for this file (S-113 tracks that gap separately);
+  `dotnet` SDK unavailable in this sandbox, so `dotnet build`/`dotnet test`
+  could not be run here — verification was a manual line-by-line re-read of
+  each handler against the original plus the normalized-diff check above;
+  CI's `dotnet test` run is the actual regression net.
 - 2026-08-11 — `docs/backlog.md` — implemented S-111 (`docs/backlog.md`
   Epic 8): split `frontend/src/lib/api.ts` (1,057 lines, 51 exports) into a
   shared `apiClient.ts` (`ApiError`/`throwApiError`/`describeError`/
