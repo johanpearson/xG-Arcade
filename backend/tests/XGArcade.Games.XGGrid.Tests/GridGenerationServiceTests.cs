@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using XGArcade.Core.Games;
+using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
 using XGArcade.DataSync.Wikidata;

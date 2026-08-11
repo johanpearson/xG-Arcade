@@ -4,6 +4,7 @@ using XGArcade.Core.Games;
 using XGArcade.Data;
 using XGArcade.Data.Entities;
 using XGArcade.Data.Repositories;
+using XGArcade.DataSync.Wikidata;
 
 namespace XGArcade.Games.XGGrid.Tests;
 
