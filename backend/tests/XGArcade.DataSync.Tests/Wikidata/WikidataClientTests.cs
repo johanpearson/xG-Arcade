@@ -2278,6 +2278,57 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => client.QueryPlayerPoolBirthYearAsync(1938));
     }
 
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — asserts the SPARQL text this method
+    // sends is byte-for-byte identical to BuildPlayerPoolBirthYearQuery's
+    // pre-refactor output (captured by reading that method's source before
+    // this refactor, since dotnet test cannot run in this sandbox to diff
+    // against). If the driver's request-building ever diverges from what
+    // this method built inline before S-118, this test fails.
+    [Test]
+    public async Task S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolBirthYearAsync(1977);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?birthYear ?countryLabel WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1977-01-01T00:00:00Z"^^xsd:dateTime && ?dateOfBirth < "1978-01-01T00:00:00Z"^^xsd:dateTime)
+              BIND(YEAR(?dateOfBirth) AS ?birthYear)
+              OPTIONAL { ?player wdt:P27 ?country. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as the timeout-tier test
+    // above the intersection queries' own byte-for-byte test
+    // (REQ100_QueryCountryClubIntersectionAsync_...) — pins the exact
+    // _queryTimeout budget (15s default; overridden here) this method must
+    // keep using post-refactor, not a WikidataQueryTimeoutTier lookup this
+    // method never had.
+    [Test]
+    public void S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolBirthYearAsync(1977));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player-pool query for birth year 1977 timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
+    }
+
     // ---- QueryPlayerPhotosByQidsAsync (REQ-214 backfill, S-045) ------------
     // Batched, direct-by-QID lookup — a VALUES clause, not an intersection
     // query — with the SAME throw-on-failure contract as
@@ -2942,6 +2993,54 @@ public class WikidataClientTests
         Assert.ThrowsAsync<ArgumentException>(() => client.QueryPlayerCareerStintsByQidsAsync(["Q1519", "Arsenal"]));
     }
 
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — see
+    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // own comment for the full "why" (same driver, same proof shape).
+    [Test]
+    public async Task S118_QueryPlayerCareerStintsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerStintsByQidsAsync(["Q1519", "Q9617"]);
+
+        const string expectedQuery = """
+            SELECT ?player ?club ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              VALUES ?player { wd:Q1519 wd:Q9617 }
+              ?player p:P54 ?clubStatement.
+              ?clubStatement ps:P54 ?club.
+              MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+              MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593. }
+              OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+              OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+              OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as
+    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // — pins the exact _queryTimeout budget this method must keep using
+    // post-refactor.
+    [Test]
+    public void S118_QueryPlayerCareerStintsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerStintsByQidsAsync(["Q1519"]));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player career-stint batch query for 1 QID(s) timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
+    }
+
     // ---- QueryPlayerPoolByNationalityAsync (ADR-0055, xG Path candidate-pool
     // widening) -------------------------------------------------------------
     // The nationality-scoped sibling of QueryPlayerPoolBirthYearAsync — same
@@ -3076,6 +3175,53 @@ public class WikidataClientTests
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
     }
 
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — see
+    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // own comment for the full "why" (same driver, same proof shape).
+    [Test]
+    public async Task S118_QueryPlayerPoolByNationalityAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false);
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?birthYear WHERE {
+              ?player wdt:P106 wd:Q937857.
+              ?player wdt:P21 wd:Q6581097.
+              ?player wdt:P569 ?dateOfBirth.
+              FILTER(?dateOfBirth >= "1939-01-01T00:00:00Z"^^xsd:dateTime)
+              BIND(YEAR(?dateOfBirth) AS ?birthYear)
+              ?player wdt:P27 wd:Q142.
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as
+    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // — pins the exact _queryTimeout budget this method must keep using
+    // post-refactor.
+    [Test]
+    public void S118_QueryPlayerPoolByNationalityAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryPlayerPoolByNationalityAsync("Q142", useCountryForSportProperty: false));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player-pool query for nationality Q142 timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
+    }
+
     // ---- QueryPlayerPositionsAndBirthYearsByQidsAsync (REQ-1207 backfill) --
     // positionLabel-specific coverage: the query-shape/error-contract tests
     // for this method never existed before this bug-bundle fix (the batch
@@ -3119,6 +3265,50 @@ public class WikidataClientTests
 
         Assert.That(result["Q1519"].Position, Is.EqualTo("midfielder"));
         Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
+    }
+
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — see
+    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // own comment for the full "why" (same driver, same proof shape).
+    [Test]
+    public async Task S118_QueryPlayerPositionsAndBirthYearsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerPositionsAndBirthYearsByQidsAsync(["Q1519", "Q9617"]);
+
+        const string expectedQuery = """
+            SELECT ?player ?positionLabel ?dateOfBirth WHERE {
+              VALUES ?player { wd:Q1519 wd:Q9617 }
+              OPTIONAL { ?player wdt:P413 ?position. }
+              OPTIONAL { ?player wdt:P569 ?dateOfBirth. }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as
+    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // — pins the exact _queryTimeout budget this method must keep using
+    // post-refactor.
+    [Test]
+    public void S118_QueryPlayerPositionsAndBirthYearsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryPlayerPositionsAndBirthYearsByQidsAsync(["Q1519"]));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata player position/birth-year batch query for 1 QID(s) timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
     // ---- QuerySitelinkCountsByQidsAsync (ADR-0056, xG Path's familiarity ---
@@ -3228,6 +3418,47 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("{}")));
 
         Assert.ThrowsAsync<ArgumentException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519", "Arsenal"]));
+    }
+
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — see
+    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // own comment for the full "why" (same driver, same proof shape).
+    [Test]
+    public async Task S118_QuerySitelinkCountsByQidsAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QuerySitelinkCountsByQidsAsync(["Q1519", "Q9617"]);
+
+        const string expectedQuery = """
+            SELECT ?player ?sitelinks WHERE {
+              VALUES ?player { wd:Q1519 wd:Q9617 }
+              OPTIONAL { ?player wikibase:sitelinks ?sitelinks. }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as
+    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // — pins the exact _queryTimeout budget this method must keep using
+    // post-refactor.
+    [Test]
+    public void S118_QuerySitelinkCountsByQidsAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromMilliseconds(50),
+            adminLookupQueryTimeout: TimeSpan.FromSeconds(45),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(() => client.QuerySitelinkCountsByQidsAsync(["Q1519"]));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata sitelink-count batch query for 1 QID(s) timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 
     // ---- QueryPlayerCareerAndNationalityByNameAsync (REQ-509/REQ-510,
@@ -3459,5 +3690,73 @@ public class WikidataClientTests
         var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson("not valid json")));
 
         Assert.ThrowsAsync<WikidataQueryException>(() => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+    }
+
+    // S-118 (docs/backlog.md): regression proof for the shared
+    // RunThrowingQueryAsync driver — see
+    // S118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's
+    // own comment for the full "why" (same driver, same proof shape). Also
+    // proves ADR-0062's mwapi EntitySearch subquery text is untouched by this
+    // refactor, not just the outer P27/P54 shape.
+    [Test]
+    public async Task S118_QueryPlayerCareerAndNationalityByNameAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput()
+    {
+        var handler = FakeHttpMessageHandler.ReturningJson("""{ "results": { "bindings": [] } }""");
+        var client = new WikidataClient(BuildHttpClient(handler));
+
+        await client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf");
+
+        const string expectedQuery = """
+            SELECT ?player ?playerLabel ?nationalityLabel ?club ?clubLabel ?startTime ?endTime ?numberOfMatches WHERE {
+              {
+                SELECT ?player WHERE {
+                  SERVICE wikibase:mwapi {
+                    bd:serviceParam wikibase:api "EntitySearch".
+                    bd:serviceParam wikibase:endpoint "www.wikidata.org".
+                    bd:serviceParam mwapi:search "Clarence Seedorf".
+                    bd:serviceParam mwapi:language "en".
+                    bd:serviceParam mwapi:limit "10".
+                    ?player wikibase:apiOutputItem mwapi:item.
+                  }
+                  ?player wdt:P106 wd:Q937857.
+                }
+                LIMIT 1
+              }
+              OPTIONAL { ?player wdt:P27 ?nationality. }
+              OPTIONAL {
+                ?player p:P54 ?clubStatement.
+                ?clubStatement ps:P54 ?club.
+                MINUS { ?clubStatement wikibase:rank wikibase:DeprecatedRank. }
+                MINUS { ?club wdt:P31/wdt:P279* wd:Q6979593. }
+                OPTIONAL { ?clubStatement pq:P580 ?startTime. }
+                OPTIONAL { ?clubStatement pq:P582 ?endTime. }
+                OPTIONAL { ?clubStatement pq:P1350 ?numberOfMatches. }
+              }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+            }
+            """;
+        Assert.That(ExtractSentSparqlQuery(handler), Is.EqualTo(expectedQuery));
+    }
+
+    // S-118: same driver-migration regression proof as
+    // S118_QueryPlayerPoolBirthYearAsync_Timeout_ReportsQueryTimeoutBudget_NotAnotherBudget
+    // — this method's own message-content variant of
+    // REQ509_QueryPlayerCareerAndNationalityByNameAsync_UsesAdminLookupBudget_NotQueryTimeout
+    // above, pinning the exact wording rather than just "contains 0s.".
+    [Test]
+    public void S118_QueryPlayerCareerAndNationalityByNameAsync_Timeout_ReportsAdminLookupBudget_NotAnotherBudget()
+    {
+        var client = new WikidataClient(
+            BuildHttpClient(FakeHttpMessageHandler.NeverResponding()),
+            queryTimeout: TimeSpan.FromSeconds(45),
+            adminLookupQueryTimeout: TimeSpan.FromMilliseconds(50),
+            cacheWarmingQueryTimeout: TimeSpan.FromSeconds(45),
+            guessTimeFallbackQueryTimeout: TimeSpan.FromSeconds(28));
+
+        var ex = Assert.ThrowsAsync<WikidataQueryException>(
+            () => client.QueryPlayerCareerAndNationalityByNameAsync("Clarence Seedorf"));
+
+        Assert.That(ex!.Message, Is.EqualTo("Wikidata admin career/nationality-by-name query for 'Clarence Seedorf' timed out after 0s."),
+            "exact pre-refactor message shape — description + \" timed out after {N}s.\"");
     }
 }
