@@ -3,10 +3,10 @@ using XGArcade.Data.Entities;
 namespace XGArcade.Data.Repositories;
 
 // COMP-10 (Data.PlayerNameIndex): a deliberately separate interface from
-// IPlayerStoreRepository (COMP-06) — see ADR-0007 and architecture-
-// document.md boundary rule 5. This is the ONLY path to PlayerNameIndex.
-// Never merge this interface with IPlayerStoreRepository, and never call
-// IPlayerStoreRepository from this repository's implementation — doing so
+// every COMP-06 repository (Data.PlayerStore) — see ADR-0007 and
+// architecture-document.md boundary rule 5. This is the ONLY path to
+// PlayerNameIndex. Never merge this interface with a COMP-06 repository,
+// and never call one from this repository's implementation — doing so
 // would reintroduce the exact autocomplete-leaks-correctness problem
 // ADR-0007 exists to prevent.
 public interface IPlayerNameIndexRepository

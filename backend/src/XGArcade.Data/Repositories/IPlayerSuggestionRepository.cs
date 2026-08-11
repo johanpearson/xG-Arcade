@@ -3,9 +3,9 @@ using XGArcade.Data.Entities;
 namespace XGArcade.Data.Repositories;
 
 // REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository, deliberately
-// separate from IPlayerStoreRepository (COMP-06) — that interface's own doc
-// comment scopes it to "the only path to PlayerData/PlayerOverride/
-// PlayerAttribute/PlayerAlias," and ADR-0052 keeps PlayerSuggestion its own
+// separate from every COMP-06 repository — those interfaces are scoped to
+// "the only path to PlayerData/PlayerOverride/PlayerAttribute/PlayerAlias/
+// PlayerCareerStint/etc.," and ADR-0052 keeps PlayerSuggestion its own
 // table/pipeline, never folded into REQ-503's queue or its repository.
 //
 // S-089 only ever called AddAsync — the list/commit/reject methods below

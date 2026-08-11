@@ -61,11 +61,11 @@ public class PlayerAliasRepository(XGArcadeDbContext dbContext) : IPlayerAliasRe
             cancellationToken);
     }
 
-    // Duplicated from PlayerStoreRepository/PlayerAttributeRepository
-    // (S-106, per that story's own explicit instruction) rather than shared
-    // across repository classes — repositories shouldn't depend on each
-    // other. See PlayerStoreRepository's own copy for the original "why
-    // this exists" comment (quality-architect review, 2026-07-21).
+    // Duplicated from PlayerAttributeRepository/PlayerCareerStintRepository
+    // (S-106/S-107, per those stories' own explicit instruction) rather than
+    // shared across repository classes — repositories shouldn't depend on
+    // each other. See PlayerAttributeRepository's own copy for the original
+    // "why this exists" comment (quality-architect review, 2026-07-21).
     private static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<TEntity>>> GroupByPlayerIdAsync<TEntity>(
         IQueryable<TEntity> filteredQuery,
         Func<TEntity, Guid> playerIdSelector,
