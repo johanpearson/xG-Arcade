@@ -30,25 +30,29 @@ public static class ServiceRegistration
             options.UseNpgsql(databaseConnectionString));
 
         // COMP-06 (Data.PlayerStore) — the only path to category/player data;
-        // see architecture-document.md boundary rule 1. S-106 (pure refactor,
-        // docs/backlog.md Epic 8) split IPlayerStoreRepository's original 43
-        // methods into 5 narrower repositories along their entity concern
-        // (Player/PlayerData/PlayerAttribute/PlayerAlias, plus the still-
-        // undivided IPlayerStoreRepository for Override/backfill/CareerStint/
-        // data-quality-tracking, pending S-107) — all five are still
-        // COMP-06/Data.PlayerStore, and together are the only path to this
-        // data; see each interface's own doc comment for its specific slice.
+        // see architecture-document.md boundary rule 1. S-106+S-107 (pure
+        // refactor, docs/backlog.md Epic 8) split the original, now-deleted
+        // IPlayerStoreRepository's 43 methods into 8 narrower repositories
+        // along their entity concern (Player/PlayerData/PlayerAttribute/
+        // PlayerAlias/PlayerOverride/PlayerBackfill/PlayerCareerStint/
+        // PlayerDataQuality) — all eight are still COMP-06/Data.PlayerStore,
+        // and together are the only path to this data; see each interface's
+        // own doc comment for its specific slice, and ADR-0067 for the full
+        // split rationale.
         builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
-        builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
         builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
         builder.Services.AddScoped<IPlayerDataRepository, PlayerDataRepository>();
         builder.Services.AddScoped<IPlayerAttributeRepository, PlayerAttributeRepository>();
         builder.Services.AddScoped<IPlayerAliasRepository, PlayerAliasRepository>();
+        builder.Services.AddScoped<IPlayerOverrideRepository, PlayerOverrideRepository>();
+        builder.Services.AddScoped<IPlayerBackfillRepository, PlayerBackfillRepository>();
+        builder.Services.AddScoped<IPlayerCareerStintRepository, PlayerCareerStintRepository>();
+        builder.Services.AddScoped<IPlayerDataQualityRepository, PlayerDataQualityRepository>();
 
         // COMP-10 (Data.PlayerNameIndex) — REQ-207's autocomplete-only data source,
-        // deliberately a separate repository/interface from IPlayerStoreRepository
-        // above (never merged — see ADR-0007 and architecture-document.md boundary
-        // rule 5).
+        // deliberately a separate repository/interface from the COMP-06
+        // repositories above (never merged — see ADR-0007 and architecture-
+        // document.md boundary rule 5).
         builder.Services.AddScoped<IPlayerNameIndexRepository, PlayerNameIndexRepository>();
 
         // COMP-01 (Core.Users) — the only path to the local User profile table.
@@ -183,13 +187,13 @@ public static class ServiceRegistration
         builder.Services.AddScoped<IGuessSubmissionService, GuessSubmissionService>();
         builder.Services.AddScoped<IScoreLockingService, ScoreLockingService>();
         // REQ-215/ADR-0052 (S-089): PlayerSuggestion's own repository — see that
-        // interface's own doc comment for why this is never folded into
-        // IPlayerStoreRepository above.
+        // interface's own doc comment for why this is never folded into any of
+        // the COMP-06 repositories above.
         builder.Services.AddScoped<IPlayerSuggestionRepository, PlayerSuggestionRepository>();
         // REQ-511: the site-wide announcement banner's own repository — see
         // IAnnouncementBannerRepository's own doc comment for why this table's
-        // singleton invariant lives here rather than in IPlayerStoreRepository or
-        // any other existing repository.
+        // singleton invariant lives here rather than in any of the COMP-06
+        // repositories or any other existing repository.
         builder.Services.AddScoped<IAnnouncementBannerRepository, AnnouncementBannerRepository>();
         // REQ-406/407 (ADR-0031): the shared live per-cell contribution formula
         // Core.Leagues' ILeaderboardService folds into the shared total (REQ-406)

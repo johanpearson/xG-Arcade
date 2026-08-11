@@ -85,10 +85,10 @@ namespace XGArcade.Games.XGGrid;
 // same-process retry.
 public class PlayerCacheWarmingService(
     ICategoryValueRepository categoryValueRepository,
-    IPlayerStoreRepository playerStoreRepository,
-    // S-106 (pure refactor): CountPlayersWithBothAttributesAsync's new home
-    // — playerStoreRepository above is kept for the ConfirmedLowMatchPair/
-    // PairLookupFailure methods, which haven't moved (S-107 territory).
+    // S-106/S-107 (pure refactor): the original, now-deleted
+    // IPlayerStoreRepository's ConfirmedLowMatchPair/PairLookupFailure
+    // methods now live on IPlayerDataQualityRepository — see ADR-0067.
+    IPlayerDataQualityRepository playerDataQualityRepository,
     IPlayerAttributeRepository playerAttributeRepository,
     IWikidataLookupService wikidataLookupService,
     GridGenerationOptions options,
@@ -166,7 +166,7 @@ public class PlayerCacheWarmingService(
                 // is safe even if MinValidAnswers itself has changed since
                 // the pair was marked (see ConfirmedLowMatchPair's own doc
                 // comment for why that ordering matters).
-                else if (await playerStoreRepository.IsConfirmedLowAsync(
+                else if (await playerDataQualityRepository.IsConfirmedLowAsync(
                     NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken))
                 {
                     pairsSkippedConfirmedLow++;
@@ -179,7 +179,7 @@ public class PlayerCacheWarmingService(
                 // PairLookupFailure's own doc comment and
                 // PersistentFailureThreshold's own comment for the full
                 // "why 2 consecutive runs, not 1" reasoning.
-                else if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                else if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
                     NationalityAttributeType, country.Name, ClubAttributeType, club.Name, PersistentFailureThreshold, cancellationToken))
                 {
                     pairsSkippedPersistentFailure++;
@@ -197,7 +197,7 @@ public class PlayerCacheWarmingService(
                     {
                         pairsWithTechnicalFailure++;
                         failingPairs.Add($"{country.Name} x {club.Name}");
-                        await playerStoreRepository.RecordTechnicalFailureAsync(
+                        await playerDataQualityRepository.RecordTechnicalFailureAsync(
                             NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
                     }
                     else
@@ -211,11 +211,11 @@ public class PlayerCacheWarmingService(
                         // result set (implementation-document.md §6a), so
                         // it's the true current match count, not just
                         // "however many were new."
-                        await playerStoreRepository.ClearTechnicalFailureAsync(
+                        await playerDataQualityRepository.ClearTechnicalFailureAsync(
                             NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
                         if (matches.Count < options.MinValidAnswers)
                         {
-                            await playerStoreRepository.RecordConfirmedLowAsync(
+                            await playerDataQualityRepository.RecordConfirmedLowAsync(
                                 NationalityAttributeType, country.Name, ClubAttributeType, club.Name, matches.Count, cancellationToken);
                         }
                     }
@@ -242,7 +242,7 @@ public class PlayerCacheWarmingService(
                 }
                 // REQ-110: see the Country x Club loop's own comment above
                 // — same reasoning here.
-                else if (await playerStoreRepository.IsConfirmedLowAsync(
+                else if (await playerDataQualityRepository.IsConfirmedLowAsync(
                     ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken))
                 {
                     pairsSkippedConfirmedLow++;
@@ -254,7 +254,7 @@ public class PlayerCacheWarmingService(
                 // that actually needed this extension in practice — see
                 // WikidataClient.BuildClubClubIntersectionQuery's own
                 // comment for the specific club-club query-shape incident.
-                else if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+                else if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
                     ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, PersistentFailureThreshold, cancellationToken))
                 {
                     pairsSkippedPersistentFailure++;
@@ -272,18 +272,18 @@ public class PlayerCacheWarmingService(
                     {
                         pairsWithTechnicalFailure++;
                         failingPairs.Add($"{clubs[i].Name} x {clubs[j].Name}");
-                        await playerStoreRepository.RecordTechnicalFailureAsync(
+                        await playerDataQualityRepository.RecordTechnicalFailureAsync(
                             ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
                     }
                     else
                     {
                         // REQ-110: see the Country x Club loop's own comment
                         // above — same reasoning here.
-                        await playerStoreRepository.ClearTechnicalFailureAsync(
+                        await playerDataQualityRepository.ClearTechnicalFailureAsync(
                             ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, cancellationToken);
                         if (matches.Count < options.MinValidAnswers)
                         {
-                            await playerStoreRepository.RecordConfirmedLowAsync(
+                            await playerDataQualityRepository.RecordConfirmedLowAsync(
                                 ClubAttributeType, clubs[i].Name, ClubAttributeType, clubs[j].Name, matches.Count, cancellationToken);
                         }
                     }

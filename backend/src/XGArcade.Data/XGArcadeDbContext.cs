@@ -15,29 +15,29 @@ public class XGArcadeDbContext(DbContextOptions<XGArcadeDbContext> options) : Db
     public DbSet<PlayerAlias> PlayerAliases => Set<PlayerAlias>();
     // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension) —
     // COMP-06 (Data.PlayerStore), same boundary as PlayerAttribute/PlayerData
-    // above: only reachable from Games.XGGrid via IPlayerStoreRepository,
+    // above: only reachable from Games.XGGrid via IPlayerDataQualityRepository,
     // never a direct DbContext query. See ConfirmedLowMatchPair's own doc
     // comment for the full "why a new table" reasoning.
     public DbSet<ConfirmedLowMatchPair> ConfirmedLowMatchPairs => Set<ConfirmedLowMatchPair>();
     // REQ-110 (2026-08-01 "persistent technical-failure tracking"
     // extension, ADR-0052) — COMP-06, same boundary as ConfirmedLowMatchPair
-    // above: only reachable from Games.XGGrid via IPlayerStoreRepository.
+    // above: only reachable from Games.XGGrid via IPlayerDataQualityRepository.
     // See PairLookupFailure's own doc comment for the full "why a separate
     // table from ConfirmedLowMatchPair" reasoning.
     public DbSet<PairLookupFailure> PairLookupFailures => Set<PairLookupFailure>();
     // ADR-0042/S-079 (COMP-06): xG Path's ordered, dated career-stint log —
     // see PlayerCareerStint's own doc comment. Never read by
-    // IPlayerStoreRepository's correctness-checking methods (xG Grid).
+    // IPlayerOverrideRepository's correctness-checking methods (xG Grid).
     public DbSet<PlayerCareerStint> PlayerCareerStints => Set<PlayerCareerStint>();
     // COMP-10 (Data.PlayerNameIndex) — see ADR-0007 and architecture-document.md
-    // boundary rule 5. Deliberately never read by IPlayerStoreRepository
-    // (COMP-06); only IPlayerNameIndexRepository queries this DbSet.
+    // boundary rule 5. Deliberately never read by any COMP-06 repository;
+    // only IPlayerNameIndexRepository queries this DbSet.
     public DbSet<PlayerNameIndex> PlayerNameIndexEntries => Set<PlayerNameIndex>();
     // REQ-208's 2026-07-26 correction / ADR-0044: per-word decomposition of
     // PlayerNameIndex.NormalizedName, indexed so a surname-only autocomplete
     // query can still be a proper (index-backed) StartsWith match. Same
     // COMP-10/autocomplete-only boundary as PlayerNameIndexEntries above —
-    // never read by IPlayerStoreRepository.
+    // never read by any COMP-06 repository.
     public DbSet<PlayerNameIndexWord> PlayerNameIndexWords => Set<PlayerNameIndexWord>();
     public DbSet<CountryDefinition> CountryDefinitions => Set<CountryDefinition>();
     public DbSet<ClubDefinition> ClubDefinitions => Set<ClubDefinition>();

@@ -15,6 +15,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 - 2026-08-11 — `docs/architecture-document.md` + `docs/requirements-document.md`
   + `docs/implementation-document.md` + `docs/decisions/0067-player-store-repository-split.md`
+  + `docs/backlog.md` — implemented S-107 (`docs/backlog.md` Epic 8, the
+  independent second half of S-106's split): split the remaining five
+  `IPlayerStoreRepository` concerns (21 of its original 43 methods) into
+  four more new, independently-registered repositories
+  (`IPlayerOverrideRepository`, `IPlayerBackfillRepository`,
+  `IPlayerCareerStintRepository`, `IPlayerDataQualityRepository`), rewiring
+  every call site (`GridGameModule`, `PlayerCacheWarmingService`,
+  `XGPathGameModule`, `WikidataLookupService`,
+  `PlayerCareerStintRefreshService`, `PlayerCareerPrefetchService`,
+  `ClubGapAuditService`, `PlayerPhotoBackfillService`,
+  `PlayerPositionBirthYearBackfillService`, `CliVerbDispatcher`'s
+  hand-built CLI verbs, and the admin/round/path API endpoints) to depend
+  only on the narrower interface(s) each actually calls, with no facade.
+  Pure refactor — no behavior change, no new REQ IDs; existing
+  `PlayerStoreRepositoryTests.cs` coverage for these five concerns
+  moved/renamed into four new test files rather than being rewritten. Both
+  halves of the split (S-106, S-107) have now landed, so the original
+  `PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` files are deleted
+  — COMP-06 is now eight independently-registered repositories. No new
+  structural question came up, so this extended ADR-0067 (S-106's own ADR)
+  with an "S-107 update" section rather than adding a second ADR.
+- 2026-08-11 — `docs/architecture-document.md` + `docs/requirements-document.md`
+  + `docs/implementation-document.md` + `docs/decisions/0067-player-store-repository-split.md`
   — implemented S-106 (`docs/backlog.md` Epic 8): split
   `IPlayerStoreRepository`'s Player/PlayerData/PlayerAttribute/PlayerAlias
   concerns (22 of its original 43 methods) into four new, independently-

@@ -2,14 +2,16 @@ using XGArcade.Data.Entities;
 
 namespace XGArcade.Data.Repositories;
 
-// COMP-06 (Data.PlayerStore), split from IPlayerStoreRepository (S-106, pure
-// refactor — see that story's own doc comment/CHANGELOG entry for why): the
-// core Player CRUD concern. Games.XGGrid (COMP-05) and any future game
-// module must still reach Player rows only through this interface (or one of
-// its S-106/S-107 siblings — IPlayerDataRepository, IPlayerAttributeRepository,
-// IPlayerAliasRepository, and the still-undivided IPlayerStoreRepository) —
-// see architecture-document.md boundary rule 1. Never merge back into a
-// single facade — S-106's own "no facade unless real need" rule.
+// COMP-06 (Data.PlayerStore), split from the original, now-deleted
+// IPlayerStoreRepository (S-106/S-107, pure refactor — see ADR-0067 for the
+// full split): the core Player CRUD concern. Games.XGGrid (COMP-05) and any
+// future game module must still reach Player rows only through this
+// interface (or one of its siblings — IPlayerDataRepository,
+// IPlayerAttributeRepository, IPlayerAliasRepository, IPlayerOverrideRepository,
+// IPlayerBackfillRepository, IPlayerCareerStintRepository,
+// IPlayerDataQualityRepository) — see architecture-document.md boundary
+// rule 1. Never merge back into a single facade — ADR-0067's own "no facade
+// unless real need" rule.
 public interface IPlayerRepository
 {
     Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default);

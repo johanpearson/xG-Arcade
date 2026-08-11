@@ -21,12 +21,13 @@ public class GridGameModuleTests
     private XGArcadeDbContext _dbContext = null!;
     private IGridInstanceRepository _gridInstanceRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): the three sibling repositories carrying the
-    // methods GridGameModule needs that moved out of IPlayerStoreRepository
-    // — _playerStoreRepository above is kept for
-    // HasEffectiveAttributeAsync/IsPersistentTechnicalFailureAsync, which
-    // haven't moved.
+    // S-106/S-107 (pure refactor): the sibling repositories carrying the
+    // methods split out of the original, now-deleted IPlayerStoreRepository
+    // — see ADR-0067. _playerOverrideRepository carries
+    // HasEffectiveAttributeAsync; _playerDataQualityRepository carries
+    // IsPersistentTechnicalFailureAsync.
+    private IPlayerOverrideRepository _playerOverrideRepository = null!;
+    private IPlayerDataQualityRepository _playerDataQualityRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private IPlayerAliasRepository _playerAliasRepository = null!;
     private IPlayerAttributeRepository _playerAttributeRepository = null!;
@@ -42,12 +43,13 @@ public class GridGameModuleTests
         _dbContext = new XGArcadeDbContext(options);
         _gridInstanceRepository = new GridInstanceRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerOverrideRepository = new PlayerOverrideRepository(_dbContext);
+        _playerDataQualityRepository = new PlayerDataQualityRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _playerAliasRepository = new PlayerAliasRepository(_dbContext);
         _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
         _playerNameIndexRepository = new PlayerNameIndexRepository(_dbContext);
-        _wikidataLookupService = new FakeWikidataLookupService(_playerStoreRepository, _playerRepository, _playerAttributeRepository);
+        _wikidataLookupService = new FakeWikidataLookupService(_playerOverrideRepository, _playerRepository, _playerAttributeRepository);
     }
 
     [TearDown]
@@ -81,13 +83,15 @@ public class GridGameModuleTests
         int minValidAnswers, int maxAttempts, Random? random = null,
         TimeSpan? maxDuration = null, TimeProvider? timeProvider = null,
         IWikidataLookupService? wikidataLookupService = null,
-        IPlayerStoreRepository? playerStoreRepository = null,
+        IPlayerOverrideRepository? playerOverrideRepository = null,
+        IPlayerDataQualityRepository? playerDataQualityRepository = null,
         IPlayerRepository? playerRepository = null,
         IPlayerAliasRepository? playerAliasRepository = null,
         IPlayerAttributeRepository? playerAttributeRepository = null,
         IPlayerNameIndexRepository? playerNameIndexRepository = null,
         IWikidataClient? wikidataClient = null) =>
-        new(_gridInstanceRepository, _categoryValueRepository, playerStoreRepository ?? _playerStoreRepository,
+        new(_gridInstanceRepository, _categoryValueRepository,
+            playerOverrideRepository ?? _playerOverrideRepository, playerDataQualityRepository ?? _playerDataQualityRepository,
             playerRepository ?? _playerRepository, playerAliasRepository ?? _playerAliasRepository, playerAttributeRepository ?? _playerAttributeRepository,
             wikidataLookupService ?? _wikidataLookupService,
             playerNameIndexRepository ?? _playerNameIndexRepository,
@@ -972,7 +976,7 @@ public class GridGameModuleTests
         // Cached (unverified) data has no trophy attribute at all — an
         // admin override supplies it instead.
         await _dbContext.SaveChangesAsync();
-        await _playerStoreRepository.AddOverrideAsync(new PlayerOverride
+        await _playerOverrideRepository.AddOverrideAsync(new PlayerOverride
         {
             Id = Guid.NewGuid(),
             PlayerId = player.Id,
@@ -1160,10 +1164,10 @@ public class GridGameModuleTests
         // the same field corrects it to Arsenal — the override must be what
         // guess-checking sees, exercised here through the full
         // ScoreSubmissionAsync path (unit-level coverage of the same rule
-        // lives in XGArcade.Data.Tests/PlayerStoreRepositoryTests).
+        // lives in XGArcade.Data.Tests/PlayerOverrideRepositoryTests).
         var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
         var player = await SeedPlayerAsync("Thierry Henry", "France", "Barcelona");
-        await _playerStoreRepository.AddOverrideAsync(new PlayerOverride
+        await _playerOverrideRepository.AddOverrideAsync(new PlayerOverride
         {
             Id = Guid.NewGuid(),
             PlayerId = player.Id,
@@ -1284,8 +1288,8 @@ public class GridGameModuleTests
         // PlayerCacheWarmingService.PersistentFailureThreshold consecutive
         // failures, recorded independently of this guess (as cache-warming
         // would) — simulates a pair already confirmed doomed.
-        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
-        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "France", "club", "Arsenal", CancellationToken.None);
         // Configured on the fake but must never be reached — proves the
         // short-circuit skips the live call entirely rather than racing it
         // to the same exception.
@@ -1309,7 +1313,7 @@ public class GridGameModuleTests
         SeedClub("Barcelona");
         var (instanceId, cellId) = await SeedGridInstanceAsync("Argentina", "Barcelona");
         await SeedPlayerAsync("Javier Mascherano", "Argentina", "Barcelona");
-        await _playerStoreRepository.RecordTechnicalFailureAsync("nationality", "Argentina", "club", "Barcelona", CancellationToken.None);
+        await _playerDataQualityRepository.RecordTechnicalFailureAsync("nationality", "Argentina", "club", "Barcelona", CancellationToken.None);
         var messi = new Player { Id = Guid.NewGuid(), FullName = "Lionel Messi", WikidataQid = "Qmessi" };
         _wikidataLookupService.SetMatches("Argentina", "Barcelona", [messi]);
         SeedNameIndexEntry("Lionel Messi");
@@ -1425,7 +1429,7 @@ public class GridGameModuleTests
         Assert.That(result.PlayerAnswerId, Is.EqualTo(messi.Id));
         Assert.That(await _dbContext.Players.CountAsync(p => p.WikidataQid == "Qmessi"), Is.EqualTo(1),
             "the live lookup upserts by WikidataQid — it must never create a duplicate Player row for a player already known");
-        Assert.That(await _playerStoreRepository.HasEffectiveAttributeAsync(messi.Id, "club", "Barcelona"), Is.True);
+        Assert.That(await _playerOverrideRepository.HasEffectiveAttributeAsync(messi.Id, "club", "Barcelona"), Is.True);
     }
 
     [Test]
@@ -2325,7 +2329,7 @@ public class GridGameModuleTests
         // branch in GridGameModule.ResolveWrongGuessPlayerAsync.
         SeedNameIndexEntry("Clarence Seedorf");
         var module = new GridGameModule(
-            _gridInstanceRepository, _categoryValueRepository, _playerStoreRepository,
+            _gridInstanceRepository, _categoryValueRepository, _playerOverrideRepository, _playerDataQualityRepository,
             _playerRepository, _playerAliasRepository, _playerAttributeRepository, _wikidataLookupService,
             _playerNameIndexRepository,
             new GridGenerationOptions { MinValidAnswers = 1, MaxAttempts = 5, MaxDuration = TimeSpan.FromMinutes(10) },

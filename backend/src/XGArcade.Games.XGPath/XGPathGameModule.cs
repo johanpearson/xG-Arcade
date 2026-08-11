@@ -19,12 +19,11 @@ namespace XGArcade.Games.XGPath;
 // see GetEligiblePlayerIdsAsync's own doc comment.
 public class XGPathGameModule(
     IPathInstanceRepository pathInstanceRepository,
-    IPlayerStoreRepository playerStoreRepository,
-    // S-106 (pure refactor): the two sibling repositories carrying the
-    // methods split out of IPlayerStoreRepository that this module still
-    // needs for its own guess-name-matching path — playerStoreRepository
-    // above is kept for GetCareerStintCandidatePlayerIdsAsync/
-    // GetCareerStintsByPlayerIdsAsync, which haven't moved (S-107 territory).
+    // S-106/S-107 (pure refactor): the sibling repositories carrying the
+    // methods split out of the original, now-deleted IPlayerStoreRepository
+    // — see ADR-0067. playerCareerStintRepository carries
+    // GetCareerStintCandidatePlayerIdsAsync/GetCareerStintsByPlayerIdsAsync.
+    IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     IPlayerAliasRepository playerAliasRepository,
     ICategoryValueRepository categoryValueRepository,
@@ -327,9 +326,9 @@ public class XGPathGameModule(
         // (see GetCareerStintCandidatePlayerIdsAsync's own doc comment) —
         // then load full stint data (all columns, needed for the date-order
         // and appearance-count checks) only for that narrowed set.
-        var candidateIds = await playerStoreRepository.GetCareerStintCandidatePlayerIdsAsync(
+        var candidateIds = await playerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync(
             seededClubNames, MinStintCount, cancellationToken);
-        var stintsByPlayer = await playerStoreRepository.GetCareerStintsByPlayerIdsAsync(candidateIds, cancellationToken);
+        var stintsByPlayer = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(candidateIds, cancellationToken);
 
         // Bug fix (2026-08-08, REQ-1203): leftover pre-2026-08-02
         // youth-national-team rows (see PathCareerStintFilter's own doc

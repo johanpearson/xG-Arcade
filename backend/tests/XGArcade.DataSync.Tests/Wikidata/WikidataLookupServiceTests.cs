@@ -179,12 +179,12 @@ public class WikidataLookupServiceTests
         """;
 
     private XGArcadeDbContext _dbContext = null!;
-    private IPlayerStoreRepository _playerStore = null!;
-    // S-106 (pure refactor): the four sibling repositories carrying the
-    // methods split out of IPlayerStoreRepository that WikidataLookupService's
-    // PersistMatchesAsync needs — _playerStore above is kept for
-    // GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync
-    // (PersistCareerStintsAsync), which haven't moved.
+    // S-106/S-107 (pure refactor): the sibling repositories carrying the
+    // methods split out of the original, now-deleted IPlayerStoreRepository
+    // that WikidataLookupService's PersistMatchesAsync needs — see ADR-0067.
+    // _playerCareerStintRepository carries GetCareerStintsByPlayerIdsAsync/
+    // AddCareerStintsBatchAsync (PersistCareerStintsAsync).
+    private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private IPlayerAttributeRepository _playerAttributeRepository = null!;
     private IPlayerAliasRepository _playerAliasRepository = null!;
@@ -197,7 +197,7 @@ public class WikidataLookupServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _dbContext = new XGArcadeDbContext(options);
-        _playerStore = new PlayerStoreRepository(_dbContext);
+        _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
         _playerAliasRepository = new PlayerAliasRepository(_dbContext);
@@ -215,7 +215,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout);
         return new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
     }
 
     // REQ-114/ADR-0035: same as BuildService, but also hands back the
@@ -228,7 +228,7 @@ public class WikidataLookupServiceTests
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://query.wikidata.org/") };
         var wikidataClient = new WikidataClient(httpClient);
         return (new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository), handler);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository), handler);
     }
 
     [Test]
@@ -475,7 +475,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         IReadOnlyList<Player>? result = null;
         Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.Sync));
@@ -503,7 +503,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(
             httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         Assert.ThrowsAsync<WikidataQueryException>(async () =>
             await service.LookupAndPersistAsync(France, Arsenal, WikidataLookupOrigin.GuessTimeFallback));
@@ -522,7 +522,7 @@ public class WikidataLookupServiceTests
         var wikidataClient = new WikidataClient(
             httpClient, queryTimeout: TimeSpan.FromMilliseconds(50), guessTimeFallbackQueryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         Assert.ThrowsAsync<WikidataQueryException>(async () =>
             await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.GuessTimeFallback));
@@ -552,7 +552,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistAsync(unresolvedCountry, Arsenal, WikidataLookupOrigin.Sync);
 
@@ -573,7 +573,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistAsync(France, unresolvedClub, WikidataLookupOrigin.Sync);
 
@@ -708,7 +708,7 @@ public class WikidataLookupServiceTests
         fakeWikidataClient.SetCareerStints("Q1519",
             new WikidataCareerStintEntry("Arsenal Football Club", 2010, 2015, 100, ClubQid: "Q9617"));
         var refreshService = new PlayerCareerStintRefreshService(
-            fakeWikidataClient, _playerStore, _playerRepository, categoryValueRepository,
+            fakeWikidataClient, _playerCareerStintRepository, _playerRepository, categoryValueRepository,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<PlayerCareerStintRefreshService>.Instance);
 
         await refreshService.RefreshCareerStintsAsync([player.Id]);
@@ -924,7 +924,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistClubClubAsync(unresolvedClub, RealMadrid, WikidataLookupOrigin.Sync);
 
@@ -945,7 +945,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistClubClubAsync(Barcelona, unresolvedClub, WikidataLookupOrigin.Sync);
 
@@ -973,7 +973,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         IReadOnlyList<Player>? result = null;
         Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistClubClubAsync(Barcelona, RealMadrid, WikidataLookupOrigin.Sync));
@@ -1050,7 +1050,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistTrophyCountryAsync(unresolvedTrophy, France, WikidataLookupOrigin.Sync);
 
@@ -1068,7 +1068,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, unresolvedCountry, WikidataLookupOrigin.Sync);
 
@@ -1096,7 +1096,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         IReadOnlyList<Player>? result = null;
         Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistTrophyCountryAsync(BallonDor, France, WikidataLookupOrigin.Sync));
@@ -1172,7 +1172,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistTrophyClubAsync(unresolvedTrophy, RealMadrid, WikidataLookupOrigin.Sync);
 
@@ -1190,7 +1190,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient);
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         var result = await service.LookupAndPersistTrophyClubAsync(BallonDor, unresolvedClub, WikidataLookupOrigin.Sync);
 
@@ -1218,7 +1218,7 @@ public class WikidataLookupServiceTests
         };
         var wikidataClient = new WikidataClient(httpClient, queryTimeout: TimeSpan.FromMilliseconds(50));
         var service = new WikidataLookupService(
-            wikidataClient, _playerStore, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
+            wikidataClient, _playerCareerStintRepository, _playerRepository, _playerAttributeRepository, _playerAliasRepository, _playerDataRepository);
 
         IReadOnlyList<Player>? result = null;
         Assert.DoesNotThrowAsync(async () => result = await service.LookupAndPersistTrophyClubAsync(BallonDor, RealMadrid, WikidataLookupOrigin.Sync));

@@ -28,7 +28,7 @@ namespace XGArcade.DataSync;
 // keeping every bulk/diagnostic job on the same dispatch mechanism means
 // there's exactly one pattern to look for in Program.cs, not two.
 public class ClubGapAuditService(
-    IPlayerStoreRepository playerStoreRepository,
+    IPlayerDataQualityRepository playerDataQualityRepository,
     ILogger<ClubGapAuditService> logger)
 {
     // Matches this verb's own spec ("logs the top 30 results") — a plain
@@ -39,7 +39,7 @@ public class ClubGapAuditService(
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var candidates = await playerStoreRepository.GetUnseededClubCandidatesAsync(TopCandidateCount, cancellationToken);
+        var candidates = await playerDataQualityRepository.GetUnseededClubCandidatesAsync(TopCandidateCount, cancellationToken);
 
         if (candidates.Count == 0)
         {

@@ -19,13 +19,13 @@ namespace XGArcade.DataSync.Wikidata;
 // own explicit choice when this was proposed (ADR-0055's Open questions),
 // not a default picked silently. A country with no eligible players simply
 // contributes an empty pool, not a failure.
-// S-106 (pure refactor): playerRepository carries
-// GetOrCreatePlayersByWikidataQidAsync, split out of IPlayerStoreRepository
-// — playerStore is kept for GetCareerStintsByPlayerIdsAsync/
-// AddCareerStintsBatchAsync, which haven't moved (S-107 territory).
+// S-106/S-107 (pure refactor): playerRepository carries
+// GetOrCreatePlayersByWikidataQidAsync (split out of the original, now-
+// deleted IPlayerStoreRepository); playerCareerStintRepository carries
+// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync — see ADR-0067.
 public class PlayerCareerPrefetchService(
     ICategoryValueRepository categoryValueRepository,
-    IPlayerStoreRepository playerStore,
+    IPlayerCareerStintRepository playerCareerStintRepository,
     IPlayerRepository playerRepository,
     IWikidataClient wikidataClient,
     ILogger<PlayerCareerPrefetchService> logger) : IPlayerCareerPrefetchService
@@ -154,13 +154,13 @@ public class PlayerCareerPrefetchService(
 
         var qidToPlayerId = playersByQid.ToDictionary(kv => kv.Key, kv => kv.Value.Id);
         var affectedPlayerIds = stintsByQid.Keys.Select(qid => qidToPlayerId[qid]).ToList();
-        var existingStintsByPlayerId = await playerStore.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
+        var existingStintsByPlayerId = await playerCareerStintRepository.GetCareerStintsByPlayerIdsAsync(affectedPlayerIds, cancellationToken);
 
         var newStintsByPlayerId = PlayerCareerStintRefreshService.BuildNewStintsByPlayerId(
             stintsByQid, qidToPlayerId, existingStintsByPlayerId, clubNameByClubQid);
 
         if (newStintsByPlayerId.Count > 0)
-            await playerStore.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
+            await playerCareerStintRepository.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
 
         return (playersByQid.Count, newStintsByPlayerId.Sum(kv => kv.Value.Count), false);
     }

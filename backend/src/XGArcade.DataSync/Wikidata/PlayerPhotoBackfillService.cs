@@ -74,7 +74,7 @@ namespace XGArcade.DataSync.Wikidata;
 // that one player a delayed backfill, never the up-to-BatchSize other,
 // perfectly valid QIDs sharing its batch.
 public class PlayerPhotoBackfillService(
-    IPlayerStoreRepository playerStoreRepository,
+    IPlayerBackfillRepository playerBackfillRepository,
     IWikidataClient wikidataClient,
     ILogger<PlayerPhotoBackfillService> logger)
 {
@@ -110,7 +110,7 @@ public class PlayerPhotoBackfillService(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var batch = await playerStoreRepository.GetPlayersMissingPhotoAsync(
+            var batch = await playerBackfillRepository.GetPlayersMissingPhotoAsync(
                 attemptedPlayerIds, BatchSize, cancellationToken);
             if (batch.Count == 0)
                 break;
@@ -180,7 +180,7 @@ public class PlayerPhotoBackfillService(
 
             if (photoUrlByPlayerId.Count > 0)
             {
-                await playerStoreRepository.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
+                await playerBackfillRepository.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
                 playersBackfilled += photoUrlByPlayerId.Count;
             }
 

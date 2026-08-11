@@ -97,13 +97,14 @@ public static class CliVerbDispatcher
 
             await using var warmingDbContext = new XGArcadeDbContext(warmingDbContextOptions);
             var warmingCategoryValueRepository = new CategoryValueRepository(warmingDbContext);
-            var warmingPlayerStoreRepository = new PlayerStoreRepository(warmingDbContext);
-            // S-106 (pure refactor): the four sibling repositories
-            // WikidataLookupService/PlayerCacheWarmingService now depend on
-            // alongside the still-undivided IPlayerStoreRepository above —
-            // same split as CompositionRoot/ServiceRegistration.cs's DI
+            // S-106/S-107 (pure refactor): the sibling repositories
+            // WikidataLookupService/PlayerCacheWarmingService now depend on,
+            // split out of the original, now-deleted IPlayerStoreRepository
+            // — same split as CompositionRoot/ServiceRegistration.cs's DI
             // registrations, just built by hand here since this verb runs
-            // before WebApplication.CreateBuilder.
+            // before WebApplication.CreateBuilder. See ADR-0067.
+            var warmingPlayerCareerStintRepository = new PlayerCareerStintRepository(warmingDbContext);
+            var warmingPlayerDataQualityRepository = new PlayerDataQualityRepository(warmingDbContext);
             var warmingPlayerRepository = new PlayerRepository(warmingDbContext);
             var warmingPlayerAttributeRepository = new PlayerAttributeRepository(warmingDbContext);
             var warmingPlayerAliasRepository = new PlayerAliasRepository(warmingDbContext);
@@ -113,11 +114,11 @@ public static class CliVerbDispatcher
             WikidataHttpClientConfiguration.Configure(warmingHttpClient);
             var warmingWikidataClient = new WikidataClient(warmingHttpClient, logger: warmingLoggerFactory.CreateLogger<WikidataClient>());
             var warmingWikidataLookupService = new WikidataLookupService(
-                warmingWikidataClient, warmingPlayerStoreRepository,
+                warmingWikidataClient, warmingPlayerCareerStintRepository,
                 warmingPlayerRepository, warmingPlayerAttributeRepository, warmingPlayerAliasRepository, warmingPlayerDataRepository);
 
             var warmingService = new PlayerCacheWarmingService(
-                warmingCategoryValueRepository, warmingPlayerStoreRepository, warmingPlayerAttributeRepository, warmingWikidataLookupService,
+                warmingCategoryValueRepository, warmingPlayerDataQualityRepository, warmingPlayerAttributeRepository, warmingWikidataLookupService,
                 new GridGenerationOptions(), warmingLoggerFactory.CreateLogger<PlayerCacheWarmingService>());
 
             await warmingService.WarmAsync();
@@ -216,7 +217,7 @@ public static class CliVerbDispatcher
                 .SetMinimumLevel(LogLevel.Information));
 
             await using var backfillDbContext = new XGArcadeDbContext(backfillDbContextOptions);
-            var backfillPlayerStoreRepository = new PlayerStoreRepository(backfillDbContext);
+            var backfillPlayerBackfillRepository = new PlayerBackfillRepository(backfillDbContext);
 
             using var backfillHttpClient = new HttpClient();
             WikidataHttpClientConfiguration.Configure(backfillHttpClient);
@@ -224,7 +225,7 @@ public static class CliVerbDispatcher
                 backfillHttpClient, logger: backfillLoggerFactory.CreateLogger<WikidataClient>());
 
             var backfillService = new PlayerPhotoBackfillService(
-                backfillPlayerStoreRepository, backfillWikidataClient,
+                backfillPlayerBackfillRepository, backfillWikidataClient,
                 backfillLoggerFactory.CreateLogger<PlayerPhotoBackfillService>());
 
             var backfillResult = await backfillService.BackfillAsync();
@@ -261,7 +262,7 @@ public static class CliVerbDispatcher
                 .SetMinimumLevel(LogLevel.Information));
 
             await using var positionBirthYearBackfillDbContext = new XGArcadeDbContext(positionBirthYearBackfillDbContextOptions);
-            var positionBirthYearBackfillPlayerStoreRepository = new PlayerStoreRepository(positionBirthYearBackfillDbContext);
+            var positionBirthYearBackfillPlayerBackfillRepository = new PlayerBackfillRepository(positionBirthYearBackfillDbContext);
 
             using var positionBirthYearBackfillHttpClient = new HttpClient();
             WikidataHttpClientConfiguration.Configure(positionBirthYearBackfillHttpClient);
@@ -269,7 +270,7 @@ public static class CliVerbDispatcher
                 positionBirthYearBackfillHttpClient, logger: positionBirthYearBackfillLoggerFactory.CreateLogger<WikidataClient>());
 
             var positionBirthYearBackfillService = new PlayerPositionBirthYearBackfillService(
-                positionBirthYearBackfillPlayerStoreRepository, positionBirthYearBackfillWikidataClient,
+                positionBirthYearBackfillPlayerBackfillRepository, positionBirthYearBackfillWikidataClient,
                 positionBirthYearBackfillLoggerFactory.CreateLogger<PlayerPositionBirthYearBackfillService>());
 
             var positionBirthYearBackfillResult = await positionBirthYearBackfillService.BackfillAsync();
@@ -310,11 +311,11 @@ public static class CliVerbDispatcher
 
             await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
             var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
-            var prefetchPlayerStoreRepository = new PlayerStoreRepository(prefetchDbContext);
-            // S-106 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's new
-            // home — same split as CompositionRoot/ServiceRegistration.cs's DI
-            // registration, built by hand here since this verb runs before
-            // WebApplication.CreateBuilder.
+            var prefetchPlayerCareerStintRepository = new PlayerCareerStintRepository(prefetchDbContext);
+            // S-106/S-107 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's
+            // new home — same split as CompositionRoot/ServiceRegistration.cs's
+            // DI registration, built by hand here since this verb runs before
+            // WebApplication.CreateBuilder. See ADR-0067.
             var prefetchPlayerRepository = new PlayerRepository(prefetchDbContext);
 
             using var prefetchHttpClient = new HttpClient();
@@ -337,7 +338,7 @@ public static class CliVerbDispatcher
                 logger: prefetchLoggerFactory.CreateLogger<WikidataClient>());
 
             var prefetchService = new PlayerCareerPrefetchService(
-                prefetchCategoryValueRepository, prefetchPlayerStoreRepository, prefetchPlayerRepository, prefetchWikidataClient,
+                prefetchCategoryValueRepository, prefetchPlayerCareerStintRepository, prefetchPlayerRepository, prefetchWikidataClient,
                 prefetchLoggerFactory.CreateLogger<PlayerCareerPrefetchService>());
 
             // Deliberately unhandled — PrefetchAsync throws only after every seeded
@@ -421,9 +422,9 @@ public static class CliVerbDispatcher
                 .SetMinimumLevel(LogLevel.Information));
 
             await using var auditDbContext = new XGArcadeDbContext(auditDbContextOptions);
-            var auditPlayerStoreRepository = new PlayerStoreRepository(auditDbContext);
+            var auditPlayerDataQualityRepository = new PlayerDataQualityRepository(auditDbContext);
 
-            var auditService = new ClubGapAuditService(auditPlayerStoreRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
+            var auditService = new ClubGapAuditService(auditPlayerDataQualityRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
 
             await auditService.RunAsync();
 

@@ -18,12 +18,13 @@ namespace XGArcade.Games.XGGrid.Tests;
 //
 // Also mirrors the real service's *persistence* half (the interface doc
 // comment's "Returns the players persisted" — not just returned): when
-// constructed with a playerStore, every configured match is actually
-// upserted into Player/PlayerAttribute, same as WikidataLookupService would.
-// This matters for ScoreSubmissionAsync's guess-time live-lookup fallback
-// (REQ-211, Tier 0 simplified — see GridGameModule's doc comment), which
-// re-checks the database after calling this and would otherwise never see
-// the "live" match. playerStore is optional (defaults to null) so tests that
+// constructed with a playerOverrideRepository, every configured match is
+// actually upserted into Player/PlayerAttribute, same as
+// WikidataLookupService would. This matters for ScoreSubmissionAsync's
+// guess-time live-lookup fallback (REQ-211, Tier 0 simplified — see
+// GridGameModule's doc comment), which re-checks the database after calling
+// this and would otherwise never see the "live" match.
+// playerOverrideRepository is optional (defaults to null) so tests that
 // only care about GenerateInstanceAsync's match-count branching, not
 // persistence, aren't forced to wire one up.
 //
@@ -33,17 +34,18 @@ namespace XGArcade.Games.XGGrid.Tests;
 // any actual waiting, so PickHeadersAsync's MaxDuration deadline-abort
 // branch can be exercised deterministically.
 //
-// S-106 (pure refactor): playerRepository/playerAttributeRepository carry
-// the methods this fake's own PersistAsync needs that moved out of
-// IPlayerStoreRepository (GetPlayerByWikidataQidAsync/AddPlayerAsync,
-// AddPlayerAttributeAsync) — playerStore is kept for
-// HasEffectiveAttributeAsync, which hasn't moved. All three are still
-// optional together (defaulting to null) for tests that only care about
-// match-count branching, not persistence; a test that wants persistence
-// must supply all three, same as the real WikidataLookupService needing
-// every sibling repository together.
+// S-106/S-107 (pure refactor): playerRepository/playerAttributeRepository
+// carry the methods this fake's own PersistAsync needs
+// (GetPlayerByWikidataQidAsync/AddPlayerAsync, AddPlayerAttributeAsync) —
+// playerOverrideRepository is kept for HasEffectiveAttributeAsync (see
+// ADR-0067 for the full split of the original, now-deleted
+// IPlayerStoreRepository). All three are still optional together
+// (defaulting to null) for tests that only care about match-count
+// branching, not persistence; a test that wants persistence must supply
+// all three, same as the real WikidataLookupService needing every sibling
+// repository together.
 public class FakeWikidataLookupService(
-    IPlayerStoreRepository? playerStore = null,
+    IPlayerOverrideRepository? playerOverrideRepository = null,
     IPlayerRepository? playerRepository = null,
     IPlayerAttributeRepository? playerAttributeRepository = null,
     Action? onCalled = null) : IWikidataLookupService
@@ -258,7 +260,7 @@ public class FakeWikidataLookupService(
         if (!_matches.TryGetValue((country.Name, club.Name), out var players))
             return [];
 
-        if (playerStore is not null)
+        if (playerOverrideRepository is not null)
         {
             foreach (var player in players)
                 await PersistAsync(player, NationalityAttributeType, country.Name, ClubAttributeType, club.Name, cancellationToken);
@@ -299,7 +301,7 @@ public class FakeWikidataLookupService(
         if (!_clubClubMatches.TryGetValue((clubA.Name, clubB.Name), out var players))
             return [];
 
-        if (playerStore is not null)
+        if (playerOverrideRepository is not null)
         {
             foreach (var player in players)
                 await PersistAsync(player, ClubAttributeType, clubA.Name, ClubAttributeType, clubB.Name, cancellationToken);
@@ -324,7 +326,7 @@ public class FakeWikidataLookupService(
         if (!_trophyCountryMatches.TryGetValue((trophy.Name, country.Name), out var players))
             return [];
 
-        if (playerStore is not null)
+        if (playerOverrideRepository is not null)
         {
             foreach (var player in players)
                 await PersistAsync(player, TrophyAttributeType, trophy.Name, NationalityAttributeType, country.Name, cancellationToken);
@@ -348,7 +350,7 @@ public class FakeWikidataLookupService(
         if (!_trophyClubMatches.TryGetValue((trophy.Name, club.Name), out var players))
             return [];
 
-        if (playerStore is not null)
+        if (playerOverrideRepository is not null)
         {
             foreach (var player in players)
                 await PersistAsync(player, TrophyAttributeType, trophy.Name, ClubAttributeType, club.Name, cancellationToken);
@@ -370,12 +372,12 @@ public class FakeWikidataLookupService(
             new Player { Id = player.Id, FullName = player.FullName, WikidataQid = player.WikidataQid, PhotoUrl = player.PhotoUrl },
             cancellationToken);
 
-        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeA, attributeValueA, cancellationToken))
+        if (!await playerOverrideRepository!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeA, attributeValueA, cancellationToken))
             await playerAttributeRepository!.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeA, AttributeValue = attributeValueA },
                 cancellationToken);
 
-        if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeB, attributeValueB, cancellationToken))
+        if (!await playerOverrideRepository!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeB, attributeValueB, cancellationToken))
             await playerAttributeRepository!.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeB, AttributeValue = attributeValueB },
                 cancellationToken);

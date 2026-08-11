@@ -7,21 +7,22 @@ using XGArcade.Data.Repositories;
 namespace XGArcade.DataSync.Tests;
 
 // Thin test — this class is a thin pass-through over
-// IPlayerStoreRepository.GetUnseededClubCandidatesAsync's own tested logic
-// (PlayerStoreRepositoryTests.cs), so these tests only assert that RunAsync
-// calls through and logs what the repository returned, not the ranking
-// logic itself. Real InMemory-backed PlayerStoreRepository, not a mock —
+// IPlayerDataQualityRepository.GetUnseededClubCandidatesAsync's own tested
+// logic (PlayerDataQualityRepositoryTests.cs), so these tests only assert
+// that RunAsync calls through and logs what the repository returned, not
+// the ranking logic itself. Real InMemory-backed repositories, not a mock —
 // same "don't over-mock" precedent as PlayerCareerPrefetchServiceTests.
 public class ClubGapAuditServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): AddPlayerAsync moved to IPlayerRepository —
-    // used only for this file's own seed helper; BuildService's
-    // RunAsync target, GetUnseededClubCandidatesAsync, hasn't moved
-    // (S-107 territory), so _playerStoreRepository stays the service's
-    // own dependency (also still used here for AddCareerStintsAsync,
-    // which hasn't moved either).
+    // S-106/S-107 (pure refactor): AddPlayerAsync lives on IPlayerRepository
+    // — used only for this file's own seed helper; BuildService's RunAsync
+    // target, GetUnseededClubCandidatesAsync, lives on
+    // IPlayerDataQualityRepository (see ADR-0067), the service's own
+    // dependency; AddCareerStintsAsync (also used here, to seed fixture
+    // stints) lives on IPlayerCareerStintRepository.
+    private IPlayerDataQualityRepository _playerDataQualityRepository = null!;
+    private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private CapturingLogger<ClubGapAuditService> _logger = null!;
 
@@ -32,7 +33,8 @@ public class ClubGapAuditServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _dbContext = new XGArcadeDbContext(options);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerDataQualityRepository = new PlayerDataQualityRepository(_dbContext);
+        _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _logger = new CapturingLogger<ClubGapAuditService>();
     }
@@ -40,14 +42,14 @@ public class ClubGapAuditServiceTests
     [TearDown]
     public void TearDown() => _dbContext.Dispose();
 
-    private ClubGapAuditService BuildService() => new(_playerStoreRepository, _logger);
+    private ClubGapAuditService BuildService() => new(_playerDataQualityRepository, _logger);
 
     [Test]
     public async Task RunAsync_UnseededClubExists_LogsClubNameAndPlayerCount()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Someone", WikidataQid = "Q1" };
         await _playerRepository.AddPlayerAsync(player);
-        await _playerStoreRepository.AddCareerStintsAsync(player.Id,
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2015 }]);
 
         await BuildService().RunAsync();
@@ -71,7 +73,7 @@ public class ClubGapAuditServiceTests
 
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         await _playerRepository.AddPlayerAsync(player);
-        await _playerStoreRepository.AddCareerStintsAsync(player.Id,
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
 
         await BuildService().RunAsync();

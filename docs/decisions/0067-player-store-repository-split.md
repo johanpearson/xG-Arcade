@@ -1,7 +1,8 @@
-# ADR-0067: Split `IPlayerStoreRepository` by entity concern (Player/PlayerData/PlayerAttribute/PlayerAlias)
+# ADR-0067: Split `IPlayerStoreRepository` by entity concern (Player/PlayerData/PlayerAttribute/PlayerAlias, then Override/backfill/CareerStint/data-quality)
 
 - **Status:** Accepted
-- **Date:** 2026-08-11
+- **Date:** 2026-08-11 (S-106); extended 2026-08-11, same day (S-107 — both
+  halves landed same-day, see "S-107 update" below)
 - **Related requirements:** none (pure refactor, no behavior change — same
   "foundational plumbing, no REQ-xxx" status the original
   `PlayerStoreRepositoryTests.cs` class comment already carried)
@@ -95,6 +96,66 @@ class against the same shared EF Core InMemory `XGArcadeDbContext` fixture
 pattern this project already uses — test bodies/assertions are unchanged,
 this is a structural move only, no new REQ IDs.
 
+## S-107 update (2026-08-11, second half landed)
+
+S-107 (independent of S-106, same story boundaries this ADR's Context
+section already anticipated) split the remaining five concerns out of the
+same original `IPlayerStoreRepository`/`PlayerStoreRepository.cs`, exactly
+as planned — no new structural question came up, so this update extends the
+existing ADR rather than adding a second one:
+
+- **`IPlayerOverrideRepository`/`PlayerOverrideRepository`** —
+  `PlayerOverride` CRUD (`GetOverrideAsync`, `GetOverrideByIdAsync`,
+  `AddOverrideAsync`, `UpdateOverrideAsync`, `DeleteOverrideAsync`) plus
+  `HasEffectiveAttributeAsync` (REQ-203's override-wins-over-attribute
+  check) — kept together since `HasEffectiveAttributeAsync` is
+  fundamentally override-driven (checks for an override first, only
+  falling through to `PlayerAttribute` when none exists).
+- **`IPlayerBackfillRepository`/`PlayerBackfillRepository`** — Player's own
+  photo/position/birth-year backfill cursors:
+  `GetPlayersMissingPhotoAsync`/`UpdatePlayerPhotosAsync`,
+  `GetPlayersMissingPositionOrBirthYearAsync`/
+  `UpdatePlayerPositionsAndBirthYearsAsync` (and the
+  `PlayerPositionBirthYearUpdate` record).
+- **`IPlayerCareerStintRepository`/`PlayerCareerStintRepository`** —
+  `PlayerCareerStint`: `GetCareerStintsAsync`, `AddCareerStintsAsync`,
+  `GetCareerStintCandidatePlayerIdsAsync`, `GetCareerStintsByPlayerIdsAsync`,
+  `AddCareerStintsBatchAsync`.
+- **`IPlayerDataQualityRepository`/`PlayerDataQualityRepository`** —
+  confirmed-low/technical-failure match-pair tracking
+  (`IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
+  `IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/
+  `ClearTechnicalFailureAsync`) plus the one-off `GetUnseededClubCandidatesAsync`
+  diagnostic (and the `UnseededClubCandidate` record) — grouped together as
+  "data quality tooling" rather than split further, since none of the three
+  tables/queries is large enough alone to justify its own interface, and all
+  three exist to answer "is this cached/reference data trustworthy," not to
+  serve a game module's own read/write path.
+
+Same conventions as S-106's own four repositories: independently registered
+in `ServiceRegistration.cs` (`AddScoped`), no facade, each call site takes
+exactly the narrower interface(s) it actually calls (e.g. `GridGameModule`
+needed both `IPlayerOverrideRepository` and `IPlayerDataQualityRepository`,
+`XGPathGameModule`/`WikidataLookupService`/`PlayerCareerStintRefreshService`/
+`PlayerCareerPrefetchService` needed only `IPlayerCareerStintRepository`),
+and the `GroupByPlayerIdAsync<TEntity>` helper is duplicated again (one more
+private copy, in `PlayerCareerStintRepository`) rather than shared.
+
+**Both halves have now landed** (S-106 and S-107 both merged 2026-08-11) —
+the original `PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` files
+are deleted. COMP-06 is now eight independently-registered repositories.
+Existing `PlayerStoreRepositoryTests.cs` coverage for these five concerns
+moved/renamed into `PlayerOverrideRepositoryTests.cs`/
+`PlayerBackfillRepositoryTests.cs`/`PlayerCareerStintRepositoryTests.cs`/
+`PlayerDataQualityRepositoryTests.cs` — test bodies/assertions unchanged,
+structural move only. One pre-existing gap carried over unchanged (not
+introduced by this move): `IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
+`IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/
+`ClearTechnicalFailureAsync` have no direct repository-level test in
+`PlayerDataQualityRepositoryTests.cs` — they were, and remain, exercised
+only indirectly (through the real repository) by `GridGameModuleTests.cs`/
+`PlayerCacheWarmingServiceTests.cs`.
+
 ## Alternatives considered
 
 | Option | Pros | Cons | Why not chosen |
@@ -116,40 +177,38 @@ this is a structural move only, no new REQ IDs.
   than the pre-split `IPlayerStoreRepository` ever was.
 - **Negative / trade-offs accepted:** several call sites now inject 2-4
   repository parameters where they previously injected one (e.g.
-  `GridGameModule` takes `IPlayerStoreRepository` +
-  `IPlayerRepository` + `IPlayerAliasRepository` +
-  `IPlayerAttributeRepository`) — a small, deliberate increase in
-  constructor-parameter count in exchange for each parameter's type now
-  saying exactly what it's for. `IPlayerStoreRepository` and its four new
-  siblings coexist until S-107 lands and the original file's remaining
-  five concerns are split out too — a caller that only touches
-  not-yet-moved methods is untouched by this story, and the original
-  `PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` files are not
-  deleted yet (S-107's job, once both halves have landed).
-- **Follow-up:** S-107 splits the remaining five concerns
-  (`IPlayerOverrideRepository`, a photo/position/birth-year backfill
-  repository, `IPlayerCareerStintRepository`, and a data-quality-tracking
-  repository for `IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
-  `IsPersistentTechnicalFailureAsync`/etc.) out of the same original file;
-  only once both stories have landed does `PlayerStoreRepository.cs`/
-  `IPlayerStoreRepository.cs` get deleted.
+  `GridGameModule` takes `IPlayerOverrideRepository` +
+  `IPlayerDataQualityRepository` + `IPlayerRepository` +
+  `IPlayerAliasRepository` + `IPlayerAttributeRepository`) — a small,
+  deliberate increase in constructor-parameter count in exchange for each
+  parameter's type now saying exactly what it's for.
+- **Follow-up, resolved 2026-08-11 (same day, S-107):** the remaining five
+  concerns (`IPlayerOverrideRepository`, `IPlayerBackfillRepository`,
+  `IPlayerCareerStintRepository`, `IPlayerDataQualityRepository`) are now
+  also split out — see "S-107 update" above. `PlayerStoreRepository.cs`/
+  `IPlayerStoreRepository.cs` are deleted; COMP-06 is now eight
+  independently-registered repositories, no facade.
 
 ## For AI agents
 
 Do not merge any of `IPlayerRepository`/`IPlayerDataRepository`/
 `IPlayerAttributeRepository`/`IPlayerAliasRepository`/
-`IPlayerStoreRepository` back into a single interface, and do not add a
-facade/aggregate repository composing them — a caller needing multiple
-concerns injects multiple narrow repositories, per this ADR's own
-"no facade unless a real need is shown" decision. Do not delete
-`PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` until S-107 (the
-independent second half of this split) has also landed and moved its own
-five remaining concerns out. When adding a new method to any of these five
-repositories, put it on the interface that owns the entity/table it
-primarily queries or writes — a method that queries entity A to return
-entity B (like `GetPlayersWithEitherAttributeAsync` querying
-`PlayerAttribute` to return `Player`) belongs with A, the entity actually
-driving the query, not with B, the entity in the return type — matching
-the reasoning already applied to `GetPlayersWithEitherAttributeAsync`/
-`CountPlayersWithBothAttributesAsync` (→ `IPlayerAttributeRepository`) and
-`GetPlayersByNormalizedAliasAsync` (→ `IPlayerAliasRepository`) above.
+`IPlayerOverrideRepository`/`IPlayerBackfillRepository`/
+`IPlayerCareerStintRepository`/`IPlayerDataQualityRepository` back into a
+single interface, and do not add a facade/aggregate repository composing
+them — a caller needing multiple concerns injects multiple narrow
+repositories, per this ADR's own "no facade unless a real need is shown"
+decision. `PlayerStoreRepository.cs`/`IPlayerStoreRepository.cs` no longer
+exist — both halves of this split (S-106, S-107) landed 2026-08-11; do not
+recreate a wide `IPlayerStoreRepository`-shaped interface. When adding a new
+method to any of these eight repositories, put it on the interface that
+owns the entity/table it primarily queries or writes — a method that
+queries entity A to return entity B (like `GetPlayersWithEitherAttributeAsync`
+querying `PlayerAttribute` to return `Player`) belongs with A, the entity
+actually driving the query, not with B, the entity in the return type —
+matching the reasoning already applied to `GetPlayersWithEitherAttributeAsync`/
+`CountPlayersWithBothAttributesAsync` (→ `IPlayerAttributeRepository`),
+`GetPlayersByNormalizedAliasAsync` (→ `IPlayerAliasRepository`), and
+`GetUnseededClubCandidatesAsync` (→ `IPlayerDataQualityRepository`, despite
+reading `PlayerCareerStint`, since it's a data-quality diagnostic, not part
+of xG Path's own `PlayerCareerStint` read/write path) above.

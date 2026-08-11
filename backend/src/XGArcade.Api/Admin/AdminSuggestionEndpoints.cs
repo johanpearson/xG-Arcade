@@ -18,9 +18,10 @@ namespace XGArcade.Api.Admin;
 // point," not a third view — is why this file has exactly ONE fetch helper
 // (LookupPlayerAsync) and exactly ONE commit helper (CommitPlayerDataAsync),
 // each called from two endpoints (suggestion-scoped and standalone) rather
-// than duplicated. Every write here goes through IPlayerStoreRepository's
-// existing PlayerOverride/PlayerAttribute mechanism (COMP-06) — never
-// PlayerNameIndex, under any circumstance (ADR-0007/ADR-0053).
+// than duplicated. Every write here goes through IPlayerOverrideRepository/
+// IPlayerAttributeRepository's existing PlayerOverride/PlayerAttribute
+// mechanism (COMP-06) — never PlayerNameIndex, under any circumstance
+// (ADR-0007/ADR-0053).
 //
 // Write-path design (flagged for a possible ADR during the docs phase, per
 // this story's own task description — this is a genuinely new structural
@@ -34,7 +35,7 @@ namespace XGArcade.Api.Admin;
 // PlayerAttribute row (AttributeType="club") instead — additive, and
 // correctly supports more than one true club, unlike PlayerOverride's
 // "replaces every cached attribute of that type" semantics
-// (PlayerStoreRepository.HasEffectiveAttributeAsync). PlayerAttribute has no
+// (IPlayerOverrideRepository.HasEffectiveAttributeAsync). PlayerAttribute has no
 // audit columns, so REQ-509's "logged with admin_id and a timestamp"
 // requirement is satisfied by PlayerSuggestion.ResolvedByAdminId/ResolvedAt
 // for the suggestion-scoped commit/reject path (set by
@@ -155,13 +156,14 @@ public static class AdminSuggestionEndpoints
             CommitPlayerDataRequest request,
             ClaimsPrincipal principal,
             IPlayerSuggestionRepository playerSuggestionRepository,
-            IPlayerStoreRepository playerStoreRepository,
-            // S-106 (pure refactor): CommitPlayerDataAsync's own
+            // S-106/S-107 (pure refactor): CommitPlayerDataAsync's own
             // GetOrCreatePlayersByWikidataQidAsync/AddPlayerAttributesBatchAsync
-            // calls moved out of IPlayerStoreRepository — playerStoreRepository
-            // above is kept for CommitPlayerDataAsync's GetOverrideAsync/
-            // UpdateOverrideAsync/AddOverrideAsync/HasEffectiveAttributeAsync,
-            // which haven't moved.
+            // calls use IPlayerRepository/IPlayerAttributeRepository;
+            // GetOverrideAsync/UpdateOverrideAsync/AddOverrideAsync/
+            // HasEffectiveAttributeAsync use IPlayerOverrideRepository above
+            // — see ADR-0067 for the full split of the original, now-deleted
+            // IPlayerStoreRepository.
+            IPlayerOverrideRepository playerOverrideRepository,
             IPlayerRepository playerRepository,
             IPlayerAttributeRepository playerAttributeRepository,
             TimeProvider timeProvider,
@@ -188,7 +190,7 @@ public static class AdminSuggestionEndpoints
             var resolvedAt = timeProvider.GetUtcNow().UtcDateTime;
 
             var result = await CommitPlayerDataAsync(
-                request, adminId, resolvedAt, playerStoreRepository, playerRepository, playerAttributeRepository, cancellationToken);
+                request, adminId, resolvedAt, playerOverrideRepository, playerRepository, playerAttributeRepository, cancellationToken);
 
             // Never pending after this action (REQ-509) — even in the
             // unlikely race where another admin resolved the same suggestion
@@ -300,7 +302,7 @@ public static class AdminSuggestionEndpoints
         app.MapPost("/admin/player-search/commit", async (
             CommitPlayerDataRequest request,
             ClaimsPrincipal principal,
-            IPlayerStoreRepository playerStoreRepository,
+            IPlayerOverrideRepository playerOverrideRepository,
             // S-106 (pure refactor): see the identical comment on
             // /admin/suggestions/{id}/commit above — same
             // CommitPlayerDataAsync helper, same split.
@@ -319,7 +321,7 @@ public static class AdminSuggestionEndpoints
             var committedAt = timeProvider.GetUtcNow().UtcDateTime;
 
             var result = await CommitPlayerDataAsync(
-                request, adminId, committedAt, playerStoreRepository, playerRepository, playerAttributeRepository, cancellationToken);
+                request, adminId, committedAt, playerOverrideRepository, playerRepository, playerAttributeRepository, cancellationToken);
 
             logger.LogInformation(
                 "Admin {AdminId} committed player data for WikidataQid {WikidataQid} (Player {PlayerId}) via standalone search at {CommittedAt}",
@@ -364,7 +366,7 @@ public static class AdminSuggestionEndpoints
         CommitPlayerDataRequest request,
         Guid adminId,
         DateTime committedAt,
-        IPlayerStoreRepository playerStoreRepository,
+        IPlayerOverrideRepository playerOverrideRepository,
         IPlayerRepository playerRepository,
         IPlayerAttributeRepository playerAttributeRepository,
         CancellationToken cancellationToken)
@@ -376,18 +378,18 @@ public static class AdminSuggestionEndpoints
         string? nationality = null;
         if (!string.IsNullOrWhiteSpace(request.Nationality))
         {
-            var existingOverride = await playerStoreRepository.GetOverrideAsync(player.Id, "nationality", cancellationToken);
+            var existingOverride = await playerOverrideRepository.GetOverrideAsync(player.Id, "nationality", cancellationToken);
             if (existingOverride is not null)
             {
                 existingOverride.Value = request.Nationality;
                 existingOverride.Reason = request.Reason;
                 existingOverride.LockedByAdminId = adminId;
                 existingOverride.LockedAt = committedAt;
-                await playerStoreRepository.UpdateOverrideAsync(existingOverride, cancellationToken);
+                await playerOverrideRepository.UpdateOverrideAsync(existingOverride, cancellationToken);
             }
             else
             {
-                await playerStoreRepository.AddOverrideAsync(new PlayerOverride
+                await playerOverrideRepository.AddOverrideAsync(new PlayerOverride
                 {
                     Id = Guid.NewGuid(),
                     PlayerId = player.Id,
@@ -411,7 +413,7 @@ public static class AdminSuggestionEndpoints
         var newAttributes = new List<PlayerAttribute>();
         foreach (var club in confirmedClubs)
         {
-            var alreadyEffective = await playerStoreRepository.HasEffectiveAttributeAsync(player.Id, "club", club, cancellationToken);
+            var alreadyEffective = await playerOverrideRepository.HasEffectiveAttributeAsync(player.Id, "club", club, cancellationToken);
             if (!alreadyEffective)
                 newAttributes.Add(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = club });
         }

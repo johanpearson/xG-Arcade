@@ -4,7 +4,7 @@ namespace XGArcade.Data.Repositories;
 
 // Games.XGGrid's (COMP-05) own persistence — the only path Games.XGGrid
 // reaches GridTemplate/GridInstance/GridCell through, same repository-per-
-// component pattern as ICategoryValueRepository/IPlayerStoreRepository.
+// component pattern as ICategoryValueRepository/the COMP-06 repositories.
 public interface IGridInstanceRepository
 {
     Task<GridTemplate?> GetTemplateByIdAsync(Guid id, CancellationToken cancellationToken = default);

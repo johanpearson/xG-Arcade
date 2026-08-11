@@ -5176,6 +5176,59 @@ change; extend S-106's ADR (or add a second one) if the split boundaries
 here raise a new structural question S-106 didn't.
 *Deps:* none (can run independent of S-106, but both must land before
 either deletes the original files).
+**Built as:** matches the plan exactly — S-106 (#177) had already merged by
+the time this story started, so the original `PlayerStoreRepository.cs`/
+`IPlayerStoreRepository.cs` (469/290 lines, the remaining 21 methods) were
+split into `IPlayerOverrideRepository`/`PlayerOverrideRepository`
+(`PlayerOverride` CRUD + `HasEffectiveAttributeAsync`),
+`IPlayerBackfillRepository`/`PlayerBackfillRepository` (photo/position/
+birth-year backfill cursors, plus the `PlayerPositionBirthYearUpdate`
+record), `IPlayerCareerStintRepository`/`PlayerCareerStintRepository`
+(`PlayerCareerStint`), and `IPlayerDataQualityRepository`/
+`PlayerDataQualityRepository` (`ConfirmedLowMatchPair`/`PairLookupFailure`
+tracking plus `GetUnseededClubCandidatesAsync`, and the
+`UnseededClubCandidate` record) — same one-interface-per-file convention
+S-106 established, each registered independently in
+`CompositionRoot/ServiceRegistration.cs`, no facade. Every call site
+(`GridGameModule`, `PlayerCacheWarmingService`, `XGPathGameModule`,
+`WikidataLookupService`, `PlayerCareerStintRefreshService`,
+`PlayerCareerPrefetchService`, `ClubGapAuditService`,
+`PlayerPhotoBackfillService`, `PlayerPositionBirthYearBackfillService`,
+`CliVerbDispatcher`'s seven hand-built CLI verbs, and the admin/round/path
+API endpoints) was rewired to depend only on the narrower interface(s) it
+actually calls — `GridGameModule` needed both `IPlayerOverrideRepository`
+and `IPlayerDataQualityRepository`, `PlayerCacheWarmingService` needed only
+`IPlayerDataQualityRepository`, every `PlayerCareerStint`-only caller
+(`XGPathGameModule`, `WikidataLookupService`,
+`PlayerCareerStintRefreshService`, `PlayerCareerPrefetchService`,
+`PathEndpoints`, `InternalRoundEndpoints`) needed only
+`IPlayerCareerStintRepository`. `IPlayerStoreRepository`/
+`PlayerStoreRepository.cs` are now deleted — COMP-06 is eight
+independently-registered repositories. Existing `PlayerStoreRepositoryTests.cs`
+(885 lines) coverage for these five concerns moved/renamed into
+`PlayerOverrideRepositoryTests.cs`/`PlayerBackfillRepositoryTests.cs`/
+`PlayerCareerStintRepositoryTests.cs`/`PlayerDataQualityRepositoryTests.cs`
+— test bodies/assertions unchanged, structural move only. No new
+structural question came up, so this extended ADR-0067 (S-106's own ADR)
+with an "S-107 update" section rather than adding a second ADR. One
+pre-existing gap flagged, not fixed (out of this story's pure-refactor
+scope): `IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
+`IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/
+`ClearTechnicalFailureAsync` have no direct repository-level test — they
+were, and remain, exercised only indirectly (through the real repository)
+by `GridGameModuleTests.cs`/`PlayerCacheWarmingServiceTests.cs`; this gap
+predates the split and isn't new. Backend build/test suite could not be
+run in this sandbox (`dotnet` unavailable; apt's `dotnet-sdk-10.0` package
+this project's `net10.0` target needs 404s from this environment's Ubuntu
+mirror for the `noble-updates`/`noble-security` pool paths specifically —
+confirmed by installing `dotnet-sdk-8.0` successfully from the plain
+`noble` pool instead, then hitting `NETSDK1045`/`NU1202` against `net10.0`/
+EF Core 10 packages) — verified instead by an exhaustive grep sweep for
+every remaining `IPlayerStoreRepository`/`PlayerStoreRepository`
+occurrence across `backend/src`/`backend/tests` (confirming none is a live
+declaration/instantiation, only historical comments) and by hand-checking
+every rewired constructor's parameter order against each call site;
+relying on CI's `dotnet build`/`dotnet test` for final confirmation.
 
 **S-108 · Backfill tests for AdminScreen.tsx's extracted components, batch 1**
 S-103's "pure mechanical extraction" correctly left `AdminScreen.test.tsx`

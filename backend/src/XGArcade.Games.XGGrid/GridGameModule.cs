@@ -29,12 +29,11 @@ namespace XGArcade.Games.XGGrid;
 public class GridGameModule(
     IGridInstanceRepository gridInstanceRepository,
     ICategoryValueRepository categoryValueRepository,
-    IPlayerStoreRepository playerStoreRepository,
-    // S-106 (pure refactor): the three sibling repositories carrying the
-    // methods split out of IPlayerStoreRepository that this module still
-    // needs — playerStoreRepository above is kept only for
-    // HasEffectiveAttributeAsync/IsPersistentTechnicalFailureAsync, which
-    // haven't moved (S-107 territory).
+    // S-106/S-107 (pure refactor): the five sibling repositories carrying
+    // the methods split out of the original, now-deleted
+    // IPlayerStoreRepository — see ADR-0067 for the full split.
+    IPlayerOverrideRepository playerOverrideRepository,
+    IPlayerDataQualityRepository playerDataQualityRepository,
     IPlayerRepository playerRepository,
     IPlayerAliasRepository playerAliasRepository,
     IPlayerAttributeRepository playerAttributeRepository,
@@ -456,12 +455,12 @@ public class GridGameModule(
         var matching = new List<Player>();
         foreach (var candidate in candidates)
         {
-            var satisfiesRow = await playerStoreRepository.HasEffectiveAttributeAsync(
+            var satisfiesRow = await playerOverrideRepository.HasEffectiveAttributeAsync(
                 candidate.Id, MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue, cancellationToken);
             if (!satisfiesRow)
                 continue;
 
-            var satisfiesCol = await playerStoreRepository.HasEffectiveAttributeAsync(
+            var satisfiesCol = await playerOverrideRepository.HasEffectiveAttributeAsync(
                 candidate.Id, MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue, cancellationToken);
             if (satisfiesCol)
                 matching.Add(candidate);
@@ -662,7 +661,7 @@ public class GridGameModule(
         // track Trophy pairings (see its own WarmAsync scope), so this is a
         // guaranteed-false, effectively free read for those, never a false
         // positive that would wrongly skip a live check that could resolve.
-        if (await playerStoreRepository.IsPersistentTechnicalFailureAsync(
+        if (await playerDataQualityRepository.IsPersistentTechnicalFailureAsync(
                 MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
                 MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
                 PlayerCacheWarmingService.PersistentFailureThreshold, cancellationToken))

@@ -13,10 +13,12 @@ namespace XGArcade.DataSync.Tests.Wikidata;
 public class PlayerCareerStintRefreshServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
-    // S-106 (pure refactor): AddPlayerAsync's new home — _playerStoreRepository
-    // above is kept for GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync/
-    // GetCareerStintCandidatePlayerIdsAsync, which haven't moved.
+    // S-106/S-107 (pure refactor): AddPlayerAsync lives on IPlayerRepository;
+    // GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync/
+    // GetCareerStintCandidatePlayerIdsAsync live on
+    // IPlayerCareerStintRepository — see ADR-0067 for the full split of the
+    // original, now-deleted IPlayerStoreRepository.
+    private IPlayerCareerStintRepository _playerCareerStintRepository = null!;
     private IPlayerRepository _playerRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
@@ -28,7 +30,7 @@ public class PlayerCareerStintRefreshServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _dbContext = new XGArcadeDbContext(options);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerCareerStintRepository = new PlayerCareerStintRepository(_dbContext);
         _playerRepository = new PlayerRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
@@ -38,7 +40,7 @@ public class PlayerCareerStintRefreshServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCareerStintRefreshService BuildService() =>
-        new(_wikidataClient, _playerStoreRepository, _playerRepository, _categoryValueRepository, NullLogger<PlayerCareerStintRefreshService>.Instance);
+        new(_wikidataClient, _playerCareerStintRepository, _playerRepository, _categoryValueRepository, NullLogger<PlayerCareerStintRefreshService>.Instance);
 
     private async Task<Player> SeedPlayerAsync(string wikidataQid) =>
         await _playerRepository.AddPlayerAsync(
@@ -62,7 +64,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Monaco", "Juventus", "Arsenal" }));
     }
 
@@ -77,7 +79,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Does.Contain("Celtic"));
     }
 
@@ -85,14 +87,14 @@ public class PlayerCareerStintRefreshServiceTests
     public async Task RefreshCareerStintsAsync_StintAlreadyPersisted_IsNotDuplicated()
     {
         var player = await SeedPlayerAsync("Q1519");
-        await _playerStoreRepository.AddCareerStintsAsync(player.Id,
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 }]);
 
         _wikidataClient.SetCareerStints("Q1519", new WikidataCareerStintEntry("Arsenal", 1999, 2007, 254));
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints, Has.Count.EqualTo(1), "an already-stored, identical stint must not be duplicated");
     }
 
@@ -122,14 +124,14 @@ public class PlayerCareerStintRefreshServiceTests
     public async Task RefreshCareerStintsAsync_WikidataQueryFails_DoesNotThrow_ExistingStintsUntouched()
     {
         var player = await SeedPlayerAsync("Q1519");
-        await _playerStoreRepository.AddCareerStintsAsync(player.Id,
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
 
         _wikidataClient.FailNextCareerStintBatches(1);
 
         Assert.DoesNotThrowAsync(async () => await BuildService().RefreshCareerStintsAsync([player.Id]));
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Arsenal" }),
             "a failed refresh must leave whatever data already existed untouched, not wipe it");
     }
@@ -141,7 +143,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         Assert.DoesNotThrowAsync(async () => await BuildService().RefreshCareerStintsAsync([player.Id]));
 
-        Assert.That(await _playerStoreRepository.GetCareerStintsAsync(player.Id), Is.Empty);
+        Assert.That(await _playerCareerStintRepository.GetCareerStintsAsync(player.Id), Is.Empty);
     }
 
     // Bug fix (2026-08-04, xG Path duplicate-node bug, REQ-1203 follow-up,
@@ -160,7 +162,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Lyon" }),
             "a stint whose ClubQid matches a seeded club must be canonicalized to ClubDefinition.Name");
     }
@@ -180,7 +182,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Some Obscure Club" }));
     }
 
@@ -195,7 +197,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Lyon Reserve" }));
     }
 
@@ -215,7 +217,7 @@ public class PlayerCareerStintRefreshServiceTests
         // lookup already recorded, using ClubDefinition.Name directly
         // (WikidataLookupService.PersistCareerStintsAsync's own writer
         // convention).
-        await _playerStoreRepository.AddCareerStintsAsync(player.Id,
+        await _playerCareerStintRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Lyon", StartYear = 2000, EndYear = 2003, AppearanceCount = 90 }]);
 
         _wikidataClient.SetCareerStints("Q1519",
@@ -223,7 +225,7 @@ public class PlayerCareerStintRefreshServiceTests
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
-        var stints = await _playerStoreRepository.GetCareerStintsAsync(player.Id);
+        var stints = await _playerCareerStintRepository.GetCareerStintsAsync(player.Id);
         Assert.That(stints, Has.Count.EqualTo(1),
             "the full-career fetch's 'Olympique Lyonnais' row must canonicalize to 'Lyon' and be recognized as the same stint already persisted, not duplicated");
     }
@@ -250,7 +252,7 @@ public class PlayerCareerStintRefreshServiceTests
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 
         var seededClubNames = new HashSet<string> { club.Name };
-        var candidateIds = await _playerStoreRepository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
+        var candidateIds = await _playerCareerStintRepository.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount: 3);
 
         Assert.That(candidateIds, Does.Contain(player.Id),
             "a stint originally labeled 'Olympique Lyonnais' must canonicalize to the seeded 'Lyon' and satisfy exact-match eligibility");

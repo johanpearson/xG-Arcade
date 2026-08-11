@@ -21,7 +21,7 @@ namespace XGArcade.Api.Tests;
 // Postgres database or a real Supabase project: the DbContext is swapped for
 // an in-memory provider and ISupabaseAuthClient is swapped for a fake test
 // double, both via WithWebHostBuilder, same pattern as
-// XGArcade.Data.Tests/PlayerStoreRepositoryTests.cs uses for the in-memory
+// XGArcade.Data.Tests/PlayerRepositoryTests.cs uses for the in-memory
 // DB half.
 public class AuthEndpointTests
 {
