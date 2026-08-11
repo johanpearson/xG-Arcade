@@ -8,55 +8,20 @@
   overflow-x: auto;
 }
 
-/* S-047 (root cause verified, not guessed — see design-document.md §4's
-   "Grid cell aspect ratio" note): this used to be `width: 100%`
-   unconditionally, which — combined with the browser's default
-   `table-layout: auto` above 480px, and .grid-table__cell's explicit
-   `height` below acting as a floor, not a ceiling, on row height —
-   stretched a Tier-0 (3-column) grid's cells to fill however wide the
-   viewport happened to be, producing flat/short rectangles instead of
-   square-ish cells. Reproduces on any real desktop browser with a small
-   grid, not only via a phone's "Request desktop site" (which just reports
-   a similarly wide CSS viewport). `margin: 0 auto` + no explicit `width`
-   lets the table use its own intrinsic (shrink-to-fit) width instead: per
-   the CSS2.1 automatic table-layout algorithm, an auto-width table only
-   grows to fill its containing block when a column's own content
-   genuinely needs that width — otherwise each column sizes from its own
-   content/min-width floor (.grid-table__cell's 44px/64px touch-target
-   tokens below), which is what keeps cells close to square. A grid with
-   enough columns or long enough names to need the full container width
-   still gets it, unchanged — .grid-scroll's horizontal-scroll fallback
-   remains the backstop either way. The ≤480px block below re-establishes
-   `width: 100%` alongside `table-layout: fixed` — that breakpoint's own
-   fix (S-040, header-text-wrapping) deliberately needs full-width fixed
-   layout instead of shrink-to-fit, and is unaffected by this change.
-
-   S-055 update (root cause verified via real user screenshots of a 3x3
-   grid, not guessed: columns visibly different widths depending on
-   whether a header read "Sevilla" or "Atletico Madrid"): the shrink-to-fit
-   width above was never the whole story — `table-layout: auto` (the
-   browser default this rule never overrode outside the ≤480px block below)
-   sizes *each column* from the widest cell/header content anywhere in that
-   column specifically, not just the table as a whole. `.grid-table__cell`'s
-   min-width (S-047/S-049) and `.grid-table__col-header`'s min-width (S-029)
-   below were only ever floors, never caps, on any single column, so a long
-   club/country name still forced its own column wider than a short name's
-   column, on every breakpoint except ≤480px (which already sidesteps this
-   via its own table-layout: fixed + explicit <colgroup> widths, S-040).
-   `table-layout: fixed` now applies unconditionally (previously only
-   inside the ≤480px block) so column width always comes from each
-   column's own `<col>` (Grid.tsx) — see `.grid-table__row-header-col`/
-   `.grid-table__data-col` below, which now give every breakpoint band an
-   explicit, equal width per data column. This does not reintroduce the
-   original S-047 bug (a Tier-0 grid stretched to fill the viewport): the
-   `width: auto` above is unchanged, and giving every column its own
-   explicit pixel `<col>` width (rather than relying on the ≤480px band's
-   "divide 100%-of-viewport evenly among unclassed columns" mechanism) is
-   what lets a `width: auto` table still compute a determinate, non-stretched
-   total width under CSS2.1's fixed-table-layout algorithm — the sum of the
-   (now explicit) column widths plus borders, the same shrink-to-fit
-   *outcome* S-047 verified, just no longer depending on coincidence for
-   columns to end up equal. */
+/* design-document.md §4's "Grid cell aspect ratio" (S-047) and "Grid cell
+   uniform column width" (S-055) bullets hold the full root-cause history
+   and before/after pixel measurements for this rule — summary only:
+   `table-layout: fixed` + `width: auto` + `margin: 0 auto` lets the table
+   shrink to its own intrinsic width instead of stretching to fill the
+   viewport (S-047), and every column's width now comes from an explicit
+   `<col>` width (`.grid-table__row-header-col`/`.grid-table__data-col`
+   below) rather than its widest cell's content, so columns stay equal
+   regardless of label length (S-055) — `table-layout: auto`, the browser
+   default this rule previously left in place outside the ≤480px block,
+   only ever floored column width via min-width, never capped it. The
+   ≤480px block below re-establishes `width: 100%` for that breakpoint's
+   own, different fix (S-040, header-text-wrapping) — see that block's own
+   comment. */
 .grid-table {
   border-collapse: collapse;
   table-layout: fixed;
@@ -103,30 +68,21 @@
   text-align: left;
 }
 
-/* S-055: explicit, equal width for the row-header column and for every
-   data column, at every breakpoint from 481px up (the ≤480px block below
-   keeps its own already-working mechanism — see that block's own comment
-   for why it doesn't need this). This is the actual fix for the
-   uneven-column-width bug (real user screenshots: a 3x3 grid rendering
-   "Sevilla"'s column narrower than "Atletico Madrid"'s). Previously only
-   `.grid-table__row-header-col` (S-040) had an explicit <col> width, and
-   only inside the ≤480px block; outside it, table-layout: auto's
-   content-driven sizing (removed above) was the only thing governing every
-   column's width, unevenly. `.grid-table__data-col` is a class newly added
-   to each per-column <col> in Grid.tsx's <colgroup> (previously unclassed)
-   — giving every data column the identical width guarantees identical
-   columns regardless of what a given column's header/cell content happens
-   to be. Values reuse, rather than reinvent, sizes already established
-   elsewhere in this file as sensible for their band: 90px matches
-   `.grid-table__col-header`'s own existing min-width above for the
-   481-959px band; 110px scales the row-header column up in roughly the
-   same proportion S-040's own 88px-vs-60px mobile pair already used. The
-   ≥960px media block below overrides both to larger desktop values that
-   match `.grid-table__cell`'s already real-browser-verified (S-049) target
-   size — see that block's own comment for the exact numbers, deliberately
-   not repeated here so this file's own S-049 test (which counts that
-   value's occurrences to confirm it's scoped to that one block) stays
-   accurate. */
+/* S-055 (design-document.md §4's "Grid cell uniform column width" bullet
+   has the full root-cause history and real-user-screenshot evidence for
+   this fix): explicit, equal width for the row-header column and for
+   every data column, at every breakpoint from 481px up (the ≤480px block
+   below keeps its own already-working mechanism — see that block's own
+   comment). Values reuse, rather than reinvent, sizes already established
+   elsewhere in this file: 90px matches `.grid-table__col-header`'s own
+   existing min-width above for the 481-959px band; 110px scales the
+   row-header column up in roughly the same proportion S-040's own
+   88px-vs-60px mobile pair already used. The ≥960px media block below
+   overrides both to larger desktop values that match `.grid-table__cell`'s
+   already real-browser-verified (S-049) target size — see that block's own
+   comment for the exact numbers, deliberately not repeated here so this
+   file's own S-049 test (which counts that value's occurrences to confirm
+   it's scoped to that one block) stays accurate. */
 .grid-table__row-header-col {
   width: 110px;
 }
@@ -135,22 +91,14 @@
   width: 90px;
 }
 
-/* S-055: moved here from inside the ≤480px block below, unchanged, and now
-   unconditional — every breakpoint's column width is fixed as of this
-   story (not just ≤480px's), so every breakpoint needs the same
-   wrap-instead-of-stretch treatment for header text that block already
-   established, not just the narrowest one. Stacking the flag/badge above
-   the name (rather than beside it) gives the name the header column's
-   *full* content width instead of sharing it with the glyph — this was
-   verified (S-040) to be the difference between a name wrapping on real
-   word boundaries and being squeezed narrow enough to break mid-word; the
-   same reasoning holds at the wider 90-140px column widths introduced by
-   this story, not only at ≤480px's narrower ones. A plain inline (glyph
-   beside name) layout was considered and rejected for the 481-959px band
-   specifically — real-browser verification (see this story's own check)
-   found the ~50-65px of text width remaining next to the glyph inline
-   still wrapped a longer name (e.g. "Atletico Madrid") awkwardly, where
-   stacked gives it the column's full ~65-90px instead. */
+/* S-055 (design-document.md §4's "Grid cell uniform column width" bullet
+   covers the real-browser verification behind this choice, including why
+   a plain inline glyph-beside-name layout was rejected): moved here from
+   inside the ≤480px block, now unconditional — stacking the flag/badge
+   above the name gives it the header column's full content width instead
+   of sharing it with the glyph, the same reasoning S-040 already
+   established for ≤480px, now applied at the wider 90-140px column widths
+   this story introduced too. */
 .grid-table__col-header .category-label,
 .grid-table__row-header .category-label {
   flex-direction: column;
@@ -256,68 +204,21 @@
      full content width instead of sharing it with the glyph) are exactly
      what this block used to declare directly. */
 
-  /* S-059 (root cause verified via getBoundingClientRect on a real Chromium
-     render at 390px/412px, not guessed — real user screenshots of a 3x3
-     grid: the "Real Sociedad"/"Paris Saint-Germain"/"Valencia" row-header
-     labels wrap to 2/3/1 lines respectively at this breakpoint's 88px
-     row-header column, measuring row heights of 61px/76px/53px before this
-     fix — uneven, tracking each row's own row-header line count). Root
-     cause: `.grid-table__cell`'s `height` (base rule above) is only ever a
-     floor on a table row's height, never a ceiling (same CSS2.1 table-row
-     mechanism S-047's own note already documents for the *column* axis,
-     here on the row axis instead) — at every other breakpoint,
-     `.grid-table__cell` already carries an explicit, real (not just
-     44px-floor) target height (90px at 481-959px, the ≥960px block's own
-     desktop value further down this file) that's tall enough to swallow
-     ordinary wrapped row-header content without the row ever needing to
-     grow past it; this breakpoint alone still used the
-     44px `--touch-target-min` floor, which every real row-header (badge +
-     at least one line of text) already exceeds, so *some* per-row growth
-     was inevitable — the bug is that growth wasn't the same amount for
-     every row.
-
-     Fixed the same way S-049/S-055 already fixed the equivalent floor-vs-
-     target gap at their own breakpoints: give `.grid-table__cell` a real,
-     explicit target height here too (78px — a working number *for this
-     grid's own longest real content*, `Paris Saint-Germain`'s natural
-     3-line/76px need, plus a small rounding margin; not derived from a
-     visual-design ratio the way the 481-959px/≥960px bands' own values
-     each reuse an existing column width, since ≤480px is explicitly
-     exempt from this file's aspect-ratio bound
-     — see design-document.md §4's S-047 note — so there's no existing
-     value to reuse here). Paired with a 3-line clamp on the row-header's
-     own name text (`.grid-table__row-header .category-label__name` below)
-     so a *longer* name than any of this grid's own three examples can
-     never exceed that same 78px budget and reintroduce this bug for a
-     single outlier row — the same `-webkit-line-clamp` truncation-with-
-     ellipsis technique `CellState.css`'s `.cell-state--photo
-     .cell-state__name` (S-047) already uses for exactly this reason, not a
-     new mechanism. 3 lines, not fewer, specifically because "Paris
-     Saint-Germain" itself already needs exactly 3 to render in full at this
-     column width — a smaller clamp would visibly truncate the very label
-     from the real bug report this story fixes. Real-browser verification
-     (390px/412px/700px/1280px, not assumed) confirmed: all three example
-     rows render at an identical 78px height with no visible truncation
-     (none of the three needs the clamp to actually engage), and the
-     481-959px/≥960px bands — already uniform before this story, per their
-     own dedicated target-height blocks — are unaffected (this block's
-     selectors are scoped to `max-width: 480px` only). A name genuinely
-     needing a 4th wrapped line (none exist in this grid's own data) would
-     truncate with a trailing ellipsis rather than stretch its row past
-     78px — an accepted, flagged trade-off (see design-document.md §4's own
-     S-059 note and `docs/backlog.md`'s S-059 entry for the full
-     reasoning), not a silently-shipped one. The actual `height: 78px`
-     override lives in a second, separate `@media (max-width: 480px)` block
-     further down this file, after the base (unconditional)
-     `.grid-table__cell` rule — not here, alongside this comment — for the
-     same cascade reason `.grid-cell`'s own mobile padding override
-     (further down this file) already documents: the base rule is declared
-     *after* this early block in source order, so an override placed here,
-     before it, would lose to it despite this block's own media condition
-     matching. The 3-line clamp below has no such conflict (nothing else in
-     this file sets `.grid-table__row-header .category-label__name`'s
-     `-webkit-line-clamp`), so it stays here with the rest of this
-     breakpoint's row-header treatment. */
+  /* S-059 (design-document.md §4's "Grid uniform row height, ≤480px" bullet
+     has the full root-cause history and before/after row-height
+     measurements): `.grid-table__cell`'s `height` is only ever a floor on
+     a table row's height, never a ceiling, so this breakpoint's bare 44px
+     touch-target floor let each row grow by however much its own
+     row-header text wrapped — uneven across rows. Fixed the same way
+     S-049/S-055 fixed the equivalent floor-vs-target gap at their own
+     breakpoints (a real 78px target height, set in a second `@media
+     (max-width: 480px)` block further down this file — see that block's
+     own comment for why it lives there rather than here), paired with a
+     3-line clamp below on the row-header's own name text so a longer name
+     can never reintroduce the bug for a single outlier row. The actual
+     `height: 78px` override is declared separately due to this file's
+     cascade being source-order-sensitive for that selector — see the
+     other block's comment. */
   .grid-table__row-header .category-label__name {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -326,59 +227,20 @@
   }
 }
 
-/* S-050 (root cause verified via getBoundingClientRect on a real Chromium
-   render at both breakpoints, not guessed — see design-document.md §4's
-   "Grid cell photo fill" note and backlog.md's S-050 entry for the full
-   before/after numbers): direct user feedback, with real screenshots, that
-   a correct cell's photo (REQ-214) doesn't reach the cell's own bottom
-   border — a real, reproducible, but *symmetric* gap (not literally
-   bottom-only, confirmed by measuring all four edges), most visually
-   obvious where two photo cells stack vertically (that gap, doubled across
-   the shared row border, reads as a noticeably wide blank band). Root
-   cause: REQ-214/S-047's fix only ever bypassed `.grid-cell`'s (the
-   button's) OWN padding — CellState.css's `.cell-state--photo` bleeds
-   through *that* padding via `inset: 0` against whatever element is its
-   nearest positioned ancestor's padding box — but that ancestor was
-   `.grid-cell` itself, which sits *inside* this element (`.grid-table__cell`,
-   the `<td>`) and is already inset from this element's own border by this
-   rule's own, separate `padding` (one layer further out, never bypassed).
-   The photo therefore always stopped short of the cell's actual bordered
-   edge by exactly this rule's own `padding` value (4px below 960px, 12px
-   at/above it, at the time this note was written — see S-055's own note
-   below `.grid-table__cell`'s base rule above for the padding value this
-   rule now uses in the 481-959px band specifically) on every side.
-
-   Fix: this element (the `<td>`), not the button, is now the positioned
-   ancestor `.cell-state--photo` measures its `inset: 0` against — see
-   `.grid-cell`'s own comment below for why its `position: relative` moved
-   here instead. A `:has(.cell-state--photo)`-scoped padding override was
-   tried first and rejected after real-browser verification of a *second*
-   real bug it would have introduced: `.grid-cell`'s own rendered size would
-   then depend on whether `.cell-state--photo` is currently in the DOM,
-   which `CellState.tsx` ties to photo *load success*, not just URL
-   presence (a failed image load unmounts `.cell-state--photo` entirely,
-   falling back to the no-photo branch) — meaning the button itself would
-   visibly resize the moment a photo failed to load after already
-   rendering, exactly the shift REQ-214's "constant regardless of load
-   failure" guarantee forbids, and exactly what `play-grid.spec.ts`'s
-   pre/post-`networkidle` `cell.boundingBox()` equality check (REQ-214)
-   would have caught non-deterministically in a real network environment.
-   Moving the containing block up to this always-present element instead
-   means `.grid-cell`'s own box is governed solely by this rule's
-   unconditional `height`/`min-width`/padding (unchanged, same as before
-   this story) regardless of whether a photo is showing, loading, or failed
-   — the button never resizes — while the photo layer, no longer
-   constrained by the button's own (smaller) box at all, fills this
-   element's full padding box independently. Real-browser verification
-   (not assumed) confirmed the remaining gap after this change is 0.5px on
-   every side at both breakpoints tested — exactly this rule's own 1px
-   `border`, split by sub-pixel rounding, i.e. the cell's actual visible
-   edge, not a leftover gap — and confirmed `.grid-cell`'s own bounding box
-   is identical whether or not a photo is present, matching REQ-214
-   unchanged. REQ-214's fixed-cell-footprint guarantee itself is
-   unaffected either way: this only changes how much of that *same*
-   footprint (this rule's own height/min-width, untouched here) the photo
-   fills, not the footprint's own size. */
+/* S-050 (design-document.md §4's "Grid cell photo fill" bullet has the full
+   root-cause history and before/after gap measurements): a correct cell's
+   photo (REQ-214) used to stop short of the cell's actual bordered edge —
+   `.cell-state--photo` (CellState.css) bled through `.grid-cell`'s (the
+   button's) own padding via `inset: 0`, but `.grid-cell` sits inside this
+   element (`.grid-table__cell`, the `<td>`), which has its own separate
+   padding layer one level further out that was never bypassed. Fix: this
+   element, not the button, is now the positioned ancestor
+   `.cell-state--photo` measures its `inset: 0` against — see `.grid-cell`'s
+   own comment below for why its `position: relative` moved here instead,
+   and design-document.md §4 for why a `:has(.cell-state--photo)`-scoped
+   padding override was tried first and rejected. REQ-214's fixed-cell-
+   footprint guarantee itself is unaffected — this only changes how much of
+   that same footprint the photo fills. */
 .grid-table__cell {
   padding: var(--space-1);
   border: 1px solid var(--color-border-hairline);
@@ -436,46 +298,35 @@
   border-width: 2px;
 }
 
-/* S-059 (real-browser root cause — see this file's other S-059 comment,
-   inside the earlier `@media (max-width: 480px)` block, for the full
-   before/after numbers and why the 78px figure/3-line clamp pair was
-   chosen): the actual `height` override lives here, in its own
+/* S-059 (design-document.md §4's "Grid uniform row height, ≤480px" bullet
+   has the full before/after numbers and why the 78px figure/3-line clamp
+   pair was chosen): the actual `height` override lives here, in its own
    `max-width: 480px` block placed *after* the base `.grid-table__cell`
-   rule directly above — not inside that earlier block — because this
-   file's cascade is source-order-sensitive for this exact selector: the
-   base rule above is declared later in the file than that earlier ≤480px
-   block, so an override placed there would lose to this unconditional
-   rule despite its own media condition matching, the same reason
-   `.grid-cell`'s own mobile padding override (further down this file) is
-   already placed after `.grid-cell`'s base rule rather than inside the
-   earlier block. Verified directly, not assumed: an earlier version of
-   this fix placed the override inside the earlier block and real-browser
-   measurement showed no change at all (still 61px/76px/53px) until it was
-   moved here. */
+   rule directly above — not inside the earlier ≤480px block near this
+   file's other S-059 comment — because this file's cascade is
+   source-order-sensitive for this exact selector: the base rule above is
+   declared later in the file than that earlier block, so an override
+   placed there would lose to this unconditional rule despite its own media
+   condition matching, the same reason `.grid-cell`'s own mobile padding
+   override (further down this file) is already placed after `.grid-cell`'s
+   base rule rather than inside the earlier block. Verified directly, not
+   assumed: an earlier version of this fix placed the override inside the
+   earlier block and real-browser measurement showed no change at all until
+   it was moved here. */
 @media (max-width: 480px) {
   .grid-table__cell {
     height: 78px;
   }
 }
 
-/* S-055 (design-document.md §4's aspect-ratio bound: cells must render
-   between 1:1 and ~1.3:1 from 481px up through desktop): this band never
-   got its own deliberate footprint — S-049's own note explicitly scoped
-   raising the floor to ≥960px only, leaving 481-959px "unaffected." Content
-   alone (a header's badge/flag + wrapped name, or a cell's name/points
-   text) already forced this rule's `height` above past its 44px floor to
-   ~53-57px in real-browser measurement, but width in this band is
-   `.grid-table__data-col`'s 90px above — wider than that content-driven
-   height needs, which measured out to ~1.7:1 immediately after S-055's own
-   uniform-width fix (an improvement over the pre-fix ~2.8:1 the same
-   content-driven column-width bug caused, but still outside the documented
-   bound). Raising this rule's own height to match the 90px width above
-   closes that remaining gap the same way S-049 already closed it at
-   ≥960px — the same "give it a real footprint instead of a floor" move,
-   completing it for the one band S-049's own note left open, not a new
-   mechanism. Padding grows one step (`--space-1` → `--space-2`, not all
-   the way to desktop's `--space-3`) in the same proportion, so the larger
-   footprint isn't just a bigger empty box around the same tight spacing. */
+/* S-055 (design-document.md §4's "Aspect-ratio bound closed for the
+   481-959px band" note has the full root-cause measurements): this band
+   never got its own deliberate footprint — S-049's own note scoped raising
+   the floor to ≥960px only. Raising this rule's own height to match
+   `.grid-table__data-col`'s 90px width above closes the aspect-ratio gap
+   the same way S-049 closed it at ≥960px. Padding grows one step
+   (`--space-1` → `--space-2`, not all the way to desktop's `--space-3`) in
+   the same proportion. */
 @media (min-width: 481px) and (max-width: 959px) {
   .grid-table__cell {
     padding: var(--space-2);
@@ -486,34 +337,19 @@
 
 /* S-040 desktop polish: the 44px touch-target floor (design-document.md
    §4) is a minimum, not a target size — at real desktop width the grid
-   still rendered at that same mobile-tight size, part of why it read as a
-   mobile layout simply stretched onto a wide screen. Cells (and their
-   headers, to stay proportional) get more breathing room here; the touch
-   target floor itself is unchanged, still enforced below 960px.
+   still rendered at that same mobile-tight size. Cells (and their headers,
+   to stay proportional) get more breathing room here; the touch target
+   floor itself is unchanged, still enforced below 960px.
 
-   S-049 (root cause verified, not guessed — see design-document.md §4's
-   "Grid cell target size at desktop" note): S-040's 64px value here was
-   itself still only ever a *floor*, never a deliberate *target* — with a
-   Tier-0 grid's 3-5 columns and no cell content that ever needs more room
-   than that floor (nothing in `.grid-cell`'s content forces a column
-   wider — text wraps, `.cell-state--photo`'s photo layer is absolutely
-   positioned out of the normal flow — same fact S-047 already established
-   for the 64px value), the table rendered at its smallest reasonable size
-   even at a genuinely wide viewport: direct user feedback ("the grid could
-   be larger... cell + picture should look nice"). Fixed by raising the same
-   floor the table already sizes its shrink-to-fit columns from (per
-   CSS2.1's automatic table-layout algorithm, unchanged from S-047 — no new
-   sizing mechanism needed), not by switching to `table-layout: fixed` +
-   `<colgroup>` widths the way the ≤480px breakpoint does (that breakpoint
-   needs a hard, deliberate full-width layout for its own, different
-   problem — header text wrapping on a narrow viewport — this one doesn't).
-   Because nothing here ever exceeds the floor, raising it functions as a
-   de facto *target* render size in practice: real-browser verification
-   (see backlog.md S-049) confirmed a 3×3 through 5×5 Tier-0 grid renders at
-   this new size, comfortably inside `.app`'s 1200px desktop cap, without
-   overflow or a horizontal-scroll fallback kicking in. Padding grows in
-   step (`--space-2` → `--space-3`) so the larger footprint isn't just a
-   bigger empty box around the same tight content spacing. */
+   S-049 (design-document.md §4's "Grid cell target size at desktop" bullet
+   has the full root-cause history, user feedback, and real-browser
+   measurements): S-040's 64px value here was itself still only ever a
+   floor, never a deliberate target. Fixed by raising the same floor the
+   table already sizes its shrink-to-fit columns from — because nothing
+   in a Tier-0 cell's content ever exceeds the floor, raising it functions
+   as a de facto target render size in practice. Padding grows in step
+   (`--space-2` → `--space-3`) so the larger footprint isn't just a bigger
+   empty box around the same tight content spacing. */
 @media (min-width: 960px) {
   .grid-table__cell {
     padding: var(--space-3);
@@ -555,23 +391,13 @@
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  /* S-050 (supersedes the 2026-07-18 REQ-214 note this comment used to
-     carry): this element is deliberately *not* `position: relative`
-     anymore — `.grid-table__cell` (the `<td>` this button lives inside,
-     Grid.css) is now the positioning context `CellState.css`'s
-     `.cell-state--photo` measures its `inset: 0` against instead, one DOM
-     level further out. Keeping this button as the containing block tied
-     its own rendered size to whether `.cell-state--photo` happened to be in
-     the DOM, which `CellState.tsx` also ties to photo *load success* — a
-     real, measured bug found while root-causing S-050's reported gap (see
-     `.grid-table__cell`'s own comment for the full before/after numbers):
-     this button would visibly resize the moment an already-showing photo
-     failed to load, which REQ-214's "constant footprint regardless of
-     photo load failure" guarantee forbids. This button's own box (driven
-     purely by its own `width`/`height`/padding above, all otherwise
-     unchanged by this story) is now completely independent of whatever
-     `CellState` happens to render inside it, exactly as it already was for
-     every non-photo state. */
+  /* S-050 (design-document.md §4's "Grid cell photo fill" bullet has the
+     full root-cause and rejected-alternative history): this element is
+     deliberately *not* `position: relative` anymore — `.grid-table__cell`
+     (the `<td>` this button lives inside, see that rule's own comment
+     above) is now the positioning context instead, one DOM level further
+     out, so this button's own box stays independent of whatever
+     `CellState` renders inside it regardless of photo load outcome. */
 }
 
 /* S-040: same fixed-width squeeze as the row/col headers above, applied to

@@ -6,19 +6,9 @@
 // than requiring a live Cloudflare site (untestable in this sandbox -- see
 // this module's own test file).
 //
-// Widget mode: **always-visible checkbox (`size: 'normal'`), not
-// invisible/managed.** This reverses ADR-0037's original invisible-mode
-// recommendation -- a deliberate product decision, not a bug fix. Two real
-// reasons: (a) an invisible widget renders nothing at all while it's
-// verifying, which reads as the app being stuck/broken rather than
-// "checking something," directly implicated in the 2026-07-25 sign-in
-// latency investigation (see NOTES.md/infra/README.md); (b) a genuinely
-// *invisible*-type Turnstile site cannot fall back to an interactive
-// challenge if Cloudflare's risk scoring is unsure -- it just fails, with no
-// escape hatch for the person -- whereas a visible checkbox lets an
-// ambiguous case resolve with one tap. The stale "renders no visible UI"
-// framing that used to live here described invisible mode; it no longer
-// applies now that every render is a real, visible checkbox.
+// Widget mode: always-visible checkbox (`size: 'normal'`), not
+// invisible/managed -- see ADR-0037's "Widget UX (current, 2026-07-25 third
+// amendment)" section for the full reversal history and reasoning.
 //
 // Script preload vs. widget render/token mint are two genuinely different
 // operations here, not the same step split in two for no reason:
@@ -35,12 +25,10 @@
 // challenges.cloudflare.com/turnstile/v0/api.js, if not already cached) out
 // of the serial critical path in front of the actual submit.
 //
-// The site key is public and safe in frontend code -- same
-// `import.meta.env.VITE_*` convention `frontend/src/lib/api.ts` already uses
-// for `VITE_API_BASE_URL` (ADR-0037's configuration-split decision). The
-// Turnstile *secret* key never appears anywhere in this codebase (it lives
-// solely in Supabase's own Auth dashboard settings) -- see ADR-0037's "For
-// AI agents" section before ever adding one here.
+// The site key is public and safe in frontend code, using the same
+// `import.meta.env.VITE_*` convention as `VITE_API_BASE_URL` -- see
+// ADR-0037 point 3 ("Configuration split") for the secret-key boundary this
+// module must never cross.
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? '';
 
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
