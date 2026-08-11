@@ -1,7 +1,7 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.96"
+version: "0.97"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -47,6 +47,36 @@ References: `requirements-document.md`, `architecture-document.md`
 > (this was a pure refactor, no behavior change) — treat the interface name
 > in an entry older than 2026-08-11 as historical, and check ADR-0067 if the
 > exact current owner matters.
+
+> **`GridGameModule`-split note (2026-08-11, S-119, ADR-0068):** any
+> `GridGameModule.<Method>` reference below dated before 2026-08-11 may
+> refer to logic that has since moved onto one of three new classes —
+> `GridGenerationService` (`GenerateInstanceAsync`'s full pipeline,
+> including the former `PickHeadersAsync`/`GetMatchCountAsync`),
+> `GridNameMatcher` (`FindMatchAsync`'s three-stage matching,
+> `AcceptMatchAsync`, disambiguation-candidate construction, and
+> `ResolveWrongGuessPlayerAsync`), and `GridLiveLookupDispatcher`
+> (live-lookup dispatch — `LookupMatchesAsync`, renamed from
+> `LookupLiveMatchesAsync` — and REQ-211's guess-time fallback,
+> `TryRefreshCellAsync`, renamed from `RefreshCellFromLiveLookupAsync`).
+> Unlike ADR-0067's repository split, `GridGameModule.cs` was not deleted
+> — it must keep implementing `IGameModule` directly for its real external
+> callers — so `GridGameModule.ScoreSubmissionAsync`/`GetCellIdsAsync`/
+> `GetMaxAttemptsForCellAsync`/`GetCellCategoryTypesAsync`/
+> `ResolveWrongGuessPlayerAsync` references remain accurate (still defined
+> there, now as thin delegation), but any reference to
+> `GridGameModule.GenerateInstanceAsync`'s internal pairing/header-picking/
+> cell-construction logic, `GridGameModule.FindMatchAsync`, or
+> `GridGameModule`'s live-lookup dispatch now refers to logic on one of the
+> three new classes above. Likewise, a reference below naming
+> `GridGameModuleTests.cs` for generation/matching/live-lookup coverage may
+> now live in `GridGenerationServiceTests.cs`/`GridNameMatcherTests.cs`/
+> `GridLiveLookupDispatcherTests.cs` instead (moved 1:1, same test bodies/
+> assertions) — a slimmed `GridGameModuleTests.cs` remains for the
+> adapter's own orchestration tests. See `architecture-document.md`'s
+> COMP-05 entry and ADR-0068 for the full mapping. This was a pure refactor
+> (no behavior change, no REQ changed), so historical dated entries below
+> were not individually rewritten.
 
 > **For AI agents:** this document defines HOW the system in
 > `architecture-document.md` is concretely built (languages, frameworks, data
@@ -254,7 +284,14 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                    ("xg-grid", "xg-path") instead of a single
                                    directly-injected singleton; GridSize moved
                                    off RoundSchedulingOptions
-    /XGArcade.Games.XGGrid       -> GridGameModule, category logic, generator.
+    /XGArcade.Games.XGGrid       -> GridGameModule (thin IGameModule adapter,
+                                   COMP-05), composing GridGenerationService
+                                   (grid generation), GridNameMatcher (name
+                                   matching/disambiguation), and
+                                   GridLiveLookupDispatcher (live-lookup
+                                   dispatch) — each independently registered,
+                                   no facade (S-119, ADR-0068). Also
+                                   CategoryPairingRules, CategoryCandidate.
                                    S-084 added GridGenerationOptions.GridSize
                                    (moved off Core.Rounds.RoundSchedulingOptions,
                                    ADR-0051) — xG-Grid-specific generation

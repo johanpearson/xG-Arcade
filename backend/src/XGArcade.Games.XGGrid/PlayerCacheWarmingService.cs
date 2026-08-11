@@ -28,8 +28,9 @@ namespace XGArcade.Games.XGGrid;
 // workflow's own generous job timeout, has neither problem.
 //
 // Deliberately sequential, not concurrent — same DbContext-safety
-// reasoning as GridGameModule.PickHeadersAsync (see that class's own doc
-// comment). This service doesn't share a request-scoped context (its CLI
+// reasoning as GridGenerationService.PickHeadersAsync (see that class's own
+// doc comment; PickHeadersAsync moved there from GridGameModule in S-119's
+// pure refactor). This service doesn't share a request-scoped context (its CLI
 // caller builds a single-use one), but nothing here is safe for
 // concurrent use of a single DbContext instance regardless of scope.
 //
@@ -114,8 +115,9 @@ public class PlayerCacheWarmingService(
     // treated as structural and stops being retried until an operator
     // investigates or a query-shape fix clears it (StaleClubAttributeCleaner/
     // purge-player-pool, same invalidation surface as ConfirmedLowMatchPair).
-    // internal, not private: GridGameModule.RefreshCellFromLiveLookupAsync
-    // (2026-08-10) reuses this exact value so a guess-time fallback call
+    // internal, not private: GridLiveLookupDispatcher.TryRefreshCellAsync
+    // (2026-08-10; moved from GridGameModule.RefreshCellFromLiveLookupAsync
+    // in S-119's pure refactor) reuses this exact value so a guess-time fallback call
     // agrees with cache-warming on what counts as "already known doomed" -
     // both live in this same project (Games.XGGrid), so a real shared
     // reference doesn't invert the project-reference graph the way

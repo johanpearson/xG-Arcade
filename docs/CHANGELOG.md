@@ -13,6 +13,61 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `docs/architecture-document.md` (v0.98) +
+  `docs/requirements-document.md` (v1.71) + `docs/implementation-document.md`
+  (v0.97) + new `docs/decisions/0068-grid-game-module-responsibility-split.md`
+  — S-119 (`docs/backlog.md` Epic 9): split `GridGameModule.cs` (1,039 lines,
+  26 methods, 13 constructor dependencies — confirmed COMP-05's clearest
+  SRP outlier, second-worst code-health hotspot platform-wide) into three
+  new, independently-registered classes behind their own narrow interfaces
+  — `IGridGenerationService`/`GridGenerationService` (grid generation:
+  pairing selection, header picking, cell construction, REQ-101/102/107/108),
+  `IGridNameMatcher`/`GridNameMatcher` (three-stage name matching and
+  disambiguation, REQ-207/208/209, plus REQ-216's wrong-guess name/photo
+  resolution), and `IGridLiveLookupDispatcher`/`GridLiveLookupDispatcher`
+  (the shared Country/Club/Trophy → `IWikidataLookupService` dispatch used
+  by both generation-time cache-miss fallback and REQ-211's guess-time
+  fallback) — composed behind `GridGameModule`, now a thin ~160-line
+  `IGameModule` adapter that keeps implementing that interface directly
+  (unlike ADR-0067's repository split, `IGameModule` has real external
+  callers — `Core.Scoring`, `Core.Rounds`, `XGArcade.Api`,
+  `IGameModuleResolver` — so there is no "delete the original file" step;
+  `GridGameModule.cs` stays, shrunk, retaining only the small set of
+  trivial single-repository-call `IGameModule` methods with no other
+  owner). No facade added — `GridGenerationService` injects
+  `IGridLiveLookupDispatcher` directly, the one cross-dependency between
+  the new classes; a caller needing more than one narrowly injects more
+  than one. `CategoryCandidate` moved from a private nested type to its
+  own file (namespace-`internal`, shared by two of the new classes);
+  `CategoryPairingRules` gained one new public static method,
+  `MapAttributeType`, moved from a private method on the old god-class
+  (deliberately not tripled across the three new classes — a single,
+  stateless, dependency-free lookup table with exactly one correct
+  implementation). Pure structural refactor, no REQ change, no behavior
+  change; existing `GridGameModuleTests.cs` coverage (2,345 lines,
+  90 test methods) moved/renamed 1:1 into `GridGenerationServiceTests.cs`/
+  `GridNameMatcherTests.cs`/`GridLiveLookupDispatcherTests.cs` plus a
+  slimmed `GridGameModuleTests.cs` for the adapter's own orchestration
+  tests, confirmed by a mechanical method-name diff against the original
+  file (zero drops, zero duplicates). `architecture-reviewer` and
+  `quality-architect` review passes both passed clean; two stale
+  doc-comment references caught by `quality-architect` (a
+  `MapAttributeType` comment pointing at a since-moved method, two
+  `LookupLiveMatchesAsync` references in `CategoryCandidate.cs` naming the
+  pre-refactor method name) were fixed in the same PR, not deferred.
+  Updated `docs/architecture-document.md` §5's COMP-05 row and §5.3's
+  COMP-05 ADR list to attribute generation/matching/live-lookup to the
+  right class(es) — no REQ references in that row changed, since none of
+  the underlying behavior did. `docs/requirements-document.md` and
+  `docs/implementation-document.md` each gained a blanket
+  "`GridGameModule`-split note" (same pattern as ADR-0067's existing
+  repository-split note in both docs) mapping any pre-2026-08-11
+  `GridGameModule.<Method>`/`GridGameModuleTests.cs` reference to its new
+  owner instead of individually rewriting the many scattered historical
+  references — no REQ acceptance criteria changed. `implementation-document.md`
+  §4's project-structure entry for `XGArcade.Games.XGGrid` was also updated
+  to name the three new classes directly. See ADR-0068 for the full
+  decision record.
 - 2026-08-11 — no docs changed beyond this entry — S-118 (`docs/backlog.md`
   Epic 9): extends S-100/S-101's shared HTTP/timeout driver concept to the
   six `WikidataClient.cs` query methods added by later ADRs

@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.70"
+version: "1.71"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -34,6 +34,36 @@ Version 0.75 · 2026-07-20
 > `IPlayerStoreRepository`/`PlayerStoreRepository.cs` no longer exist, now
 > that both halves of the split have landed. See `architecture-document.md`'s
 > COMP-06 entry and ADR-0067 for the full mapping. This was a pure refactor
+> (no behavior change, no REQ changed), so historical dated entries below
+> were not individually rewritten.
+
+> **`GridGameModule`-split note (2026-08-11, S-119, ADR-0068):** any
+> `GridGameModule.<Method>` reference below dated before 2026-08-11 may
+> refer to logic that has since moved onto one of three new classes —
+> `GridGenerationService` (`GenerateInstanceAsync`'s full pipeline,
+> including the former `PickHeadersAsync`/`GetMatchCountAsync`),
+> `GridNameMatcher` (`FindMatchAsync`'s three-stage matching,
+> `AcceptMatchAsync`, disambiguation-candidate construction, and
+> `ResolveWrongGuessPlayerAsync`), and `GridLiveLookupDispatcher`
+> (live-lookup dispatch — `LookupMatchesAsync`, renamed from
+> `LookupLiveMatchesAsync` — and REQ-211's guess-time fallback,
+> `TryRefreshCellAsync`, renamed from `RefreshCellFromLiveLookupAsync`).
+> Unlike ADR-0067's repository split, `GridGameModule.cs` was not deleted
+> — it must keep implementing `IGameModule` directly for its real external
+> callers — so `GridGameModule.ScoreSubmissionAsync`/`GetCellIdsAsync`/
+> `GetMaxAttemptsForCellAsync`/`GetCellCategoryTypesAsync`/
+> `ResolveWrongGuessPlayerAsync` references remain accurate (still defined
+> there, now as thin delegation), but any reference to
+> `GridGameModule.GenerateInstanceAsync`'s internal pairing/header-picking/
+> cell-construction logic, `GridGameModule.FindMatchAsync`, or
+> `GridGameModule`'s live-lookup dispatch now refers to logic on one of the
+> three new classes above. Likewise, a "Test level" pointer below naming
+> `GridGameModuleTests.cs` for generation/matching/live-lookup coverage may
+> now live in `GridGenerationServiceTests.cs`/`GridNameMatcherTests.cs`/
+> `GridLiveLookupDispatcherTests.cs` instead (moved 1:1, same test bodies/
+> assertions) — a slimmed `GridGameModuleTests.cs` remains for the
+> adapter's own orchestration tests. See `architecture-document.md`'s
+> COMP-05 entry and ADR-0068 for the full mapping. This was a pure refactor
 > (no behavior change, no REQ changed), so historical dated entries below
 > were not individually rewritten.
 
