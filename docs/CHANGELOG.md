@@ -13,6 +13,44 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — no docs changed beyond this entry — S-118 (`docs/backlog.md`
+  Epic 9): extends S-100/S-101's shared HTTP/timeout driver concept to the
+  six `WikidataClient.cs` query methods added by later ADRs
+  (`QueryPlayerPoolBirthYearAsync`/`QueryPlayerPoolByNationalityAsync`
+  (ADR-0054/ADR-0055), `QueryPlayerPositionsAndBirthYearsByQidsAsync`/
+  `QuerySitelinkCountsByQidsAsync` (ADR-0056),
+  `QueryPlayerCareerStintsByQidsAsync` (ADR-0054), and
+  `QueryPlayerCareerAndNationalityByNameAsync` (ADR-0053)) that had never
+  been migrated and still hand-rolled their own HTTP send/timeout-CTS/
+  catch-throw logic. New private generic `RunThrowingQueryAsync<T>` is a
+  second, "always throws `WikidataQueryException`" sibling to S-100/S-101's
+  `RunIntersectionQueryAsync` (which swallows to `[]` unless
+  `throwOnTimeout`) — kept as a separate method rather than one shared,
+  flag-parameterized method, since the two error contracts are genuinely
+  different per-method, not a single axis to switch on. Deliberately does
+  NOT route through `WikidataQueryTimeoutTier` (unlike the 9 intersection
+  queries) — that enum resolves a timeout from two independent axes
+  (`throwOnTimeout` + `timeoutTier`) none of these six methods have; each
+  always uses one of `WikidataClient`'s four fixed timeout fields directly
+  (`_queryTimeout` for five of the six, `_adminLookupQueryTimeout` for
+  `QueryPlayerCareerAndNationalityByNameAsync`), preserving the existing
+  decoupling between `_adminLookupQueryTimeout` and
+  `_cacheWarmingQueryTimeout` (independently-reasoned budgets that happen
+  to share a 45s value today) rather than force-fitting both into one
+  shared tier. All 6 methods are now thin wrappers; `Build*Query`/`Parse*`
+  methods and every exception message/timeout value are byte-for-byte
+  unchanged. Pure refactor, no new REQ IDs, no component boundary crossed
+  (still entirely inside `XGArcade.DataSync`) — no ADR, same reasoning as
+  S-100/S-101. Regression proof: 12 new tests in `WikidataClientTests.cs`
+  (`S118_*_SentQuery_IsByteForByteIdenticalToPreRefactorOutput` and
+  `S118_*_Timeout_Reports*Budget_NotAnotherBudget` per method), full
+  existing suite otherwise unchanged. `WikidataClient.cs` line count:
+  1,815 → 1,770 (-45 lines; the new shared driver's own doc comment
+  accounts for most of the difference between that and the larger
+  per-method savings — see the PR description for the full breakdown).
+  Not run against `dotnet test` from this sandbox (no SDK available) —
+  hand-traced against each method's pre-refactor source instead; CI must
+  confirm.
 - 2026-08-11 — architecture-document.md (v0.97), CODE_HEALTH_ASSESSMENT.md
   (new) — S-115/S-116 (`docs/backlog.md` Epic 9): added a CodeScene/SonarQube-style
   numeric (1-10) code health assessment covering every backend/frontend/infra
