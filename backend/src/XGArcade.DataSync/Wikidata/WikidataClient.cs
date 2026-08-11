@@ -897,6 +897,10 @@ public class WikidataClient(
     // why this is a different query shape from the intersection queries
     // above and why its error contract (throw, not swallow-to-empty) matches
     // QueryPlayerPhotosByQidsAsync rather than them.
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync (see that
+    // method's own comment) — a swallowed failure here would be
+    // indistinguishable from "none of these QIDs have this data."
     public async Task<IReadOnlyDictionary<string, PlayerPositionBirthYearEntry>> QueryPlayerPositionsAndBirthYearsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -910,37 +914,9 @@ public class WikidataClient(
         }
 
         var query = BuildPlayerPositionsAndBirthYearsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        // Same throw-on-failure contract as QueryPlayerPhotosByQidsAsync
-        // (see that method's own comment) — a swallowed failure here would
-        // be indistinguishable from "none of these QIDs have this data."
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParsePositionBirthYearBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata player position/birth-year batch query for {wikidataQids.Count} QID(s)",
+            ParsePositionBirthYearBindings, cancellationToken);
     }
 
     // Same "VALUES clause over the batch, no candidate-matching filter" shape
@@ -1347,6 +1323,11 @@ public class WikidataClient(
     // PlayerCareerStintRefreshService's own catch) — this client method
     // itself must not silently conflate "this player really has 0 sitelinks"
     // with "the query failed."
+    // S-118: thin wrapper over the shared RunThrowingQueryAsync driver — same
+    // throw-on-failure contract as QueryPlayerPhotosByQidsAsync/
+    // QueryPlayerPositionsAndBirthYearsByQidsAsync/QueryPlayerCareerStintsByQidsAsync
+    // (see this method's own doc comment on IWikidataClient for the full
+    // reasoning).
     public async Task<IReadOnlyDictionary<string, int>> QuerySitelinkCountsByQidsAsync(
         IReadOnlyList<string> wikidataQids, CancellationToken cancellationToken = default)
     {
@@ -1360,34 +1341,9 @@ public class WikidataClient(
         }
 
         var query = BuildSitelinkCountsByQidsQuery(wikidataQids);
-        var requestUri = $"sparql?query={Uri.EscapeDataString(query)}&format=json";
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/sparql-results+json"));
-
-        using var timeoutCts = new CancellationTokenSource(_queryTimeout);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, linkedCts.Token);
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(linkedCts.Token);
-            var parsed = await JsonSerializer.DeserializeAsync<SparqlResponse>(stream, JsonOptions, linkedCts.Token);
-
-            return ParseSitelinkCountBindings(parsed);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) timed out after {_queryTimeout.TotalSeconds:0}s.");
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException)
-        {
-            throw new WikidataQueryException(
-                $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s) failed: {ex.Message}", ex);
-        }
+        return await RunThrowingQueryAsync(
+            query, _queryTimeout, $"Wikidata sitelink-count batch query for {wikidataQids.Count} QID(s)",
+            ParseSitelinkCountBindings, cancellationToken);
     }
 
     // Same "VALUES clause over the batch, no candidate-matching filter"
