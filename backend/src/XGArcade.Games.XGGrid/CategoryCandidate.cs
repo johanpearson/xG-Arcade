@@ -25,5 +25,5 @@ namespace XGArcade.Games.XGGrid;
 // individual-award P166 query, which structurally can never match a team
 // competition. Meaningless for Country/Club candidates — always false
 // there, never read for those types.
-internal readonly record struct CategoryCandidate(
+public readonly record struct CategoryCandidate(
     string Name, string? WikidataQid, bool UsesCountryForSportProperty = false, bool IsTeamTrophy = false);
