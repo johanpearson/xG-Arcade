@@ -13,6 +13,19 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `CODEBASE_ANALYSIS.md` (root, not `docs/` — noted here for
+  traceability) — full re-scan of `main` now that Epic 7 (S-099–S-105) is
+  fully merged, including S-104. Closed out Epic 7 in the report (all 7
+  items resolved, no open security or P1 findings) and identified the next
+  batch of priorities from a fresh sweep: `PlayerStoreRepository.cs`/
+  `IPlayerStoreRepository.cs` spans ~9 unrelated sub-entity concerns in one
+  772/482-line file (new P2), and `AdminScreen.tsx`'s S-103 extraction left
+  its 9 newly split-out components with zero dedicated test files, still
+  only covered indirectly via the unsplit `AdminScreen.test.tsx` (new P2).
+  `frontend/src/lib/api.ts`'s size (carried over, unaddressed) and a few
+  large-but-low-churn files were noted as lower-priority watch items. No
+  requirements/architecture changes accompany this entry — the scan
+  re-assessed existing code, it didn't change any.
 - 2026-08-10 — no docs changed beyond this entry — S-100 (`docs/backlog.md`
   Epic 7): `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`'s three
   non-trophy intersection pairs (`QueryCountryClubIntersectionAsync`,
