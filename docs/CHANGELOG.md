@@ -13,6 +13,17 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `CODEBASE_ANALYSIS.md` (root, not `docs/` — noted here for
+  traceability since it drove Epic 7) — refreshed the 2026-08-10 analysis
+  against `main` after Epic 7 landed: confirmed S-099/S-100/S-101/S-102/
+  S-103/S-105 resolved their targets (undici fix re-verified via a fresh
+  `npm audit`; WikidataClient.cs, Program.cs, and AdminScreen.tsx hotspot
+  sizes re-verified via direct file inspection; SPARQL-injection guard
+  confirmed still centralized post-refactor), and flagged S-104
+  (GridGameModule.cs nesting) as never started — no PR exists for it, so
+  it's now the top remaining target. No requirements/architecture changes
+  accompany this entry — the refresh re-assessed existing code, it didn't
+  change any.
 - 2026-08-10 — no docs changed beyond this entry — S-100 (`docs/backlog.md`
   Epic 7): `backend/src/XGArcade.DataSync/Wikidata/WikidataClient.cs`'s three
   non-trophy intersection pairs (`QueryCountryClubIntersectionAsync`,
