@@ -465,18 +465,7 @@ public static class CliVerbDispatcher
                 "clean-stale-club-attributes requires a comma-separated club names argument (or the literal `--all-clubs`), " +
                 "e.g. `clean-stale-club-attributes \"Napoli,AS Roma\"` or `clean-stale-club-attributes --all-clubs`.");
 
-        var cleanConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var cleanConnectionString = cleanConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var cleanDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(cleanConnectionString)
-            .Options;
-
-        await using var cleanDbContext = new XGArcadeDbContext(cleanDbContextOptions);
+        await using var cleanDbContext = BuildDbContext();
 
         int removedAttributeCount;
         int removedDataCount;
@@ -539,18 +528,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"clear-pair-lookup-failures takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
 
-        var clearFailuresConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var clearFailuresConnectionString = clearFailuresConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var clearFailuresDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(clearFailuresConnectionString)
-            .Options;
-
-        await using var clearFailuresDbContext = new XGArcadeDbContext(clearFailuresDbContextOptions);
+        await using var clearFailuresDbContext = BuildDbContext();
 
         var clearedPairNames = await PairLookupFailureCleaner.ClearPersistentFailuresAsync(clearFailuresDbContext);
 
@@ -574,18 +552,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"clean-duplicate-career-stints takes no arguments, got '{string.Join(" ", args.Skip(1))}'.");
 
-        var cleanDuplicateStintsConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var cleanDuplicateStintsConnectionString = cleanDuplicateStintsConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var cleanDuplicateStintsDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(cleanDuplicateStintsConnectionString)
-            .Options;
-
-        await using var cleanDuplicateStintsDbContext = new XGArcadeDbContext(cleanDuplicateStintsDbContextOptions);
+        await using var cleanDuplicateStintsDbContext = BuildDbContext();
 
         var removedDuplicateStintCount = await DuplicateCareerStintCleaner.CleanAsync(cleanDuplicateStintsDbContext);
 
@@ -637,18 +604,7 @@ public static class CliVerbDispatcher
             throw new InvalidOperationException(
                 $"purge-player-pool requires the exact confirmation phrase as its argument: `purge-player-pool \"{requiredConfirmationPhrase}\"`.");
 
-        var purgeConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var purgeConnectionString = purgeConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var purgeDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(purgeConnectionString)
-            .Options;
-
-        await using var purgeDbContext = new XGArcadeDbContext(purgeDbContextOptions);
+        await using var purgeDbContext = BuildDbContext();
         var purgedPlayerCount = await purgeDbContext.Players.ExecuteDeleteAsync();
         // Same established exception as purge-player-pool's own Players
         // ExecuteDeleteAsync above (see this verb's own doc comment referencing
