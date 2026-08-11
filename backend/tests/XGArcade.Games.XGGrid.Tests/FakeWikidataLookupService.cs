@@ -32,7 +32,21 @@ namespace XGArcade.Games.XGGrid.Tests;
 // call's real-world latency (e.g. advancing a ManualTimeProvider) without
 // any actual waiting, so PickHeadersAsync's MaxDuration deadline-abort
 // branch can be exercised deterministically.
-public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = null, Action? onCalled = null) : IWikidataLookupService
+//
+// S-106 (pure refactor): playerRepository/playerAttributeRepository carry
+// the methods this fake's own PersistAsync needs that moved out of
+// IPlayerStoreRepository (GetPlayerByWikidataQidAsync/AddPlayerAsync,
+// AddPlayerAttributeAsync) — playerStore is kept for
+// HasEffectiveAttributeAsync, which hasn't moved. All three are still
+// optional together (defaulting to null) for tests that only care about
+// match-count branching, not persistence; a test that wants persistence
+// must supply all three, same as the real WikidataLookupService needing
+// every sibling repository together.
+public class FakeWikidataLookupService(
+    IPlayerStoreRepository? playerStore = null,
+    IPlayerRepository? playerRepository = null,
+    IPlayerAttributeRepository? playerAttributeRepository = null,
+    Action? onCalled = null) : IWikidataLookupService
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
@@ -351,18 +365,18 @@ public class FakeWikidataLookupService(IPlayerStoreRepository? playerStore = nul
     {
         var existing = player.WikidataQid is null
             ? null
-            : await playerStore!.GetPlayerByWikidataQidAsync(player.WikidataQid, cancellationToken);
-        var persisted = existing ?? await playerStore!.AddPlayerAsync(
+            : await playerRepository!.GetPlayerByWikidataQidAsync(player.WikidataQid, cancellationToken);
+        var persisted = existing ?? await playerRepository!.AddPlayerAsync(
             new Player { Id = player.Id, FullName = player.FullName, WikidataQid = player.WikidataQid, PhotoUrl = player.PhotoUrl },
             cancellationToken);
 
         if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeA, attributeValueA, cancellationToken))
-            await playerStore.AddPlayerAttributeAsync(
+            await playerAttributeRepository!.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeA, AttributeValue = attributeValueA },
                 cancellationToken);
 
         if (!await playerStore!.HasEffectiveAttributeAsync(persisted.Id, attributeTypeB, attributeValueB, cancellationToken))
-            await playerStore.AddPlayerAttributeAsync(
+            await playerAttributeRepository!.AddPlayerAttributeAsync(
                 new PlayerAttribute { PlayerId = persisted.Id, AttributeType = attributeTypeB, AttributeValue = attributeValueB },
                 cancellationToken);
     }

@@ -14,6 +14,10 @@ public class PlayerCareerPrefetchServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's new home
+    // — _playerStoreRepository above is kept for GetCareerStintsByPlayerIdsAsync/
+    // AddCareerStintsBatchAsync, which haven't moved.
+    private IPlayerRepository _playerRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
@@ -25,6 +29,7 @@ public class PlayerCareerPrefetchServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
@@ -33,7 +38,7 @@ public class PlayerCareerPrefetchServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCareerPrefetchService BuildService() =>
-        new(_categoryValueRepository, _playerStoreRepository, _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
+        new(_categoryValueRepository, _playerStoreRepository, _playerRepository, _wikidataClient, NullLogger<PlayerCareerPrefetchService>.Instance);
 
     private async Task<CountryDefinition> SeedCountryAsync(string name, string wikidataQid, bool usesCountryForSportProperty = false)
     {
@@ -63,7 +68,7 @@ public class PlayerCareerPrefetchServiceTests
         Assert.That(result.PlayersTouched, Is.EqualTo(1));
         Assert.That(result.StintsAdded, Is.EqualTo(2));
 
-        var player = await _playerStoreRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
         Assert.That(player, Is.Not.Null, "a player never seen by xG Grid before must still get a Player row");
 
         var stints = await _playerStoreRepository.GetCareerStintsAsync(player!.Id);
@@ -87,7 +92,7 @@ public class PlayerCareerPrefetchServiceTests
 
         await BuildService().PrefetchAsync();
 
-        var player = await _playerStoreRepository.GetPlayerByWikidataQidAsync("Q1519");
+        var player = await _playerRepository.GetPlayerByWikidataQidAsync("Q1519");
         var stints = await _playerStoreRepository.GetCareerStintsAsync(player!.Id);
         Assert.That(stints.Select(s => s.ClubName), Is.EquivalentTo(new[] { "Lyon" }));
     }
@@ -109,7 +114,7 @@ public class PlayerCareerPrefetchServiceTests
     public async Task PrefetchAsync_AlreadyKnownPlayer_GetsCareerCompleted_NotDuplicated()
     {
         await SeedCountryAsync("France", "Q142");
-        var existingPlayer = await _playerStoreRepository.AddPlayerAsync(
+        var existingPlayer = await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
         // Simulates a stint xG Grid's own byproduct lookup already recorded.
         await _playerStoreRepository.AddCareerStintsAsync(existingPlayer.Id,

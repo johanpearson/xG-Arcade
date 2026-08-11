@@ -20,7 +20,9 @@ public class GuessSubmissionServiceTests
     private XGArcadeDbContext _dbContext = null!;
     private IRoundRepository _roundRepository = null!;
     private IGuessRepository _guessRepository = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): GetPlayerByIdAsync moved to IPlayerRepository —
+    // GuessSubmissionService's only player-store dependency.
+    private IPlayerRepository _playerRepository = null!;
     private FakeGameModule _gameModule = null!;
 
     private static readonly DateTimeOffset Now = new(2026, 7, 10, 12, 0, 0, TimeSpan.Zero);
@@ -34,7 +36,7 @@ public class GuessSubmissionServiceTests
         _dbContext = new XGArcadeDbContext(options);
         _roundRepository = new RoundRepository(_dbContext);
         _guessRepository = new GuessRepository(_dbContext);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _gameModule = new FakeGameModule("xg-grid");
     }
 
@@ -42,7 +44,7 @@ public class GuessSubmissionServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private GuessSubmissionService BuildService() =>
-        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerStoreRepository, new FixedTimeProvider(Now));
+        new(_roundRepository, _guessRepository, new GameModuleResolver([_gameModule]), _playerRepository, new FixedTimeProvider(Now));
 
     private async Task<Guid> SeedPlayerAsync(string fullName, string? photoUrl = null)
     {

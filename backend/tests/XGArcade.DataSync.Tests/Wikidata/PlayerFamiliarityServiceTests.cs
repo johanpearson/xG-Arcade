@@ -13,7 +13,10 @@ namespace XGArcade.DataSync.Tests.Wikidata;
 public class PlayerFamiliarityServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
-    private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): GetPlayersByIdsAsync/AddPlayerAsync moved to
+    // IPlayerRepository — PlayerFamiliarityService's only player-store
+    // dependency.
+    private IPlayerRepository _playerRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
     [SetUp]
@@ -23,7 +26,7 @@ public class PlayerFamiliarityServiceTests
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         _dbContext = new XGArcadeDbContext(options);
-        _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
 
@@ -31,10 +34,10 @@ public class PlayerFamiliarityServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerFamiliarityService BuildService() =>
-        new(_wikidataClient, _playerStoreRepository, NullLogger<PlayerFamiliarityService>.Instance);
+        new(_wikidataClient, _playerRepository, NullLogger<PlayerFamiliarityService>.Instance);
 
     private async Task<Player> SeedPlayerAsync(string wikidataQid) =>
-        await _playerStoreRepository.AddPlayerAsync(
+        await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = $"Player {wikidataQid}", WikidataQid = wikidataQid });
 
     [Test]
@@ -78,7 +81,7 @@ public class PlayerFamiliarityServiceTests
     [Test]
     public async Task FilterFamiliarAsync_PlayerWithNoWikidataQid_IsExcluded_WhenOtherCandidatesCanBeChecked()
     {
-        var noQidPlayer = await _playerStoreRepository.AddPlayerAsync(
+        var noQidPlayer = await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = "No QID Player" });
         var checkable = await SeedPlayerAsync("Q1519");
         _wikidataClient.SetSitelinkCount("Q1519", PlayerFamiliarityService.MinSitelinkCount);
@@ -92,9 +95,9 @@ public class PlayerFamiliarityServiceTests
     [Test]
     public async Task FilterFamiliarAsync_NoCandidateHasAResolvableWikidataQid_FailsOpen_ReturnsWholePoolUnfiltered()
     {
-        var noQidPlayer1 = await _playerStoreRepository.AddPlayerAsync(
+        var noQidPlayer1 = await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = "No QID Player 1" });
-        var noQidPlayer2 = await _playerStoreRepository.AddPlayerAsync(
+        var noQidPlayer2 = await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = "No QID Player 2" });
 
         var result = await BuildService().FilterFamiliarAsync([noQidPlayer1.Id, noQidPlayer2.Id]);

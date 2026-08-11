@@ -5,342 +5,6 @@ namespace XGArcade.Data.Repositories;
 
 public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRepository
 {
-    public async Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
-        await dbContext.Players.AsNoTracking().FirstOrDefaultAsync(p => p.WikidataQid == wikidataQid, cancellationToken);
-
-    public async Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-        await dbContext.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
-
-    public async Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
-        IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
-    {
-        if (ids.Count == 0)
-            return new Dictionary<Guid, Player>();
-
-        return await dbContext.Players
-            .AsNoTracking()
-            .Where(p => ids.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id, cancellationToken);
-    }
-
-    public async Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default)
-    {
-        dbContext.Players.Add(player);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return player;
-    }
-
-    public async Task<IReadOnlyDictionary<string, Player>> GetOrCreatePlayersByWikidataQidAsync(
-        IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default)
-    {
-        if (requests.Count == 0)
-            return new Dictionary<string, Player>();
-
-        var qids = requests.Select(r => r.WikidataQid).ToList();
-        var existingByQid = await dbContext.Players
-            .AsNoTracking()
-            .Where(p => p.WikidataQid != null && qids.Contains(p.WikidataQid))
-            .ToDictionaryAsync(p => p.WikidataQid!, cancellationToken);
-
-        var result = new Dictionary<string, Player>(existingByQid);
-
-        foreach (var request in requests)
-        {
-            if (result.ContainsKey(request.WikidataQid))
-                continue;
-
-            var player = new Player
-            {
-                Id = Guid.NewGuid(),
-                FullName = request.FullName,
-                WikidataQid = request.WikidataQid,
-                PhotoUrl = request.PhotoUrl,
-                // REQ-1207/S-082: set only at creation, same as PhotoUrl —
-                // this method never touches an existing Player row (the
-                // `if (result.ContainsKey(...)) continue;` above skips it),
-                // so "set once, never overwritten" is already this method's
-                // behavior for free.
-                Position = request.Position,
-                BirthYear = request.BirthYear,
-            };
-            dbContext.Players.Add(player);
-            result[request.WikidataQid] = player;
-        }
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md), never
-        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return result;
-    }
-
-    public async Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
-        string normalizedFullName, CancellationToken cancellationToken = default) =>
-        await dbContext.Players
-            .AsNoTracking()
-            .Where(p => p.NormalizedFullName == normalizedFullName)
-            .ToListAsync(cancellationToken);
-
-    public async Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
-        string normalizedAlias, CancellationToken cancellationToken = default)
-    {
-        var playerIds = await dbContext.PlayerAliases
-            .AsNoTracking()
-            .Where(pa => pa.NormalizedAlias == normalizedAlias)
-            .Select(pa => pa.PlayerId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        if (playerIds.Count == 0)
-            return [];
-
-        return await dbContext.Players
-            .AsNoTracking()
-            .Where(p => playerIds.Contains(p.Id))
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
-        string firstAttributeType, string firstAttributeValue,
-        string secondAttributeType, string secondAttributeValue,
-        CancellationToken cancellationToken = default)
-    {
-        var playerIds = await dbContext.PlayerAttributes
-            .AsNoTracking()
-            .Where(pa =>
-                (pa.AttributeType == firstAttributeType && pa.AttributeValue == firstAttributeValue) ||
-                (pa.AttributeType == secondAttributeType && pa.AttributeValue == secondAttributeValue))
-            .Select(pa => pa.PlayerId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        if (playerIds.Count == 0)
-            return [];
-
-        return await dbContext.Players
-            .AsNoTracking()
-            .Where(p => playerIds.Contains(p.Id))
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
-        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
-    {
-        if (playerIds.Count == 0)
-            return new Dictionary<Guid, IReadOnlyList<PlayerAlias>>();
-
-        var idList = playerIds.ToList();
-        return await GroupByPlayerIdAsync(
-            dbContext.PlayerAliases.Where(pa => idList.Contains(pa.PlayerId)),
-            alias => alias.PlayerId,
-            cancellationToken);
-    }
-
-    public async Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default)
-    {
-        dbContext.PlayerData.Add(data);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task AddPlayerDataBatchAsync(IReadOnlyList<PlayerData> data, CancellationToken cancellationToken = default)
-    {
-        if (data.Count == 0)
-            return;
-
-        dbContext.PlayerData.AddRange(data);
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md).
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default) =>
-        await dbContext.PlayerData
-            .AsNoTracking()
-            .Where(pd => pd.Confidence == "unverified")
-            .ToListAsync(cancellationToken);
-
-    public async Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
-        IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default)
-    {
-        if (playerDataIds.Count == 0)
-            return [];
-
-        var idList = playerDataIds.ToList();
-        var rowsById = await dbContext.PlayerData
-            .Where(pd => idList.Contains(pd.Id))
-            .ToDictionaryAsync(pd => pd.Id, cancellationToken);
-
-        var approvedAt = DateTime.UtcNow;
-        var outcomes = new List<PlayerDataApprovalOutcome>(idList.Count);
-
-        foreach (var id in idList)
-        {
-            if (!rowsById.TryGetValue(id, out var row))
-            {
-                outcomes.Add(new PlayerDataApprovalOutcome(id, false, PlayerDataApprovalFailureReason.NotFound));
-                continue;
-            }
-
-            if (row.Confidence != "unverified")
-            {
-                outcomes.Add(new PlayerDataApprovalOutcome(id, false, PlayerDataApprovalFailureReason.NotUnverified));
-                continue;
-            }
-
-            row.Confidence = "verified";
-            row.ApprovedByAdminId = adminId;
-            row.ApprovedAt = approvedAt;
-            outcomes.Add(new PlayerDataApprovalOutcome(id, true, null));
-        }
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md), never
-        // ExecuteUpdateAsync (the InMemory test provider can't translate it).
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return outcomes;
-    }
-
-    public async Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
-        IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default)
-    {
-        if (playerDataIds.Count == 0)
-            return [];
-
-        var idList = playerDataIds.ToList();
-        var rowsById = await dbContext.PlayerData
-            .Where(pd => idList.Contains(pd.Id))
-            .ToDictionaryAsync(pd => pd.Id, cancellationToken);
-
-        var outcomes = new List<PlayerDataRemovalOutcome>(idList.Count);
-
-        foreach (var id in idList)
-        {
-            if (!rowsById.TryGetValue(id, out var row))
-            {
-                outcomes.Add(new PlayerDataRemovalOutcome(id, false, PlayerDataRemovalFailureReason.NotFound));
-                continue;
-            }
-
-            dbContext.PlayerData.Remove(row);
-            outcomes.Add(new PlayerDataRemovalOutcome(id, true, null));
-        }
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md), never
-        // ExecuteDeleteAsync (the InMemory test provider can't translate it).
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return outcomes;
-    }
-
-    public async Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
-        string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
-        await dbContext.PlayerAttributes
-            .AsNoTracking()
-            .Where(pa => pa.AttributeType == attributeType && pa.AttributeValue == attributeValue)
-            .ToListAsync(cancellationToken);
-
-    public async Task AddPlayerAttributeAsync(PlayerAttribute attribute, CancellationToken cancellationToken = default)
-    {
-        dbContext.PlayerAttributes.Add(attribute);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task AddPlayerAttributesBatchAsync(IReadOnlyList<PlayerAttribute> attributes, CancellationToken cancellationToken = default)
-    {
-        if (attributes.Count == 0)
-            return;
-
-        dbContext.PlayerAttributes.AddRange(attributes);
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md).
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAttribute>>> GetPlayerAttributesByPlayerIdsAsync(
-        IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default)
-    {
-        if (playerIds.Count == 0)
-            return new Dictionary<Guid, IReadOnlyList<PlayerAttribute>>();
-
-        var idList = playerIds.ToList();
-        return await GroupByPlayerIdAsync(
-            dbContext.PlayerAttributes.Where(pa => idList.Contains(pa.PlayerId)),
-            attribute => attribute.PlayerId,
-            cancellationToken);
-    }
-
-    // Shared by GetPlayerAliasesByPlayerIdsAsync/GetPlayerAttributesByPlayerIdsAsync
-    // above (quality-architect review, 2026-07-21): both were the identical
-    // "fetch rows already filtered to a set of player ids, then group into
-    // one dictionary entry per player id" shape, differing only in which
-    // entity/DbSet they queried — that boilerplate is factored out here so
-    // the two callers keep only their entity-specific query, not the
-    // AsNoTracking/GroupBy/ToDictionary ceremony duplicated a second time.
-    // The caller supplies its own already-filtered IQueryable<TEntity>
-    // (Where(x => idList.Contains(x.PlayerId))) since each source DbSet is
-    // different; this helper only owns the materialize-then-group step that
-    // was genuinely identical between them.
-    private static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<TEntity>>> GroupByPlayerIdAsync<TEntity>(
-        IQueryable<TEntity> filteredQuery,
-        Func<TEntity, Guid> playerIdSelector,
-        CancellationToken cancellationToken)
-        where TEntity : class
-    {
-        var rows = await filteredQuery.AsNoTracking().ToListAsync(cancellationToken);
-
-        return rows
-            .GroupBy(playerIdSelector)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<TEntity>)g.ToList());
-    }
-
-    public async Task<int> CountPlayersWithBothAttributesAsync(
-        string firstAttributeType, string firstAttributeValue,
-        string secondAttributeType, string secondAttributeValue,
-        CancellationToken cancellationToken = default)
-    {
-        var firstPlayerIds = dbContext.PlayerAttributes
-            .AsNoTracking()
-            .Where(pa => pa.AttributeType == firstAttributeType && pa.AttributeValue == firstAttributeValue)
-            .Select(pa => pa.PlayerId);
-
-        return await dbContext.PlayerAttributes
-            .AsNoTracking()
-            .Where(pa => pa.AttributeType == secondAttributeType && pa.AttributeValue == secondAttributeValue)
-            .Where(pa => firstPlayerIds.Contains(pa.PlayerId))
-            .Select(pa => pa.PlayerId)
-            .Distinct()
-            .CountAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
-        await dbContext.PlayerAliases
-            .AsNoTracking()
-            .Where(pa => pa.PlayerId == playerId)
-            .ToListAsync(cancellationToken);
-
-    public async Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default)
-    {
-        dbContext.PlayerAliases.Add(alias);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task AddPlayerAliasesBatchAsync(IReadOnlyList<PlayerAlias> aliases, CancellationToken cancellationToken = default)
-    {
-        if (aliases.Count == 0)
-            return;
-
-        dbContext.PlayerAliases.AddRange(aliases);
-
-        // One SaveChangesAsync call for the whole batch — load-then-
-        // SaveChangesAsync (docs/coding-guidelines.md).
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
     public async Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default) =>
         await dbContext.PlayerOverrides
             .AsNoTracking()
@@ -575,6 +239,39 @@ public class PlayerStoreRepository(XGArcadeDbContext dbContext) : IPlayerStoreRe
             dbContext.PlayerCareerStints.Where(s => idList.Contains(s.PlayerId)),
             stint => stint.PlayerId,
             cancellationToken);
+    }
+
+    // Duplicated from PlayerAliasRepository/PlayerAttributeRepository
+    // (S-106, per that story's own explicit instruction) rather than shared
+    // across repository classes — repositories shouldn't depend on each
+    // other. Only GetCareerStintsByPlayerIdsAsync above still uses this copy
+    // (GetPlayerAliasesByPlayerIdsAsync/GetPlayerAttributesByPlayerIdsAsync,
+    // the other two former callers, moved to their own repositories along
+    // with their own copy of this helper).
+    //
+    // Originally factored out (quality-architect review, 2026-07-21) because
+    // GetPlayerAliasesByPlayerIdsAsync/GetPlayerAttributesByPlayerIdsAsync/
+    // GetCareerStintsByPlayerIdsAsync were the identical "fetch rows already
+    // filtered to a set of player ids, then group into one dictionary entry
+    // per player id" shape, differing only in which entity/DbSet they
+    // queried — that boilerplate is factored out here so each caller keeps
+    // only its entity-specific query, not the AsNoTracking/GroupBy/
+    // ToDictionary ceremony duplicated a second time. The caller supplies
+    // its own already-filtered IQueryable<TEntity>
+    // (Where(x => idList.Contains(x.PlayerId))) since each source DbSet is
+    // different; this helper only owns the materialize-then-group step that
+    // was genuinely identical between them.
+    private static async Task<IReadOnlyDictionary<Guid, IReadOnlyList<TEntity>>> GroupByPlayerIdAsync<TEntity>(
+        IQueryable<TEntity> filteredQuery,
+        Func<TEntity, Guid> playerIdSelector,
+        CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        var rows = await filteredQuery.AsNoTracking().ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(playerIdSelector)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<TEntity>)g.ToList());
     }
 
     public async Task AddCareerStintsBatchAsync(

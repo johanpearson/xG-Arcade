@@ -4,7 +4,19 @@ using XGArcade.Data.Repositories;
 
 namespace XGArcade.DataSync.Wikidata;
 
-public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreRepository playerStore) : IWikidataLookupService
+// S-106 (pure refactor): playerRepository/playerAttributeRepository/
+// playerAliasRepository/playerDataRepository carry the methods split out of
+// IPlayerStoreRepository that this class needs for PersistMatchesAsync's
+// batch upsert — playerStore is kept only for
+// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync
+// (PersistCareerStintsAsync), which haven't moved (S-107 territory).
+public class WikidataLookupService(
+    IWikidataClient wikidataClient,
+    IPlayerStoreRepository playerStore,
+    IPlayerRepository playerRepository,
+    IPlayerAttributeRepository playerAttributeRepository,
+    IPlayerAliasRepository playerAliasRepository,
+    IPlayerDataRepository playerDataRepository) : IWikidataLookupService
 {
     private const string NationalityAttributeType = "nationality";
     private const string ClubAttributeType = "club";
@@ -226,23 +238,23 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // `matches` is already keyed by unique WikidataQid (WikidataClient.
         // ParseBindings groups by qid), so this request list has no
         // duplicate keys to worry about.
-        var playersByQid = await playerStore.GetOrCreatePlayersByWikidataQidAsync(
+        var playersByQid = await playerRepository.GetOrCreatePlayersByWikidataQidAsync(
             matches.Select(m => new PlayerCreationRequest(m.WikidataQid, m.FullName, m.PhotoUrl, m.Position, m.BirthYear)).ToList(),
             cancellationToken);
 
         // Fetched once for the whole batch rather than re-queried per
         // player — every match in this result set shares the same two
         // attribute type/value pairs (this cell's two category values).
-        var playerIdsWithAttributeA = (await playerStore.GetPlayerAttributesAsync(
+        var playerIdsWithAttributeA = (await playerAttributeRepository.GetPlayerAttributesAsync(
                 attributeTypeA, attributeValueA, cancellationToken))
             .Select(a => a.PlayerId)
             .ToHashSet();
-        var playerIdsWithAttributeB = (await playerStore.GetPlayerAttributesAsync(
+        var playerIdsWithAttributeB = (await playerAttributeRepository.GetPlayerAttributesAsync(
                 attributeTypeB, attributeValueB, cancellationToken))
             .Select(a => a.PlayerId)
             .ToHashSet();
 
-        var existingAliasesByPlayerId = await playerStore.GetPlayerAliasesByPlayerIdsAsync(
+        var existingAliasesByPlayerId = await playerAliasRepository.GetPlayerAliasesByPlayerIdsAsync(
             playersByQid.Values.Select(p => p.Id).ToList(), cancellationToken);
 
         var persisted = new List<Player>(matches.Count);
@@ -278,9 +290,9 @@ public class WikidataLookupService(IWikidataClient wikidataClient, IPlayerStoreR
         // Three more fixed-count repository calls (never one per player) —
         // GetOrCreatePlayersByWikidataQidAsync above already contributed the
         // batch's own SaveChangesAsync for the Player rows themselves.
-        await playerStore.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
-        await playerStore.AddPlayerAttributesBatchAsync(attributesToAdd, cancellationToken);
-        await playerStore.AddPlayerAliasesBatchAsync(aliasesToAdd, cancellationToken);
+        await playerDataRepository.AddPlayerDataBatchAsync(playerDataToAdd, cancellationToken);
+        await playerAttributeRepository.AddPlayerAttributesBatchAsync(attributesToAdd, cancellationToken);
+        await playerAliasRepository.AddPlayerAliasesBatchAsync(aliasesToAdd, cancellationToken);
 
         return persisted;
     }

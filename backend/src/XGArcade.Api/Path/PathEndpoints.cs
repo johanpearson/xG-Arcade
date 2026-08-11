@@ -48,6 +48,12 @@ public static class PathEndpoints
             IPathInstanceRepository pathInstanceRepository,
             IGuessRepository guessRepository,
             IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): GetPlayersByIdsAsync/
+            // GetPlayerAttributesByPlayerIdsAsync moved out of
+            // IPlayerStoreRepository — playerStoreRepository above is kept
+            // for GetCareerStintsByPlayerIdsAsync, which hasn't moved.
+            IPlayerRepository playerRepository,
+            IPlayerAttributeRepository playerAttributeRepository,
             IGameModuleResolver gameModuleResolver,
             IScoringStrategyResolver scoringStrategyResolver,
             TimeProvider timeProvider,
@@ -110,8 +116,8 @@ public static class PathEndpoints
             // already follows for its own player lookups.
             var targetPlayerIds = instance.Puzzles.Select(p => p.TargetPlayerId).Distinct().ToList();
             var stintsByPlayerId = await playerStoreRepository.GetCareerStintsByPlayerIdsAsync(targetPlayerIds, cancellationToken);
-            var playersById = await playerStoreRepository.GetPlayersByIdsAsync(targetPlayerIds, cancellationToken);
-            var attributesByPlayerId = await playerStoreRepository.GetPlayerAttributesByPlayerIdsAsync(targetPlayerIds, cancellationToken);
+            var playersById = await playerRepository.GetPlayersByIdsAsync(targetPlayerIds, cancellationToken);
+            var attributesByPlayerId = await playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync(targetPlayerIds, cancellationToken);
 
             // ADR-0041: a plain foreach, not a LINQ .Select(...) —
             // GetMaxAttemptsForCellAsync must be awaited per puzzle, same

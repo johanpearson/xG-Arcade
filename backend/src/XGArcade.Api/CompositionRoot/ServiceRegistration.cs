@@ -30,9 +30,20 @@ public static class ServiceRegistration
             options.UseNpgsql(databaseConnectionString));
 
         // COMP-06 (Data.PlayerStore) — the only path to category/player data;
-        // see architecture-document.md boundary rule 1.
+        // see architecture-document.md boundary rule 1. S-106 (pure refactor,
+        // docs/backlog.md Epic 8) split IPlayerStoreRepository's original 43
+        // methods into 5 narrower repositories along their entity concern
+        // (Player/PlayerData/PlayerAttribute/PlayerAlias, plus the still-
+        // undivided IPlayerStoreRepository for Override/backfill/CareerStint/
+        // data-quality-tracking, pending S-107) — all five are still
+        // COMP-06/Data.PlayerStore, and together are the only path to this
+        // data; see each interface's own doc comment for its specific slice.
         builder.Services.AddScoped<ICategoryValueRepository, CategoryValueRepository>();
         builder.Services.AddScoped<IPlayerStoreRepository, PlayerStoreRepository>();
+        builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
+        builder.Services.AddScoped<IPlayerDataRepository, PlayerDataRepository>();
+        builder.Services.AddScoped<IPlayerAttributeRepository, PlayerAttributeRepository>();
+        builder.Services.AddScoped<IPlayerAliasRepository, PlayerAliasRepository>();
 
         // COMP-10 (Data.PlayerNameIndex) — REQ-207's autocomplete-only data source,
         // deliberately a separate repository/interface from IPlayerStoreRepository

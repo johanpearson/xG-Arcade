@@ -25,9 +25,14 @@ namespace XGArcade.DataSync.Wikidata;
 // is a small, hand-seeded (~15 rows, MVP-SCOPE.md) reference table, so
 // re-reading it once per refresh call is not a perf concern the way
 // PlayerCareerStint's ~608K rows are.
+// S-106 (pure refactor): playerRepository carries GetPlayersByIdsAsync,
+// split out of IPlayerStoreRepository — playerStore is kept for
+// GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync, which haven't
+// moved (S-107 territory).
 public class PlayerCareerStintRefreshService(
     IWikidataClient wikidataClient,
     IPlayerStoreRepository playerStore,
+    IPlayerRepository playerRepository,
     ICategoryValueRepository categoryValueRepository,
     ILogger<PlayerCareerStintRefreshService> logger) : IPlayerCareerStintRefreshService
 {
@@ -36,7 +41,7 @@ public class PlayerCareerStintRefreshService(
         if (playerIds.Count == 0)
             return;
 
-        var players = await playerStore.GetPlayersByIdsAsync(playerIds, cancellationToken);
+        var players = await playerRepository.GetPlayersByIdsAsync(playerIds, cancellationToken);
 
         // REQ-109's "an unresolved QID isn't an error" reasoning, applied
         // here: a Player row created before REQ-214/WikidataQid existed, or

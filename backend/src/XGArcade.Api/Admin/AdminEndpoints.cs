@@ -23,13 +23,16 @@ public static class AdminEndpoints
         // S-026 gave it a real UI caller. Same bulk-lookup shape
         // RoundEndpoints.cs already uses for the identical reason.
         app.MapGet("/admin/player-data/unverified", async (
-            IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): both calls this endpoint makes moved
+            // out of IPlayerStoreRepository.
+            IPlayerDataRepository playerDataRepository,
+            IPlayerRepository playerRepository,
             CancellationToken cancellationToken) =>
         {
-            var unverified = await playerStoreRepository.GetUnverifiedPlayerDataAsync(cancellationToken);
+            var unverified = await playerDataRepository.GetUnverifiedPlayerDataAsync(cancellationToken);
 
             var playerIds = unverified.Select(data => data.PlayerId).Distinct().ToList();
-            var playersById = await playerStoreRepository.GetPlayersByIdsAsync(playerIds, cancellationToken);
+            var playersById = await playerRepository.GetPlayersByIdsAsync(playerIds, cancellationToken);
 
             var responses = unverified
                 .Select(data => new UnverifiedPlayerDataResponse(
@@ -55,7 +58,9 @@ public static class AdminEndpoints
         app.MapPost("/admin/player-data/approve", async (
             ApprovePlayerDataRequest request,
             ClaimsPrincipal principal,
-            IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): ApprovePlayerDataAsync moved to
+            // IPlayerDataRepository.
+            IPlayerDataRepository playerDataRepository,
             CancellationToken cancellationToken) =>
         {
             if (request.PlayerDataIds is null || request.PlayerDataIds.Count == 0)
@@ -68,7 +73,7 @@ public static class AdminEndpoints
 
             // Policy above already required a valid "sub" claim to reach here.
             var adminId = principal.GetAuthProviderUserId()!.Value;
-            var outcomes = await playerStoreRepository.ApprovePlayerDataAsync(request.PlayerDataIds, adminId, cancellationToken);
+            var outcomes = await playerDataRepository.ApprovePlayerDataAsync(request.PlayerDataIds, adminId, cancellationToken);
 
             var results = outcomes
                 .Select(o => new PlayerDataApprovalResult(o.PlayerDataId, o.Approved, o.FailureReason?.ToString()))
@@ -97,7 +102,9 @@ public static class AdminEndpoints
         app.MapPost("/admin/player-data/remove", async (
             RemovePlayerDataRequest request,
             ClaimsPrincipal principal,
-            IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): RemovePlayerDataAsync moved to
+            // IPlayerDataRepository.
+            IPlayerDataRepository playerDataRepository,
             ILogger<AdminEndpointsLogCategory> logger,
             CancellationToken cancellationToken) =>
         {
@@ -111,7 +118,7 @@ public static class AdminEndpoints
 
             // Policy above already required a valid "sub" claim to reach here.
             var adminId = principal.GetAuthProviderUserId()!.Value;
-            var outcomes = await playerStoreRepository.RemovePlayerDataAsync(request.PlayerDataIds, cancellationToken);
+            var outcomes = await playerDataRepository.RemovePlayerDataAsync(request.PlayerDataIds, cancellationToken);
 
             var removedAt = DateTime.UtcNow;
             foreach (var outcome in outcomes)
@@ -139,6 +146,10 @@ public static class AdminEndpoints
             CreatePlayerOverrideRequest request,
             ClaimsPrincipal principal,
             IPlayerStoreRepository playerStoreRepository,
+            // S-106 (pure refactor): GetPlayerByIdAsync moved to
+            // IPlayerRepository — playerStoreRepository above is kept for
+            // GetOverrideAsync/AddOverrideAsync, which haven't moved.
+            IPlayerRepository playerRepository,
             CancellationToken cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(request.Field) || string.IsNullOrWhiteSpace(request.Value) || string.IsNullOrWhiteSpace(request.Reason))
@@ -149,7 +160,7 @@ public static class AdminEndpoints
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
-            var player = await playerStoreRepository.GetPlayerByIdAsync(request.PlayerId, cancellationToken);
+            var player = await playerRepository.GetPlayerByIdAsync(request.PlayerId, cancellationToken);
             if (player is null)
                 return Results.NotFound();
 

@@ -16,6 +16,13 @@ public class ClubGapAuditServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): AddPlayerAsync moved to IPlayerRepository —
+    // used only for this file's own seed helper; BuildService's
+    // RunAsync target, GetUnseededClubCandidatesAsync, hasn't moved
+    // (S-107 territory), so _playerStoreRepository stays the service's
+    // own dependency (also still used here for AddCareerStintsAsync,
+    // which hasn't moved either).
+    private IPlayerRepository _playerRepository = null!;
     private CapturingLogger<ClubGapAuditService> _logger = null!;
 
     [SetUp]
@@ -26,6 +33,7 @@ public class ClubGapAuditServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _logger = new CapturingLogger<ClubGapAuditService>();
     }
 
@@ -38,7 +46,7 @@ public class ClubGapAuditServiceTests
     public async Task RunAsync_UnseededClubExists_LogsClubNameAndPlayerCount()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Someone", WikidataQid = "Q1" };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         await _playerStoreRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Napoli", StartYear = 2010, EndYear = 2015 }]);
 
@@ -62,7 +70,7 @@ public class ClubGapAuditServiceTests
         await _dbContext.SaveChangesAsync();
 
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _playerStoreRepository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         await _playerStoreRepository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
 

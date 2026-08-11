@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.93"
+version: "0.94"
 status: draft
-last_updated: 2026-08-10
+last_updated: 2026-08-11
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -27,6 +27,22 @@ References: `requirements-document.md`, `architecture-document.md`
 > game hosted on it — see `requirements-document.md` §0. The root
 > solution/repo is named after the xG Arcade; xG Grid lives in its own
 > `XGArcade.Games.XGGrid` project, not the root namespace.
+
+> **Repository-split note (2026-08-11, S-106, ADR-0067):** any
+> `IPlayerStoreRepository.<Method>` reference below dated before 2026-08-11
+> may refer to a method that has since moved to one of four new sibling
+> repositories — `IPlayerRepository` (core `Player` CRUD), `IPlayerDataRepository`
+> (`PlayerData`), `IPlayerAttributeRepository` (`PlayerAttribute`, plus
+> `GetPlayersWithEitherAttributeAsync`/`CountPlayersWithBothAttributesAsync`),
+> `IPlayerAliasRepository` (`PlayerAlias`, plus `GetPlayersByNormalizedAliasAsync`).
+> `IPlayerStoreRepository` itself still exists, now scoped to
+> `PlayerOverride`, the photo/position/birth-year backfill cursors,
+> `PlayerCareerStint`, and `ConfirmedLowMatchPair`/`PairLookupFailure` — see
+> ADR-0067 for the full method-to-interface mapping. Historical dated
+> entries below were not individually rewritten to the new interface names
+> (this was a pure refactor, no behavior change) — treat the interface name
+> in an entry older than 2026-08-11 as historical, and check ADR-0067 if the
+> exact current owner matters.
 
 > **For AI agents:** this document defines HOW the system in
 > `architecture-document.md` is concretely built (languages, frameworks, data

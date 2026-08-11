@@ -14,6 +14,10 @@ public class PlayerCareerStintRefreshServiceTests
 {
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): AddPlayerAsync's new home — _playerStoreRepository
+    // above is kept for GetCareerStintsByPlayerIdsAsync/AddCareerStintsBatchAsync/
+    // GetCareerStintCandidatePlayerIdsAsync, which haven't moved.
+    private IPlayerRepository _playerRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private FakeWikidataClient _wikidataClient = null!;
 
@@ -25,6 +29,7 @@ public class PlayerCareerStintRefreshServiceTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _wikidataClient = new FakeWikidataClient();
     }
@@ -33,10 +38,10 @@ public class PlayerCareerStintRefreshServiceTests
     public void TearDown() => _dbContext.Dispose();
 
     private PlayerCareerStintRefreshService BuildService() =>
-        new(_wikidataClient, _playerStoreRepository, _categoryValueRepository, NullLogger<PlayerCareerStintRefreshService>.Instance);
+        new(_wikidataClient, _playerStoreRepository, _playerRepository, _categoryValueRepository, NullLogger<PlayerCareerStintRefreshService>.Instance);
 
     private async Task<Player> SeedPlayerAsync(string wikidataQid) =>
-        await _playerStoreRepository.AddPlayerAsync(
+        await _playerRepository.AddPlayerAsync(
             new Player { Id = Guid.NewGuid(), FullName = $"Player {wikidataQid}", WikidataQid = wikidataQid });
 
     private async Task<ClubDefinition> SeedClubAsync(string name, string wikidataQid)
@@ -94,7 +99,7 @@ public class PlayerCareerStintRefreshServiceTests
     [Test]
     public async Task RefreshCareerStintsAsync_PlayerWithNoWikidataQid_IsNeverQueried()
     {
-        var player = await _playerStoreRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "No QID Player" });
+        var player = await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = "No QID Player" });
 
         await BuildService().RefreshCareerStintsAsync([player.Id]);
 

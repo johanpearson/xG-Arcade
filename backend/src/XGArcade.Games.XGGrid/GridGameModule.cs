@@ -30,6 +30,14 @@ public class GridGameModule(
     IGridInstanceRepository gridInstanceRepository,
     ICategoryValueRepository categoryValueRepository,
     IPlayerStoreRepository playerStoreRepository,
+    // S-106 (pure refactor): the three sibling repositories carrying the
+    // methods split out of IPlayerStoreRepository that this module still
+    // needs — playerStoreRepository above is kept only for
+    // HasEffectiveAttributeAsync/IsPersistentTechnicalFailureAsync, which
+    // haven't moved (S-107 territory).
+    IPlayerRepository playerRepository,
+    IPlayerAliasRepository playerAliasRepository,
+    IPlayerAttributeRepository playerAttributeRepository,
     IWikidataLookupService wikidataLookupService,
     IPlayerNameIndexRepository playerNameIndexRepository,
     GridGenerationOptions options,
@@ -347,8 +355,8 @@ public class GridGameModule(
         // here over PlayerNameIndex.PrimaryName when both are available —
         // it's the same canonical-name source REQ-214's correct-guess reveal
         // already trusts.
-        var cached = (await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken)).FirstOrDefault()
-            ?? (await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken)).FirstOrDefault();
+        var cached = (await playerRepository.GetPlayersByNormalizedFullNameAsync(normalized, cancellationToken)).FirstOrDefault()
+            ?? (await playerAliasRepository.GetPlayersByNormalizedAliasAsync(normalized, cancellationToken)).FirstOrDefault();
         if (cached is not null)
             return new WrongGuessPlayerInfo(cached.FullName, cached.PhotoUrl);
 
@@ -412,7 +420,7 @@ public class GridGameModule(
     private async Task<ScoreResult> FindMatchAsync(
         GridCell cell, string normalizedName, Guid? chosenPlayerId, Guid instanceId, CancellationToken cancellationToken)
     {
-        var exactCandidates = await playerStoreRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
+        var exactCandidates = await playerRepository.GetPlayersByNormalizedFullNameAsync(normalizedName, cancellationToken);
         var matching = await FilterByCategoriesAsync(cell, exactCandidates, cancellationToken);
 
         if (matching.Count == 0)
@@ -421,7 +429,7 @@ public class GridGameModule(
             // an exact NormalizedAlias equality check, same normalization as
             // the primary-name path (PlayerNameNormalizer.Normalize applied
             // at persist time, WikidataLookupService.PersistMatchesAsync).
-            var aliasCandidates = await playerStoreRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
+            var aliasCandidates = await playerAliasRepository.GetPlayersByNormalizedAliasAsync(normalizedName, cancellationToken);
             matching = await FilterByCategoriesAsync(cell, aliasCandidates, cancellationToken);
         }
 
@@ -515,7 +523,7 @@ public class GridGameModule(
         var rowAttributeType = MapAttributeType(cell.RowCategoryType);
         var colAttributeType = MapAttributeType(cell.ColCategoryType);
 
-        var attributesByPlayerId = await playerStoreRepository.GetPlayerAttributesByPlayerIdsAsync(
+        var attributesByPlayerId = await playerAttributeRepository.GetPlayerAttributesByPlayerIdsAsync(
             matching.Select(p => p.Id).ToList(), cancellationToken);
 
         var candidates = new List<DisambiguationCandidate>(matching.Count);
@@ -559,7 +567,7 @@ public class GridGameModule(
     private async Task<IReadOnlyList<Player>> FindFuzzyCandidatesAsync(
         GridCell cell, string normalizedName, CancellationToken cancellationToken)
     {
-        var pool = await playerStoreRepository.GetPlayersWithEitherAttributeAsync(
+        var pool = await playerAttributeRepository.GetPlayersWithEitherAttributeAsync(
             MapAttributeType(cell.RowCategoryType), cell.RowCategoryValue,
             MapAttributeType(cell.ColCategoryType), cell.ColCategoryValue,
             cancellationToken);
@@ -567,7 +575,7 @@ public class GridGameModule(
         if (pool.Count == 0)
             return [];
 
-        var aliasesByPlayerId = await playerStoreRepository.GetPlayerAliasesByPlayerIdsAsync(
+        var aliasesByPlayerId = await playerAliasRepository.GetPlayerAliasesByPlayerIdsAsync(
             pool.Select(p => p.Id).ToList(), cancellationToken);
 
         var maxDistance = MaxEditDistance(normalizedName.Length);
@@ -882,7 +890,7 @@ public class GridGameModule(
         string colCategoryType, CategoryCandidate col,
         CancellationToken cancellationToken)
     {
-        var cachedCount = await playerStoreRepository.CountPlayersWithBothAttributesAsync(
+        var cachedCount = await playerAttributeRepository.CountPlayersWithBothAttributesAsync(
             MapAttributeType(rowCategoryType), row.Name, MapAttributeType(colCategoryType), col.Name, cancellationToken);
         if (cachedCount > 0)
             return cachedCount;

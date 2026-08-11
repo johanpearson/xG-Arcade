@@ -16,11 +16,14 @@ namespace XGArcade.Core.Scoring;
 // (REQ-207/208/209/211) is entirely the owning game module's responsibility
 // (GridGameModule.ScoreSubmissionAsync for xg-grid) — Core never inspects a
 // candidate player or a cell's categories directly.
+// S-106 (pure refactor): IPlayerStoreRepository's own GetPlayerByIdAsync
+// moved to IPlayerRepository — this class's only player-store call, so it
+// takes the narrower interface directly rather than IPlayerStoreRepository.
 public class GuessSubmissionService(
     IRoundRepository roundRepository,
     IGuessRepository guessRepository,
     IGameModuleResolver gameModuleResolver,
-    IPlayerStoreRepository playerStoreRepository,
+    IPlayerRepository playerRepository,
     TimeProvider timeProvider) : IGuessSubmissionService
 {
     public async Task<GuessSubmissionResult> SubmitGuessAsync(
@@ -149,7 +152,7 @@ public class GuessSubmissionService(
         // the same lookup — never a second query, and null exactly when
         // Wikidata had no P18 for this player (no error either way).
         var resolvedPlayer = scoreResult.IsCorrect
-            ? await playerStoreRepository.GetPlayerByIdAsync(scoreResult.PlayerAnswerId!.Value, cancellationToken)
+            ? await playerRepository.GetPlayerByIdAsync(scoreResult.PlayerAnswerId!.Value, cancellationToken)
             : null;
 
         return GuessSubmissionResult.Accepted(

@@ -8,11 +8,27 @@ namespace XGArcade.Data.Tests;
 // behavior (it's foundational plumbing other stories build on — S-006
 // writes PlayerData, S-012 writes PlayerOverride), so named descriptively
 // rather than REQ-prefixed, same pattern as HealthEndpointTests.
+//
+// S-106 (docs/backlog.md, Epic 8, pure refactor): this file originally
+// covered every IPlayerStoreRepository method — 22 of them (the Player/
+// PlayerData/PlayerAttribute/PlayerAlias concerns) moved to
+// PlayerRepositoryTests.cs/PlayerDataRepositoryTests.cs/
+// PlayerAttributeRepositoryTests.cs/PlayerAliasRepositoryTests.cs alongside
+// the repository split itself. What remains here is S-107's own scope
+// (Override/photo/position/birth-year backfill/CareerStint/data-quality-
+// tracking) — do not add new IPlayerStoreRepository coverage for a concern
+// that already moved; add it to the sibling file instead.
+// _playerRepository/_playerAttributeRepository below are only used to seed
+// fixtures those moved methods create — AddPlayerAsync/AddPlayerAttributeAsync/
+// GetPlayerByIdAsync themselves are covered directly in
+// PlayerRepositoryTests.cs/PlayerAttributeRepositoryTests.cs.
 public class PlayerStoreRepositoryTests
 {
     // Always assigned in SetUp before any test body runs — null! is safe here.
     private XGArcadeDbContext _dbContext = null!;
     private IPlayerStoreRepository _repository = null!;
+    private IPlayerRepository _playerRepository = null!;
+    private IPlayerAttributeRepository _playerAttributeRepository = null!;
 
     [SetUp]
     public void SetUp()
@@ -22,6 +38,8 @@ public class PlayerStoreRepositoryTests
             .Options;
         _dbContext = new XGArcadeDbContext(options);
         _repository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
+        _playerAttributeRepository = new PlayerAttributeRepository(_dbContext);
     }
 
     [TearDown]
@@ -31,44 +49,10 @@ public class PlayerStoreRepositoryTests
     }
 
     [Test]
-    public async Task GetPlayerByWikidataQidAsync_ReturnsMatchingPlayer()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        var found = await _repository.GetPlayerByWikidataQidAsync("Q1519");
-
-        Assert.That(found, Is.Not.Null);
-        Assert.That(found!.FullName, Is.EqualTo("Thierry Henry"));
-    }
-
-    [Test]
-    public async Task GetPlayerByWikidataQidAsync_ReturnsNull_WhenNoPlayerMatches()
-    {
-        var found = await _repository.GetPlayerByWikidataQidAsync("Q999999");
-
-        Assert.That(found, Is.Null);
-    }
-
-    [Test]
-    public async Task AddPlayerAttributeAsync_ThenGetPlayerAttributesAsync_ReturnsOnlyMatchingTypeAndValue()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" });
-
-        var clubAttributes = await _repository.GetPlayerAttributesAsync("club", "Arsenal");
-
-        Assert.That(clubAttributes, Has.Count.EqualTo(1));
-        Assert.That(clubAttributes[0].PlayerId, Is.EqualTo(player.Id));
-    }
-
-    [Test]
     public async Task AddOverrideAsync_ThenGetOverrideAsync_ReturnsIt()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         await _repository.AddOverrideAsync(new PlayerOverride
         {
             Id = Guid.NewGuid(),
@@ -90,168 +74,11 @@ public class PlayerStoreRepositoryTests
     public async Task GetOverrideAsync_ReturnsNull_WhenNoOverrideExistsForField()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         var found = await _repository.GetOverrideAsync(player.Id, "club");
 
         Assert.That(found, Is.Null);
-    }
-
-    [Test]
-    public async Task AddPlayerAliasAsync_ThenGetPlayerAliasesAsync_ReturnsOnlyThatPlayersAliases()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "Kaka", WikidataQid = "Q123" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAsync(otherPlayer);
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Titi", NormalizedAlias = "titi" });
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = otherPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
-
-        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
-
-        Assert.That(aliases, Has.Count.EqualTo(1));
-        Assert.That(aliases[0].Alias, Is.EqualTo("Titi"));
-    }
-
-    [Test]
-    public async Task GetPlayerAliasesAsync_ReturnsEmpty_WhenPlayerHasNoAliases()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
-
-        Assert.That(aliases, Is.Empty);
-    }
-
-    // ---- REQ-208: guess-time alias/fuzzy matching's supporting repository
-    // methods (GridGameModule.FindMatchAsync/FindFuzzyCandidatesAsync) -------
-
-    [Test]
-    public async Task GetPlayersByNormalizedAliasAsync_ReturnsPlayer_WhenNormalizedAliasMatches()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Q123" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
-
-        var found = await _repository.GetPlayersByNormalizedAliasAsync("kaka");
-
-        Assert.That(found, Has.Count.EqualTo(1));
-        Assert.That(found[0].Id, Is.EqualTo(player.Id));
-    }
-
-    [Test]
-    public async Task GetPlayersByNormalizedAliasAsync_ReturnsEmpty_WhenNoAliasMatches()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Titi", NormalizedAlias = "titi" });
-
-        var found = await _repository.GetPlayersByNormalizedAliasAsync("kaka");
-
-        Assert.That(found, Is.Empty);
-    }
-
-    [Test]
-    public async Task GetPlayersWithEitherAttributeAsync_ReturnsPlayersSatisfyingEitherAttribute_DistinctAndNoOthers()
-    {
-        var satisfiesFirst = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
-        var satisfiesSecond = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
-        var satisfiesBoth = new Player { Id = Guid.NewGuid(), FullName = "Player C", WikidataQid = "QC" };
-        var satisfiesNeither = new Player { Id = Guid.NewGuid(), FullName = "Player D", WikidataQid = "QD" };
-        foreach (var p in new[] { satisfiesFirst, satisfiesSecond, satisfiesBoth, satisfiesNeither })
-            await _repository.AddPlayerAsync(p);
-
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesFirst.Id, AttributeType = "nationality", AttributeValue = "France" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesSecond.Id, AttributeType = "club", AttributeValue = "Arsenal" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesBoth.Id, AttributeType = "nationality", AttributeValue = "France" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesBoth.Id, AttributeType = "club", AttributeValue = "Arsenal" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = satisfiesNeither.Id, AttributeType = "nationality", AttributeValue = "England" });
-
-        var found = await _repository.GetPlayersWithEitherAttributeAsync("nationality", "France", "club", "Arsenal");
-
-        Assert.That(found.Select(p => p.Id), Is.EquivalentTo(new[] { satisfiesFirst.Id, satisfiesSecond.Id, satisfiesBoth.Id }));
-    }
-
-    [Test]
-    public async Task GetPlayersWithEitherAttributeAsync_ReturnsEmpty_WhenNoPlayerSatisfiesEither()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "England" });
-
-        var found = await _repository.GetPlayersWithEitherAttributeAsync("nationality", "France", "club", "Arsenal");
-
-        Assert.That(found, Is.Empty);
-    }
-
-    [Test]
-    public async Task GetPlayerAliasesByPlayerIdsAsync_ReturnsOnlyRequestedPlayersAliases_GroupedByPlayerId()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Q123" };
-        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        var uninvolvedPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q999" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAsync(otherPlayer);
-        await _repository.AddPlayerAsync(uninvolvedPlayer);
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = otherPlayer.Id, Alias = "Titi", NormalizedAlias = "titi" });
-        await _repository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = uninvolvedPlayer.Id, Alias = "Nope", NormalizedAlias = "nope" });
-
-        var aliasesByPlayerId = await _repository.GetPlayerAliasesByPlayerIdsAsync([player.Id, otherPlayer.Id]);
-
-        Assert.That(aliasesByPlayerId.Keys, Is.EquivalentTo(new[] { player.Id, otherPlayer.Id }));
-        Assert.That(aliasesByPlayerId[player.Id].Single().NormalizedAlias, Is.EqualTo("kaka"));
-        Assert.That(aliasesByPlayerId[otherPlayer.Id].Single().NormalizedAlias, Is.EqualTo("titi"));
-    }
-
-    [Test]
-    public async Task GetPlayerAliasesByPlayerIdsAsync_EmptyIdList_ReturnsEmptyDictionary()
-    {
-        var aliasesByPlayerId = await _repository.GetPlayerAliasesByPlayerIdsAsync([]);
-
-        Assert.That(aliasesByPlayerId, Is.Empty);
-    }
-
-    // ---- REQ-209: disambiguation-prompt candidate building -----------------
-
-    [Test]
-    public async Task GetPlayerAttributesByPlayerIdsAsync_ReturnsOnlyRequestedPlayersAttributes_GroupedByPlayerId()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q1" };
-        var otherPlayer = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q2" };
-        var uninvolvedPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q3" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAsync(otherPlayer);
-        await _repository.AddPlayerAsync(uninvolvedPlayer);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Monaco" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = otherPlayer.Id, AttributeType = "club", AttributeValue = "Lyon" });
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = uninvolvedPlayer.Id, AttributeType = "club", AttributeValue = "Nope" });
-
-        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id, otherPlayer.Id]);
-
-        Assert.That(attributesByPlayerId.Keys, Is.EquivalentTo(new[] { player.Id, otherPlayer.Id }));
-        Assert.That(attributesByPlayerId[player.Id].Single().AttributeValue, Is.EqualTo("Monaco"));
-        Assert.That(attributesByPlayerId[otherPlayer.Id].Single().AttributeValue, Is.EqualTo("Lyon"));
-    }
-
-    [Test]
-    public async Task GetPlayerAttributesByPlayerIdsAsync_PlayerWithNoAttributes_IsAbsentFromResult()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "John Smith", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(player);
-
-        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id]);
-
-        Assert.That(attributesByPlayerId.Keys, Is.Empty);
-    }
-
-    [Test]
-    public async Task GetPlayerAttributesByPlayerIdsAsync_EmptyIdList_ReturnsEmptyDictionary()
-    {
-        var attributesByPlayerId = await _repository.GetPlayerAttributesByPlayerIdsAsync([]);
-
-        Assert.That(attributesByPlayerId, Is.Empty);
     }
 
     // ---- REQ-203: an override always takes precedence over synced/unverified
@@ -261,8 +88,8 @@ public class PlayerStoreRepositoryTests
     public async Task REQ203_HasEffectiveAttributeAsync_ReturnsTrue_WhenPlayerAttributeMatches_AndNoOverrideExists()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
 
         var hasIt = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Arsenal");
 
@@ -273,8 +100,8 @@ public class PlayerStoreRepositoryTests
     public async Task REQ203_HasEffectiveAttributeAsync_ReturnsFalse_WhenNoOverrideOrAttributeMatches()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
 
         var hasIt = await _repository.HasEffectiveAttributeAsync(player.Id, "club", "Barcelona");
 
@@ -288,8 +115,8 @@ public class PlayerStoreRepositoryTests
         // admin override for the same field says "Barcelona" — the override
         // must always win, per REQ-203/REQ-501.
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
+        await _playerRepository.AddPlayerAsync(player);
+        await _playerAttributeRepository.AddPlayerAttributeAsync(new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" });
         await _repository.AddOverrideAsync(new PlayerOverride
         {
             Id = Guid.NewGuid(),
@@ -308,77 +135,14 @@ public class PlayerStoreRepositoryTests
         Assert.That(matchesOverrideValue, Is.True);
     }
 
-    [Test]
-    public async Task AddPlayerDataAsync_PersistsRawSourceData()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        await _repository.AddPlayerDataAsync(new PlayerData
-        {
-            Id = Guid.NewGuid(),
-            PlayerId = player.Id,
-            Field = "club",
-            Value = "Arsenal",
-            Source = "wikidata",
-            Confidence = "unverified",
-            SyncedAt = DateTime.UtcNow,
-        });
-
-        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.PlayerId == player.Id);
-        Assert.That(stored.Value, Is.EqualTo("Arsenal"));
-    }
-
-    // ---- S-012: admin data correction (GetPlayerByIdAsync, unverified
-    // PlayerData listing, PlayerOverride CRUD's read/update/delete) --------
-
-    [Test]
-    public async Task GetPlayerByIdAsync_ReturnsMatchingPlayer()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        var found = await _repository.GetPlayerByIdAsync(player.Id);
-
-        Assert.That(found, Is.Not.Null);
-        Assert.That(found!.FullName, Is.EqualTo("Thierry Henry"));
-    }
-
-    [Test]
-    public async Task GetPlayerByIdAsync_ReturnsNull_WhenNoPlayerMatches()
-    {
-        var found = await _repository.GetPlayerByIdAsync(Guid.NewGuid());
-
-        Assert.That(found, Is.Null);
-    }
-
-    [Test]
-    public async Task GetUnverifiedPlayerDataAsync_ReturnsOnlyUnverifiedRows()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        await _repository.AddPlayerDataAsync(new PlayerData
-        {
-            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
-            Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
-        });
-        await _repository.AddPlayerDataAsync(new PlayerData
-        {
-            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "nationality", Value = "France",
-            Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow,
-        });
-
-        var unverified = await _repository.GetUnverifiedPlayerDataAsync();
-
-        Assert.That(unverified, Has.Count.EqualTo(1));
-        Assert.That(unverified[0].Field, Is.EqualTo("club"));
-    }
+    // ---- S-012: admin data correction (unverified PlayerData listing,
+    // PlayerOverride CRUD's read/update/delete) ------------------------------
 
     [Test]
     public async Task GetOverrideByIdAsync_ReturnsMatchingOverride()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         var playerOverride = new PlayerOverride
         {
             Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
@@ -404,7 +168,7 @@ public class PlayerStoreRepositoryTests
     public async Task UpdateOverrideAsync_PersistsChangedValue()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         var playerOverride = new PlayerOverride
         {
             Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
@@ -425,7 +189,7 @@ public class PlayerStoreRepositoryTests
     public async Task DeleteOverrideAsync_RemovesRow_AndReturnsTrue()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         var playerOverride = new PlayerOverride
         {
             Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
@@ -456,9 +220,9 @@ public class PlayerStoreRepositoryTests
         var missingPhoto = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         var alreadyHasPhoto = new Player { Id = Guid.NewGuid(), FullName = "Didier Drogba", WikidataQid = "Q42233", PhotoUrl = "https://example.com/drogba.jpg" };
         var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
-        await _repository.AddPlayerAsync(missingPhoto);
-        await _repository.AddPlayerAsync(alreadyHasPhoto);
-        await _repository.AddPlayerAsync(noQid);
+        await _playerRepository.AddPlayerAsync(missingPhoto);
+        await _playerRepository.AddPlayerAsync(alreadyHasPhoto);
+        await _playerRepository.AddPlayerAsync(noQid);
 
         var result = await _repository.GetPlayersMissingPhotoAsync([], batchSize: 200);
 
@@ -469,7 +233,7 @@ public class PlayerStoreRepositoryTests
     public async Task REQ214_GetPlayersMissingPhotoAsync_RespectsBatchSize()
     {
         for (var i = 0; i < 5; i++)
-            await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+            await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
 
         var result = await _repository.GetPlayersMissingPhotoAsync([], batchSize: 3);
 
@@ -481,8 +245,8 @@ public class PlayerStoreRepositoryTests
     {
         var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
         var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
-        await _repository.AddPlayerAsync(first);
-        await _repository.AddPlayerAsync(second);
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
 
         var result = await _repository.GetPlayersMissingPhotoAsync([first.Id], batchSize: 200);
 
@@ -502,8 +266,8 @@ public class PlayerStoreRepositoryTests
     {
         var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
         var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
-        await _repository.AddPlayerAsync(first);
-        await _repository.AddPlayerAsync(second);
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
 
         await _repository.UpdatePlayerPhotosAsync(new Dictionary<Guid, string>
         {
@@ -511,19 +275,19 @@ public class PlayerStoreRepositoryTests
             [second.Id] = "https://example.com/b.jpg",
         });
 
-        Assert.That((await _repository.GetPlayerByIdAsync(first.Id))!.PhotoUrl, Is.EqualTo("https://example.com/a.jpg"));
-        Assert.That((await _repository.GetPlayerByIdAsync(second.Id))!.PhotoUrl, Is.EqualTo("https://example.com/b.jpg"));
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(first.Id))!.PhotoUrl, Is.EqualTo("https://example.com/a.jpg"));
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(second.Id))!.PhotoUrl, Is.EqualTo("https://example.com/b.jpg"));
     }
 
     [Test]
     public async Task REQ214_UpdatePlayerPhotosAsync_EmptyDictionary_DoesNothing()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.UpdatePlayerPhotosAsync(new Dictionary<Guid, string>());
 
-        Assert.That((await _repository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null);
+        Assert.That((await _playerRepository.GetPlayerByIdAsync(player.Id))!.PhotoUrl, Is.Null);
     }
 
     [Test]
@@ -552,11 +316,11 @@ public class PlayerStoreRepositoryTests
         var missingBirthYearOnly = new Player { Id = Guid.NewGuid(), FullName = "Kaká", WikidataQid = "Q11571", Position = "midfielder" };
         var hasBoth = new Player { Id = Guid.NewGuid(), FullName = "Pelé", WikidataQid = "Q80956", Position = "forward", BirthYear = 1940 };
         var noQid = new Player { Id = Guid.NewGuid(), FullName = "No QID Player" };
-        await _repository.AddPlayerAsync(missingBoth);
-        await _repository.AddPlayerAsync(missingPositionOnly);
-        await _repository.AddPlayerAsync(missingBirthYearOnly);
-        await _repository.AddPlayerAsync(hasBoth);
-        await _repository.AddPlayerAsync(noQid);
+        await _playerRepository.AddPlayerAsync(missingBoth);
+        await _playerRepository.AddPlayerAsync(missingPositionOnly);
+        await _playerRepository.AddPlayerAsync(missingBirthYearOnly);
+        await _playerRepository.AddPlayerAsync(hasBoth);
+        await _playerRepository.AddPlayerAsync(noQid);
 
         var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 200);
 
@@ -587,8 +351,8 @@ public class PlayerStoreRepositoryTests
             Position = "midfielder",
             BirthYear = 1978,
         };
-        await _repository.AddPlayerAsync(rawUriPosition);
-        await _repository.AddPlayerAsync(resolvedPosition);
+        await _playerRepository.AddPlayerAsync(rawUriPosition);
+        await _playerRepository.AddPlayerAsync(resolvedPosition);
 
         var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 200);
 
@@ -599,7 +363,7 @@ public class PlayerStoreRepositoryTests
     public async Task REQ1207_GetPlayersMissingPositionOrBirthYearAsync_RespectsBatchSize()
     {
         for (var i = 0; i < 5; i++)
-            await _repository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
+            await _playerRepository.AddPlayerAsync(new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" });
 
         var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([], batchSize: 3);
 
@@ -611,8 +375,8 @@ public class PlayerStoreRepositoryTests
     {
         var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
         var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
-        await _repository.AddPlayerAsync(first);
-        await _repository.AddPlayerAsync(second);
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
 
         var result = await _repository.GetPlayersMissingPositionOrBirthYearAsync([first.Id], batchSize: 200);
 
@@ -632,8 +396,8 @@ public class PlayerStoreRepositoryTests
     {
         var first = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA" };
         var second = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QB" };
-        await _repository.AddPlayerAsync(first);
-        await _repository.AddPlayerAsync(second);
+        await _playerRepository.AddPlayerAsync(first);
+        await _playerRepository.AddPlayerAsync(second);
 
         await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
         {
@@ -641,10 +405,10 @@ public class PlayerStoreRepositoryTests
             [second.Id] = new PlayerPositionBirthYearUpdate("goalkeeper", 1985),
         });
 
-        var reloadedFirst = await _repository.GetPlayerByIdAsync(first.Id);
+        var reloadedFirst = await _playerRepository.GetPlayerByIdAsync(first.Id);
         Assert.That(reloadedFirst!.Position, Is.EqualTo("forward"));
         Assert.That(reloadedFirst.BirthYear, Is.EqualTo(1990));
-        var reloadedSecond = await _repository.GetPlayerByIdAsync(second.Id);
+        var reloadedSecond = await _playerRepository.GetPlayerByIdAsync(second.Id);
         Assert.That(reloadedSecond!.Position, Is.EqualTo("goalkeeper"));
         Assert.That(reloadedSecond.BirthYear, Is.EqualTo(1985));
     }
@@ -653,7 +417,7 @@ public class PlayerStoreRepositoryTests
     public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_NullFieldOnUpdate_LeavesThatFieldUntouched()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA", BirthYear = 1990 };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         // Position resolved this run, BirthYear didn't (null means "no
         // update," never "clear the existing value") — the already-set
@@ -663,7 +427,7 @@ public class PlayerStoreRepositoryTests
             [player.Id] = new PlayerPositionBirthYearUpdate("forward", null),
         });
 
-        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("forward"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
     }
@@ -672,14 +436,14 @@ public class PlayerStoreRepositoryTests
     public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_AlreadySetField_IsNeverOverwritten()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QA", Position = "defender" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
         {
             [player.Id] = new PlayerPositionBirthYearUpdate("forward", 1990),
         });
 
-        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("defender"), "REQ-1207's set-once contract must hold for this backfill too");
         Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
     }
@@ -698,14 +462,14 @@ public class PlayerStoreRepositoryTests
             WikidataQid = "Q8025128",
             Position = "http://www.wikidata.org/entity/Q8025128",
         };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>
         {
             [player.Id] = new PlayerPositionBirthYearUpdate("midfielder", 1990),
         });
 
-        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.EqualTo("midfielder"));
         Assert.That(reloaded.BirthYear, Is.EqualTo(1990));
     }
@@ -714,11 +478,11 @@ public class PlayerStoreRepositoryTests
     public async Task REQ1207_UpdatePlayerPositionsAndBirthYearsAsync_EmptyDictionary_DoesNothing()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.UpdatePlayerPositionsAndBirthYearsAsync(new Dictionary<Guid, PlayerPositionBirthYearUpdate>());
 
-        var reloaded = await _repository.GetPlayerByIdAsync(player.Id);
+        var reloaded = await _playerRepository.GetPlayerByIdAsync(player.Id);
         Assert.That(reloaded!.Position, Is.Null);
         Assert.That(reloaded.BirthYear, Is.Null);
     }
@@ -736,116 +500,13 @@ public class PlayerStoreRepositoryTests
         }));
     }
 
-    // ---- REQ-503 (2026-07-20 extension): ApprovePlayerDataAsync -----------
-
-    private async Task<Guid> SeedUnverifiedPlayerDataAsync(Guid playerId, string field = "club", string value = "Arsenal")
-    {
-        var data = new PlayerData
-        {
-            Id = Guid.NewGuid(), PlayerId = playerId, Field = field, Value = value,
-            Source = "wikidata", Confidence = "unverified", SyncedAt = DateTime.UtcNow,
-        };
-        await _repository.AddPlayerDataAsync(data);
-        return data.Id;
-    }
-
-    [Test]
-    public async Task REQ503_ApprovePlayerDataAsync_SingleRow_FlipsConfidenceToVerified_AndLogsAdminIdAndTimestamp()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        var dataId = await SeedUnverifiedPlayerDataAsync(player.Id);
-        var adminId = Guid.NewGuid();
-
-        var outcomes = await _repository.ApprovePlayerDataAsync([dataId], adminId);
-
-        Assert.That(outcomes, Has.Count.EqualTo(1));
-        Assert.That(outcomes[0].PlayerDataId, Is.EqualTo(dataId));
-        Assert.That(outcomes[0].Approved, Is.True);
-        Assert.That(outcomes[0].FailureReason, Is.Null);
-
-        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == dataId);
-        Assert.That(stored.Confidence, Is.EqualTo("verified"));
-        Assert.That(stored.ApprovedByAdminId, Is.EqualTo(adminId));
-        Assert.That(stored.ApprovedAt, Is.Not.Null);
-    }
-
-    [Test]
-    public async Task REQ503_ApprovePlayerDataAsync_Bulk_ApprovesEveryRow_EachWithItsOwnAdminIdAndTimestamp()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        var firstId = await SeedUnverifiedPlayerDataAsync(player.Id, "club", "Arsenal");
-        var secondId = await SeedUnverifiedPlayerDataAsync(player.Id, "nationality", "France");
-        var adminId = Guid.NewGuid();
-
-        var outcomes = await _repository.ApprovePlayerDataAsync([firstId, secondId], adminId);
-
-        Assert.That(outcomes, Has.Count.EqualTo(2));
-        Assert.That(outcomes, Has.All.Matches<PlayerDataApprovalOutcome>(o => o.Approved));
-
-        var rows = await _dbContext.PlayerData.Where(pd => pd.Id == firstId || pd.Id == secondId).ToListAsync();
-        Assert.That(rows, Has.Count.EqualTo(2));
-        Assert.That(rows, Has.All.Matches<PlayerData>(pd => pd.Confidence == "verified" && pd.ApprovedByAdminId == adminId && pd.ApprovedAt != null));
-    }
-
-    [Test]
-    public async Task REQ503_ApprovePlayerDataAsync_UnknownId_ReportsNotFound_WithoutAffectingOtherRows()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        var realId = await SeedUnverifiedPlayerDataAsync(player.Id);
-        var missingId = Guid.NewGuid();
-
-        var outcomes = await _repository.ApprovePlayerDataAsync([realId, missingId], Guid.NewGuid());
-
-        var realOutcome = outcomes.Single(o => o.PlayerDataId == realId);
-        var missingOutcome = outcomes.Single(o => o.PlayerDataId == missingId);
-        Assert.That(realOutcome.Approved, Is.True, "a deleted/unknown row in the same batch must not block the rest from succeeding");
-        Assert.That(missingOutcome.Approved, Is.False);
-        Assert.That(missingOutcome.FailureReason, Is.EqualTo(PlayerDataApprovalFailureReason.NotFound));
-
-        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == realId);
-        Assert.That(stored.Confidence, Is.EqualTo("verified"));
-    }
-
-    [Test]
-    public async Task REQ503_ApprovePlayerDataAsync_RowAlreadyVerified_ReportsNotUnverified_AndLeavesItUnchanged()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-        var data = new PlayerData
-        {
-            Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal",
-            Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow,
-        };
-        await _repository.AddPlayerDataAsync(data);
-
-        var outcomes = await _repository.ApprovePlayerDataAsync([data.Id], Guid.NewGuid());
-
-        Assert.That(outcomes[0].Approved, Is.False, "a row already changed away from 'unverified' between selection and submission must fail, not silently re-approve");
-        Assert.That(outcomes[0].FailureReason, Is.EqualTo(PlayerDataApprovalFailureReason.NotUnverified));
-
-        var stored = await _dbContext.PlayerData.SingleAsync(pd => pd.Id == data.Id);
-        Assert.That(stored.ApprovedByAdminId, Is.Null);
-        Assert.That(stored.ApprovedAt, Is.Null);
-    }
-
-    [Test]
-    public async Task REQ503_ApprovePlayerDataAsync_EmptyIdCollection_ReturnsEmptyOutcomes()
-    {
-        var outcomes = await _repository.ApprovePlayerDataAsync([], Guid.NewGuid());
-
-        Assert.That(outcomes, Is.Empty);
-    }
-
     // ---- ADR-0042/S-079: PlayerCareerStint (GetCareerStintsAsync/AddCareerStintsAsync) ----
 
     [Test]
     public async Task AddCareerStintsAsync_ThenGetCareerStintsAsync_ReturnsAddedStints()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.AddCareerStintsAsync(player.Id, [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007, AppearanceCount = 254 },
@@ -862,7 +523,7 @@ public class PlayerStoreRepositoryTests
     public async Task AddCareerStintsAsync_ResequencesExistingStints_WhenNewStintIsChronologicallyEarlier()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         await _repository.AddCareerStintsAsync(player.Id, [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Barcelona", StartYear = 2010, EndYear = 2015 },
         ]);
@@ -885,7 +546,7 @@ public class PlayerStoreRepositoryTests
     public async Task AddCareerStintsAsync_OngoingStint_SortsLastAmongStintsSharingTheSameStartYear()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         await _repository.AddCareerStintsAsync(player.Id, [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "Loan Club", StartYear = 2020, EndYear = 2021 },
@@ -908,199 +569,22 @@ public class PlayerStoreRepositoryTests
     public async Task GetCareerStintsAsync_ReturnsEmpty_WhenPlayerHasNoStints()
     {
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
 
         var stints = await _repository.GetCareerStintsAsync(player.Id);
 
         Assert.That(stints, Is.Empty);
     }
 
-    // ---- Bug-bundle fix (2026-07-27): batched player-persist methods -------
-    // (WikidataLookupService.PersistMatchesAsync/PersistCareerStintsAsync's
-    // new O(1)-round-trips shape.)
-
-    [Test]
-    public async Task GetOrCreatePlayersByWikidataQidAsync_UnknownQids_CreatesOnePlayerPerRequest()
-    {
-        var requests = new List<PlayerCreationRequest>
-        {
-            new("Q1519", "Thierry Henry", null),
-            new("Q182804", "Nicolas Anelka", "https://example.com/anelka.jpg"),
-        };
-
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(requests);
-
-        Assert.That(result, Has.Count.EqualTo(2));
-        Assert.That(result["Q1519"].FullName, Is.EqualTo("Thierry Henry"));
-        Assert.That(result["Q1519"].PhotoUrl, Is.Null);
-        Assert.That(result["Q182804"].FullName, Is.EqualTo("Nicolas Anelka"));
-        Assert.That(result["Q182804"].PhotoUrl, Is.EqualTo("https://example.com/anelka.jpg"));
-        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
-    }
-
-    [Test]
-    public async Task GetOrCreatePlayersByWikidataQidAsync_ExistingQid_ReusesExistingPlayer_NeverInserts()
-    {
-        var existing = await _repository.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
-
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
-
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(1));
-    }
-
-    [Test]
-    public async Task GetOrCreatePlayersByWikidataQidAsync_MixOfExistingAndNewQids_HandlesBothInOneCall()
-    {
-        var existing = await _repository.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
-
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([
-            new PlayerCreationRequest("Q1519", "Thierry Henry", null),
-            new PlayerCreationRequest("Q182804", "Nicolas Anelka", null),
-        ]);
-
-        Assert.That(result, Has.Count.EqualTo(2));
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(await _dbContext.Players.CountAsync(), Is.EqualTo(2));
-    }
-
-    [Test]
-    public async Task GetOrCreatePlayersByWikidataQidAsync_EmptyRequestList_ReturnsEmptyDictionary_DoesNotThrow()
-    {
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync([]);
-
-        Assert.That(result, Is.Empty);
-    }
-
-    // ---- REQ-1207/S-082: Position/BirthYear, set once at Player creation --
-
-    [Test]
-    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_UnknownQid_SetsPositionAndBirthYearFromTheRequest()
-    {
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
-            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
-
-        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"));
-        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
-    }
-
-    [Test]
-    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_UnknownQid_NoPositionOrBirthYearGiven_BothAreNull()
-    {
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
-            [new PlayerCreationRequest("Q1519", "Thierry Henry", null)]);
-
-        Assert.That(result["Q1519"].Position, Is.Null);
-        Assert.That(result["Q1519"].BirthYear, Is.Null);
-    }
-
-    [Test]
-    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_ExistingQid_LeavesItsPositionAndBirthYearCompletelyUntouched_EvenWhenTheNewRequestDisagrees()
-    {
-        // Set-once contract, direct at the repository level (this method
-        // never touches an existing Player row at all — see its own
-        // "if (result.ContainsKey(...)) continue;" comment) — a second call
-        // for the same QID carrying different Position/BirthYear values must
-        // have zero effect on the already-persisted row.
-        var existing = await _repository.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519", Position = "forward", BirthYear = 1977 });
-
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
-            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "midfielder", 1980)]);
-
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(result["Q1519"].Position, Is.EqualTo("forward"), "the new request's 'midfielder' must never overwrite the existing row");
-        Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977), "the new request's 1980 must never overwrite the existing row");
-    }
-
-    [Test]
-    public async Task REQ1207_GetOrCreatePlayersByWikidataQidAsync_ExistingQidWithNullPositionAndBirthYear_LaterRequestWithRealValues_LeavesThemNull()
-    {
-        // The set-once rule applies regardless of whether the existing row's
-        // CURRENT value is null or already set (REQ-1207's own text) — not
-        // just the "overwriting a real value" case above.
-        var existing = await _repository.AddPlayerAsync(
-            new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" });
-
-        var result = await _repository.GetOrCreatePlayersByWikidataQidAsync(
-            [new PlayerCreationRequest("Q1519", "Thierry Henry", null, "forward", 1977)]);
-
-        Assert.That(result["Q1519"].Id, Is.EqualTo(existing.Id));
-        Assert.That(result["Q1519"].Position, Is.Null, "a null already on the existing row is never backfilled by a later request");
-        Assert.That(result["Q1519"].BirthYear, Is.Null, "a null already on the existing row is never backfilled by a later request");
-    }
-
-    [Test]
-    public async Task AddPlayerDataBatchAsync_PersistsEveryRow_InOneCall()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        await _repository.AddPlayerDataBatchAsync([
-            new PlayerData { Id = Guid.NewGuid(), PlayerId = player.Id, Field = "nationality", Value = "France", Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow },
-            new PlayerData { Id = Guid.NewGuid(), PlayerId = player.Id, Field = "club", Value = "Arsenal", Source = "wikidata", Confidence = "verified", SyncedAt = DateTime.UtcNow },
-        ]);
-
-        Assert.That(await _dbContext.PlayerData.CountAsync(d => d.PlayerId == player.Id), Is.EqualTo(2));
-    }
-
-    [Test]
-    public void AddPlayerDataBatchAsync_EmptyList_DoesNotThrow()
-    {
-        Assert.DoesNotThrowAsync(() => _repository.AddPlayerDataBatchAsync([]));
-    }
-
-    [Test]
-    public async Task AddPlayerAttributesBatchAsync_PersistsEveryRow_InOneCall()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
-
-        await _repository.AddPlayerAttributesBatchAsync([
-            new PlayerAttribute { PlayerId = player.Id, AttributeType = "nationality", AttributeValue = "France" },
-            new PlayerAttribute { PlayerId = player.Id, AttributeType = "club", AttributeValue = "Arsenal" },
-        ]);
-
-        var attributes = await _repository.GetPlayerAttributesByPlayerIdsAsync([player.Id]);
-        Assert.That(attributes[player.Id], Has.Count.EqualTo(2));
-    }
-
-    [Test]
-    public void AddPlayerAttributesBatchAsync_EmptyList_DoesNotThrow()
-    {
-        Assert.DoesNotThrowAsync(() => _repository.AddPlayerAttributesBatchAsync([]));
-    }
-
-    [Test]
-    public async Task AddPlayerAliasesBatchAsync_PersistsEveryRow_InOneCall()
-    {
-        var player = new Player { Id = Guid.NewGuid(), FullName = "Ricardo Izecson dos Santos Leite", WikidataQid = "Qkaka" };
-        await _repository.AddPlayerAsync(player);
-
-        await _repository.AddPlayerAliasesBatchAsync([
-            new PlayerAlias { PlayerId = player.Id, Alias = "Kaka", NormalizedAlias = "kaka" },
-        ]);
-
-        var aliases = await _repository.GetPlayerAliasesAsync(player.Id);
-        Assert.That(aliases, Has.Count.EqualTo(1));
-        Assert.That(aliases[0].Alias, Is.EqualTo("Kaka"));
-    }
-
-    [Test]
-    public void AddPlayerAliasesBatchAsync_EmptyList_DoesNotThrow()
-    {
-        Assert.DoesNotThrowAsync(() => _repository.AddPlayerAliasesBatchAsync([]));
-    }
+    // ---- Bug-bundle fix (2026-07-27): batched career-stint methods ---------
 
     [Test]
     public async Task GetCareerStintsByPlayerIdsAsync_ReturnsOnlyRequestedPlayersStints_GroupedByPlayerId()
     {
         var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
         var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
-        await _repository.AddPlayerAsync(playerA);
-        await _repository.AddPlayerAsync(playerB);
+        await _playerRepository.AddPlayerAsync(playerA);
+        await _playerRepository.AddPlayerAsync(playerB);
         await _repository.AddCareerStintsAsync(playerA.Id, [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 },
         ]);
@@ -1129,8 +613,8 @@ public class PlayerStoreRepositoryTests
     {
         var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
         var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
-        await _repository.AddPlayerAsync(playerA);
-        await _repository.AddPlayerAsync(playerB);
+        await _playerRepository.AddPlayerAsync(playerA);
+        await _playerRepository.AddPlayerAsync(playerB);
 
         await _repository.AddCareerStintsBatchAsync(new Dictionary<Guid, IReadOnlyList<PlayerCareerStint>>
         {
@@ -1155,8 +639,8 @@ public class PlayerStoreRepositoryTests
         // another player's own SequenceOrder.
         var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "QplayerA" };
         var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "QplayerB" };
-        await _repository.AddPlayerAsync(playerA);
-        await _repository.AddPlayerAsync(playerB);
+        await _playerRepository.AddPlayerAsync(playerA);
+        await _playerRepository.AddPlayerAsync(playerB);
         await _repository.AddCareerStintsAsync(playerA.Id, [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = playerA.Id, ClubName = "Barcelona", StartYear = 2010, EndYear = 2015 },
         ]);
@@ -1206,8 +690,8 @@ public class PlayerStoreRepositoryTests
 
         var seededClubPlayer = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
         var unseededClubPlayer = new Player { Id = Guid.NewGuid(), FullName = "Someone Else", WikidataQid = "Q999" };
-        await _repository.AddPlayerAsync(seededClubPlayer);
-        await _repository.AddPlayerAsync(unseededClubPlayer);
+        await _playerRepository.AddPlayerAsync(seededClubPlayer);
+        await _playerRepository.AddPlayerAsync(unseededClubPlayer);
         await _repository.AddCareerStintsAsync(seededClubPlayer.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = seededClubPlayer.Id, ClubName = "Arsenal", StartYear = 1999, EndYear = 2007 }]);
         await _repository.AddCareerStintsAsync(unseededClubPlayer.Id,
@@ -1223,7 +707,7 @@ public class PlayerStoreRepositoryTests
     public async Task GetUnseededClubCandidatesAsync_CountsDistinctPlayers_NotStints()
     {
         var playerWithTwoStints = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(playerWithTwoStints);
+        await _playerRepository.AddPlayerAsync(playerWithTwoStints);
         // Two separate stints at the same unseeded club (e.g. a loan then a
         // later permanent return) — must still count as ONE distinct player.
         await _repository.AddCareerStintsAsync(playerWithTwoStints.Id,
@@ -1245,9 +729,9 @@ public class PlayerStoreRepositoryTests
         var playerA = new Player { Id = Guid.NewGuid(), FullName = "Player A", WikidataQid = "Q1" };
         var playerB = new Player { Id = Guid.NewGuid(), FullName = "Player B", WikidataQid = "Q2" };
         var playerC = new Player { Id = Guid.NewGuid(), FullName = "Player C", WikidataQid = "Q3" };
-        await _repository.AddPlayerAsync(playerA);
-        await _repository.AddPlayerAsync(playerB);
-        await _repository.AddPlayerAsync(playerC);
+        await _playerRepository.AddPlayerAsync(playerA);
+        await _playerRepository.AddPlayerAsync(playerB);
+        await _playerRepository.AddPlayerAsync(playerC);
 
         // "Popular Unseeded Club": 2 distinct players. "Rare Unseeded Club": 1.
         await _repository.AddCareerStintsAsync(playerA.Id,
@@ -1270,7 +754,7 @@ public class PlayerStoreRepositoryTests
         for (var i = 0; i < 5; i++)
         {
             var player = new Player { Id = Guid.NewGuid(), FullName = $"Player {i}", WikidataQid = $"Q{i}" };
-            await _repository.AddPlayerAsync(player);
+            await _playerRepository.AddPlayerAsync(player);
             await _repository.AddCareerStintsAsync(player.Id,
                 [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = $"Unseeded Club {i}", StartYear = 2000, EndYear = 2005 }]);
         }
@@ -1291,7 +775,7 @@ public class PlayerStoreRepositoryTests
         await _dbContext.SaveChangesAsync();
 
         var player = new Player { Id = Guid.NewGuid(), FullName = "Thierry Henry", WikidataQid = "Q1519" };
-        await _repository.AddPlayerAsync(player);
+        await _playerRepository.AddPlayerAsync(player);
         await _repository.AddCareerStintsAsync(player.Id,
             [new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = player.Id, ClubName = "ARSENAL", StartYear = 1999, EndYear = 2007 }]);
 
@@ -1320,7 +804,7 @@ public class PlayerStoreRepositoryTests
     {
         var seededClubNames = new HashSet<string> { "Seeded FC" };
         var tooFew = new Player { Id = Guid.NewGuid(), FullName = "Too Few", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(tooFew);
+        await _playerRepository.AddPlayerAsync(tooFew);
         await _repository.AddCareerStintsAsync(tooFew.Id,
         [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = tooFew.Id, ClubName = "Seeded FC", StartYear = 2010, EndYear = 2013 },
@@ -1337,7 +821,7 @@ public class PlayerStoreRepositoryTests
     {
         var seededClubNames = new HashSet<string> { "Seeded FC" };
         var noSeededClub = new Player { Id = Guid.NewGuid(), FullName = "No Seeded Club", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(noSeededClub);
+        await _playerRepository.AddPlayerAsync(noSeededClub);
         await _repository.AddCareerStintsAsync(noSeededClub.Id,
         [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = noSeededClub.Id, ClubName = "Unseeded A", StartYear = 2010, EndYear = 2013 },
@@ -1355,7 +839,7 @@ public class PlayerStoreRepositoryTests
     {
         var seededClubNames = new HashSet<string> { "Seeded FC" };
         var eligible = new Player { Id = Guid.NewGuid(), FullName = "Eligible", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(eligible);
+        await _playerRepository.AddPlayerAsync(eligible);
         await _repository.AddCareerStintsAsync(eligible.Id,
         [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = eligible.Id, ClubName = "Seeded FC", StartYear = 2010, EndYear = 2013 },
@@ -1377,7 +861,7 @@ public class PlayerStoreRepositoryTests
         // a club differing only in case from a seeded name must NOT count.
         var seededClubNames = new HashSet<string> { "Seeded FC" };
         var caseMismatch = new Player { Id = Guid.NewGuid(), FullName = "Case Mismatch", WikidataQid = "Q1" };
-        await _repository.AddPlayerAsync(caseMismatch);
+        await _playerRepository.AddPlayerAsync(caseMismatch);
         await _repository.AddCareerStintsAsync(caseMismatch.Id,
         [
             new PlayerCareerStint { Id = Guid.NewGuid(), PlayerId = caseMismatch.Id, ClubName = "SEEDED FC", StartYear = 2010, EndYear = 2013 },

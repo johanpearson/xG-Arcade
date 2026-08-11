@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `docs/architecture-document.md` + `docs/requirements-document.md`
+  + `docs/implementation-document.md` + `docs/decisions/0067-player-store-repository-split.md`
+  — implemented S-106 (`docs/backlog.md` Epic 8): split
+  `IPlayerStoreRepository`'s Player/PlayerData/PlayerAttribute/PlayerAlias
+  concerns (22 of its original 43 methods) into four new, independently-
+  registered repositories (`IPlayerRepository`, `IPlayerDataRepository`,
+  `IPlayerAttributeRepository`, `IPlayerAliasRepository`), rewiring every
+  call site (`GridGameModule`, `XGPathGameModule`, `WikidataLookupService`,
+  `PlayerCacheWarmingService`, `PlayerFamiliarityService`,
+  `PlayerCareerPrefetchService`, `PlayerCareerStintRefreshService`,
+  `GuessSubmissionService`, and the admin/round/path API endpoints) to
+  depend only on the narrower interface(s) each actually calls, with no
+  facade. Pure refactor — no behavior change, no new REQ IDs; existing
+  `PlayerStoreRepositoryTests.cs` coverage for the four moved concerns
+  moved/renamed into four new test files rather than being rewritten.
+  `IPlayerStoreRepository`/`PlayerStoreRepository` remain, scoped to the
+  five concerns S-107 (independent, not yet landed) will split out next —
+  see ADR-0067 for the full decision record.
 - 2026-08-11 — `CODEBASE_ANALYSIS.md` (root) + `docs/backlog.md` (new
   Epic 8: S-106 through S-113) — extended the codebase analysis from a
   top-5 to a top-10 list now that Epic 7's items and security are settled

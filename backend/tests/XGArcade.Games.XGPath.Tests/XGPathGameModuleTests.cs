@@ -37,6 +37,13 @@ public class XGPathGameModuleTests
     private XGArcadeDbContext _dbContext = null!;
     private IPathInstanceRepository _pathInstanceRepository = null!;
     private IPlayerStoreRepository _playerStoreRepository = null!;
+    // S-106 (pure refactor): the two sibling repositories carrying the
+    // methods XGPathGameModule needs that moved out of IPlayerStoreRepository
+    // — _playerStoreRepository above is kept for
+    // GetCareerStintCandidatePlayerIdsAsync/GetCareerStintsByPlayerIdsAsync,
+    // which haven't moved.
+    private IPlayerRepository _playerRepository = null!;
+    private IPlayerAliasRepository _playerAliasRepository = null!;
     private ICategoryValueRepository _categoryValueRepository = null!;
     private XGPathGameModule _module = null!;
 
@@ -49,6 +56,8 @@ public class XGPathGameModuleTests
         _dbContext = new XGArcadeDbContext(options);
         _pathInstanceRepository = new PathInstanceRepository(_dbContext);
         _playerStoreRepository = new PlayerStoreRepository(_dbContext);
+        _playerRepository = new PlayerRepository(_dbContext);
+        _playerAliasRepository = new PlayerAliasRepository(_dbContext);
         _categoryValueRepository = new CategoryValueRepository(_dbContext);
         _module = BuildModule();
     }
@@ -88,7 +97,7 @@ public class XGPathGameModuleTests
     {
         _careerStintRefreshService = new FakePlayerCareerStintRefreshService();
         _playerFamiliarityService = new FakePlayerFamiliarityService();
-        return new(_pathInstanceRepository, _playerStoreRepository, _categoryValueRepository,
+        return new(_pathInstanceRepository, _playerStoreRepository, _playerRepository, _playerAliasRepository, _categoryValueRepository,
             _careerStintRefreshService, _playerFamiliarityService, random ?? new SequentialRandom(), timeProvider);
     }
 
@@ -835,7 +844,7 @@ public class XGPathGameModuleTests
         // candidate (IPlayerStoreRepository.GetPlayersByNormalizedAliasAsync's
         // own doc comment).
         var target = SeedPlayer("Edson Arantes do Nascimento");
-        await _playerStoreRepository.AddPlayerAliasAsync(new PlayerAlias
+        await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias
         {
             PlayerId = target.Id,
             Alias = "Pele",
