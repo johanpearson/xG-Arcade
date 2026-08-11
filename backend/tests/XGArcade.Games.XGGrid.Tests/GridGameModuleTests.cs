@@ -1553,41 +1553,27 @@ public class GridGameModuleTests
 
     // ---- REQ-208: name normalization and matching --------------------------
 
-    // Thin call-counting wrapper around the real, InMemory-backed
-    // IPlayerStoreRepository (never a hand-rolled reimplementation of its
-    // behavior — every method just delegates) used only to verify REQ-208's
-    // "exact match first, then alias, then fuzzy — fuzzy only runs when the
-    // first two produced nothing" ordering: the alias/fuzzy repository
-    // calls must never happen once an earlier stage already resolved a fit.
-    private sealed class CallCountingPlayerStoreRepository(IPlayerStoreRepository inner) : IPlayerStoreRepository
+    // Thin call-counting wrappers around the real, InMemory-backed
+    // IPlayerAliasRepository/IPlayerAttributeRepository (never a hand-rolled
+    // reimplementation of their behavior — every method just delegates)
+    // used only to verify REQ-208's "exact match first, then alias, then
+    // fuzzy — fuzzy only runs when the first two produced nothing" ordering:
+    // the alias/fuzzy repository calls must never happen once an earlier
+    // stage already resolved a fit. Split in two (S-106 test-wiring fix)
+    // because GridGameModule now takes these as separate constructor
+    // dependencies rather than one wide IPlayerStoreRepository.
+    private sealed class CallCountingPlayerAliasRepository(IPlayerAliasRepository inner) : IPlayerAliasRepository
     {
         public int GetPlayersByNormalizedAliasAsyncCallCount { get; private set; }
-        public int GetPlayersWithEitherAttributeAsyncCallCount { get; private set; }
 
-        public Task<Player?> GetPlayerByWikidataQidAsync(string wikidataQid, CancellationToken cancellationToken = default) =>
-            inner.GetPlayerByWikidataQidAsync(wikidataQid, cancellationToken);
+        public Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
+            inner.GetPlayerAliasesAsync(playerId, cancellationToken);
 
-        public Task<Player?> GetPlayerByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-            inner.GetPlayerByIdAsync(id, cancellationToken);
+        public Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAliasAsync(alias, cancellationToken);
 
-        public Task<IReadOnlyDictionary<Guid, Player>> GetPlayersByIdsAsync(
-            IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default) =>
-            inner.GetPlayersByIdsAsync(ids, cancellationToken);
-
-        public Task<Player> AddPlayerAsync(Player player, CancellationToken cancellationToken = default) =>
-            inner.AddPlayerAsync(player, cancellationToken);
-
-        // Bug-bundle fix (2026-07-27): xG Grid's correctness path never
-        // calls this batch API (only WikidataLookupService does) — delegated
-        // here only so this thin wrapper keeps compiling against the
-        // interface, same as the career-stint methods below.
-        public Task<IReadOnlyDictionary<string, Player>> GetOrCreatePlayersByWikidataQidAsync(
-            IReadOnlyList<PlayerCreationRequest> requests, CancellationToken cancellationToken = default) =>
-            inner.GetOrCreatePlayersByWikidataQidAsync(requests, cancellationToken);
-
-        public Task<IReadOnlyList<Player>> GetPlayersByNormalizedFullNameAsync(
-            string normalizedFullName, CancellationToken cancellationToken = default) =>
-            inner.GetPlayersByNormalizedFullNameAsync(normalizedFullName, cancellationToken);
+        public Task AddPlayerAliasesBatchAsync(IReadOnlyList<PlayerAlias> aliases, CancellationToken cancellationToken = default) =>
+            inner.AddPlayerAliasesBatchAsync(aliases, cancellationToken);
 
         public Task<IReadOnlyList<Player>> GetPlayersByNormalizedAliasAsync(
             string normalizedAlias, CancellationToken cancellationToken = default)
@@ -1596,36 +1582,14 @@ public class GridGameModuleTests
             return inner.GetPlayersByNormalizedAliasAsync(normalizedAlias, cancellationToken);
         }
 
-        public Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
-            string firstAttributeType, string firstAttributeValue,
-            string secondAttributeType, string secondAttributeValue,
-            CancellationToken cancellationToken = default)
-        {
-            GetPlayersWithEitherAttributeAsyncCallCount++;
-            return inner.GetPlayersWithEitherAttributeAsync(
-                firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
-        }
-
         public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerAlias>>> GetPlayerAliasesByPlayerIdsAsync(
             IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
             inner.GetPlayerAliasesByPlayerIdsAsync(playerIds, cancellationToken);
+    }
 
-        public Task AddPlayerDataAsync(PlayerData data, CancellationToken cancellationToken = default) =>
-            inner.AddPlayerDataAsync(data, cancellationToken);
-
-        public Task AddPlayerDataBatchAsync(IReadOnlyList<PlayerData> data, CancellationToken cancellationToken = default) =>
-            inner.AddPlayerDataBatchAsync(data, cancellationToken);
-
-        public Task<IReadOnlyList<PlayerData>> GetUnverifiedPlayerDataAsync(CancellationToken cancellationToken = default) =>
-            inner.GetUnverifiedPlayerDataAsync(cancellationToken);
-
-        public Task<IReadOnlyList<PlayerDataApprovalOutcome>> ApprovePlayerDataAsync(
-            IReadOnlyCollection<Guid> playerDataIds, Guid adminId, CancellationToken cancellationToken = default) =>
-            inner.ApprovePlayerDataAsync(playerDataIds, adminId, cancellationToken);
-
-        public Task<IReadOnlyList<PlayerDataRemovalOutcome>> RemovePlayerDataAsync(
-            IReadOnlyCollection<Guid> playerDataIds, CancellationToken cancellationToken = default) =>
-            inner.RemovePlayerDataAsync(playerDataIds, cancellationToken);
+    private sealed class CallCountingPlayerAttributeRepository(IPlayerAttributeRepository inner) : IPlayerAttributeRepository
+    {
+        public int GetPlayersWithEitherAttributeAsyncCallCount { get; private set; }
 
         public Task<IReadOnlyList<PlayerAttribute>> GetPlayerAttributesAsync(
             string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
@@ -1647,131 +1611,15 @@ public class GridGameModuleTests
             CancellationToken cancellationToken = default) =>
             inner.CountPlayersWithBothAttributesAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
 
-        public Task<IReadOnlyList<PlayerAlias>> GetPlayerAliasesAsync(Guid playerId, CancellationToken cancellationToken = default) =>
-            inner.GetPlayerAliasesAsync(playerId, cancellationToken);
-
-        public Task AddPlayerAliasAsync(PlayerAlias alias, CancellationToken cancellationToken = default) =>
-            inner.AddPlayerAliasAsync(alias, cancellationToken);
-
-        public Task AddPlayerAliasesBatchAsync(IReadOnlyList<PlayerAlias> aliases, CancellationToken cancellationToken = default) =>
-            inner.AddPlayerAliasesBatchAsync(aliases, cancellationToken);
-
-        public Task<PlayerOverride?> GetOverrideAsync(Guid playerId, string field, CancellationToken cancellationToken = default) =>
-            inner.GetOverrideAsync(playerId, field, cancellationToken);
-
-        public Task<PlayerOverride?> GetOverrideByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-            inner.GetOverrideByIdAsync(id, cancellationToken);
-
-        public Task AddOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
-            inner.AddOverrideAsync(playerOverride, cancellationToken);
-
-        public Task UpdateOverrideAsync(PlayerOverride playerOverride, CancellationToken cancellationToken = default) =>
-            inner.UpdateOverrideAsync(playerOverride, cancellationToken);
-
-        public Task<bool> DeleteOverrideAsync(Guid id, CancellationToken cancellationToken = default) =>
-            inner.DeleteOverrideAsync(id, cancellationToken);
-
-        public Task<bool> HasEffectiveAttributeAsync(
-            Guid playerId, string attributeType, string attributeValue, CancellationToken cancellationToken = default) =>
-            inner.HasEffectiveAttributeAsync(playerId, attributeType, attributeValue, cancellationToken);
-
-        public Task<IReadOnlyList<Player>> GetPlayersMissingPhotoAsync(
-            IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default) =>
-            inner.GetPlayersMissingPhotoAsync(excludingPlayerIds, batchSize, cancellationToken);
-
-        public Task UpdatePlayerPhotosAsync(
-            IReadOnlyDictionary<Guid, string> photoUrlByPlayerId, CancellationToken cancellationToken = default) =>
-            inner.UpdatePlayerPhotosAsync(photoUrlByPlayerId, cancellationToken);
-
-        // REQ-1207 backfill (bug-bundle fix, 2026-08-02): xG Grid's
-        // correctness path never calls either of these (only
-        // PlayerPositionBirthYearBackfillService does) — same "delegated
-        // here only so this thin wrapper keeps compiling against the
-        // interface" reasoning as GetPlayersMissingPhotoAsync/
-        // UpdatePlayerPhotosAsync above.
-        public Task<IReadOnlyList<Player>> GetPlayersMissingPositionOrBirthYearAsync(
-            IReadOnlyCollection<Guid> excludingPlayerIds, int batchSize, CancellationToken cancellationToken = default) =>
-            inner.GetPlayersMissingPositionOrBirthYearAsync(excludingPlayerIds, batchSize, cancellationToken);
-
-        public Task UpdatePlayerPositionsAndBirthYearsAsync(
-            IReadOnlyDictionary<Guid, PlayerPositionBirthYearUpdate> updatesByPlayerId, CancellationToken cancellationToken = default) =>
-            inner.UpdatePlayerPositionsAndBirthYearsAsync(updatesByPlayerId, cancellationToken);
-
-        // ADR-0042/S-079: xG Grid's correctness path never calls either of
-        // these (see PlayerCareerStint's own doc comment) — delegated here
-        // only so this thin wrapper keeps compiling against the interface.
-        public Task<IReadOnlyList<PlayerCareerStint>> GetCareerStintsAsync(
-            Guid playerId, CancellationToken cancellationToken = default) =>
-            inner.GetCareerStintsAsync(playerId, cancellationToken);
-
-        public Task AddCareerStintsAsync(
-            Guid playerId, IReadOnlyList<PlayerCareerStint> newStints, CancellationToken cancellationToken = default) =>
-            inner.AddCareerStintsAsync(playerId, newStints, cancellationToken);
-
-        // REQ-1201 perf fix (2026-08-03): xG Path's puzzle-generation
-        // eligibility narrowing read — same "delegated here only so this
-        // thin wrapper keeps compiling against the interface" reasoning as
-        // GetCareerStintsAsync/AddCareerStintsAsync above; xG Grid's
-        // correctness path never calls this either.
-        public Task<IReadOnlyList<Guid>> GetCareerStintCandidatePlayerIdsAsync(
-            IReadOnlySet<string> seededClubNames, int minStintCount, CancellationToken cancellationToken = default) =>
-            inner.GetCareerStintCandidatePlayerIdsAsync(seededClubNames, minStintCount, cancellationToken);
-
-        public Task<IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>>> GetCareerStintsByPlayerIdsAsync(
-            IReadOnlyCollection<Guid> playerIds, CancellationToken cancellationToken = default) =>
-            inner.GetCareerStintsByPlayerIdsAsync(playerIds, cancellationToken);
-
-        public Task AddCareerStintsBatchAsync(
-            IReadOnlyDictionary<Guid, IReadOnlyList<PlayerCareerStint>> newStintsByPlayerId, CancellationToken cancellationToken = default) =>
-            inner.AddCareerStintsBatchAsync(newStintsByPlayerId, cancellationToken);
-
-        // REQ-110 (2026-07-28 "persisted confirmed-low signal" extension):
-        // xG Grid's correctness path never calls either of these (only
-        // PlayerCacheWarmingService does) — same "delegated here only so
-        // this thin wrapper keeps compiling against the interface"
-        // reasoning as the career-stint methods above.
-        public Task<bool> IsConfirmedLowAsync(
+        public Task<IReadOnlyList<Player>> GetPlayersWithEitherAttributeAsync(
             string firstAttributeType, string firstAttributeValue,
             string secondAttributeType, string secondAttributeValue,
-            CancellationToken cancellationToken = default) =>
-            inner.IsConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
-
-        public Task RecordConfirmedLowAsync(
-            string firstAttributeType, string firstAttributeValue,
-            string secondAttributeType, string secondAttributeValue,
-            int matchCount, CancellationToken cancellationToken = default) =>
-            inner.RecordConfirmedLowAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, matchCount, cancellationToken);
-
-        // REQ-110 (2026-08-01 "persistent technical-failure tracking"
-        // extension, ADR-0052): same "xG Grid's correctness path never
-        // calls these, only PlayerCacheWarmingService does" reasoning as
-        // IsConfirmedLowAsync/RecordConfirmedLowAsync above.
-        public Task<bool> IsPersistentTechnicalFailureAsync(
-            string firstAttributeType, string firstAttributeValue,
-            string secondAttributeType, string secondAttributeValue,
-            int threshold, CancellationToken cancellationToken = default) =>
-            inner.IsPersistentTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, threshold, cancellationToken);
-
-        public Task RecordTechnicalFailureAsync(
-            string firstAttributeType, string firstAttributeValue,
-            string secondAttributeType, string secondAttributeValue,
-            CancellationToken cancellationToken = default) =>
-            inner.RecordTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
-
-        public Task ClearTechnicalFailureAsync(
-            string firstAttributeType, string firstAttributeValue,
-            string secondAttributeType, string secondAttributeValue,
-            CancellationToken cancellationToken = default) =>
-            inner.ClearTechnicalFailureAsync(firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
-
-        // audit-club-gaps diagnostic: xG Grid's correctness path never
-        // calls this (only the audit-club-gaps CLI verb does) — same
-        // "delegated here only so this thin wrapper keeps compiling
-        // against the interface" reasoning as the other unused-by-xG-Grid
-        // methods above.
-        public Task<IReadOnlyList<UnseededClubCandidate>> GetUnseededClubCandidatesAsync(
-            int top, CancellationToken cancellationToken = default) =>
-            inner.GetUnseededClubCandidatesAsync(top, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            GetPlayersWithEitherAttributeAsyncCallCount++;
+            return inner.GetPlayersWithEitherAttributeAsync(
+                firstAttributeType, firstAttributeValue, secondAttributeType, secondAttributeValue, cancellationToken);
+        }
     }
 
     [TestCase("Kaká", "Kaka", TestName = "REQ208_ScoreSubmissionAsync_DiacriticsIgnored")]
@@ -1849,16 +1697,17 @@ public class GridGameModuleTests
         var (instanceId, cellId) = await SeedGridInstanceAsync("France", "Arsenal");
         var exactPlayer = await SeedPlayerAsync("Henry", "France", "Arsenal");
         await SeedPlayerAsync("Henri", "France", "Arsenal"); // distance 1 from "henry" — would fuzzy-match if reached
-        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
-        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+        var aliasSpy = new CallCountingPlayerAliasRepository(_playerAliasRepository);
+        var attributeSpy = new CallCountingPlayerAttributeRepository(_playerAttributeRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerAliasRepository: aliasSpy, playerAttributeRepository: attributeSpy);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Henry"));
 
         Assert.That(result.IsCorrect, Is.True);
         Assert.That(result.PlayerAnswerId, Is.EqualTo(exactPlayer.Id));
-        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(0),
+        Assert.That(aliasSpy.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(0),
             "the alias stage must never be consulted once the exact primary-name stage already resolved a fit");
-        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+        Assert.That(attributeSpy.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
             "the fuzzy stage must never be consulted once the exact primary-name stage already resolved a fit");
     }
 
@@ -1870,15 +1719,16 @@ public class GridGameModuleTests
         var (instanceId, cellId) = await SeedGridInstanceAsync("Brazil", "AC Milan");
         var aliasPlayer = await SeedPlayerAsync("Ricardo Izecson dos Santos Leite", "Brazil", "AC Milan");
         await _playerAliasRepository.AddPlayerAliasAsync(new PlayerAlias { PlayerId = aliasPlayer.Id, Alias = "Kaka", NormalizedAlias = "kaka" });
-        var spyRepository = new CallCountingPlayerStoreRepository(_playerStoreRepository);
-        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerStoreRepository: spyRepository);
+        var aliasSpy = new CallCountingPlayerAliasRepository(_playerAliasRepository);
+        var attributeSpy = new CallCountingPlayerAttributeRepository(_playerAttributeRepository);
+        var module = BuildModule(minValidAnswers: 1, maxAttempts: 5, playerAliasRepository: aliasSpy, playerAttributeRepository: attributeSpy);
 
         var result = await module.ScoreSubmissionAsync(instanceId, Guid.NewGuid(), new GuessSubmission(cellId, "Kaka"));
 
         Assert.That(result.IsCorrect, Is.True);
-        Assert.That(spyRepository.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(1),
+        Assert.That(aliasSpy.GetPlayersByNormalizedAliasAsyncCallCount, Is.EqualTo(1),
             "the alias stage must be consulted once the exact primary-name stage found nothing");
-        Assert.That(spyRepository.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
+        Assert.That(attributeSpy.GetPlayersWithEitherAttributeAsyncCallCount, Is.EqualTo(0),
             "the fuzzy stage must never be consulted once the alias stage already resolved a fit");
     }
 
