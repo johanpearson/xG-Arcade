@@ -64,7 +64,7 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   (`HandleCleanStaleClubAttributesAsync`, `HandlePurgePlayerPoolAsync`)
   whose own confirmation-argument validation still runs, unchanged, before
   the (now one-line) DbContext construction. `CliVerbDispatcher.cs` shrinks
-  from 735 to 622 lines. Confirmed via a whitespace-normalized diff against
+  from 735 to 621 lines. Confirmed via a whitespace-normalized diff against
   the pre-refactor (post-S-112) file that the only differences are the two
   new helper methods plus each handler's boilerplate collapsing to 1-2
   lines — no `Console.WriteLine`/exception text, control flow, or ordering
