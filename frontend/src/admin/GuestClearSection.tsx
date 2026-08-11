@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ApiError, clearGuestAccounts, describeError, fetchGuestAccountCount } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { clearGuestAccounts, fetchGuestAccountCount } from '../lib/admin';
 import type { ClearGuestAccountResult } from '../lib/types';
 
 interface GuestClearSectionProps {

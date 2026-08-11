@@ -13,6 +13,16 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — `docs/backlog.md` — implemented S-111 (`docs/backlog.md`
+  Epic 8): split `frontend/src/lib/api.ts` (1,057 lines, 51 exports) into a
+  shared `apiClient.ts` (`ApiError`/`throwApiError`/`describeError`/
+  `API_BASE_URL`) plus eight domain files — `auth.ts`, `rounds.ts`,
+  `path.ts`, `leaderboard.ts`, `admin.ts`, and three the original story
+  text didn't name but whose functions fit none of the other five:
+  `leagues.ts`, `announcements.ts`, `incidents.ts`. Original `api.ts`
+  deleted; all 28 call sites' import paths updated. Pure refactor — no
+  behavior change, no new REQ IDs; `tsc -b`/`oxlint`/`vitest run` (581
+  tests) all pass with test bodies untouched.
 - 2026-08-11 — `docs/architecture-document.md` + `docs/implementation-document.md`
   + `docs/backlog.md` — implemented S-110 (`docs/backlog.md` Epic 8):
   synced both docs' `Program.cs` references with S-102's

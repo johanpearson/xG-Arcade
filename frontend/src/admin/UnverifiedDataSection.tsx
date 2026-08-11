@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, approvePlayerData, createPlayerOverride, describeError, removePlayerData } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { approvePlayerData, createPlayerOverride, removePlayerData } from '../lib/admin';
 import type { UnverifiedPlayerData } from '../lib/types';
 
 interface UnverifiedDataSectionProps {

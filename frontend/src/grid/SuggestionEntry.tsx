@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { describeError, submitSuggestion } from '../lib/api';
+import { describeError } from '../lib/apiClient';
+import { submitSuggestion } from '../lib/rounds';
 import { SUGGESTION_GUEST_LOCKED_COPY, SUGGESTION_SUBMITTED_COPY } from '../lib/suggestionCopy';
 import './SuggestionEntry.css';
 

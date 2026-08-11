@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, deleteAccount, describeError } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { deleteAccount } from '../lib/auth';
 import { getTurnstileToken, preloadTurnstileScript, resetTurnstileWidget } from '../lib/turnstile';
 import './DeleteAccountScreen.css';
 

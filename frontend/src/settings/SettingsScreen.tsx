@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, claimAccount, describeError, updateDisplayName } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { claimAccount, updateDisplayName } from '../lib/auth';
 import { DeleteAccountScreen } from '../auth/DeleteAccountScreen';
 import type { CurrentUser } from '../lib/types';
 import type { ThemePreference } from '../lib/theme';

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError, fetchCurrentPath, submitGuess } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { fetchCurrentPath } from '../lib/path';
+import { submitGuess } from '../lib/rounds';
 import type { CurrentPathResponse } from '../lib/types';
 import { formatRoundEndTime, formatRoundEndTimeAccessibleLabel, type RoundEndTimeDisplay } from '../lib/roundTime';
 import { PathGuessInput } from './PathGuessInput';

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ApiError, deleteUserByEmail, describeError } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { deleteUserByEmail } from '../lib/admin';
 
 interface UserDeletionSectionProps {
   accessToken: string;

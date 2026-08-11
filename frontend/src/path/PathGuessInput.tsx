@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { describeError, fetchPlayerAutocomplete } from '../lib/api';
+import { describeError } from '../lib/apiClient';
+import { fetchPlayerAutocomplete } from '../lib/rounds';
 import { MAX_CLUES_PER_PUZZLE } from '../lib/pathRules';
 import type { CurrentPathGuess, PlayerAutocompleteSuggestion } from '../lib/types';
 import './PathGuessInput.css';

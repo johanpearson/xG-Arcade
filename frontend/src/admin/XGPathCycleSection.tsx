@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { fetchAdminXGPathCycle } from '../lib/api';
+import { fetchAdminXGPathCycle } from '../lib/admin';
 import { useAdminSectionFetch } from './useAdminSectionFetch';
 
 interface XGPathCycleSectionProps {

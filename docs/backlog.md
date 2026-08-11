@@ -5291,6 +5291,42 @@ and any genuinely shared helpers in a slimmed-down `api.ts` or a new
 *Accept:* every existing call site's import path updates; no behavior
 change; existing frontend test suite passes unchanged.
 *Deps:* none.
+**Built as:** matches the plan's four named files plus a shared foundation
+file and three domain files the story text didn't spell out by name but
+whose functions didn't fit any of the four. `frontend/src/lib/apiClient.ts`
+holds `ApiError`/`throwApiError`/`describeError`/`API_BASE_URL` — every
+other file imports from it, nothing imports from it circularly.
+`auth.ts` (signup/login/playAsGuest/claimAccount/refreshAccessToken/
+deleteAccount/logout/fetchMe/updateDisplayName), `rounds.ts`
+(fetchCurrentRound/submitGuess/submitSuggestion/fetchPlayerAutocomplete —
+the latter two are shared verbatim by both xG Grid and xG Path call sites,
+so they live here rather than being duplicated into path.ts), `path.ts`
+(fetchCurrentPath only — the one genuinely xG Path-specific endpoint),
+`leaderboard.ts` (all five `fetch*Leaderboard*`/`fetchClosedRounds`
+variants plus the `WindowResolution` type), and `admin.ts` (the 19
+remaining admin-only functions with no separate home: player-data
+verification, round control, user deletion, account metrics/guest-clear,
+xG Path cycle read, and the suggestion-review workflow) match the plan
+exactly. Three additional domain files the original story text didn't
+name, because their functions matched none of the five: `leagues.ts`
+(createLeague/joinLeague/fetchMyLeagues — no admin/auth/round tie),
+`announcements.ts` (the public `fetchAnnouncementBanner` plus its four
+admin CRUD siblings — kept together as one banner-feature domain rather
+than splitting the public read into admin.ts, since it isn't admin-only),
+and `incidents.ts` (public `reportIncident` plus admin
+`fetchAdminIncidentReports` — same "keep the feature's public and admin
+sides together" reasoning as announcements.ts). The original
+`frontend/src/lib/api.ts` (1,057 lines) is deleted; every one of its 28
+call sites was updated to import `ApiError`/`describeError` from
+`apiClient.ts` and each function from its new domain file. Doc comments in
+`frontend/src/lib/types.ts` and `SuggestionEntry.test.tsx` that named
+`lib/api.ts` by path were updated to point at the function's new file;
+historical dated implementation notes in `requirements-document.md` and
+ADR-0037 that mention the old path were left alone as historical record,
+not the current source of truth. `npx tsc -b`, `npx oxlint`, and
+`npx vitest run` (34 files/581 tests) all pass unchanged — no test
+bodies/assertions were touched, only import paths.
+*Deps:* none.
 
 **S-112 · Restructure CliVerbDispatcher.cs from one method into a verb registry**
 S-102 moved the CLI-verb dispatch logic out of `Program.cs` but didn't

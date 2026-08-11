@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { fetchAdminAccountMetrics } from '../lib/api';
+import { fetchAdminAccountMetrics } from '../lib/admin';
 import { useAdminSectionFetch } from './useAdminSectionFetch';
 import { GuestClearSection } from './GuestClearSection';
 

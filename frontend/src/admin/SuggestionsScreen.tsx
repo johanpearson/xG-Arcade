@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ApiError, describeError } from '../lib/apiClient';
 import {
-  ApiError,
   commitPlayerSearch,
   commitSuggestion,
-  describeError,
   fetchPendingSuggestions,
   lookupPlayerByName,
   lookupSuggestionPlayer,
   rejectSuggestion,
-} from '../lib/api';
+} from '../lib/admin';
 import type { CommitPlayerDataPayload, PendingSuggestion, WikidataPlayerLookupResult } from '../lib/types';
 import './SuggestionsScreen.css';
 

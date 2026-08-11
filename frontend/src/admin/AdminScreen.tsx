@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError, fetchActiveAdminRound, fetchUnverifiedPlayerData } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { fetchActiveAdminRound, fetchUnverifiedPlayerData } from '../lib/admin';
 import type { AdminActiveRound, UnverifiedPlayerData } from '../lib/types';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 import { PlayerSuggestionsEntry } from './PlayerSuggestionsEntry';

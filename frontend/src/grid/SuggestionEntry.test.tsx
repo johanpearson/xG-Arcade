@@ -16,7 +16,7 @@ function jsonResponse(body: unknown, status = 200) {
 // GuessInput.tsx mounts at its two trigger sites (an incorrect scored
 // guess, or a REQ-211 live-lookup timeout). Same fetch-stub convention as
 // GuessInput.test.tsx (submitSuggestion calls fetch directly, via
-// lib/api.ts — no mocking framework in this codebase, per docs/coding-
+// lib/rounds.ts — no mocking framework in this codebase, per docs/coding-
 // guidelines.md).
 describe('SuggestionEntry', () => {
   afterEach(() => {

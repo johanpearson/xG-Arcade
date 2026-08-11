@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GuessInput } from './GuessInput';
-import { ApiError } from '../lib/api';
+import { ApiError } from '../lib/apiClient';
 import type { CurrentRoundCell, DisambiguationCandidate, SubmitGuessResponse } from '../lib/types';
 
 function makeCell(overrides: Partial<CurrentRoundCell> = {}): CurrentRoundCell {

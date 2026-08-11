@@ -211,7 +211,7 @@ export interface ClosedRoundListResponse {
 // authorization is always re-checked server-side per request regardless.
 // REQ-717/ADR-0036: `email` is nullable — a guest account (`User.IsGuest`
 // on the backend) has none until it claims a real one via POST /auth/claim
-// (see `claimAccount` in lib/api.ts). `isGuest` mirrors `User.IsGuest`
+// (see `claimAccount` in lib/auth.ts). `isGuest` mirrors `User.IsGuest`
 // directly (backend follow-up landed alongside this) — a first-class
 // field, not derived from `email === null`.
 export interface CurrentUser {
@@ -295,7 +295,7 @@ export interface AdminRound {
 // REQ-505: GET /admin/rounds/{gameKey}/active's response shape. This is also
 // the frontend's only signal for whether the round-control/user-deletion
 // admin sections exist in this environment at all — see
-// `fetchActiveAdminRound`'s 404-as-null handling in lib/api.ts.
+// `fetchActiveAdminRound`'s 404-as-null handling in lib/admin.ts.
 export interface AdminActiveRound {
   hasActiveRound: boolean;
   round: AdminRound | null;
@@ -537,7 +537,7 @@ export interface PendingSuggestion {
 // null/empty) is a normal, valid "Wikidata has no matching footballer for
 // this name" outcome — never conflated with a 503 "lookup unavailable"
 // failure (ADR-0046's timeout-vs-no-match distinction); a 503 is left to
-// throw as an ApiError by lib/api.ts's lookup functions rather than ever
+// throw as an ApiError by lib/admin.ts's lookup functions rather than ever
 // resolving to this shape.
 export interface WikidataPlayerLookupResult {
   found: boolean;
