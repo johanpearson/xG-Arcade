@@ -303,7 +303,12 @@
    `-webkit-line-clamp: 1` (paired with `display: -webkit-box`/
    `-webkit-box-orient: vertical`) caps the name to a single line with a
    trailing ellipsis instead, always showing the name's beginning rather
-   than an unpredictable clipped fragment.
+   than an unpredictable clipped fragment. Tried with a 2-line clamp first;
+   switched to 1 after real-browser verification showed 2 lines could still
+   exceed the remaining space and get clipped from the top the same way,
+   whereas 1 line's height reliably fits alongside the points line in every
+   case observed — this specific empirical detail isn't in the design doc's
+   own S-047 note, only here and in `CellState.test.tsx`'s matching comment.
 
    REQ-216 (2026-08-03): `.cell-state--incorrect-photo .cell-state__name`
    shares this rule outright (no color split needed, unlike `__meta` above)
