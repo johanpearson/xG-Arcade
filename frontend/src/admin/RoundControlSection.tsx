@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { ApiError, closeAdminRound, describeError, updateAdminRoundEndTime } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { closeAdminRound, updateAdminRoundEndTime } from '../lib/admin';
 import type { AdminActiveRound } from '../lib/types';
 import { XG_GRID_GAME_KEY } from '../games/GameSelectScreen';
 

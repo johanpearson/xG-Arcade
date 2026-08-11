@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { CategoryLabel } from '../components/CategoryLabel';
 import { SuggestionEntry } from './SuggestionEntry';
-import { ApiError, describeError, fetchPlayerAutocomplete } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { fetchPlayerAutocomplete } from '../lib/rounds';
 import { MAX_ATTEMPTS_PER_CELL } from '../lib/guessRules';
 import type {
   CurrentRoundCell,

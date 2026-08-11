@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { fetchPendingSuggestions } from '../lib/api';
+import { fetchPendingSuggestions } from '../lib/admin';
 import { useAdminSectionFetch } from './useAdminSectionFetch';
 
 interface PlayerSuggestionsEntryProps {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, describeError, login, playAsGuest, signup } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { login, playAsGuest, signup } from '../lib/auth';
 import { getTurnstileToken, preloadTurnstileScript, resetTurnstileWidget } from '../lib/turnstile';
 import './AuthScreen.css';
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, describeError, reportIncident } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { reportIncident } from '../lib/incidents';
 import {
   INCIDENT_REPORT_DEFAULT_SCREEN_OPTION,
   INCIDENT_REPORT_DESCRIPTION_PLACEHOLDER,

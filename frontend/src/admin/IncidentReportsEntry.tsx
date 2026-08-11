@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { fetchAdminIncidentReports } from '../lib/api';
+import { fetchAdminIncidentReports } from '../lib/incidents';
 import { useAdminSectionFetch } from './useAdminSectionFetch';
 
 // REQ-904/ADR-0064/ADR-0066: this repo's fixed, server-configured owner/repo/

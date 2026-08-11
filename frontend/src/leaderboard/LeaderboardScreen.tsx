@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError, describeError } from '../lib/apiClient';
 import {
-  ApiError,
-  describeError,
   fetchActiveRoundLeaderboard,
   fetchClosedRoundLeaderboard,
   fetchClosedRounds,
   fetchLeaderboard,
   fetchWindowedLeaderboard,
-} from '../lib/api';
-import type { WindowResolution } from '../lib/api';
+} from '../lib/leaderboard';
+import type { WindowResolution } from '../lib/leaderboard';
 import type { ClosedRoundSummary, LeaderboardRow } from '../lib/types';
 // REQ-213 (S-068, made game-aware 2026-08-08): the leaderboard's own `(ⓘ)`
 // entry point opens this exact same explainer GridScreen.tsx already uses

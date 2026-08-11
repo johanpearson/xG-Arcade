@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAnnouncementBanner } from '../lib/api';
+import { fetchAnnouncementBanner } from '../lib/announcements';
 import type { AnnouncementBanner as AnnouncementBannerState } from '../lib/types';
 import './AnnouncementBanner.css';
 

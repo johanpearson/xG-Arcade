@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ApiError, describeError } from '../lib/apiClient';
 import {
   activateAnnouncementBanner,
-  ApiError,
   deactivateAnnouncementBanner,
-  describeError,
   fetchAdminAnnouncementBanner,
   upsertAnnouncementBanner,
-} from '../lib/api';
+} from '../lib/announcements';
 import type { AdminAnnouncementBanner } from '../lib/types';
 import { useAdminSectionFetch } from './useAdminSectionFetch';
 

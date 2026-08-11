@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError, fetchCurrentRound, submitGuess } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { fetchCurrentRound, submitGuess } from '../lib/rounds';
 import type {
   CurrentRoundCell,
   CurrentRoundResponse,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { ApiError, createLeague, describeError, fetchMyLeagues, joinLeague } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
+import { createLeague, fetchMyLeagues, joinLeague } from '../lib/leagues';
 import type { CustomLeague } from '../lib/types';
 import './LeaguesScreen.css';
 

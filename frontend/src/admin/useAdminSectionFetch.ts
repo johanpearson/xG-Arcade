@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, describeError } from '../lib/api';
+import { ApiError, describeError } from '../lib/apiClient';
 
 export interface UseAdminSectionFetchOptions {
   onAuthError: () => void;
