@@ -38,13 +38,10 @@ export interface CurrentRoundGuess {
   // "no photo," same as an explicit `null` — never a type error and never a
   // fabricated photo.
   resolvedPlayerPhotoUrl?: string | null;
-  // REQ-216/ADR-0057: the mirror-image case of resolvedPlayerName/
-  // resolvedPlayerPhotoUrl above — non-null ONLY when this guess locked the
-  // cell with its final attempt still INCORRECT (state 3, or state 4's
-  // incorrect branch) AND the submitted guess string matched a real
-  // PlayerNameIndex candidate (never for state 2, and never for a guess
-  // that matched nothing at all — a typo/gibberish/fictional name). Field
-  // name confirmed against the backend half
+  // REQ-216/ADR-0057: mirror-image case of resolvedPlayerName/
+  // resolvedPlayerPhotoUrl above — see ADR-0057's Decision section for when
+  // this fires (locked-incorrect cell, matched guess only) and its
+  // silent-failure semantics. Field name confirmed against the backend half
   // (`CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerName` in
   // `XGArcade.Api.Rounds.RoundEndpoints`, already merged) — camelCase JSON
   // matches exactly, same convention as every other field on this shape.
@@ -52,12 +49,11 @@ export interface CurrentRoundGuess {
   // older-cached-response-degrades-safely reason resolvedPlayerPhotoUrl
   // above already documents.
   incorrectGuessMatchedPlayerName?: string | null;
-  // REQ-216/ADR-0057: a nullable Wikidata photo URL for the same
-  // incorrect-but-real matched player above — independently nullable even
-  // when incorrectGuessMatchedPlayerName is set (ADR-0057's Wikidata-only
-  // lookup can time out, error, or genuinely have no photo; this is its own
-  // silent, graceful fallback, never a fail-closed outcome). Confirmed
-  // against `CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerPhotoUrl`.
+  // REQ-216/ADR-0057: nullable Wikidata photo URL for the same
+  // incorrect-but-real matched player above, independently nullable even
+  // when incorrectGuessMatchedPlayerName is set — see ADR-0057's "Fails
+  // silently on timeout or no-match" decision. Confirmed against
+  // `CurrentRoundGuessResponse.IncorrectGuessMatchedPlayerPhotoUrl`.
   incorrectGuessMatchedPlayerPhotoUrl?: string | null;
 }
 
