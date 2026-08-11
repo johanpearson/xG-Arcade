@@ -326,22 +326,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var prefetchConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var prefetchLoggerFactory = BuildLoggerFactory();
 
-        var prefetchConnectionString = prefetchConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var prefetchDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(prefetchConnectionString)
-            .Options;
-
-        using var prefetchLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var prefetchDbContext = new XGArcadeDbContext(prefetchDbContextOptions);
+        await using var prefetchDbContext = BuildDbContext();
         var prefetchCategoryValueRepository = new CategoryValueRepository(prefetchDbContext);
         var prefetchPlayerCareerStintRepository = new PlayerCareerStintRepository(prefetchDbContext);
         // S-106/S-107 (pure refactor): GetOrCreatePlayersByWikidataQidAsync's
@@ -408,18 +395,7 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var verifyConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
-
-        var verifyConnectionString = verifyConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var verifyDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(verifyConnectionString)
-            .Options;
-
-        await using var verifyDbContext = new XGArcadeDbContext(verifyDbContextOptions);
+        await using var verifyDbContext = BuildDbContext();
         var verifiedCount = await verifyDbContext.PlayerData
             .Where(d => d.Source == "wikidata" && d.Confidence == "unverified")
             .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.Confidence, "verified"));
@@ -444,22 +420,9 @@ public static class CliVerbDispatcher
         if (args.Length != 1)
             return false;
 
-        var auditConfig = new ConfigurationBuilder()
-            .AddEnvironmentVariables()
-            .Build();
+        using var auditLoggerFactory = BuildLoggerFactory();
 
-        var auditConnectionString = auditConfig.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is not configured.");
-
-        var auditDbContextOptions = new DbContextOptionsBuilder<XGArcadeDbContext>()
-            .UseNpgsql(auditConnectionString)
-            .Options;
-
-        using var auditLoggerFactory = LoggerFactory.Create(b => b
-            .AddConsole()
-            .SetMinimumLevel(LogLevel.Information));
-
-        await using var auditDbContext = new XGArcadeDbContext(auditDbContextOptions);
+        await using var auditDbContext = BuildDbContext();
         var auditPlayerDataQualityRepository = new PlayerDataQualityRepository(auditDbContext);
 
         var auditService = new ClubGapAuditService(auditPlayerDataQualityRepository, auditLoggerFactory.CreateLogger<ClubGapAuditService>());
