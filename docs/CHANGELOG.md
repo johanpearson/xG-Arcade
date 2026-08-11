@@ -13,6 +13,23 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-11 — coding-guidelines.md (v0.7) — S-113 (`docs/backlog.md` Epic
+  8): decided and documented `backend/src/XGArcade.Api/CompositionRoot/*.cs`'s
+  testing strategy, which had happened by default (integration-only, via
+  `XGArcade.Api.Tests`'s `WebApplicationFactory` suite) when S-102 moved
+  this code out of `Program.cs` as a pure reorganization, not as a
+  deliberate choice. New "Composition-root testing" convention: these files
+  stay integration-tested by default (they're wiring, not logic), with
+  unit tests reserved for genuine conditional logic worth isolating on its
+  own. Applied that call today: `AuthSetup.cs`'s `IsLocalE2EAuth` (ADR-0006's
+  "never guarded only by config alone" principle, applied to auth) and
+  `GetClientIpPartitionKey` (REQ-606/REQ-717's rate-limit partition key) are
+  real, pure, security/correctness-relevant branches — marked `internal`
+  (new `AssemblyInfo.cs` + `InternalsVisibleTo`) and covered by new
+  `AuthSetupTests.cs`. `CliVerbDispatcher.cs`, `EndpointMapping.cs`, and
+  `ServiceRegistration.cs` have no comparable logic today, so their
+  integration-only coverage is confirmed intentional, not a gap. No REQ/ADR
+  changes — a testing-convention decision, not a structural one.
 - 2026-08-11 — no docs changed beyond this entry — S-112 (`docs/backlog.md`
   Epic 8): restructured `backend/src/XGArcade.Api/CompositionRoot/CliVerbDispatcher.cs`'s
   single 667-line sequential `TryHandleAsync` into a `Verbs` lookup table

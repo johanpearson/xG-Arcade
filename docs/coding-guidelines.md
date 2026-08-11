@@ -1,7 +1,7 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.6"
+version: "0.7"
 status: draft
 last_updated: 2026-08-11
 owner: Johan
@@ -145,6 +145,33 @@ update_when:
 - **Don't over-mock.** If a test needs five mocks to verify one behavior,
   that's usually a sign the unit under test has too many dependencies, not
   a sign you need a mocking framework with more features.
+- **Composition-root testing (S-113):** `backend/src/XGArcade.Api/CompositionRoot/*.cs`
+  is deliberately integration-tested by default, not unit-tested. These
+  files (`AuthSetup.cs`, `CliVerbDispatcher.cs`, `EndpointMapping.cs`,
+  `ServiceRegistration.cs`) are almost entirely straight-line DI
+  registration, middleware ordering, and endpoint-mapping calls — wiring,
+  not logic — and `XGArcade.Api.Tests`'s `WebApplicationFactory` suite
+  already exercises that wiring end-to-end on every test run. Writing
+  `ServiceRegistrationTests.cs`-style unit tests against `IServiceCollection`
+  contents would mostly assert "was `AddScoped<X>` called," which duplicates
+  what a failing integration test already tells you, with none of its
+  end-to-end confidence.
+  The exception is a specific piece of *conditional logic* inside one of
+  these files that is (a) a pure function of its inputs and (b) worth
+  isolating on its own — most often a security- or correctness-relevant
+  branch, not just an `?? default` config read. `AuthSetup.cs`'s
+  `IsLocalE2EAuth`/`GetClientIpPartitionKey` are the current example
+  (`AuthSetupTests.cs`, marked `internal` + `InternalsVisibleTo` for the
+  test project, same as this document's "testability drives structure, not
+  the other way around" principle above): real branching with a security
+  consequence (ADR-0006's "never guarded only by config alone"), cheap to
+  test directly without a host. `CliVerbDispatcher.cs`'s verb-dispatch table,
+  `EndpointMapping.cs`'s middleware/endpoint registration, and
+  `ServiceRegistration.cs`'s DI wiring have no comparable logic today —
+  don't add unit tests for them speculatively. Re-evaluate a given file
+  the moment it grows real conditional logic of its own, the same way
+  `AuthSetup.cs` did — this is a per-file judgment call, not a blanket
+  exemption for the whole folder.
 
 ## Comments and documentation in code
 

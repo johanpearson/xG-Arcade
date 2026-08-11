@@ -21,7 +21,9 @@ public static class AuthSetup
     // makes AuthEndpointTests.cs's REQ606 tests able to trip the limit
     // deterministically with a same-process burst of requests rather than
     // needing a real distinct client IP or a mocked clock.
-    private static string GetClientIpPartitionKey(HttpContext httpContext) =>
+    // S-113: internal (not private) so AuthSetupTests.cs can exercise this
+    // pure function directly — see that file's own doc comment.
+    internal static string GetClientIpPartitionKey(HttpContext httpContext) =>
         httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     public static void ConfigureCorsAndRateLimiting(this WebApplicationBuilder builder)
@@ -133,7 +135,9 @@ public static class AuthSetup
     // Shared by ConfigureSupabaseAuthentication (builder-time) and
     // LogJwksConfiguration (app-time) below so the two can't silently drift —
     // same "single source of truth" reasoning as WikidataHttpClientConfiguration.
-    private static bool IsLocalE2EAuth(IConfiguration configuration, IHostEnvironment environment) =>
+    // S-113: internal (not private) so AuthSetupTests.cs can exercise this
+    // security-relevant guard directly — see that file's own doc comment.
+    internal static bool IsLocalE2EAuth(IConfiguration configuration, IHostEnvironment environment) =>
         configuration["Auth:Mode"] == "local-e2e" && environment.IsDevelopment();
 
     public static void ConfigureSupabaseAuthentication(this WebApplicationBuilder builder)
