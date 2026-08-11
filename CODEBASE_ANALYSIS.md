@@ -97,7 +97,7 @@ Churn = commit count over the repo's full history (66 commits, 2026-07-26 → 20
 
 ---
 
-## 5. Structural & Architectural Anomalies
+## 5. Structural & Architectural Anomalies — Re-checked
 
 - **Architecture-boundary check (ADR-0003):** re-ran the `Core`/game-module co-change check against the fuller history; still no violation — no commit adds a game-specific reference to a `Core` entity.
 - **Duplication:** the one major cluster (`WikidataClient.cs`) is resolved and stayed resolved (no regression). `frontend/src/lib/api.ts`'s ~47 similarly-shaped fetch wrappers (see §1/§4) is the next most significant repetition in the codebase, but it's breadth (many independent small endpoints), not logic duplication — each function is doing a genuinely different thing, just with a similar shape. Lower-severity than `WikidataClient.cs`'s pattern was.
