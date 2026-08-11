@@ -24,8 +24,8 @@ public static class CategoryPairingRules
     // "trophy") differs from GridCell's RowCategoryType/ColCategoryType
     // vocabulary ("country" | "club" | "trophy") only for Country — Trophy
     // happens to be spelled identically in both, per REQ-108's acceptance
-    // text. Same mapping GetMatchCountAsync below already needs for grid
-    // generation.
+    // text. Same mapping GridGenerationService.GetMatchCountAsync needs for
+    // grid generation.
     //
     // S-119 (pure refactor): moved here from GridGameModule — a single
     // fixed, dependency-free vocabulary table with exactly one correct

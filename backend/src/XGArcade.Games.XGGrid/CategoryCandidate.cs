@@ -7,23 +7,23 @@ namespace XGArcade.Games.XGGrid;
 //
 // REQ-114/ADR-0035: `UsesCountryForSportProperty` carries
 // CountryDefinition's per-row query-property flag through generation
-// and the guess-time fallback to the point LookupLiveMatchesAsync
-// actually dispatches a live Wikidata call — the smaller, cleaner diff
-// versus re-resolving the full CountryDefinition row by name at
-// dispatch time (which PickHeadersAsync's hot loop would otherwise do
-// once per GetMatchCountAsync call, a real extra query cost that
-// ResolveCandidateAsync's single per-guess lookup doesn't have to
-// justify). Meaningless for Club/Trophy candidates — always false
-// there, never read for those types.
+// and the guess-time fallback to the point
+// IGridLiveLookupDispatcher.LookupMatchesAsync actually dispatches a live
+// Wikidata call — the smaller, cleaner diff versus re-resolving the full
+// CountryDefinition row by name at dispatch time (which PickHeadersAsync's
+// hot loop would otherwise do once per GetMatchCountAsync call, a real
+// extra query cost that ResolveCandidateAsync's single per-guess lookup
+// doesn't have to justify). Meaningless for Club/Trophy candidates —
+// always false there, never read for those types.
 //
 // ADR-0061: `IsTeamTrophy` carries TrophyDefinition's own per-row query-
 // shape flag through the same path, for exactly the same reason —
-// without it, the throwaway TrophyDefinition LookupLiveMatchesAsync
-// reconstructs at dispatch time would always default IsTeamTrophy to
-// false, silently routing every live lookup for a team trophy (World
-// Cup, Champions League) through the individual-award P166 query, which
-// structurally can never match a team competition. Meaningless for
-// Country/Club candidates — always false there, never read for those
-// types.
+// without it, the throwaway TrophyDefinition
+// IGridLiveLookupDispatcher.LookupMatchesAsync reconstructs at dispatch
+// time would always default IsTeamTrophy to false, silently routing every
+// live lookup for a team trophy (World Cup, Champions League) through the
+// individual-award P166 query, which structurally can never match a team
+// competition. Meaningless for Country/Club candidates — always false
+// there, never read for those types.
 internal readonly record struct CategoryCandidate(
     string Name, string? WikidataQid, bool UsesCountryForSportProperty = false, bool IsTeamTrophy = false);
