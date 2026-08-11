@@ -3,7 +3,7 @@ doc_id: coding-guidelines
 title: Coding Guidelines
 version: "0.6"
 status: draft
-last_updated: 2026-08-10
+last_updated: 2026-08-11
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -113,8 +113,8 @@ update_when:
   which agent or person writes the code.
 - **Fetch-on-mount sections that classify a result into "escalate on 401 /
   hide on 403 / show inline on any other error", guarded against unmount:**
-  reuse `useAdminSectionFetch` (`frontend/src/admin/AdminScreen.tsx`) rather
-  than hand-rolling another `cancelled`-flag `useEffect`. Extracted once this
+  reuse `useAdminSectionFetch` (`frontend/src/admin/useAdminSectionFetch.ts`)
+  rather than hand-rolling another `cancelled`-flag `useEffect`. Extracted once this
   exact shape reached five independent copies in that one file
   (`PlayerSuggestionsEntry`/REQ-512, `IncidentReportsEntry`/REQ-904,
   `AnnouncementBannerSection`/REQ-511, `AccountMetricsSection`/REQ-507,

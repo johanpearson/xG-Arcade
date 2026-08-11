@@ -48,6 +48,27 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
   (`REQ100_Query*IntersectionAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput`),
   full existing suite otherwise unchanged. `WikidataClient.cs` line count:
   1,977 → 1,815 (-162 lines).
+- 2026-08-11 — `docs/coding-guidelines.md` (path correction only) — S-103
+  (`docs/backlog.md` Epic 7): finished the `AdminScreen.tsx` God-Component
+  extraction that `#167` started (`useAdminSectionFetch`).
+  `PlayerSuggestionsEntry.tsx`, `IncidentReportsEntry.tsx`,
+  `AnnouncementBannerSection.tsx`, `UnverifiedDataSection.tsx`,
+  `AccountMetricsSection.tsx`, `GuestClearSection.tsx`,
+  `XGPathCycleSection.tsx`, `RoundControlSection.tsx`, and
+  `UserDeletionSection.tsx` are now each their own file under
+  `frontend/src/admin/`, and `useAdminSectionFetch` moved out of
+  `AdminScreen.tsx` into its own module,
+  `frontend/src/admin/useAdminSectionFetch.ts` — `docs/coding-guidelines.md`'s
+  reference to the hook's location is updated to match (no convention
+  change, so no version bump). `AdminScreen.tsx`: 1,432 → 190 lines, 16 → 3
+  `useState` (`pageState`, `unverifiedRows`, `activeRound` remain — the rest
+  now live in their own components). Pure refactor, no new REQ IDs, no
+  props/copy/class-name changes, `AdminScreen.css` untouched (zero diff), no
+  component boundary crossed (still entirely inside `frontend/src/admin/`)
+  — no ADR, same reasoning as S-100/S-101. Regression proof: existing
+  `AdminScreen.test.tsx` unchanged and passing 56/56, full frontend suite
+  543/543 unchanged, tsc and lint clean — this was pure code motion, not new
+  testable behavior, so no new REQ-named tests were added.
 - 2026-08-10 — `docs/backlog.md` (new Epic 7: S-099 through S-105) — added
   a technical-debt-remediation epic from `CODEBASE_ANALYSIS.md`'s findings
   (WikidataClient.cs duplication/size, Program.cs composition-root sprawl,

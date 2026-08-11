@@ -1173,7 +1173,13 @@ describe('AdminScreen', () => {
     render(<AdminScreen accessToken="token" onAuthError={vi.fn()} onOpenSuggestions={vi.fn()} />);
 
     expect(await screen.findByText('Status: Active — visible to every visitor')).toBeInTheDocument();
-    expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message);
+    // The message input's value is set from a separate `useEffect` keyed on
+    // `banner`, which commits in its own pass after the "Status: Active" text
+    // — asserting it synchronously right after `findByText` above raced that
+    // effect and flaked intermittently under a full-suite run (see NOTES.md
+    // 2026-07-25's REQ-507 flake for the same root cause on a sibling
+    // section). `waitFor` gives the effect a chance to flush.
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message));
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Activate' })).not.toBeInTheDocument();
@@ -1314,7 +1320,9 @@ describe('AdminScreen', () => {
       ),
     );
     expect(await screen.findByText('Status: Inactive — not shown to visitors')).toBeInTheDocument();
-    expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message);
+    // Same effect-timing race as the "Active" banner test above — see the
+    // comment there.
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(loadedActiveBanner.message));
     expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument();
   });
 });
