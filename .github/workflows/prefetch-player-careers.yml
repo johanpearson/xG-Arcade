@@ -14,18 +14,26 @@ name: prefetch-player-careers
 # bulk job is a CLI verb, never a fire-and-forget background task or a long
 # HTTP endpoint" reasoning as warm-player-cache.yml/import-player-name-index.yml.
 #
-# Manual trigger only, deliberately NOT on the same weekly cron
-# warm-player-cache/import-player-name-index just moved to (ADR-0055) — this
-# is a brand-new, unproven query shape (a single seeded country's full
-# unsliced player pool; ADR-0055's own "Open questions" flags that a large
-# country like Brazil/England could plausibly be large enough to strain
-# WDQS's ~60s server-side cap the way import-player-name-index's original
-# unsliced design once did). Confirm a real run's cost/runtime/failure
-# pattern manually first; put this on a recurring schedule only once that's
-# actually confirmed, not before.
+# Weekly cron (ADR-0055 follow-up, resolved 2026-08-16): the query shape this
+# ADR flagged as unproven at scale (a single seeded country's full unsliced
+# player pool) is no longer unproven — its first real run (2026-08-02, see
+# NOTES.md) never failed on the WDQS server-cap risk this ADR anticipated,
+# including for huge pools (United Kingdom: 18,460 players; Brazil: 10,949;
+# Germany: 10,128). The run's only failure (4 batches hitting the 15s default
+# timeout) was fixed with a 60s `queryTimeout` override, and NOTES.md's
+# 2026-08-03 entry confirms the subsequent clean run populated 607,914 real
+# `PlayerCareerStint` rows. ADR-0055's own Follow-up section says this can
+# "reasonably move to ... recurring cron once a clean full run confirms the
+# fix" — that confirmation already happened, so this was just never flipped.
+# Offset 30 minutes after promote-dev-to-prod-dry-run.yml's own weekly slot,
+# same "don't compete for the same time slot" reasoning as
+# warm-player-cache.yml/import-player-name-index.yml. workflow_dispatch stays
+# available for an on-demand run.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 7 * * 0" # weekly, Sunday 07:00 UTC
 
 jobs:
   prefetch-player-careers:

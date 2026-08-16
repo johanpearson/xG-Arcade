@@ -13,6 +13,55 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/backlog.md` (S-128 Built as), `NOTES.md` —
+  implemented S-128 (Epic 10): `WikidataClient.ParsePositionBirthYearBindings`
+  took the first `P569` (date of birth) binding row per QID with no
+  preferred-rank/conflict resolution, unlike `ParseNameIndexBindings`,
+  which already got this exact fix for the documented Michael Owen
+  1976-vs-1979 incident (NOTES.md 2026-08-03) — a player with more than
+  one non-preferred `P569` statement on Wikidata could get an arbitrary,
+  possibly wrong, `Player.BirthYear` via the position/birth-year backfill
+  service. Fixed to null out the ambiguous value on conflict instead of
+  guessing, same "omit rather than mislead" rule, adapted (a latched
+  `BirthYearAmbiguous` flag rather than dictionary-membership, since this
+  method's P413/P569 bindings are each independently `OPTIONAL` and can
+  cross-join into multiple rows per QID). Pure internal bug fix — REQ-1207's
+  behavior contract (birth year sourced from Wikidata's P569, null when
+  unavailable) is unchanged, no REQ/ADR needed. New regression test in
+  `WikidataClientTests.cs`. `dotnet` SDK unavailable this session — fix
+  hand-traced, not run; recommend a CI run before merging.
+
+- 2026-08-16 — `docs/decisions/0055-proactive-player-data-buildout.md`,
+  `docs/backlog.md` (new Epic 10, S-127) — investigated issues #195/#189/#188
+  (user-reported: stale career data, slow/failing live lookups, duplicate
+  and non-league clubs plus a birth-year complaint); S-127 fixes the first
+  of several resulting work items — `prefetch-player-careers.yml` and
+  `clean-duplicate-career-stints.yml` now run on a weekly cron instead of
+  `workflow_dispatch`-only, closing the gap where ADR-0055's own Follow-up
+  note already prescribed the cron switch (pending a clean confirmation run)
+  but the confirmation happened 2026-08-03 and nobody flipped the workflow.
+  ADR-0055 given a Resolved note recording this. Remaining work items from
+  the same investigation tracked as S-128 through S-131 (Epic 10) — a
+  birth-year parsing bug fix, a new ADR + implementation for closing stale
+  career stints, a live-lookup speed/UX cluster, and a deferred backlog
+  entry for non-league/reserve club filtering. S-131 itself is that
+  deferred entry — docs-only, recorded directly in the Epic 10 addition
+  above, no separate story needed since there's nothing to implement yet.
+
+- 2026-08-16 — `docs/decisions/0069-career-stint-reconciliation.md` (new) —
+  S-129 (`docs/backlog.md` Epic 10): drafted the ADR for closing a stale
+  `PlayerCareerStint` row (`EndYear: null`) when a later Wikidata fetch
+  reports the stint actually ended, instead of leaving it alongside a
+  newly-inserted duplicate row — the other half of issue #195's root cause
+  (S-127 fixed the "nothing ever re-fetches" half; this ADR is what makes a
+  re-fetch actually correct the stale row instead of duplicating it).
+  Matching key changes from a full 4-tuple to `(ClubName, StartYear)`;
+  update-in-place only for the unambiguous null-EndYear-to-value-EndYear
+  transition, any other conflict is logged and left untouched rather than
+  guessed at. Companion requirement (REQ-1208) drafted in parallel by
+  `requirements-writer`. Implementation not yet started as of this entry —
+  tracked separately once the ADR and REQ are both reviewed.
+
 - 2026-08-16 — `docs/architecture-document.md` (v0.99), `docs/requirements-document.md`
   (v1.72) — S-123 (`docs/backlog.md` Epic 9): applied S-116's same
   current-state-only treatment to the remaining "COMP-XX status (DATE,

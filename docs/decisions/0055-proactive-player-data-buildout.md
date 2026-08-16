@@ -143,6 +143,18 @@ two id spaces.
   reasonably move to move (2)'s recurring cron once a clean full run
   confirms the fix — still `workflow_dispatch`-only for now, pending that
   confirmation.
+- **Resolved 2026-08-16:** the clean full run confirmation this follow-up was
+  waiting on happened 2026-08-03 (NOTES.md's "608K rows" entry) but the
+  workflow was never actually switched over — reported as a stale-career-data
+  bug (a real player's data going stale because nothing ever re-fetched it,
+  e.g. issue #195). `prefetch-player-careers.yml` now runs weekly (Sunday
+  07:00 UTC), alongside `clean-duplicate-career-stints.yml` (also newly
+  scheduled, Sunday 08:00 UTC, to clean up any duplicates the weekly prefetch
+  introduces within the same cycle). Note this only prevents *future*
+  staleness for players the weekly run re-touches — it does not retroactively
+  close an already-stale `EndYear: null` stint like Nwakali's; that needs
+  separate reconciliation logic (tracked as a new follow-up, not yet
+  designed as of this note).
 - Follow-up: once (1)-(3) have run for real, revisit whether
   `MinValidAnswers`/`MinAppearancesAtSeededClub` thresholds (ADR-0023/
   ADR-0047) still reflect the right trade-off now that the underlying data

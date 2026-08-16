@@ -13,9 +13,20 @@ name: clean-duplicate-career-stints
 # present, so no confirmation input is required (contrast purge-player-pool's
 # required exact-phrase confirmation for its much more destructive, unscoped
 # write). Safe to re-run: a second run simply finds nothing left to clean.
+#
+# Weekly cron (2026-08-16, xG Path duplicate-club report follow-up): this was
+# manual-only, so new cross-writer duplicates (still possible for shapes
+# ADR-0059's canonicalization doesn't cover, e.g. null-vs-populated
+# AppearanceCount per ADR-0063) accumulated silently between whoever
+# remembered to click "Run workflow." Scheduled an hour after
+# prefetch-player-careers.yml's own weekly slot so any duplicates that job's
+# additive writes introduce get cleaned up within the same weekly cycle.
+# workflow_dispatch stays available for an on-demand run.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: "0 8 * * 0" # weekly, Sunday 08:00 UTC
 
 jobs:
   clean-duplicate-career-stints:

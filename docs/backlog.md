@@ -5627,3 +5627,127 @@ diff so was left alone per its own scope limit.
 with §5 and §6.1; no other content change; frontmatter bumped; CHANGELOG
 entry added.
 *Deps:* none.
+
+## Epic 10 — User-reported bug fixes (issues #195, #189, #188)
+
+Three issues reported through the in-product feedback flow (`user-reported`
+label), investigated 2026-08-16 in one session. Each got its own root-cause
+analysis before any fix — see each story's own text for what was ruled out.
+Not all three issues produced fixable-now work; #188's non-league/reserve
+club filtering (S-131) is deliberately a backlog entry only, not a fix,
+since it needs new reference data that doesn't exist yet.
+
+**S-127 · Schedule `prefetch-player-careers.yml`/`clean-duplicate-career-stints.yml` on a weekly cron**
+Issue #195 (a real player's career shown as stuck at a club he left years
+ago, three later clubs missing entirely) traced to `prefetch-player
+-careers.yml` never actually being switched from `workflow_dispatch`-only
+to the recurring cron ADR-0055's own Follow-up section already prescribed
+once a clean confirmation run happened — that confirmation run happened
+2026-08-03 (NOTES.md) but the workflow file was never updated to match.
+Also scheduled `clean-duplicate-career-stints.yml` (issue #188's duplicate
+-club report), previously manual-only, so duplicates the weekly prefetch
+introduces get cleaned within the same cycle instead of accumulating
+indefinitely between manual runs.
+*Accept:* both workflows carry a `schedule:` trigger alongside their
+existing `workflow_dispatch:`; ADR-0055 updated with a Resolved note.
+*Deps:* none — both workflows already existed and were already proven safe
+to run (ADR-0055, ADR-0059/ADR-0063).
+**Built as:** exactly as planned. `prefetch-player-careers.yml` → Sunday
+07:00 UTC, `clean-duplicate-career-stints.yml` → Sunday 08:00 UTC (an hour
+later, so the same week's new duplicates get cleaned). No code changes,
+workflow YAML + ADR-0055 Resolved note only.
+
+**S-128 · Fix birth-year preferred-rank parsing bug in `WikidataClient`**
+Issue #188 also reported birth years looking wrong. The pool-membership
+birth-year filter itself (ADR-0025, 1939 cutoff) was verified correct at
+every SPARQL query site — not a filter bug. But `ParsePositionBirthYearBindings`
+(feeds `Player.BirthYear` via the position/birth-year backfill service)
+takes the first `P569` (date of birth) binding row with no preferred-rank
+resolution, unlike `ParseNameIndexBindings`, which already got this exact
+fix for the documented Michael Owen 1976-vs-1979 incident. A player with
+more than one non-preferred `P569` statement on Wikidata can get an
+arbitrary, possibly wrong, birth year.
+*Accept:* `ParsePositionBirthYearBindings` applies the same preferred-rank/
+non-null defensive resolution as `ParseNameIndexBindings`; REQ-named
+regression test covering a multi-`P569`-statement fixture.
+*Deps:* none.
+**Built as:** `ParsePositionBirthYearBindings` now latches a `BirthYearAmbiguous`
+flag per QID and nulls out `BirthYear` the first time two rows for the same
+`?player` disagree, mirroring `ParseNameIndexBindings`'s "omit rather than
+mislead" rule — never re-filled from a later row once ambiguous, so a
+disagreement can't be quietly undone by row order. Not a shared helper with
+`ParseNameIndexBindings`: that method's query yields exactly one row per
+(qid, field), so "already in the dictionary" and "already has a non-null
+value" coincide, but P413/P569 here are each independently `OPTIONAL` and
+cross-join into several rows per QID with only one field per row, so the
+gate has to be the explicit ambiguity flag, not dictionary membership.
+Regression test `REQ1207_QueryPlayerPositionsAndBirthYearsByQidsAsync_ConflictingBirthYearRowsForSameQid_NullsOutBirthYear_RatherThanKeepingWhicheverArrivedFirst`
+added to `WikidataClientTests.cs`, reusing Michael Owen's QID (Q184895,
+already used by the existing `ParseNameIndexBindings` regression test) with
+his real conflicting-vs-actual dates (1976 vs. actual 14 Dec 1979, per
+`NOTES.md`'s 2026-08-03 entry) and asserting Position still resolves ("the
+conflict is only in the birth year") while BirthYear nulls out. No new
+Wikidata QID introduced. `dotnet` SDK unavailable in this sandbox — fix
+hand-traced against both the pre-existing single-row test and the new
+conflicting-row test but not run; recommend a CI run before merging.
+*Deps:* none.
+
+**S-129 · ADR + implement career-stint reconciliation (close stale ongoing stints)**
+The other half of issue #195's root cause: every `PlayerCareerStint` writer
+(`WikidataLookupService`, `PlayerCareerStintRefreshService`,
+`PlayerCareerPrefetchService`) is purely additive —
+`AddCareerStintsBatchAsync` only ever `AddRange`s. Nothing has ever closed
+an existing `EndYear: null` row when Wikidata later reports the stint
+ended, so S-127's cron alone only prevents *future* staleness; it can't
+retroactively fix an already-stale row like the reported one. Needs a new
+ADR first: this changes an additive-only invariant ADR-0059/ADR-0063 both
+rely on, so the matching key, appearance-count handling on a closed stint,
+and race conditions against the still-additive prefetch/refresh paths need
+explicit, reviewed semantics before code.
+*Accept:* new ADR accepted; `AddCareerStintsBatchAsync`'s (or a new
+sibling's) reconciliation logic closes a superseded ongoing stint instead
+of leaving it alongside a new row; REQ-named test reproduces the
+Nwakali-shape case (ongoing stint + newly-reported end date + newly-reported
+next club) and confirms the old row gets closed, not duplicated.
+*Deps:* none, but should land after S-127 (no point reconciling against
+data nothing is refreshing).
+
+**S-130 · Live-lookup speed/UX improvements**
+Issue #189 (slow lookups, "failed to look up" instead of "incorrect") is
+confirmed working as designed (ADR-0046's deliberate fail-open on timeout,
+to avoid scoring a real player wrong due to Wikidata latency) — not a
+correctness bug. Decision: keep fail-open, improve speed and messaging
+instead. Three angles: (a) parallelize row/column candidate live-lookup
+queries in `GridLiveLookupDispatcher` if not already parallel; (b)
+ADR-0052 fixed `BuildClubClubIntersectionQuery`'s combinatorial blowup via
+`FILTER EXISTS` but explicitly left `BuildCountryClubIntersectionQuery`/
+`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+unfixed because their `?clubStatement` qualifier binding couldn't use the
+same trick — investigate whether an equivalent fix is now possible; (c)
+the 503 "live verification unavailable" response needs frontend copy that
+clearly reads as "unresolved, try again," not "wrong answer."
+*Accept:* measured latency improvement on a representative sample of
+previously-slow pairs; any newly-fixed intersection query gets the same
+regression coverage ADR-0052's fix got; frontend shows distinct copy/UI
+for the unavailable case vs. an incorrect guess, covered by a Vitest/
+Playwright test.
+*Deps:* none.
+
+**S-131 · (backlog only) Non-league/reserve/B-team club filtering**
+Issue #188's other complaint: duplicate-looking entries aside, some clubs
+shown are reserve/B-teams (e.g. a first team's own reserve side) or
+non-league/regional/lower-tier clubs, which read as noise. Not fixable
+today: `ClubDefinition` has only `Name`/`WikidataQid`, no tier/division/
+reserve-team concept, and ADR-0047 already scoped exactly this out of MVP.
+Two sub-problems need solving, and both need new reference data before any
+filter logic is possible: (1) identifying a club as a reserve/B-team of a
+parent club (candidate: Wikidata's parent-organization property, or an
+"instance of" value distinguishing a reserve side), and (2) identifying a
+club as non-league/regional/below whatever tier is considered relevant
+(candidate: a league/division property, which nothing here currently
+reads). This entry exists to record the decision to defer, not to scope
+the eventual fix — that needs its own product discussion (what tier counts
+as "non-league" for this game?) before an ADR can be written.
+*Accept:* n/a — deferred story, no code.
+*Deps:* a product decision on what counts as "non-league" for this
+purpose, then likely a new ADR before implementation.
