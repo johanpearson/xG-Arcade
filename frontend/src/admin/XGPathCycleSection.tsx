@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { fetchAdminXGPathCycle } from '../lib/admin';
-import { useAdminSectionFetch } from './useAdminSectionFetch';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 
 interface XGPathCycleSectionProps {
   accessToken: string;
@@ -9,7 +9,7 @@ interface XGPathCycleSectionProps {
 
 // REQ-1209/ADR-0058: read-only visibility into xG Path's REQ-1208
 // target-selection cycle state, mirroring AccountMetricsSection's shape
-// exactly (both built on the shared useAdminSectionFetch hook, independent
+// exactly (both built on the shared useAuthedFetch hook, independent
 // of AdminScreen's top-level PageState) — a 401 escalates via onAuthError
 // like every other admin action in this file, a 403 only hides this
 // section, and any other error shows inline rather than failing the whole
@@ -18,7 +18,7 @@ interface XGPathCycleSectionProps {
 // by, any other admin section's state.
 export function XGPathCycleSection({ accessToken, onAuthError }: XGPathCycleSectionProps) {
   const fetchFn = useCallback(() => fetchAdminXGPathCycle(accessToken), [accessToken]);
-  const { data: cycleState, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const { data: cycleState, hidden, loadError } = useAuthedFetch(fetchFn, { onAuthError });
 
   if (hidden) return null;
 

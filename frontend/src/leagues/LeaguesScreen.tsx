@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { ApiError, describeError } from '../lib/apiClient';
 import { createLeague, fetchMyLeagues, joinLeague } from '../lib/leagues';
 import type { CustomLeague } from '../lib/types';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 import './LeaguesScreen.css';
 
 export interface LeaguesScreenProps {
@@ -11,70 +12,42 @@ export interface LeaguesScreenProps {
 
 const NAME_MAX_LENGTH = 50;
 
-type PageState =
-  | { phase: 'loading' }
-  | { phase: 'error'; message: string }
-  | { phase: 'ready' };
-
 // REQ-402/403: create a custom league and join one via invite code, plus a
 // simple list of the caller's own custom leagues. Deliberately does NOT
 // render a per-league leaderboard — that's REQ-404's separate, larger,
 // tracked follow-up (a full per-custom-league leaderboard with tab
 // switching); this screen's whole scope is create/join/list, matching the
-// "simple list is enough" story boundary. Structured the same way
-// SettingsScreen.tsx already establishes for this codebase's screens: a
-// `PageState` union gates loading/error/ready, and each independent action
-// (create, join) is its own small section with its own submitting/error
-// state, not one shared form.
+// "simple list is enough" story boundary. The initial fetch-on-mount uses
+// the shared `useAuthedFetch` hook (S-120) rather than a hand-rolled
+// `cancelled`-flag `useEffect`: loading is `data === null`, ready is
+// `data !== null`, and error is `loadError` set. `hidden` is never true for
+// this endpoint (no 403 case here), so it's folded into the same inline
+// error branch as `loadError` rather than getting its own render branch —
+// there's nothing meaningful to show differently for a state that can't
+// occur. Each independent action (create, join) is its own small section
+// with its own submitting/error state, not one shared form.
 export function LeaguesScreen({ accessToken, onAuthError }: LeaguesScreenProps) {
-  const [pageState, setPageState] = useState<PageState>({ phase: 'loading' });
-  const [leagues, setLeagues] = useState<CustomLeague[]>([]);
+  const fetchFn = useCallback(() => fetchMyLeagues(accessToken), [accessToken]);
+  const { data: leagues, hidden, loadError, refetch } = useAuthedFetch(fetchFn, { onAuthError });
 
-  const refreshLeagues = useCallback(async () => {
-    const mine = await fetchMyLeagues(accessToken);
-    setLeagues(mine);
-  }, [accessToken]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const mine = await fetchMyLeagues(accessToken);
-        if (cancelled) return;
-        setLeagues(mine);
-        setPageState({ phase: 'ready' });
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 401) {
-          onAuthError();
-          return;
-        }
-        setPageState({ phase: 'error', message: describeError(err) });
-      }
-    }
-
-    load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, onAuthError]);
-
-  if (pageState.phase === 'loading') {
-    return <p className="leagues-screen__status">Loading…</p>;
+  if (loadError !== null || hidden) {
+    return (
+      <p className="leagues-screen__status leagues-screen__status--error">
+        {loadError ?? 'Something went wrong loading your leagues.'}
+      </p>
+    );
   }
 
-  if (pageState.phase === 'error') {
-    return <p className="leagues-screen__status leagues-screen__status--error">{pageState.message}</p>;
+  if (leagues === null) {
+    return <p className="leagues-screen__status">Loading…</p>;
   }
 
   return (
     <div className="leagues-screen">
       <h2 className="leagues-screen__title">Leagues</h2>
 
-      <CreateLeagueSection accessToken={accessToken} onAuthError={onAuthError} onCreated={refreshLeagues} />
-      <JoinLeagueSection accessToken={accessToken} onAuthError={onAuthError} onJoined={refreshLeagues} />
+      <CreateLeagueSection accessToken={accessToken} onAuthError={onAuthError} onCreated={refetch} />
+      <JoinLeagueSection accessToken={accessToken} onAuthError={onAuthError} onJoined={refetch} />
       <MyLeaguesSection leagues={leagues} />
     </div>
   );

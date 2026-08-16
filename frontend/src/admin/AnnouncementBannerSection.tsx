@@ -7,7 +7,7 @@ import {
   upsertAnnouncementBanner,
 } from '../lib/announcements';
 import type { AdminAnnouncementBanner } from '../lib/types';
-import { useAdminSectionFetch } from './useAdminSectionFetch';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 
 interface AnnouncementBannerSectionProps {
   accessToken: string;
@@ -22,7 +22,7 @@ interface AnnouncementBannerSectionProps {
 // like SuggestionsScreen — a single message field plus two activate/
 // deactivate buttons doesn't warrant its own screen/nav hop the way
 // REQ-509/510's multi-row suggestion review queue does (ADR-0053).
-// Uses the shared useAdminSectionFetch hook for its fetch/cancel/401/403/
+// Uses the shared useAuthedFetch hook for its fetch/cancel/401/403/
 // error handling, same resilience pattern as AccountMetricsSection/
 // XGPathCycleSection: a 401 escalates via onAuthError, a 403 hides this
 // section only, and any other load failure shows inline — never blocking
@@ -37,11 +37,11 @@ export function AnnouncementBannerSection({ accessToken, onAuthError }: Announce
     const banner = await fetchAdminAnnouncementBanner(accessToken);
     // Wrapped in a container so `data` can distinguish "not loaded yet"
     // (null) from "loaded, no banner exists yet" (a non-null container
-    // holding a null banner) — useAdminSectionFetch's `data: T | null`
+    // holding a null banner) — useAuthedFetch's `data: T | null`
     // can't otherwise tell those apart when T itself is nullable.
     return { banner };
   }, [accessToken]);
-  const { data, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const { data, hidden, loadError } = useAuthedFetch(fetchFn, { onAuthError });
 
   // Save/activate/deactivate write their response straight into this local
   // override instead of triggering a second fetch — same no-round-trip
