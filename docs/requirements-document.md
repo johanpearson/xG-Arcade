@@ -7883,8 +7883,9 @@ pattern `AccountMetricsSection` already establishes).
 > their actual, current career rather than a stint that's years out of
 > date, so a "still at [club]" clue is accurate instead of stale.
 
-**Note (drafted alongside ADR-0069, 2026-08-16; not yet implemented,
-backlog S-129).** This closes the reconciliation half of issue #195
+**Note (drafted alongside ADR-0069, 2026-08-16; implemented the same day,
+backlog S-129 — "Built as: matches ADR-0069/REQ-1210 exactly, no
+deviations").** This closes the reconciliation half of issue #195
 (Kelechi Nwakali shown as still at Sociedad Deportivo Huesca years after
 leaving, with three subsequent real clubs missing) — S-127 (Epic 10)
 separately fixed the "nothing ever re-fetches a player's data" half by
