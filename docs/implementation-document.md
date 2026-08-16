@@ -1,9 +1,9 @@
 ---
 doc_id: implementation-document
 title: Implementation Document
-version: "0.97"
+version: "0.98"
 status: draft
-last_updated: 2026-08-11
+last_updated: 2026-08-16
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -411,7 +411,29 @@ attribute that could be misconfigured per-endpoint. See ADR-0006.
                                      module never imports from a peer game
                                      module's directory
     /leaderboard                 -> LeaderboardScreen (SCREEN-03, REQ-401/404's
-                                     Tier 0 slice — added S-011, global league only)
+                                     Tier 0 slice — added S-011, global league
+                                     only). S-121 split it (was 1,129 lines,
+                                     4 independent state machines) into
+                                     AllTimeLeaderboard/LiveLeaderboard/
+                                     PastRoundsLeaderboard/WindowedLeaderboard
+                                     (one component per scope, each owning its
+                                     own fetch/poll/pagination lifecycle) plus
+                                     shared LeaderboardRowsList (row/footer
+                                     rendering). LeaderboardScreen.tsx itself
+                                     (261 lines) is now a thin orchestrator:
+                                     header, game-key switcher, scope tab bar,
+                                     the scoring explainer modal, and always
+                                     mounting all four scope components
+                                     (gated by an `active` prop, not
+                                     conditional mount/unmount, to preserve
+                                     the all-time poll and each scope's
+                                     loaded state across tab switches — see
+                                     each component's own doc comment). Pure
+                                     structural refactor, no REQ/behavior
+                                     change; no shared fetch hook fit any of
+                                     the four scopes' lifecycles (unlike
+                                     S-120's LeaguesScreen), so each keeps its
+                                     own local handleAuthError helper instead
     /nav                          -> HeaderNav (SCREEN-07, REQ-712: mobile-only
                                      hamburger toggle collapsing the header nav
                                      below 480px)
