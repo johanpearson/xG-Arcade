@@ -13,6 +13,43 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/implementation-document.md` (v0.98) + `CODEBASE_ANALYSIS.md`
+  — S-121 (`docs/backlog.md` Epic 9, branch
+  `claude/leaderboard-screen-split-syb081`): split `LeaderboardScreen.tsx`
+  (1,129 lines, 4 independent state machines for the all-time/live/
+  past-rounds/window scopes) into `AllTimeLeaderboard.tsx`/
+  `LiveLeaderboard.tsx`/`PastRoundsLeaderboard.tsx`/`WindowedLeaderboard.tsx`
+  plus shared `LeaderboardRowsList.tsx` (row/footer rendering), all in
+  `frontend/src/leaderboard/`. None of the four scopes' fetch shapes
+  actually fit S-120's `useAuthedFetch` hook (each has its own poll/
+  pagination/deferred-fetch lifecycle the hook doesn't cover), so each keeps
+  a small local `handleAuthError` helper instead — confirmed consistent
+  with `coding-guidelines.md`'s existing scoped description of that hook,
+  no change needed there. `LeaderboardScreen.tsx` (now 261 lines) is a thin
+  orchestrator that always mounts all four scope components, gating visible
+  output via an `active` prop rather than conditional mount/unmount, to
+  preserve the all-time poll running continuously and each scope's loaded
+  state surviving a tab switch away/back. Test coverage relocated (not
+  rewritten) from `LeaderboardScreen.test.tsx` into matching per-component
+  test files, with shared test helpers extracted into
+  `leaderboardTestHelpers.ts`. Pure structural refactor, no REQ/behavior
+  change; `architecture-reviewer` and `quality-architect` both passed clean
+  and `architecture-reviewer` explicitly concluded no ADR is needed (same
+  reasoning as S-120: the always-mount pattern is dictated by the
+  pre-existing no-visual/behavior-change acceptance criterion, not a fresh
+  architectural fork, and is scoped to one screen with a single caller).
+  `docs/requirements-document.md` and `docs/architecture-document.md`
+  checked and left unchanged — their existing `LeaderboardScreen.tsx`
+  references describe screen-level behavior (still true) or high-level
+  `CONT-01` responsibilities, not internal file structure, so nothing there
+  went stale. `docs/implementation-document.md` §4's `/leaderboard`
+  project-structure entry was updated to name the four new scope
+  components and the shared row list directly, same pattern S-119 used for
+  `XGArcade.Games.XGGrid`'s split. `CODEBASE_ANALYSIS.md` §1/§5's prior
+  "watch-only, no action" call on this file (2026-08-11 revision) is marked
+  superseded in place, per the reasoning already on record in
+  `docs/backlog.md`'s S-121 entry — a full re-verified revision of that
+  report is still `code-health-auditor`'s job, not done here.
 - 2026-08-16 — `docs/coding-guidelines.md` (v0.8) — S-120 (`useAuthedFetch`
   hook promotion, branch `claude/shared-auth-fetch-hook-m31oms`): updated
   the fetch-on-mount hook guideline's name/path reference from
