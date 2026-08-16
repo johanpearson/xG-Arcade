@@ -5806,7 +5806,7 @@ treatment with every other error, including validation errors. Added
 `.guess-input__outcome-hint` already uses, `role="status"`) so the
 unavailable case is now both textually and visually distinct from the
 red "Not a match." indicator — no new design token. New Vitest test
-`S130_liveLookupUnavailable503_usesDistinctNeutralTreatment_...` in
+`REQ211_liveLookupUnavailable503_usesDistinctNeutralTreatment_...` in
 `GuessInput.test.tsx` exercises both outcomes against one instance and
 asserts the class/role difference directly; 582/582 frontend tests pass,
 clean `tsc -b`, clean `oxlint`. No latency benchmark was run (no live

@@ -686,7 +686,7 @@ describe('GuessInput', () => {
       expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument();
     });
 
-    it('S130_liveLookupUnavailable503_usesDistinctNeutralTreatment_notTheSameRedWrongIndicatorAnIncorrectGuessGets', async () => {
+    it('REQ211_liveLookupUnavailable503_usesDistinctNeutralTreatment_notTheSameRedWrongIndicatorAnIncorrectGuessGets', async () => {
       // Issue #189: a player reading "unavailable, try again" must not
       // mistake it for "that's not a match" — this asserts the two cases
       // render with genuinely different treatment, not just different
