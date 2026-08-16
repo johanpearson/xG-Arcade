@@ -13,6 +13,24 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — no docs changed beyond this entry — S-122 (`docs/backlog.md`
+  Epic 9): added direct repository-level tests to
+  `PlayerDataQualityRepositoryTests.cs` for the five
+  `IPlayerDataQualityRepository` methods that previously had only indirect
+  coverage via `GridGameModuleTests`/`PlayerCacheWarmingServiceTests`
+  (`IsConfirmedLowAsync`/`RecordConfirmedLowAsync`/
+  `IsPersistentTechnicalFailureAsync`/`RecordTechnicalFailureAsync`/
+  `ClearTechnicalFailureAsync`, REQ-110) — closing the gap flagged in
+  S-107's own note (Epic 8). Also renamed one new test to the
+  `REQ###_...` convention. Pure test addition, no production code touched,
+  no behavior change; `requirements-document.md`/`architecture-document.md`/
+  `implementation-document.md` all checked against their `update_when`
+  triggers and confirmed unchanged — REQ-110's documented behavior,
+  `PlayerDataQualityRepository`'s structure (`implementation-document.md`
+  §5's `ConfirmedLowMatchPair`/`PairLookupFailure` entries), and the
+  COMP-06/Games.XGGrid boundary are all exactly as already documented; no
+  ADR needed (confirmed during the quality gate).
+
 - 2026-08-16 — `docs/implementation-document.md` (v0.98) + `CODEBASE_ANALYSIS.md`
   — S-121 (`docs/backlog.md` Epic 9, branch
   `claude/leaderboard-screen-split-syb081`): split `LeaderboardScreen.tsx`
