@@ -5,6 +5,7 @@ import { LeaderboardScreen } from './LeaderboardScreen';
 // content" test below, which renders GridScreen alongside LeaderboardScreen
 // to compare their explainer's actual DOM output.
 import { GridScreen } from '../grid/GridScreen';
+import { defaultAllTimeRoute, jsonResponse, routedFetch, row } from './leaderboardTestHelpers';
 
 // S-121: this file now holds only the cross-cutting concerns that live in
 // LeaderboardScreen.tsx itself (the thin orchestrator) — the scoring
@@ -13,49 +14,6 @@ import { GridScreen } from '../grid/GridScreen';
 // moved to AllTimeLeaderboard.test.tsx / LiveLeaderboard.test.tsx /
 // PastRoundsLeaderboard.test.tsx / WindowedLeaderboard.test.tsx, matching
 // the component split.
-
-function jsonResponse(body: unknown, status = 200) {
-  return Promise.resolve({
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(body),
-  } as Response);
-}
-
-// REQ-406/407/408 (S-053/S-054): routes a fetch mock by URL substring so a
-// single test can serve distinct responses to the all-time/live/past-rounds
-// endpoints without caring about call order — the component now fires the
-// all-time poll on every mount regardless of which scope tab is active, so
-// every test touching the scope selector needs a default all-time response
-// too, not just the endpoint under test.
-function routedFetch(routes: Array<[string | RegExp, () => Promise<Response>]>) {
-  return vi.fn().mockImplementation((input: RequestInfo | URL) => {
-    const url = String(input);
-    for (const [matcher, handler] of routes) {
-      const matches = typeof matcher === 'string' ? url.includes(matcher) : matcher.test(url);
-      if (matches) return handler();
-    }
-    throw new Error(`No mock route for ${url}`);
-  });
-}
-
-const defaultAllTimeRoute: [string, () => Promise<Response>] = [
-  '/leagues/global/leaderboard',
-  () => jsonResponse({ rows: [], requestingUserRow: null, nextCursor: null, hasMore: false }),
-];
-
-// Order matters: routedFetch tries matchers in order, and
-// '/leagues/global/leaderboard' (the all-time route) is a substring of
-// every scope's URL, so the more specific active-round/closed-rounds
-// matchers must always be listed before it.
-
-// Local helper for the REQ410 game-switcher tests below — just cuts down on
-// repeating the same four-field row literal; not shared across files, so
-// kept local per the file's existing "one local helper" convention rather
-// than promoted to shared test infra.
-function row(rank: number, userId: string, displayName: string, totalPoints: number, isRequestingUser = false) {
-  return { rank, userId, displayName, totalPoints, isRequestingUser };
-}
 
 describe('LeaderboardScreen', () => {
   afterEach(() => {
