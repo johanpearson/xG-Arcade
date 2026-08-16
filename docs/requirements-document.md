@@ -1,9 +1,9 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.71"
+version: "1.72"
 status: draft
-last_updated: 2026-08-11
+last_updated: 2026-08-16
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -2494,11 +2494,12 @@ retroactive rescoring" clauses. The row/col category types are resolved
 authoritatively server-side (never trusted from the request) via a new
 `IGameModule.GetCellCategoryTypesAsync(instanceId, cellId)` method,
 reached the standard `Round.GameKey → IGameModuleResolver` way
-(ADR-0003) — see `architecture-document.md`'s COMP-05/COMP-11 status
-note for this new cross-game-module contract method, added specifically
-for this endpoint after an architecture-review fix (the original commit
-read `GridCell` directly via `IGridInstanceRepository` from this Api-layer
-file, a boundary violation caught same-session and corrected before
+(ADR-0003) — see `architecture-document.md` §5.2's cross-component method
+inventory for this contract method (`GetCellCategoryTypesAsync`, REQ-215),
+added specifically for this endpoint after an architecture-review fix (the
+original commit read `GridCell` directly via `IGridInstanceRepository`
+from this Api-layer file, a boundary violation caught same-session and
+corrected before
 merge). Frontend: `SuggestionEntry.tsx` (`frontend/src/grid/`) renders the
 entry point/form and is mounted by `GuessInput.tsx` at exactly the two
 trigger points below — a guest sees it present-but-disabled with

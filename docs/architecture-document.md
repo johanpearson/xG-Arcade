@@ -1,9 +1,9 @@
 ---
 doc_id: architecture-document
 title: Architecture Document
-version: "0.98"
+version: "0.99"
 status: draft
-last_updated: 2026-08-11
+last_updated: 2026-08-16
 owner: Johan
 related_docs:
   - requirements-document.md
@@ -20,7 +20,7 @@ update_when:
 
 # Architecture Document – xG Arcade
 
-Version 0.98 · 2026-08-11
+Version 0.99 · 2026-08-16
 References: `requirements-document.md`, `implementation-document.md`
 
 > **Naming note:** "xG Arcade" is a placeholder for the overall product name.
@@ -252,139 +252,104 @@ rationale, don't expect this list to explain anything on its own.
 
 **6.1 Grid generation flow** (realizes REQ-101, REQ-102, REQ-103, REQ-109)
 
-**Tier 0 status (S-008):** `Core.Rounds`/COMP-03 now exists and the diagram
-below is real end to end: `generate-round.yml`'s cron calls
-`POST /internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`,
-bearer-token-protected, registered in every environment — CONT-05's actual
-realization is "API endpoint," not a separate console job), which resolves
-a `GridTemplate`, calls `RoundGenerationService.GenerateNextRoundIfNeededAsync`
-(REQ-301's one-round-ahead rule, via the new `IGameModuleResolver`), and
-that service creates the `Round` itself once `GridGameModule
-.GenerateInstanceAsync` (`IGameModule`, COMP-05) succeeds — matching the
-diagram's last line exactly.
+`Core.Rounds` (COMP-03) drives grid generation end to end. `generate-round.yml`'s
+daily cron is the flow's only production trigger: it calls `POST
+/internal/generate-round` (`XGArcade.Api.Rounds.InternalRoundEndpoints`,
+bearer-token-protected, registered in every environment — this endpoint is
+CONT-05's actual realization, not a separate console job) once per
+`GameKey`, each call with its own independent retry loop. The endpoint
+takes an optional `gameKey` query parameter (defaulting to `"xg-grid"` for
+callers that omit it); its own `gameKey switch` — the *only* place in the
+handler that branches on `GameKey` — dispatches to either
+`GridTemplateResolver` or `PathTemplateResolver` (`XGArcade.Api.Path`) to
+resolve a `TemplateId`, while auth, the `roundDurationHours` floor
+validation, and the response/error shape (an unrecognized `gameKey`
+returns 400) all stay generic.
 
-**ADR-0022 addition (2026-07-12):** `RoundGenerationService` now also closes
-a round via `IRoundCloseService` (a new constructor dependency) — this same
-`generate-round.yml` cron is Tier 0's only production-scheduled trigger
-point, so REQ-205's score-locking (§6.2) now actually runs in the deployed
-environment, not only via the non-Production test-data endpoint. The round
-closed is never `latest` itself but its predecessor (`IRoundRepository
-.GetPreviousByGameKeyAsync`, new) — see ADR-0022 for why "latest" is the
-wrong round to check, and REQ-205's status note for the leaderboard-facing
-effect.
+The endpoint then calls `RoundGenerationService.GenerateNextRoundIfNeededAsync`
+(REQ-301's one-round-ahead rule), which takes a leading `gameKey` parameter
+and resolves that game's `RoundSchedulingOptions` via
+`IRoundSchedulingOptionsResolver` (ADR-0051, mirroring
+`IScoringStrategyResolver`'s per-`GameKey` resolution shape, ADR-0040)
+rather than a directly-injected singleton — two instances are registered
+today (`"xg-grid"`, `"xg-path"`), each with its own independently-configured
+`RoundDuration`. See ADR-0051 for the full decision, alternatives
+considered, and why `GridSize`/`PuzzleCount` live on each game's own
+generation-options class (`GridGenerationOptions`/`PathGenerationOptions`)
+rather than on `RoundSchedulingOptions` itself. The service creates the
+`Round` only once `GridGameModule.GenerateInstanceAsync` (`IGameModule`,
+COMP-05) succeeds, then closes the *previous* round — never the one it
+just created — via `IRoundCloseService` (ADR-0022), found through
+`IRoundRepository.GetPreviousByGameKeyAsync` since "the latest round" is
+the wrong one to check. This same cron is Tier 0's only
+production-scheduled trigger point, so REQ-205's score-locking (§6.2) runs
+in the deployed environment, not only via the non-Production test-data
+endpoint. `Round` carries a nullable `ClosedAt` column (REQ-408):
+`RoundCloseService.CloseRoundAsync` sets it once, first-close-wins, only
+*after* `IScoreLockingService.LockRoundScoresAsync` completes successfully
+— never before or concurrently, so a reader can never observe `ClosedAt`
+set while some guesses in that round still have `FinalPoints == null`.
+COMP-02's `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync` gate
+purely on this column.
 
-**COMP-03 status (S-054, REQ-408, executing ADR-0022's own anticipated
-follow-up):** `Round` gained a nullable `ClosedAt` column (`AddRoundClosedAt`
-migration) — the explicit revisit ADR-0022's "Follow-up" section already
-named ("if a past-round-detail screen is ever built... revisit adding an
-explicit `Round.ClosedAt` column then"). No new ADR needed; this is that
-decision executing, not a new one. `RoundCloseService.CloseRoundAsync` sets
-it once, first-close-wins, only *after* `IScoreLockingService
-.LockRoundScoresAsync` completes successfully — never before or
-concurrently, so a reader can never observe `ClosedAt` set while some
-guesses in that round still have `FinalPoints == null` (a real ordering bug
-caught by `quality-architect`'s S-054 quality-gate pass and fixed before
-merge). COMP-02's `GetClosedRoundsAsync`/`GetClosedRoundLeaderboardAsync`
-gate purely on this column.
-
-**COMP-03 status (S-026):** `XGArcade.Api.Admin.AdminManagementEndpoints`
-(REQ-505) is now a third caller of `IRoundCloseService.CloseRoundAsync`,
-alongside `RoundGenerationService` above and REQ-806's non-Production-only
-`/internal/test-data/force-close-round/{roundId}` — reached only through
-that existing interface plus `IRoundRepository` (to find the caller's own
-active round and, for the new "adjust end_time" action, to load and save
-it), never a new data-access path. This is also the first non-test-only,
+`IRoundCloseService.CloseRoundAsync` has three callers: `RoundGenerationService`
+above, `XGArcade.Api.Admin.AdminManagementEndpoints` (REQ-505, which finds
+the caller's own active round and, for its "adjust end_time" action, loads
+and saves it), and the non-Production-only
+`/internal/test-data/force-close-round/{roundId}` (REQ-806) — all reached
+only through that one interface plus `IRoundRepository`, never a second
+data-access path. The admin path is also the first non-test-only,
 admin-facing use of ADR-0006's fail-closed "endpoint group not registered
-at all outside non-Production" pattern — until now that pattern only
-gated `XGArcade.Testing`/`InternalRoundEndpoints` (COMP-09); its scope of
-use has grown, not its shape (see §7's Authorization row).
+at all outside non-Production" pattern — that pattern otherwise only gates
+`Testing.SeedManager` (COMP-09); see §7's Authorization row.
 
-**COMP-03 status (S-084, ADR-0051):** the shape described above (one
-`RoundSchedulingOptions`, one `GameKey`, resolved directly into
-`RoundGenerationService`) was single-`GameKey` only until this story.
-`RoundGenerationService.GenerateNextRoundIfNeededAsync` now takes a leading
-`gameKey` parameter and resolves the right `RoundSchedulingOptions` via a
-new `IRoundSchedulingOptionsResolver` (mirroring `IScoringStrategyResolver`'s
-per-`GameKey` resolution shape, ADR-0040) rather than a directly-injected
-singleton; two instances are now registered (`"xg-grid"`, `"xg-path"`),
-each with its own independently-configured `RoundDuration`.
-`/internal/generate-round` stays **one** endpoint, gaining an optional
-`gameKey` query parameter (defaulting to `"xg-grid"` for back-compat with
-any caller that omits it) — its own `gameKey switch`, dispatching narrowly
-to either `GridTemplateResolver` or the new `PathTemplateResolver`
-(`XGArcade.Api.Path`) to produce the round's opaque `TemplateId`, is the
-*only* place in the handler that branches on `GameKey`; auth, the
-`roundDurationHours` floor validation, and the response/error shape (an
-unrecognized `gameKey` now returns 400, a quality-gate follow-up correcting
-an initial 500) all stay generic. `generate-round.yml`'s single daily cron
-now triggers this endpoint once per `GameKey` (each with its own
-independent retry loop) rather than a second scheduled job. See ADR-0051
-for the full decision, alternatives considered, and why `GridSize`/the new
-`PuzzleCount` moved onto each game's own generation-options class
-(`GridGenerationOptions`/`PathGenerationOptions`) instead of staying on
-`RoundSchedulingOptions`.
+`POST /internal/grid/generate` is a second, deliberately-kept endpoint: it
+exercises grid generation in isolation from round scheduling for manual
+testing (covered by `GridEndpointTests.cs`) and, unlike
+`/internal/generate-round`, stays non-Production-only (ADR-0006-style
+gating). Neither endpoint's `GridTemplate` resolution goes through
+`IGameModule`: both call `IGridInstanceRepository` directly (via a shared
+`GridTemplateResolver` helper) to find-or-create a `GridTemplate` by a
+configured size. This is not a boundary violation — `GridTemplate` isn't
+player data, and no boundary rule forbids the API layer from reaching it
+directly — but it does mean there is still no admin-driven `GridTemplate`
+management (REQ-102's full scope) for either endpoint to route through
+instead.
 
-Two things from the S-007-era version of this note did **not** resolve the
-way that note predicted:
-
-- `POST /internal/grid/generate` (S-007's temporary endpoint) was
-  **deliberately kept, not retired.** It still exercises grid generation in
-  isolation from round scheduling for manual testing, and its existing test
-  coverage (`GridEndpointTests.cs`) was no reason to discard. It remains
-  non-Production-only (ADR-0006-style gating), unlike the new
-  `/internal/generate-round`.
-- The new, production-intended `/internal/generate-round` endpoint's own
-  template resolution still bypasses `IGameModule`: it calls
-  `IGridInstanceRepository` directly (via a shared `GridTemplateResolver`
-  helper, factored out of S-007's endpoint so both share one
-  find-or-create-by-size implementation) to find-or-create a `GridTemplate`
-  by a configured size, the same shortcut S-007's endpoint already took.
-  This is not a new boundary violation — `GridTemplate` isn't player data,
-  and no boundary rule forbids the API layer from reaching it directly —
-  but it means the gap this note originally framed as "temporary until
-  S-008" has actually carried forward into the production-intended
-  endpoint rather than closing. There is still no admin-driven
-  `GridTemplate` management (REQ-102's full scope) for either endpoint to
-  route through instead.
-
-What is built and matches the diagram: reference-table-only candidate
-selection (`Data.PlayerStore`/COMP-06 → `CountryDefinition`/`ClubDefinition`,
-ADR-0012), cache-first-then-live-lookup per combination (S-006's
-Wikidata-only half — no API-Football leg, see REQ-103's status note), and
-persistence of the resulting `GridInstance`/`GridCell`s and the chaining
-`Round`. Scoped further to Tier 0 (`MVP-SCOPE.md`): every grid is Country ×
-Club, Club × Club (`docs/backlog.md` S-030), or, as of S-031, a
-Trophy-involving pairing (Country × Trophy, Club × Trophy, or Trophy ×
-Trophy) — never Country×Country (REQ-107). Which of the (up to five)
-allowed pairings a given instance uses is chosen once per
-`GenerateInstanceAsync` call (`GridGameModule.SelectPairing`) — uniformly at
-random among whichever the seeded reference data can support,
-deterministically falling back to whichever subset is feasible otherwise.
-REQ-107's Country×Country ban is enforced by
-`CategoryPairingRules.IsAllowedPairing`, checked once per `PickHeadersAsync`
-call (invariant for that call, since every candidate in one call shares the
-same two category types) — not by a fixed-axis assumption baked into the
-code. **Load-bearing caveat, updated (2026-08-09, ADR-0061; REQ-108's
-status note has the full detail):** `ReferenceDataSeeder` now seeds three
-trophies (Ballon d'Or, FIFA World Cup, UEFA Champions League), which clears
-`Size` for the default `GridSize = 3` — Country×Trophy and Club×Trophy are
-now REACHABLE and actually selectable in production, not just mechanically
-wired up. Trophy×Trophy still needs `trophyCount >= Size × 2 = 6` and
+Candidate selection reads reference tables only —
+`Data.PlayerStore`/COMP-06's `CountryDefinition`/`ClubDefinition`/
+`TrophyDefinition` (ADR-0012), never derived ad hoc from whatever's
+already cached in `PlayerAttribute`. Each combination is resolved
+cache-first, falling back to a live lookup on a cache miss (REQ-103;
+Wikidata-only today, no API-Football leg), with the resulting
+`GridInstance`/`GridCell`s and the chaining `Round` persisted once every
+cell clears its threshold. Scoped to Tier 0 (`MVP-SCOPE.md`), every grid is
+Country × Club, Club × Club, or a Trophy-involving pairing (Country ×
+Trophy, Club × Trophy, or Trophy × Trophy) — never Country × Country
+(REQ-107). Which of the (up to five) allowed pairings a given instance
+uses is chosen once per `GenerateInstanceAsync` call
+(`GridGameModule.SelectPairing`) — uniformly at random among whichever the
+seeded reference data can support, deterministically falling back to
+whichever subset is feasible otherwise. REQ-107's Country×Country ban is
+enforced by `CategoryPairingRules.IsAllowedPairing`, checked once per
+`PickHeadersAsync` call (invariant for that call, since every candidate in
+one call shares the same two category types) — not by a fixed-axis
+assumption baked into the code. `ReferenceDataSeeder` seeds three trophies
+(Ballon d'Or, FIFA World Cup, UEFA Champions League), which clears `Size`
+for the default `GridSize = 3` — Country×Trophy and Club×Trophy are
+reachable and selectable in production (ADR-0061; REQ-108 has the full
+detail). Trophy×Trophy still needs `trophyCount >= Size × 2 = 6` and
 remains structurally infeasible until the trophy pool grows further.
 
-**Explicit rule, not just implied by the diagram below:** every live
-lookup this round's cells will ever need to reach `MinValidAnswers` happens
-*during generation*, before `Round` (the thing players can actually
-see/play) is created at all — a `Round` only exists once every cell has
-enough cached matches to clear REQ-101's threshold. This was originally
-read as making a "local DB only, no guess-time Wikidata fallback"
-answer-checking strategy defensible, on the theory that "enough cached
-matches" meant "every true match already cached." **That theory was wrong
-in practice (ADR-0010's predicted gap, confirmed 2026-07-10, ADR-0018):**
-clearing the threshold only proves *some* valid answers exist, not that
-every one does, so a real player can still be missing from the cache for a
-cell that's otherwise valid. REQ-211's guess-time fallback (below, S-011
-follow-up) exists precisely to cover that remaining gap — see 6.2.
+Every live lookup a round's cells will ever need to reach `MinValidAnswers`
+happens *during generation*, before the `Round` (the thing players can
+actually see/play) is created at all — a `Round` only exists once every
+cell has enough cached matches to clear REQ-101's threshold. Clearing that
+threshold proves only that *some* valid answers exist, not that every one
+does, so a real player can still be missing from the cache for a cell
+that's otherwise valid; REQ-211's guess-time fallback exists precisely to
+cover that remaining gap (ADR-0010's anticipated gap, ADR-0018) — see
+§6.2.
 
 ```
 Round Scheduler Job (COMP-03)
@@ -595,8 +560,8 @@ deliberate per `MVP-SCOPE.md`, not bugs:
   synthetic, worst-case-scored `Guess` row for each one before the existing
   lock-every-`Guess`-in-the-round step runs. This is `Core.Scoring`'s first
   dependency on `Core.Rounds`/COMP-05 data at round-close time (previously
-  this leg only wrote to `Database`); see COMP-04's status note in §5 for
-  the full rationale.
+  this leg only wrote to `Database`); see §5's COMP-04 row for the current
+  shape of `MaterializeUnansweredCellsAsync` this depends on.
 
 ```
 Player → Web Frontend: types a guess
@@ -846,13 +811,11 @@ This flow deliberately never reaches `Data.PlayerNameIndex`/COMP-10 or
 is a pending human claim, not a data write, until a future admin commit
 (REQ-509, S-090, not yet built) resolves it through the normal
 `PlayerOverride`/`PlayerAttribute` write path REQ-501 already uses. The
-row/col category type lookup is the one part of this flow with its own
-history: the original S-089 commit read `GridCell` directly via
-`IGridInstanceRepository` from the Api layer, bypassing `IGameModule` —
-a boundary rule 2 violation caught by `architecture-reviewer` before
-merge and corrected to the `IGameModule.GetCellCategoryTypesAsync` path
-shown above; see COMP-05/COMP-11's own S-089 status note for the full
-account.
+row/col category type lookup originally read `GridCell` directly via
+`IGridInstanceRepository` from the Api layer, bypassing `IGameModule` — a
+boundary rule 2 violation caught by `architecture-reviewer` before merge
+and corrected to the `IGameModule.GetCellCategoryTypesAsync` path shown
+above.
 
 **6.3 Data sync flow** (realizes REQ-501, REQ-502, REQ-503)
 
@@ -864,72 +827,36 @@ Admin → Web Frontend (admin view) → Backend API: approve/correct unverified 
   → Data.PlayerStore: create PlayerOverride or mark PlayerData verified
 ```
 
-**Tier 0 status (S-012):** the top half (sync writes PlayerData, merge-on-read
-prefers PlayerOverride) predates this story. This story built the bottom
-half's backend leg only, and only part of it: `XGArcade.Api.Admin
-.AdminEndpoints`, behind the new "Admin" authorization policy (§7 below),
-reaches `Data.PlayerStore` (COMP-06) exclusively through its existing
-`IPlayerStoreRepository` interface — no new data-access path, consistent
-with the COMP-06 boundary rule. `GET /admin/player-data/unverified` lists
-candidates; `POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` covers
-"create PlayerOverride". "Mark PlayerData verified" and "remove the data
-point" are not built — there is no way to flip a `PlayerData` row's
-`Confidence` or delete it via any endpoint yet (see REQ-503's status note
-at the time — since superseded, see the 2026-07-20/S-057 note below).
-No "Web Frontend (admin view)" exists — the Admin actor above reaches the
-Backend API directly (e.g. via a REST client), not through a UI.
+Routine syncs (`DataSync.Clients`/COMP-07 → `Data.PlayerStore`/COMP-06) and
+`PlayerCacheWarmingService` both persist `Confidence = "verified"` directly
+(a `WikidataLookupOrigin` parameter on `IWikidataLookupService`,
+ADR-0029/ADR-0032); REQ-211's guess-time fallback (§6.2) also persists
+`Confidence = "verified"` (ADR-0032, which supersedes ADR-0029's earlier
+fallback-specific `"unverified"` carve-out) — no code path writes
+`"unverified"` today, pending a real player-suggestion/correction channel
+(both ADRs' shared follow-up note). Merge-on-read prefers `PlayerOverride`
+when present, else `PlayerData`, in exactly one place (ADR-0015).
 
-**S-026/ADR-0029 status:** "Web Frontend (admin view)" now exists
-(`AdminScreen.tsx`, SCREEN-04 — REQ-504, also covered by this story's own
-COMP-01/COMP-03 status notes above and §6.8's account-deletion status note
-below). Once it had a real caller, `GET /admin/player-data/unverified`
-turned out to return 52,782 rows — every sync since S-006, since the top
-diagram line's "write to PlayerData" had persisted every row `Confidence =
-"unverified"` unconditionally, not merely "unverified until an admin
-acts." ADR-0029 narrows that: only REQ-211's guess-time fallback (§6.2)
-still writes `Confidence = "unverified"`; a routine sync (this section's
-top line, and `PlayerCacheWarmingService`) now writes `"verified"`
-directly, via a new `WikidataLookupOrigin` parameter on
-`IWikidataLookupService`. A one-time CLI verb
-(`verify-wikidata-player-data`) bulk-flipped the pre-existing backlog to
-match, since no persisted row records which of these two paths originally
-created it. At this point, "Mark PlayerData verified via an endpoint" and
-"remove the data point" still remained unbuilt, per the note above — this
-change addressed the queue's *size*, not that missing action.
-
-**2026-07-20/ADR-0032/S-057 status:** ADR-0032 supersedes ADR-0029's
-fallback-specific carve-out — REQ-211's guess-time fallback (§6.2) now
-also persists `Confidence = "verified"` directly, so no code path writes
-`"unverified"` anymore (until a real player-suggestion/correction channel
-exists, per both ADRs' shared follow-up note). Separately, the same
-2026-07-20 batch of work finally builds "Mark PlayerData verified via an
-endpoint," closing half of the gap the two status notes above flagged:
-`POST /admin/player-data/approve` (`XGArcade.Api.Admin.AdminEndpoints`,
-Admin policy, REQ-503's 2026-07-20 extension) takes one or more
-`PlayerData` ids and flips each independently to `verified`, reached
-through the same `IPlayerStoreRepository` (COMP-06) interface as every
-other caller — `PlayerStoreRepository.ApprovePlayerDataAsync`, no new
-data-access path. Audit fields (`PlayerData.ApprovedByAdminId`/
-`ApprovedAt`) mirror `PlayerOverride`'s existing `LockedByAdminId`/
-`LockedAt` shape rather than a separate audit-log table. Because the review
-queue is now empty by construction going forward (ADR-0032), this new
-endpoint's practical caseload is limited to whatever
-`unverified`-at-write-time backlog exists from before that ADR shipped,
-plus any future player-suggestion channel once one exists.
-
-**2026-07-20/S-061 status:** "Remove the data point" — the other half of
-the gap the two status notes above flagged — is now built too:
-`POST /admin/player-data/remove` (`XGArcade.Api.Admin.AdminEndpoints`,
-Admin policy, REQ-503's second 2026-07-20 extension) takes one or more
-`PlayerData` ids and hard-deletes each independently, again through
-`IPlayerStoreRepository` (COMP-06) only — `PlayerStoreRepository
-.RemovePlayerDataAsync`, no new data-access path. Unlike approve, a row
-does not need to still be `"unverified"` to be removed. Because the row is
-gone rather than mutated, there is no `ApprovedByAdminId`-shaped pair of
-audit columns to set; "the action is logged with admin_id and a timestamp"
-(REQ-503) is satisfied by a structured `ILogger` line per successfully
-removed row instead, not a new audit-log table. Approve, correct
-(`PlayerOverride`), and remove are now all built — REQ-503's full scope.
+`XGArcade.Api.Admin.AdminEndpoints`, behind the "Admin" authorization
+policy (§7), is the admin-facing surface, reached only through
+`IPlayerStoreRepository` (COMP-06) — no separate data-access path.
+`POST/GET/PUT/DELETE /admin/player-overrides[/{id}]` creates and manages
+`PlayerOverride` rows, REQ-501's correction path. `GET
+/admin/player-data/unverified` lists any remaining unverified backlog.
+`POST /admin/player-data/approve` flips one or more `PlayerData` ids to
+`verified` (`PlayerStoreRepository.ApprovePlayerDataAsync`); audit fields
+(`PlayerData.ApprovedByAdminId`/`ApprovedAt`) mirror `PlayerOverride`'s
+`LockedByAdminId`/`LockedAt` shape rather than a separate audit-log table.
+`POST /admin/player-data/remove` hard-deletes one or more `PlayerData` ids
+(`PlayerStoreRepository.RemovePlayerDataAsync`) regardless of `Confidence`;
+since the row is gone rather than mutated, REQ-503's "the action is logged
+with admin_id and a timestamp" requirement is satisfied by a structured
+`ILogger` line per removed row instead of an audit column. Approve,
+correct (`PlayerOverride`), and remove together implement REQ-503's full
+scope. `AdminScreen.tsx` (SCREEN-04, REQ-504) is this admin surface's
+frontend; the account-management and round-close admin actions REQ-504
+also covers are described in COMP-01's and COMP-03's rows in §5, and in
+§6.8 for account deletion specifically.
 
 **6.4 Signup and email confirmation flow** (realizes REQ-701–REQ-705)
 
@@ -1024,43 +951,36 @@ User → Web Frontend → Backend API: DELETE /auth/account (with confirmation)
   → Email becomes available for a new registration
 ```
 
-**Built as (S-025):** the "Core.Users" step above is slightly compressed —
-`IAccountDeletionService` (COMP-01) also makes an explicit call into
-`ILeagueRepository` (COMP-02) to remove the user's `LeagueMembership` rows,
-between the `Guess` anonymize step and the `User` row delete (§5's COMP-01
-status note has the precise sequence and reasoning). Attributed to
-"Core.Users" here only for brevity, same as this diagram already
-compresses several other cross-component calls elsewhere in this document.
-`NotificationPreference` deletion is a no-op — that table doesn't exist yet
-in Tier 0 (Resend/notification preferences are Tier 1, `MVP-SCOPE.md`).
-Deleting the Supabase Auth identity needed a new `Supabase:ServiceRoleKey`
-secret, since the anon key the rest of this flow's Supabase Auth calls use
-can't call the Admin API — see ADR-0026.
+`IAccountDeletionService` (COMP-01) is reached from several entry points,
+all converging on the same `DeleteAccountAsync` call — never a second
+implementation. The self-service path above (`DELETE /auth/account`,
+REQ-710) is slightly compressed in the diagram: the "Core.Users" step
+anonymizes every `Guess` row belonging to the user (severs the `UserId`
+link rather than deleting the rows, since other players' uniqueness scores
+and leaderboard totals depend on the total guess count), also removes the
+user's `LeagueMembership` rows (`ILeagueRepository`, COMP-02), then deletes
+the `User` record and the Supabase Auth identity/credential — needing the
+privileged `Supabase:ServiceRoleKey` secret, since the anon key the rest of
+this flow's Supabase Auth calls use can't reach the Admin API (ADR-0026) —
+freeing the email for a new registration. `NotificationPreference`
+deletion is currently a no-op — that table doesn't exist yet in Tier 0
+(Resend/notification preferences are Tier 1, `MVP-SCOPE.md`).
 
-**S-026 addition (REQ-506):** this flow now has a second entry point —
-`Admin → Web Frontend (admin view) → Backend API: DELETE /admin/users?email=`
-(`XGArcade.Api.Admin.AdminManagementEndpoints`, non-Production-only,
-ADR-0006) — which resolves the admin-supplied email to a `User.Id` (new
-`IUserRepository.GetByEmailAsync`) and then joins the diagram above at
-exactly the same `IAccountDeletionService` call the self-service path uses;
-everything below that point is identical, unchanged, and not duplicated.
-
-**S-072 addition (REQ-718/ADR-0038):** two more entry points join the same
-`IAccountDeletionService` call — `AuthController.Logout` and
-`InternalGuestCleanupEndpoints`'s scheduled job (see §6.10) — a fourth and
-fifth *caller*, not a second/third/fourth *implementation*.
-
-**S-073 addition (REQ-508):** a sixth entry point joins the same call —
-`Admin → Web Frontend (admin view) → Backend API: POST
+The same call is also reached by: admin-triggered deletion, `DELETE
+/admin/users?email=` (`XGArcade.Api.Admin.AdminManagementEndpoints`,
+non-Production-only, ADR-0006, REQ-506), which resolves the admin-supplied
+email to a `User.Id` via `IUserRepository.GetByEmailAsync`;
+`AuthController.Logout`, for the best-effort unclaimed-guest cleanup
+described in §6.10's Rule 1; `InternalGuestCleanupEndpoints`'s scheduled
+job (REQ-718/ADR-0038, §6.10's Rules 2/3); and `POST
 /admin/accounts/guests/clear` (`XGArcade.Api.Admin.AdminAccountsEndpoints`,
-registered unconditionally including Production, unlike
-`AdminManagementEndpoints` above) — which selects every currently-matching
-guest id via a new, unfiltered `IUserRepository.GetAllGuestIdsAsync` (not
-REQ-718's age-filtered queries — REQ-508's own scope note requires no
-age/inactivity filter, unlike REQ-718's cleanup queries) and then joins
-this diagram at the same `IAccountDeletionService` call
-every other entry point uses; everything below that point is identical,
-unchanged, and not duplicated.
+registered unconditionally including Production, REQ-508), which selects
+every currently-matching guest id via `IUserRepository.GetAllGuestIdsAsync`
+— deliberately unfiltered, unlike REQ-718's age-filtered cleanup queries,
+per REQ-508's own scope note. Every entry point converges on
+`IAccountDeletionService.DeleteAccountAsync` once it has resolved the
+target `User.Id`, so everything past that point is identical across all of
+them.
 
 **6.9 Backup flow** (realizes REQ-901 — Supabase's free tier has no built-in backups)
 
