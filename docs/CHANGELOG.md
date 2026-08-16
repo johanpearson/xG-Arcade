@@ -13,6 +13,14 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/coding-guidelines.md` (v0.8) — S-120 (`useAuthedFetch`
+  hook promotion, branch `claude/shared-auth-fetch-hook-m31oms`): updated
+  the fetch-on-mount hook guideline's name/path reference from
+  `useAdminSectionFetch` (`frontend/src/admin/useAdminSectionFetch.ts`) to
+  `useAuthedFetch` (`frontend/src/lib/useAuthedFetch.ts`), and rewrote the
+  closing sentence from forward-looking anticipation to present tense now
+  that the promotion outside `AdminScreen.tsx` (into `LeaguesScreen.tsx`)
+  has actually happened.
 - 2026-08-11 — `docs/architecture-document.md` (v0.98) +
   `docs/requirements-document.md` (v1.71) + `docs/implementation-document.md`
   (v0.97) + new `docs/decisions/0068-grid-game-module-responsibility-split.md`

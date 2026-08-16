@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { fetchAdminAccountMetrics } from '../lib/admin';
-import { useAdminSectionFetch } from './useAdminSectionFetch';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 import { GuestClearSection } from './GuestClearSection';
 
 interface AccountMetricsSectionProps {
@@ -12,7 +12,7 @@ interface AccountMetricsSectionProps {
 // AdminScreen (see the render-site comment there) — never gated by the
 // Non-Production-only activeRound probe RoundControlSection/
 // UserDeletionSection share, since both REQs are explicitly Production-
-// visible. Uses the shared useAdminSectionFetch hook for its fetch/error
+// visible. Uses the shared useAuthedFetch hook for its fetch/error
 // state, independently of AdminScreen's top-level PageState: a 401 here
 // escalates via onAuthError like every other admin action in this file, but
 // a 403 only hides this section (`hidden`) rather than flipping the whole
@@ -24,7 +24,7 @@ interface AccountMetricsSectionProps {
 // ordering.
 export function AccountMetricsSection({ accessToken, onAuthError }: AccountMetricsSectionProps) {
   const fetchFn = useCallback(() => fetchAdminAccountMetrics(accessToken), [accessToken]);
-  const { data: metrics, hidden, loadError, refetch } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const { data: metrics, hidden, loadError, refetch } = useAuthedFetch(fetchFn, { onAuthError });
 
   if (hidden) return null;
 

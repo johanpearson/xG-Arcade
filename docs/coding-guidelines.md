@@ -1,9 +1,9 @@
 ---
 doc_id: coding-guidelines
 title: Coding Guidelines
-version: "0.7"
+version: "0.8"
 status: draft
-last_updated: 2026-08-11
+last_updated: 2026-08-16
 owner: Johan
 related_docs:
   - architecture-document.md
@@ -113,7 +113,7 @@ update_when:
   which agent or person writes the code.
 - **Fetch-on-mount sections that classify a result into "escalate on 401 /
   hide on 403 / show inline on any other error", guarded against unmount:**
-  reuse `useAdminSectionFetch` (`frontend/src/admin/useAdminSectionFetch.ts`)
+  reuse `useAuthedFetch` (`frontend/src/lib/useAuthedFetch.ts`)
   rather than hand-rolling another `cancelled`-flag `useEffect`. Extracted once this
   exact shape reached five independent copies in that one file
   (`PlayerSuggestionsEntry`/REQ-512, `IncidentReportsEntry`/REQ-904,
@@ -126,9 +126,12 @@ update_when:
   `XGPathCycleSection`'s `hasData`, `IncidentReportsEntry`'s `available`)
   stays the caller's to branch on via `data`, never folded into the hook —
   see that hook's own doc comment for why conflating the two would be wrong.
-  Not admin-screen-specific in principle; if this shape shows up outside
-  `AdminScreen.tsx`, that's `quality-architect`'s call on whether to promote
-  it to a shared location, not a reason to duplicate it again first.
+  Not admin-screen-specific: this shape showed up outside `AdminScreen.tsx`
+  (S-120's `LeaguesScreen.tsx`), so the hook now lives in
+  `frontend/src/lib/` rather than under `frontend/src/admin/` and is used
+  by both admin sections and general screens — duplicating it again
+  instead of importing from `lib/` is not a reason to reintroduce a
+  `frontend/src/admin/`-scoped copy.
 
 ## Testing
 

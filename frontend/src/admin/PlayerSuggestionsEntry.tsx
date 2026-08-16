@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { fetchPendingSuggestions } from '../lib/admin';
-import { useAdminSectionFetch } from './useAdminSectionFetch';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 
 interface PlayerSuggestionsEntryProps {
   accessToken: string;
@@ -11,7 +11,7 @@ interface PlayerSuggestionsEntryProps {
 // REQ-512: the "Player suggestions" entry point's pending-count badge.
 // Reuses REQ-509's existing GET /admin/suggestions data (fetchPendingSuggestions)
 // — no new endpoint, no second data source. Uses the shared
-// useAdminSectionFetch hook (same resilience pattern as
+// useAuthedFetch hook (same resilience pattern as
 // AccountMetricsSection/XGPathCycleSection): a 401 escalates via
 // onAuthError, a 403 leaves the count absent silently (this section never
 // erroring or flipping the whole page to access-denied — the button itself
@@ -38,7 +38,7 @@ export function PlayerSuggestionsEntry({ accessToken, onAuthError, onOpenSuggest
   // AccountMetricsSection/XGPathCycleSection, this section never hides
   // itself outright — the button must keep rendering regardless of the
   // fetch's outcome, since SuggestionsScreen enforces its own access checks.
-  const { data, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const { data, loadError } = useAuthedFetch(fetchFn, { onAuthError });
   const pendingCount = data ? data.length : null;
 
   return (

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { fetchAdminIncidentReports } from '../lib/incidents';
-import { useAdminSectionFetch } from './useAdminSectionFetch';
+import { useAuthedFetch } from '../lib/useAuthedFetch';
 
 // REQ-904/ADR-0064/ADR-0066: this repo's fixed, server-configured owner/repo/
 // label (same values Program.cs's GitHubIncidentReportOptions defaults to,
@@ -20,7 +20,7 @@ interface IncidentReportsEntryProps {
 }
 
 // REQ-904/ADR-0066 (S-098): fetch-on-load only (no polling/websocket —
-// REQ-904's own freshness model), using the shared useAdminSectionFetch hook
+// REQ-904's own freshness model), using the shared useAuthedFetch hook
 // for the transport half (401/403/thrown-error/cancel). Three renderable
 // states, not PlayerSuggestionsEntry's two, because a GitHub-poll failure
 // (`available: false`) is a real, distinct failure/unknown state — never
@@ -32,7 +32,7 @@ interface IncidentReportsEntryProps {
 // this section only; a GitHub-poll failure (`available: false` in a normal
 // 200 body, per ADR-0066 — never a thrown error) renders a distinct inline
 // message, branched on locally rather than inside the hook (see
-// useAdminSectionFetch's own doc comment for why); any other failure (500,
+// useAuthedFetch's own doc comment for why); any other failure (500,
 // network, parse) also renders inline rather than silently reading as
 // "nothing open", the one failure mode this entry point can't afford per
 // REQ-904's "never a false zero-count" rule. Renders the count next to the
@@ -42,13 +42,13 @@ interface IncidentReportsEntryProps {
 // always shown.
 export function IncidentReportsEntry({ accessToken, onAuthError }: IncidentReportsEntryProps) {
   const fetchFn = useCallback(() => fetchAdminIncidentReports(accessToken), [accessToken]);
-  const { data, hidden, loadError } = useAdminSectionFetch(fetchFn, { onAuthError });
+  const { data, hidden, loadError } = useAuthedFetch(fetchFn, { onAuthError });
 
   if (hidden) return null;
 
   // ADR-0066: `available: false` is a business-level state carried inside a
   // normal 200 response body, not a thrown error, so it's branched on here
-  // rather than inside useAdminSectionFetch (which only owns transport-level
+  // rather than inside useAuthedFetch (which only owns transport-level
   // states). Never rendered as openCount: 0.
   const openCount = data && data.available ? data.openCount : null;
   const unavailable = data !== null && !data.available;
