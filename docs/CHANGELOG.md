@@ -13,6 +13,60 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/architecture-document.md` (v0.99), `docs/requirements-document.md`
+  (v1.72) — S-123 (`docs/backlog.md` Epic 9): applied S-116's same
+  current-state-only treatment to the remaining "COMP-XX status (DATE,
+  S-xxx):"/"S-xxx addition:" accretion pockets in §6 (Key data flows) that
+  S-116 deliberately left for this follow-up. §6.1 (Grid generation flow)'s
+  opening pocket — 137 lines/8,737 characters of dated, stacked status
+  prose between the heading and the flow diagram — is now 102 lines/6,439
+  characters of current-state prose (26% reduction). While in §6, checked
+  the rest of the section for the same pattern at a similarly bloated scale
+  (per S-116's own conservatism principle — not rewriting prose that was
+  already current-state) and found two more genuine pockets, both fixed the
+  same way: §6.3 (Data sync flow)'s four stacked "Tier 0 status (S-012)"/
+  "S-026/ADR-0029 status"/"2026-07-20/ADR-0032/S-057 status"/
+  "2026-07-20/S-061 status" paragraphs (77 lines/4,892 characters → 41
+  lines/2,495 characters, 49% reduction), and §6.8 (Account deletion
+  flow)'s "Built as (S-025)"/"S-026 addition"/"S-072 addition"/"S-073
+  addition" paragraphs (50 lines/2,917 characters → 43 lines/2,549
+  characters). §6.2, §6.4, §6.6, §6.9, and §6.10's remaining single "Tier 0
+  status"/"Built as" paragraphs were checked and left alone — they read as
+  current, load-bearing diagram-correction content, not accreted dated
+  narration, matching the bar S-116 already applied. Whole document: 1,254
+  lines/98,350 characters → 1,174 lines/93,196 characters (6.4%/5.2%
+  reduction). No ADR/REQ/COMP pointer was lost — every ADR-xxxx/REQ-xxx/
+  COMP-xxx reference present in each rewritten pocket before the edit was
+  grepped and confirmed still present after (§6.3's rewrite additionally
+  gained one correct pointer, ADR-0015, for the override-precedence rule it
+  already described). Fixed three dangling cross-references discovered by
+  grepping the whole `docs/` tree for "status note"/"status notes" phrases
+  pointing at the removed prose: two within `architecture-document.md`
+  itself (§6.2's "see COMP-04's status note in §5" → "see §5's COMP-04 row";
+  §6.2c's "see COMP-05/COMP-11's own S-089 status note" → removed, since the
+  same paragraph already states the full account inline) and one in
+  `docs/requirements-document.md` (REQ-215's "see architecture-document.md's
+  COMP-05/COMP-11 status note" → repointed to §5.2's cross-component method
+  inventory, which already lists `GetCellCategoryTypesAsync`/REQ-215
+  explicitly). Frontmatter `version`/`last_updated` bumped on both files;
+  `architecture-document.md`'s in-body "Version 0.98 · 2026-08-11" line
+  (already back in sync with frontmatter since S-116 fixed a prior drift)
+  bumped to match, 0.99 · 2026-08-16. Quality-gate review (`architecture-reviewer`
+  and `quality-architect`, independently) caught two pre-existing stale
+  identifiers carried forward unexamined into the rewritten §6.1/§6.3 prose
+  — `GridGameModule.SelectPairing` (actually `GridGenerationService
+  .SelectPairing`, per §5's own COMP-05 row) and `IPlayerStoreRepository`/
+  `PlayerStoreRepository.Approve/RemovePlayerDataAsync` (that repository no
+  longer exists post-ADR-0067; the correct names are
+  `IPlayerDataRepository`/`PlayerDataRepository.Approve/RemovePlayerDataAsync`,
+  per §5's own COMP-06 row) — both verified against the actual backend code
+  and corrected in the same commit. Two further pre-existing issues found
+  during review are explicitly out of this story's scope and left for a
+  follow-up: §6.2c cites ADR-0052 where it should cite ADR-0053 for
+  player-suggestion admin views, and §6.10 still names the pre-split
+  `XGArcade.Testing`/COMP-09 rather than `Testing.SeedManager`; neither line
+  was touched by this diff.
+
 - 2026-08-16 — no docs changed beyond this entry — S-122 (`docs/backlog.md`
   Epic 9): added direct repository-level tests to
   `PlayerDataQualityRepositoryTests.cs` for the five

@@ -5565,6 +5565,27 @@ Check the rest of §6 (§6.2 onward) for the same pattern while in there,
 but don't rewrite what's still accurate just because you're in the file —
 S-116's own conservatism principle applies here too.
 *Deps:* none.
+**Built as:** matches the plan, plus two more genuine pockets found while
+scanning the rest of §6 (`code-health-auditor`, per S-117's ownership of
+documentation-bloat remediation): §6.3 (Data sync flow, 4 stacked status
+paragraphs) and §6.8 (Account deletion flow, 4 stacked "addition"
+paragraphs), both given the same treatment. §6.2/§6.4/§6.6/§6.9/§6.10 were
+checked and correctly left alone. Whole document: 1,254 lines/98,350
+characters → 1,174 lines/93,196 characters (6.4%/5.2% reduction); zero
+ADR/REQ/COMP pointers lost, verified by diffing the reference set of each
+rewritten section before/after, not just spot-checked. Quality gate
+(`architecture-reviewer` + `quality-architect`, run independently and in
+parallel) both caught the same two pre-existing stale identifiers carried
+forward unexamined into the new prose — `GridGameModule.SelectPairing`
+(actually on `GridGenerationService`) and `IPlayerStoreRepository`
+(replaced by `IPlayerDataRepository`/`IPlayerOverrideRepository` under
+ADR-0067) — both corrected in the same PR since the paragraphs were
+already being rewritten. Two further, genuinely out-of-scope doc/code
+mismatches surfaced by the same review (§6.2c's stale ADR-0052 citation,
+§6.10's stale `XGArcade.Testing` naming — neither line touched by this
+diff) were deliberately not fixed here and are tracked as S-125/S-126
+below instead, per this story's own "don't rewrite what's still accurate
+just because you're in the file" scope limit.
 
 **S-124 · WikidataClient.cs: migrate `QueryPlayerPhotosByQidsAsync`/`QueryPlayerPhotoByNameAsync` onto the shared throwing driver**
 S-118's `quality-architect` review pass found that these two methods
@@ -5580,3 +5601,29 @@ assertions and exact timeout/exception-message assertions for both methods,
 not just non-null; full `WikidataClientTests.cs` suite passes unchanged;
 line count reduction reported in the PR description.
 *Deps:* S-118 (extends its driver without reopening it).
+
+**S-125 · architecture-document.md §6.2c: fix stale ADR-0052 citation**
+S-123's quality gate (`architecture-reviewer`) found `docs/architecture
+-document.md`'s §6.2c cites ADR-0052 ("boundary rule 5 and ADR-0052 both
+apply") for player suggestions, but ADR-0052 is actually about cache-
+warming's technical-failure persistence (`PairLookupFailure`/
+`ConfirmedLowMatchPair`) — unrelated. The correct citation is ADR-0053
+(player-suggestion admin view), which §5's own COMP-06 row already cites
+correctly for `PlayerSuggestion`/`PlayerSuggestionClub`. Predates S-123;
+that story's line wasn't touched by S-123's diff so was left alone per its
+own scope limit.
+*Accept:* §6.2c's citation corrected to ADR-0053; no other content change;
+frontmatter bumped; CHANGELOG entry added.
+*Deps:* none.
+
+**S-126 · architecture-document.md §6.10: fix stale `XGArcade.Testing` naming**
+S-123's quality gate (`quality-architect`) found `docs/architecture
+-document.md` §6.10 still names the pre-split `XGArcade.Testing`/COMP-09
+component, while S-123's own §6.1 rewrite (and §5's COMP-09 row) already
+use the current name, `Testing.SeedManager`. Same document, two names for
+the same component. Predates S-123; that section wasn't touched by S-123's
+diff so was left alone per its own scope limit.
+*Accept:* §6.10 updated to `Testing.SeedManager` (COMP-09), consistent
+with §5 and §6.1; no other content change; frontmatter bumped; CHANGELOG
+entry added.
+*Deps:* none.
