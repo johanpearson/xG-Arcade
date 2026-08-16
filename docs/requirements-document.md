@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.72"
+version: "1.73"
 status: draft
 last_updated: 2026-08-16
 owner: Johan
@@ -7854,6 +7854,81 @@ admin endpoint's own test coverage), UI (the section renders each field
 from a successful fetch, renders the pre-first-generation empty state,
 and follows the same 401-escalates/403-hides/other-error-shows-message
 pattern `AccountMetricsSection` already establishes).
+
+**REQ-1210 – Career-stint reconciliation closes a superseded ongoing stint**
+> As a player, I want an xG Path target's revealed career stints to reflect
+> their actual, current career rather than a stint that's years out of
+> date, so a "still at [club]" clue is accurate instead of stale.
+
+**Note (drafted alongside ADR-0069, 2026-08-16; not yet implemented,
+backlog S-129).** This closes the reconciliation half of issue #195
+(Kelechi Nwakali shown as still at Sociedad Deportivo Huesca years after
+leaving, with three subsequent real clubs missing) — S-127 (Epic 10)
+separately fixed the "nothing ever re-fetches a player's data" half by
+putting the prefetch job on a recurring cron; this REQ covers what must
+happen once a re-fetch *does* observe a change. See ADR-0069 for the
+matching-key mechanism and the reasoning behind what is and isn't
+auto-resolved; this REQ specifies only the observable, testable outcome.
+
+- Given a player already has a stored `PlayerCareerStint` row (COMP-06)
+  for a `(ClubName, StartYear)` pair with `EndYear: null` (an "ongoing"
+  stint), and one of the three existing `PlayerCareerStint` writer paths —
+  the xG Grid guess-time lookup byproduct (ADR-0042), the xG Path
+  per-target refresh, or the proactive prefetch job (COMP-11) — fetches a
+  fresh Wikidata career-stint entry sharing that same `(ClubName,
+  StartYear)` pair with a non-null `EndYear`
+- When that fetched entry is persisted
+- Then the existing stored row is updated in place — its `EndYear` and
+  `AppearanceCount` are set to the freshly-fetched values — and no new row
+  is inserted for that `(ClubName, StartYear)` pair; the player never ends
+  up with both the stale "ongoing" row and a separate new row for what is
+  the same real stint
+- Given a fetched career-stint entry whose full `(ClubName, StartYear,
+  EndYear, AppearanceCount)` already exactly matches an existing stored row
+- When persisted
+- Then no row is changed and no new row is inserted — unchanged from the
+  existing idempotent behavior
+- Given an existing stored row for a `(ClubName, StartYear)` pair whose
+  `EndYear` is already non-null, and a freshly-fetched entry for that same
+  `(ClubName, StartYear)` pair reports a different, also non-null `EndYear`
+- When persisted
+- Then the existing stored row is left completely unchanged — neither its
+  `EndYear` nor its `AppearanceCount` is overwritten in either direction —
+  and no new row is inserted for that pair; this disagreement is recorded
+  for manual review (exact mechanism per ADR-0069) rather than being
+  silently discarded or guessed at, since it could be a genuine data
+  correction or two coincidentally same-start-year stints, and an
+  automatic guess in either direction risks corrupting a real historical
+  record
+- Given a fetched career-stint entry whose `(ClubName, StartYear)` pair
+  matches no existing stored row for that player
+- When persisted
+- Then a new `PlayerCareerStint` row is inserted — unchanged from existing
+  behavior
+- Given the four outcomes above
+- When any one of the three writer paths (xG Grid guess-time lookup
+  byproduct, xG Path per-target refresh, proactive prefetch job) performs
+  the persist, for the same before/after stint data
+- Then the same outcome results regardless of which writer path performs
+  it — this reconciliation behavior is uniform across all three, not
+  specific to whichever path happens to observe a given change first
+- This REQ governs only the reconciliation-on-write behavior above. It
+  does not require: automatically resolving the non-null-vs-non-null
+  conflict case (third criterion above); any UI surfacing flagged
+  conflicts to a player or admin; or a background sweep that revisits a
+  player's data on its own — reconciliation still only happens when one of
+  the three existing writer paths runs, at its existing cadence, not on a
+  new schedule or trigger this REQ introduces
+
+**Test level:** Unit — persistence-layer tests covering all four match
+outcomes (exact-match no-op; null-to-value `EndYear` update-in-place;
+non-null-vs-non-null conflict left untouched and recorded rather than
+overwritten; no-match insert) reproducing the Nwakali-shape case (an
+ongoing stint, a newly-reported end date, and a newly-reported next club)
+end to end, exercised identically through each of the three writer paths
+(the xG Grid guess-time lookup byproduct, the xG Path per-target refresh,
+and the proactive prefetch job) to confirm the outcome does not vary by
+writer path.
 
 ---
 

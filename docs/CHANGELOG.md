@@ -13,6 +13,21 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/requirements-document.md` (v1.73) — drafted REQ-1210
+  (career-stint reconciliation closes a superseded ongoing stint), the
+  companion requirement for ADR-0069/S-129 (issue #195, Epic 10). **ID
+  correction:** ADR-0069's "Related requirements" line and this file's
+  preceding 2026-08-16 entry both name "REQ-1208" as that companion
+  requirement — REQ-1208 was not actually free; it's an existing,
+  already-implemented requirement (xG Path target-cycling, S-091/S-093),
+  also depended on by REQ-1209's own text. The correct next open ID in the
+  12xx (xG Path) block, verified against the document, is REQ-1210, used
+  here instead. Per this project's "never renumber an existing REQ" rule,
+  REQ-1208 itself is untouched. Flagged back (not fixed here, out of
+  `requirements-writer`'s scope): ADR-0069's "Related requirements" line
+  and the earlier CHANGELOG entry's "REQ-1208" references need updating to
+  REQ-1210 by whoever owns those docs (`doc-sync`/main session).
+
 - 2026-08-16 — `docs/backlog.md` (S-128 Built as), `NOTES.md` —
   implemented S-128 (Epic 10): `WikidataClient.ParsePositionBirthYearBindings`
   took the first `P569` (date of birth) binding row per QID with no

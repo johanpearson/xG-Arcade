@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-16
-- **Related requirements:** REQ-1208 (career-stint reconciliation, drafted alongside this ADR)
+- **Related requirements:** REQ-1210 (career-stint reconciliation, drafted alongside this ADR — REQ-1208 was already taken; see CHANGELOG's correction entry)
 - **Related components:** COMP-06 (Data.PlayerStore), COMP-07 (DataSync.Clients), COMP-11 (Games.XGPath)
 
 ## Context
