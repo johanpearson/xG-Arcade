@@ -686,6 +686,55 @@ describe('GuessInput', () => {
       expect(screen.getByTestId('suggestion-entry-point')).toBeInTheDocument();
     });
 
+    it('S130_liveLookupUnavailable503_usesDistinctNeutralTreatment_notTheSameRedWrongIndicatorAnIncorrectGuessGets', async () => {
+      // Issue #189: a player reading "unavailable, try again" must not
+      // mistake it for "that's not a match" — this asserts the two cases
+      // render with genuinely different treatment, not just different
+      // copy. Runs both outcomes against the same GuessInput instance
+      // (resubmitting after "Try another guess") so the comparison is
+      // meaningful rather than two isolated renders.
+      stubNoSuggestions();
+      const user = userEvent.setup();
+      const onSubmit = vi
+        .fn()
+        .mockResolvedValueOnce(scoredOutcome())
+        .mockRejectedValueOnce(new ApiError('Live verification unavailable', 'Try again shortly.', 503));
+      render(
+        <GuessInput
+          cell={makeCell()}
+          roundId="round-1"
+          accessToken="token"
+          onSubmit={onSubmit}
+          onResolveDisambiguation={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      );
+
+      // First: an ordinary incorrect guess — the red ✕ "Not a match."
+      // outcome view.
+      await user.type(screen.getByLabelText('Player name'), 'Someone Wrong');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+      await waitFor(() => expect(screen.getByText('Not a match.')).toBeInTheDocument());
+      const outcomeIcon = screen.getByText('✕');
+      expect(outcomeIcon).toHaveClass('guess-input__outcome-icon');
+
+      // Return to the plain form for a second attempt, this time hitting
+      // the live-lookup-unavailable path.
+      await user.click(screen.getByRole('button', { name: 'Try another guess' }));
+      await user.type(screen.getByLabelText('Player name'), 'Clarence Seedorf');
+      await user.click(screen.getByRole('button', { name: 'Submit guess' }));
+
+      const unavailableMessage = await screen.findByText('Try again shortly.');
+      // Distinct CSS class (neutral `--color-text-muted`, never
+      // `--color-accent-red`) and distinct ARIA role (`status`, polite —
+      // not `alert`, which the outcome view's own semantics imply) from
+      // both the generic error treatment and the incorrect-guess outcome.
+      expect(unavailableMessage).toHaveClass('guess-input__unavailable');
+      expect(unavailableMessage).not.toHaveClass('guess-input__error');
+      expect(unavailableMessage.getAttribute('role')).toBe('status');
+      expect(screen.queryByText('Not a match.')).not.toBeInTheDocument();
+    });
+
     it('REQ215_nonLiveLookupFailure_doesNotRenderTheEntryPoint: an ordinary rejection (not a 503) shows the error but offers no suggestion entry point', async () => {
       stubNoSuggestions();
       const user = userEvent.setup();

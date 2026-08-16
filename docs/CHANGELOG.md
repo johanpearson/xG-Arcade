@@ -13,6 +13,29 @@ Format: `YYYY-MM-DD — [docs touched] — one-line summary — REQ/ADR refs`
 
 ## Unreleased
 
+- 2026-08-16 — `docs/requirements-document.md` (v1.74), `docs/decisions/0052-...md`,
+  `docs/backlog.md`, `NOTES.md` — S-130 (issue #189, Epic 10): investigated
+  three angles for guess-time live-lookup speed/UX, confirmed the reported
+  behavior is ADR-0046's deliberate fail-open working as designed, not a
+  correctness bug. (a) No code change — `GridLiveLookupDispatcher`'s
+  row/column candidate resolution already can't be safely parallelized
+  (shares the request-scoped `DbContext`), and the actual live Wikidata
+  call is already a single query per cell, nothing to parallelize. (b) No
+  code change — investigated extending ADR-0052's `FILTER EXISTS` fix to
+  `BuildCountryClubIntersectionQuery`/`BuildNationalTeamClubIntersectionQuery`/
+  `BuildTrophyClubIntersectionQuery`; found they were never structurally in
+  the same combinatorial-blowup class as `BuildClubClubIntersectionQuery`
+  (only one P54 statement-path join, not two), and applying the fix anyway
+  would silently drop `PlayerCareerStint` data two of them currently
+  persist — recorded as a new ADR-0052 status note. (c) Frontend change —
+  `frontend/src/grid/GuessInput.tsx`/`.css` gained a distinct
+  `.guess-input__unavailable` treatment (`--color-text-muted`,
+  `role="status"`, no new token) for the 503 "live verification
+  unavailable" case, replacing its previous shared accent-red/`role="alert"`
+  treatment with the "Not a match." outcome view's own error styling; new
+  Vitest test in `GuessInput.test.tsx` asserts the two are visually and
+  semantically distinct. REQ-211 (requirements-document.md).
+
 - 2026-08-16 — `docs/requirements-document.md` (v1.73) — drafted REQ-1210
   (career-stint reconciliation closes a superseded ongoing stint), the
   companion requirement for ADR-0069/S-129 (issue #195, Epic 10). **ID

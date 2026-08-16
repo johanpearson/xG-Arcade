@@ -285,3 +285,70 @@ maintenance tools (`StaleClubAttributeCleaner`, `PairLookupFailureCleaner`)
 are the established exception to that same rule, per ADR-0052/ADR-0050
 precedent — they live in the same project as the entity and read/write the
 `DbContext` directly.
+
+## Status note (2026-08-16, S-130 — investigated extending `FILTER EXISTS` to the other three club-involving builders, did not apply it)
+
+Issue #189 (slow guess resolution, occasional "failed to look up" instead
+of "incorrect") prompted re-checking this ADR's own "Do not apply the same
+`FILTER EXISTS` restructuring to `BuildCountryClubIntersectionQuery`/
+`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+without first solving how their qualifier fetch... would still bind"
+instruction above — specifically, whether that qualifier-binding problem is
+now solvable.
+
+It is not solvable without a real regression, and — more importantly —
+these three builders were never actually in the combinatorial-blowup class
+this ADR's `FILTER EXISTS` fix addresses, so there is no confirmed problem
+to fix here in the first place. The mechanism behind the original
+250,000+-row incident was specifically **two independent, multi-valued P54
+statement-path joins on the same player** (`?clubAStatement` x
+`?clubBStatement`) multiplying against each other. `BuildCountryClubIntersectionQuery`/
+`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+each bind exactly **one** full P54 statement-path variable (`?clubStatement`)
+— the other side of the pairing (country/national-team/trophy) is always a
+single truthy `wdt:` property hop, not a second statement-path join. A
+player with multiple stints at the one club side can still multiply rows
+by a small, linear factor (their own stint count, times aliases — the same
+"still-intentional" per-alias multiplication this ADR's original Decision
+section already accepts as unchanged for club-club too), but that is not
+the same failure mode as two independent large sets combining
+multiplicatively; no incident matching this class has been reported for
+these three query shapes in `NOTES.md`, `docs/CHANGELOG.md`, or this ADR's
+own prior follow-up notes, despite `warm-player-cache` having run these
+shapes routinely since S-100/S-101.
+
+Separately, and sufficient on its own to reject the change even if the
+above weren't true: `FILTER EXISTS` unbinds the wrapped variable from the
+outer pattern by design (that is the whole mechanism that prevents row
+multiplication) — applying it to these three builders' P54 clause would
+unbind `?clubStatement`, silently dropping the `pq:P580`/`pq:P582`/
+`pq:P1350` (start/end/appearance-count) qualifiers `BuildIntersectionQuery`'s
+shared footer reads off exactly that variable. `BuildCountryClubIntersectionQuery`
+and `BuildNationalTeamClubIntersectionQuery` are not cosmetic users of that
+data — both route through `WikidataLookupService.LookupAndPersistAsync`,
+which persists it as `PlayerCareerStint` (ADR-0042/S-079). Losing it would
+be a real, silent completeness regression to a working feature, in
+exchange for closing a risk class that doesn't apply to these builders in
+the first place. Per this repo's own "don't degrade correctness to get a
+performance win" standard, no change was made to `IntersectionQuerySpecs.cs`
+or `WikidataClient.cs`.
+
+If a future incident *does* show one of these three shapes producing an
+oversized response, that would be new evidence of a different mechanism
+than the one this status note rules out (e.g. an unexpectedly large match
+count on the truthy `wdt:` side, or alias-count blowup on a very
+well-documented player) — investigate that mechanism specifically rather
+than reflexively reapplying `FILTER EXISTS`, which would not address a
+cause other than the two-independent-statement-path one it was built for.
+
+## For AI agents (addendum, 2026-08-16)
+
+Do not reopen "apply `FILTER EXISTS` to `BuildCountryClubIntersectionQuery`/
+`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`"
+without new, specific evidence of an oversized response from one of these
+three shapes — this status note's investigation (S-130) found they were
+never structurally in the same blowup class as club-club (only one P54
+statement-path join, not two), and applying the fix anyway would silently
+break `BuildCountryClubIntersectionQuery`/`BuildNationalTeamClubIntersectionQuery`'s
+existing `PlayerCareerStint` persistence (ADR-0042/S-079) for no confirmed
+benefit.

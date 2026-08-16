@@ -27,6 +27,44 @@ What happened / what to know. Keep it to a few sentences.
 
 ## Entries
 
+### 2026-08-16 — Issue #189 ("slow lookups, 'failed to look up' instead of 'incorrect'") investigated, no correctness bug found — see S-130/ADR-0052's 2026-08-16 status note
+
+Player-reported: guess resolution sometimes slow, sometimes resolves to
+"failed to look up" (the 503 `LiveLookupUnavailable`) instead of a scored
+"incorrect." Confirmed this is ADR-0046's deliberate fail-open-on-timeout
+working exactly as designed — a timeout genuinely means "unknown," not
+"wrong," by explicit product decision. Not re-litigated; the actual work
+was speed/UX, not correctness.
+
+**Don't reflexively try to `Task.WhenAll` `GridLiveLookupDispatcher
+.TryRefreshCellAsync`'s row/column candidate resolution** — both
+`ResolveCandidateAsync` calls go through `ICategoryValueRepository`, backed
+by the same request-scoped `XGArcadeDbContext` every other repository call
+in that request shares. This is exactly this repo's own documented
+concurrency trap (passes against the InMemory test provider, throws
+against real Npgsql) — checked and deliberately left sequential. The
+actual live Wikidata call (`LookupMatchesAsync`) is already a single
+intersection query per cell; there's no separate row-query/column-query
+pair to parallelize at that layer regardless.
+
+**`BuildCountryClubIntersectionQuery`/`BuildNationalTeamClubIntersectionQuery`/
+`BuildTrophyClubIntersectionQuery` are not in the same combinatorial-blowup
+class ADR-0052's `FILTER EXISTS` fix addressed for club-club** — each binds
+exactly one full P54 statement-path variable, not two independent ones, so
+the specific "two large multi-valued joins multiply against each other"
+mechanism that produced the 250,000+-row incident doesn't apply to them.
+Applying the same fix would unbind `?clubStatement` and silently drop the
+`PlayerCareerStint` data two of these three currently persist
+(ADR-0042/S-079) — full reasoning now lives in ADR-0052's own 2026-08-16
+status note; don't re-derive this from scratch if it comes up again.
+
+Frontend fix that did ship: `GuessInput.tsx`'s 503 handling already showed
+distinct copy, but reused the "Not a match." outcome view's own
+accent-red/`role="alert"` error styling — a player could plausibly read
+red text as "you're wrong" regardless of what it said. Now uses a new
+`.guess-input__unavailable` class (`--color-text-muted`, `role="status"`,
+no new design token).
+
 ### 2026-08-03 — `PlayerCareerStint`'s "few thousand rows" full-table-read assumption is now stale (608K rows after ADR-0055)
 Several existing in-memory-read helpers (`GetAllCareerStintsByPlayerAsync`,
 `GetPlayersMissingPhotoAsync`, the new `GetUnseededClubCandidatesAsync`) are

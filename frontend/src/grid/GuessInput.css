@@ -210,6 +210,19 @@
   margin: 0;
 }
 
+/* S-130 (issue #189): the "live verification unavailable" (503) case —
+   deliberately NOT accent-red. This means "we don't know yet, try again,"
+   never "you got it wrong," so it must not carry the same visual weight as
+   `.guess-input__error`/`.guess-input__outcome-icon`'s red. Reuses
+   `--color-text-muted`, the same neutral token `.guess-input__outcome-hint`
+   already uses for its own "you can try again" copy just below the (very
+   much red) "Not a match." result — no new token. */
+.guess-input__unavailable {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
 /* REQ-215 (S-089): the "not a match" outcome view — replaces the plain form
    once a submission scores incorrect, carrying the suggestion entry point
    (SuggestionEntry.css) below it. Same card/token discipline as the rest of

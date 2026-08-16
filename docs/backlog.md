@@ -5712,7 +5712,7 @@ next club) and confirms the old row gets closed, not duplicated.
 *Deps:* none, but should land after S-127 (no point reconciling against
 data nothing is refreshing).
 
-**S-130 · Live-lookup speed/UX improvements**
+**S-130 · Live-lookup speed/UX improvements — done, 2026-08-16**
 Issue #189 (slow lookups, "failed to look up" instead of "incorrect") is
 confirmed working as designed (ADR-0046's deliberate fail-open on timeout,
 to avoid scoring a real player wrong due to Wikidata latency) — not a
@@ -5731,6 +5731,52 @@ previously-slow pairs; any newly-fixed intersection query gets the same
 regression coverage ADR-0052's fix got; frontend shows distinct copy/UI
 for the unavailable case vs. an incorrect guess, covered by a Vitest/
 Playwright test.
+
+**Resolution (2026-08-16):** (a) investigated, not changed —
+`GridLiveLookupDispatcher.TryRefreshCellAsync`'s row/column candidate
+resolution (`ResolveCandidateAsync` x2) both read through
+`ICategoryValueRepository`, which is backed by the same request-scoped
+`XGArcadeDbContext` every other repository in this request shares (per
+this repo's own documented concurrency trap — safe against the InMemory
+test provider, unsafe against real Npgsql). `Task.WhenAll`-ing them would
+be the exact anti-pattern the trap warns against, for two reference-table
+reads (≤~200 rows) that were never the reported bottleneck anyway. The
+actual live Wikidata call (`GridLiveLookupDispatcher.LookupMatchesAsync`)
+is already a single intersection query per cell, not two separate
+row/column queries — there is nothing to parallelize at that layer either;
+the real cost is WDQS's own per-query latency (ADR-0011's 9-27s observed
+range), which parallelism can't reduce for a single query. No code change.
+(b) investigated, not changed — `BuildCountryClubIntersectionQuery`/
+`BuildNationalTeamClubIntersectionQuery`/`BuildTrophyClubIntersectionQuery`
+each bind exactly one full P54 statement-path variable (`?clubStatement`),
+never two independent ones the way `BuildClubClubIntersectionQuery` did —
+so they were never in the combinatorial-blowup class that produced the
+confirmed 250,000+-row incident (no evidence of that incident recurring
+for these three was found in `NOTES.md`/`docs/CHANGELOG.md`/ADR-0052's own
+follow-up notes either). Wrapping their P54 match in `FILTER EXISTS` would
+unbind `?clubStatement`, silently dropping the `pq:P580`/`pq:P582`/
+`pq:P1350` career-stint qualifiers — a real regression for
+`BuildCountryClubIntersectionQuery`/`BuildNationalTeamClubIntersectionQuery`
+specifically, both of which currently persist `PlayerCareerStint` rows via
+`WikidataLookupService.LookupAndPersistAsync` (ADR-0042/S-079). Recorded as
+a new status note on ADR-0052 rather than re-applying its fix where the
+underlying problem doesn't structurally exist. No code change. (c)
+improved — `GuessInput.tsx`'s 503 handling already showed distinct copy
+("We couldn't verify this guess against our live data source in time.
+Please try again.") on the plain form rather than the "Not a match." red-✕
+outcome view, but shared `.guess-input__error`'s accent-red/`role="alert"`
+treatment with every other error, including validation errors. Added
+`.guess-input__unavailable` (`--color-text-muted`, the same neutral token
+`.guess-input__outcome-hint` already uses, `role="status"`) so the
+unavailable case is now both textually and visually distinct from the
+red "Not a match." indicator — no new design token. New Vitest test
+`S130_liveLookupUnavailable503_usesDistinctNeutralTreatment_...` in
+`GuessInput.test.tsx` exercises both outcomes against one instance and
+asserts the class/role difference directly; 582/582 frontend tests pass,
+clean `tsc -b`, clean `oxlint`. No latency benchmark was run (no live
+Wikidata access from this sandbox, per this repo's own constraint) — (a)/
+(b)'s "no code change" findings mean there is no code-level latency change
+to benchmark either.
 *Deps:* none.
 
 **S-131 · (backlog only) Non-league/reserve/B-team club filtering**

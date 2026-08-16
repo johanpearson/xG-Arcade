@@ -268,6 +268,15 @@ export function GuessInput({
         setShowOutcome(true);
       }
     } catch (err) {
+      // S-130 (issue #189): a REQ-211 live-lookup timeout (503) is kept out
+      // of `error`/`.guess-input__error` (this app's generic, accent-red
+      // "something is wrong" treatment) specifically because it isn't one —
+      // no attempt was consumed and nothing was scored either way, so
+      // rendering it the same way a real error (or, visually, the "Not a
+      // match." outcome's own accent-red ✕) reads would wrongly suggest the
+      // guess was rejected. `error` still carries the server's own detail
+      // text either way (`describeError`); only the *treatment* branches on
+      // which case this is (`liveLookupUnavailableFor`) below.
       setError(describeError(err));
       // REQ-215 trigger condition 2: a REQ-211 live lookup for this same
       // guess timed out (503, "Live verification unavailable") — no attempt
@@ -503,7 +512,23 @@ export function GuessInput({
                 ))}
               </ul>
             )}
-            {error && <p className="guess-input__error">{error}</p>}
+            {/* S-130 (issue #189): the live-lookup-unavailable case (503)
+                renders with `.guess-input__unavailable` — neutral
+                (`--color-text-muted`, the same token `.guess-input__outcome-hint`
+                already uses for "you can try again") and `role="status"`
+                (polite, not an alert) — instead of `.guess-input__error`'s
+                accent-red/`role="alert"` treatment, so it can never read as
+                a rejection the way a real validation error or the "Not a
+                match." outcome's own accent-red ✕ does. No new color token:
+                both classes reuse existing §2 tokens. */}
+            {error && (
+              <p
+                className={liveLookupUnavailableFor ? 'guess-input__unavailable' : 'guess-input__error'}
+                role={liveLookupUnavailableFor ? 'status' : 'alert'}
+              >
+                {error}
+              </p>
+            )}
             {/* REQ-215 (S-089): trigger condition 2 — a REQ-211 live lookup
                 for this same guess timed out. The form itself is untouched
                 (no attempt was consumed, GridScreen's own state is

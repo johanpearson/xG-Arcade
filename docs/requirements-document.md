@@ -1,7 +1,7 @@
 ---
 doc_id: requirements-document
 title: Requirements Document
-version: "1.73"
+version: "1.74"
 status: draft
 last_updated: 2026-08-16
 owner: Johan
@@ -1753,6 +1753,29 @@ an extra attempt), API
   before. Only benefits Country×Club/Club×Club — `PlayerCacheWarmingService`
   doesn't track Trophy pairings, so this check is a guaranteed-false read
   for those. See ADR-0052's matching status note for the full detail.
+- **Status note (2026-08-16, S-130, issue #189 "slow lookups, 'failed to
+  look up' instead of 'incorrect'") — confirmed working as designed, UX
+  improved, no correctness change:** investigated three angles. (a) No
+  change: `GridLiveLookupDispatcher.TryRefreshCellAsync`'s row/column
+  candidate resolution reads through the same request-scoped `DbContext`
+  every other repository call in this request shares — parallelizing those
+  two reads would be unsafe against a real database (this repo's own
+  documented concurrency trap) for two small reference-table reads that
+  were never the bottleneck; the actual live Wikidata call is already a
+  single intersection query per cell, not two to parallelize. (b) No
+  change: see ADR-0052's matching 2026-08-16 status note — the three
+  intersection-query builders it had left unfixed were never structurally
+  in the same combinatorial-blowup class as `BuildClubClubIntersectionQuery`,
+  and applying the same fix would have silently dropped career-stint data
+  two of them currently persist. (c) Improved: `GuessInput.tsx`'s 503
+  handling already showed distinct copy on the plain form rather than the
+  "Not a match." outcome view, but shared that view's own accent-red/
+  `role="alert"` error treatment; it now renders with a new
+  `.guess-input__unavailable` class (`--color-text-muted`, `role="status"`
+  — no new design token) so the "we don't know yet" case can no longer be
+  mistaken, visually, for "you got it wrong." This does not change
+  ADR-0046's fail-open contract, the trigger conditions above, or the 503
+  response shape — only how the frontend renders it.
 - Given a submitted guess resolves to a specific candidate in
   `PlayerNameIndex` (REQ-207/208 — a real, known player)
 - When `PlayerAttribute`/`PlayerOverride` has no record at all — neither
