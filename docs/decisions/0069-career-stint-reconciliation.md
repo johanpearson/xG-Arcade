@@ -58,11 +58,18 @@ matched against an existing row under this narrower key:
 
 1. **Exact match** (`EndYear`/`AppearanceCount` also equal) — no-op, same
    as today (idempotent re-fetch).
-2. **Existing row's `EndYear` is `null`, fetched entry's `EndYear` is
+2. **An existing row's `EndYear` is `null`, fetched entry's `EndYear` is
    non-null** — the stint has concluded since it was last observed. Update
    the existing row in place: set `EndYear` and `AppearanceCount` to the
    freshly-fetched values. This is the exact shape of the reported bug and
-   the case this ADR exists to fix.
+   the case this ADR exists to fix. **The match key is not guaranteed
+   unique before `DuplicateCareerStintCleaner` (ADR-0059/ADR-0063) has run**
+   — a not-yet-cleaned cross-writer duplicate can leave two rows sharing
+   `(ClubName, StartYear)`. This update applies to **every** existing row
+   sharing the key with `EndYear: null`, not just the first one found — so
+   an outstanding duplicate pair is closed identically on both rows rather
+   than only one, keeping them mutually consistent (see Consequences for
+   why this matters).
 3. **Existing row's `EndYear` is already non-null and disagrees with the
    fetched value** — deliberately **not** auto-resolved. Neither update nor
    insert; log a warning (same observability pattern as
@@ -81,16 +88,19 @@ Implementation shape: extract the three writers' independent (and, in
 tuple-comparison logic into one shared reconciliation helper (extending
 `PlayerCareerStintRefreshService.BuildNewStintsByPlayerId`, already shared
 by the refresh and prefetch paths) that returns both new-stints-to-insert
-and existing-stints-to-close, per player. `AddCareerStintsBatchAsync`
-re-loads existing rows via a **tracked** query (not `AsNoTracking`, as it
-already does internally) — mutating a matched row's `EndYear`/
-`AppearanceCount` before its existing `SaveChangesAsync()` call is
-sufficient for EF Core to persist the update; no new repository method,
-migration, or explicit `ExecuteUpdateAsync` is needed. The existing
-chronological `SequenceOrder` resequencing pass (already re-runs across
-every row, existing + new, on every batch) naturally picks up an updated
-row's new `EndYear` for re-sorting, since it re-reads the property after
-the mutation and before the resequencing loop.
+and existing-stints-to-close, per player — the latter identified by **row
+`Id`**, not just `(ClubName, StartYear)`, since the plan is built from an
+`AsNoTracking` read (`GetCareerStintsByPlayerIdsAsync`) but must be applied
+against `AddCareerStintsBatchAsync`'s separately, freshly-loaded **tracked**
+query; the `Id` is what lets that tracked query re-locate the correct
+entity to mutate; the plan's `(ClubName, StartYear)` alone would not.
+Mutating a matched row's `EndYear`/`AppearanceCount` before the existing
+`SaveChangesAsync()` call is sufficient for EF Core to persist the update;
+no new repository method, migration, or explicit `ExecuteUpdateAsync` is
+needed. The existing chronological `SequenceOrder` resequencing pass
+(already re-runs across every row, existing + new, on every batch)
+naturally picks up an updated row's new `EndYear` for re-sorting, since it
+re-reads the property after the mutation and before the resequencing loop.
 
 ## Alternatives considered
 
@@ -133,8 +143,36 @@ the mutation and before the resequencing loop.
   then whether it needs a resolution strategy or a manual-review surface —
   premature to design one without a real example the way this ADR's own
   null→value case had one (Nwakali).
+- Negative / trade-off accepted, addressed by case 2's "update every
+  matching row" rule (architecture-review finding, 2026-08-16): without
+  that rule, closing only the first row found among an outstanding,
+  not-yet-`DuplicateCareerStintCleaner`-cleaned duplicate pair (ADR-0059/
+  ADR-0063) would permanently diverge that pair's `EndYear` — one row
+  closed, its sibling still `null` — and both `DuplicateCareerStintCleaner`
+  Step 1 and Step 2 require exact `EndYear` equality to merge a pair, so the
+  divergence would make that specific duplicate unrecoverable going
+  forward, re-opening exactly the bug ADR-0059/ADR-0063 closed. Updating
+  every row sharing the match key (not just one) keeps an outstanding
+  duplicate pair mutually consistent, so the cleaner can still merge it on
+  its next run regardless of write order. This does not eliminate the
+  underlying race — a duplicate pair that exists at the moment of a
+  reconciling write is still two rows until the cleaner next runs — it only
+  ensures reconciliation doesn't make that pair permanently unmergeable in
+  the meantime. `AddCareerStintsBatchAsync`'s per-player batch already
+  produces the necessary duplicate scenario coverage for existing rows
+  loaded in the same call; the shared reconciliation helper's tests should
+  include a fixture with two pre-existing same-key rows (an uncleaned
+  duplicate) to confirm both get closed identically, not just one.
 
 ## For AI agents
+
+This ADR's case-2 update applies to every existing row sharing the match
+key, not just one — see the Decision section and the "addressed by case 2's
+'update every matching row' rule" Consequences entry above for why: it
+exists specifically so this reconciliation logic can't reopen the duplicate
+-unmergeability bug ADR-0059/ADR-0063 already closed. Do not simplify case 2
+back down to "close the first/only matching row" without re-reading that
+interaction.
 
 `AddCareerStintsBatchAsync`'s existing-row loading query must stay a
 **tracked** query (no `.AsNoTracking()`) — the update-in-place mechanism

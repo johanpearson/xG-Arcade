@@ -968,9 +968,25 @@ public class WikidataClient(
     // one of Position/BirthYear actually resolved are included in the
     // result — a QID with neither is simply absent, never an error, same
     // contract as ParsePhotoBindings.
+    //
+    // Bug fix (S-128, issue #188): BirthYear now gets the same
+    // preferred-rank/conflict defensive resolution ParseNameIndexBindings
+    // already applies for the documented Michael Owen 1976-vs-1979
+    // incident (see that method's own doc comment above) — this method had
+    // been taking the first P569 row seen with no check at all, so a
+    // player with more than one non-preferred P569 statement could get an
+    // arbitrary, possibly wrong, birth year. Not implemented as a shared
+    // helper with ParseNameIndexBindings: that method's query has exactly
+    // one row per (qid, conflicting-field) pair, so "already in the
+    // dictionary" and "already has a non-null value" coincide; this
+    // method's P413/P569 are each independently OPTIONAL and can cross-join
+    // into several rows per qid where only one field is present per row, so
+    // the "first row wins" gate has to be BirthYearAmbiguous below, not
+    // dictionary membership — different enough binding shape that sharing
+    // code would obscure more than it would save.
     private static IReadOnlyDictionary<string, PlayerPositionBirthYearEntry> ParsePositionBirthYearBindings(SparqlResponse? response)
     {
-        var entriesByQid = new Dictionary<string, (string? Position, int? BirthYear)>();
+        var entriesByQid = new Dictionary<string, (string? Position, int? BirthYear, bool BirthYearAmbiguous)>();
         if (response?.Results?.Bindings is null)
             return new Dictionary<string, PlayerPositionBirthYearEntry>();
 
@@ -980,7 +996,7 @@ public class WikidataClient(
                 continue;
 
             var qid = playerValue.Value.Split('/').Last();
-            (string? Position, int? BirthYear) entry = entriesByQid.TryGetValue(qid, out var existing) ? existing : default;
+            var entry = entriesByQid.TryGetValue(qid, out var existing) ? existing : default;
 
             // Reads "positionLabel" (bug fix, 2026-08-02) — see
             // BuildPlayerPositionsAndBirthYearsByQidsQuery's own comment.
@@ -988,10 +1004,25 @@ public class WikidataClient(
                 && !string.IsNullOrWhiteSpace(positionValue.Value))
                 entry.Position = positionValue.Value;
 
-            if (entry.BirthYear is null && binding.TryGetValue("dateOfBirth", out var dateOfBirthValue)
+            // Same "disagreement -> omit rather than silently keep
+            // whichever row happened to arrive first" rule
+            // ParseNameIndexBindings already applies. Once a disagreement
+            // is found, BirthYearAmbiguous latches so a later row that
+            // happens to repeat the first value can't quietly un-null it —
+            // there is still no principled way to pick between the
+            // conflicting statements from this response alone.
+            if (!entry.BirthYearAmbiguous && binding.TryGetValue("dateOfBirth", out var dateOfBirthValue)
                 && !string.IsNullOrWhiteSpace(dateOfBirthValue.Value)
-                && TryParseXsdDateTimeYear(dateOfBirthValue.Value, out var birthYear))
-                entry.BirthYear = birthYear;
+                && TryParseXsdDateTimeYear(dateOfBirthValue.Value, out var rowBirthYear))
+            {
+                if (entry.BirthYear is null)
+                    entry.BirthYear = rowBirthYear;
+                else if (entry.BirthYear != rowBirthYear)
+                {
+                    entry.BirthYear = null;
+                    entry.BirthYearAmbiguous = true;
+                }
+            }
 
             entriesByQid[qid] = entry;
         }

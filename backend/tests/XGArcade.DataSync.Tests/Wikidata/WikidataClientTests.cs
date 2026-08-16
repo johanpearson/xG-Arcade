@@ -3267,6 +3267,40 @@ public class WikidataClientTests
         Assert.That(result["Q1519"].BirthYear, Is.EqualTo(1977));
     }
 
+    // Bug fix (S-128, docs/backlog.md; issue #188): the position/birth-year
+    // backfill query has no per-year window (unlike
+    // QueryPlayerPoolBirthYearAsync) and P569 is OPTIONAL alongside P413,
+    // so a player with more than one non-preferred P569 statement can land
+    // as two rows for the same ?player in one response, same shape as the
+    // documented Michael Owen 1976-vs-1979 incident
+    // ParseNameIndexBindings_ConflictingBirthYearRowsForSameQid... already
+    // covers above (see that test's own doc comment for the full "why").
+    // Before this fix, ParsePositionBirthYearBindings took the first P569
+    // row seen with no conflict check at all, silently persisting whichever
+    // birth year WDQS happened to list first via Player.BirthYear.
+    [Test]
+    public async Task REQ1207_QueryPlayerPositionsAndBirthYearsByQidsAsync_ConflictingBirthYearRowsForSameQid_NullsOutBirthYear_RatherThanKeepingWhicheverArrivedFirst()
+    {
+        const string json = """
+            {
+              "results": {
+                "bindings": [
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q184895" }, "positionLabel": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1976-01-01T00:00:00Z" } },
+                  { "player": { "type": "uri", "value": "http://www.wikidata.org/entity/Q184895" }, "positionLabel": { "type": "literal", "value": "forward" }, "dateOfBirth": { "type": "literal", "value": "1979-12-14T00:00:00Z" } }
+                ]
+              }
+            }
+            """;
+        var client = new WikidataClient(BuildHttpClient(FakeHttpMessageHandler.ReturningJson(json)));
+
+        var result = await client.QueryPlayerPositionsAndBirthYearsByQidsAsync(["Q184895"]);
+
+        Assert.That(result["Q184895"].Position, Is.EqualTo("forward"),
+            "the conflict is only in the birth year — position agrees across both rows and must still resolve");
+        Assert.That(result["Q184895"].BirthYear, Is.Null,
+            "neither conflicting value is trustworthy, so the ambiguous birth year is dropped rather than guessed");
+    }
+
     // S-118 (docs/backlog.md): regression proof for the shared
     // RunThrowingQueryAsync driver — see
     // REQ118_QueryPlayerPoolBirthYearAsync_SentQuery_IsByteForByteIdenticalToPreRefactorOutput's

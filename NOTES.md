@@ -1586,3 +1586,43 @@ This is real evidence the fix addresses the actual production bug (no
 more 502 for the one real case that triggered this investigation), gathered
 by a human against the live endpoint rather than assumed from documentation
 memory — merged on the strength of this, not on CI alone (see PR #157).
+
+## The Michael Owen birth-year bug had a third, unfixed instance (2026-08-16, S-128)
+
+The 2026-08-03 fix above ("PlayerNameIndex.BirthYear can go ambiguous")
+covered `ParseNameIndexBindings` and `PlayerNameIndexImporter`'s
+cross-slice merge, but issue #188's birth-year complaint (investigated
+under Epic 10, S-127/S-128) traced to a *third* code path with the exact
+same "take the first `P569` row, no preferred-rank check" shape:
+`WikidataClient.ParsePositionBirthYearBindings`, which feeds
+`Player.BirthYear` via `PlayerPositionBirthYearBackfillService`
+(REQ-1207). It had never gotten the 2026-08-03 fix at all — a plain
+oversight, since the two methods live in the same file but were touched
+by different, unrelated stories (REQ-1207's backfill query didn't exist
+yet when the 2026-08-03 incident was fixed).
+
+Fixed the same way: a genuine cross-row birth-year disagreement for one
+QID nulls out `BirthYear` rather than keeping whichever row WDQS happened
+to list first. Not a literal shared helper with `ParseNameIndexBindings`
+— that method's query yields exactly one row per (qid, field), so
+"already in the dictionary" and "already has a non-null value" coincide
+and gate the fix directly; `ParsePositionBirthYearBindings`'s P413/P569
+bindings are each independently `OPTIONAL` in its query and can cross-join
+into several rows per QID with only one field populated per row (e.g. a
+row carrying `positionLabel` but no `dateOfBirth`), so reusing
+`ParseNameIndexBindings`'s dictionary-membership gate would have wrongly
+treated "already have a position, first time seeing a birth year" as "not
+a new entry, don't record this birth year at all." A separate latched
+`BirthYearAmbiguous` flag per QID handles this correctly: it records the
+first non-null birth year seen, nulls it out (and latches) the first time
+a later row disagrees, and — critically, unlike a naive re-check of
+"is BirthYear currently null" — never lets a *third* row's value quietly
+refill an already-nulled, already-ambiguous field just because null looks
+the same as "not yet seen."
+
+Regression test reuses Michael Owen's real QID (Q184895, already present
+in the codebase from the 2026-08-03 fix's own test) with his actual
+conflicting-vs-real dates. Full details, including the sandbox limitation
+(no `dotnet` SDK, so the fix was hand-traced against both a
+single-consistent-row scenario and the new conflicting-row scenario but
+never built/run) recorded in `docs/backlog.md`'s S-128 "Built as" note.
