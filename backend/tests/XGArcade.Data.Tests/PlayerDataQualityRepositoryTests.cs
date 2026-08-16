@@ -107,6 +107,19 @@ public class PlayerDataQualityRepositoryTests
         Assert.That(rows[0].ConfirmedAt, Is.GreaterThanOrEqualTo(firstConfirmedAt), "ConfirmedAt must be refreshed by the second call");
     }
 
+    [Test]
+    public async Task RecordConfirmedLowAsync_LeavesOtherCompositeKeysUntouched()
+    {
+        await _repository.RecordConfirmedLowAsync("Nationality", "France", "Club", "Arsenal", matchCount: 2);
+
+        await _repository.RecordConfirmedLowAsync("Nationality", "Spain", "Club", "Napoli", matchCount: 5);
+
+        var rows = await _dbContext.ConfirmedLowMatchPairs.ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(2), "recording a confirmed-low pair for one composite key must not overwrite or merge with an unrelated key");
+        Assert.That(rows.Single(r => r.SecondAttributeValue == "Arsenal").MatchCount, Is.EqualTo(2));
+        Assert.That(rows.Single(r => r.SecondAttributeValue == "Napoli").MatchCount, Is.EqualTo(5));
+    }
+
     // ---- technical-failure tracking (IsPersistentTechnicalFailureAsync/RecordTechnicalFailureAsync/ClearTechnicalFailureAsync) ----
 
     [Test]
@@ -129,7 +142,7 @@ public class PlayerDataQualityRepositoryTests
     }
 
     [Test]
-    public async Task IsPersistentTechnicalFailureAsync_ReturnsTrue_WhenConsecutiveFailureCountEqualsThreshold()
+    public async Task REQ110_IsPersistentTechnicalFailureAsync_ReturnsTrue_WhenConsecutiveFailureCountEqualsThreshold()
     {
         // Boundary case: exactly equal to threshold must already count as
         // persistent, per this method's own ">=" contract.
@@ -140,6 +153,20 @@ public class PlayerDataQualityRepositoryTests
         var result = await _repository.IsPersistentTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal", threshold: 3);
 
         Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task IsPersistentTechnicalFailureAsync_ReturnsFalse_WhenOnlyPartialKeyMatches()
+    {
+        // Same first attribute pair, different second attribute value — must
+        // not match, the composite key is all four columns.
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+
+        var result = await _repository.IsPersistentTechnicalFailureAsync("Nationality", "France", "Club", "Napoli", threshold: 3);
+
+        Assert.That(result, Is.False);
     }
 
     [Test]
@@ -171,6 +198,19 @@ public class PlayerDataQualityRepositoryTests
     }
 
     [Test]
+    public async Task RecordTechnicalFailureAsync_TracksConsecutiveFailureCountIndependently_PerCompositeKey()
+    {
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+        await _repository.RecordTechnicalFailureAsync("Nationality", "Spain", "Club", "Napoli");
+
+        var rows = await _dbContext.PairLookupFailures.ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(2), "failures for one pair must not bleed into another pair's counter");
+        Assert.That(rows.Single(r => r.SecondAttributeValue == "Arsenal").ConsecutiveFailureCount, Is.EqualTo(2));
+        Assert.That(rows.Single(r => r.SecondAttributeValue == "Napoli").ConsecutiveFailureCount, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task ClearTechnicalFailureAsync_DeletesExistingRow_ForTheKey()
     {
         await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
@@ -187,6 +227,20 @@ public class PlayerDataQualityRepositoryTests
         Assert.DoesNotThrowAsync(async () =>
             await _repository.ClearTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal"));
         Assert.That(await _dbContext.PairLookupFailures.AnyAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task ClearTechnicalFailureAsync_LeavesOtherCompositeKeysUntouched()
+    {
+        await _repository.RecordTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+        await _repository.RecordTechnicalFailureAsync("Nationality", "Spain", "Club", "Napoli");
+
+        await _repository.ClearTechnicalFailureAsync("Nationality", "France", "Club", "Arsenal");
+
+        var rows = await _dbContext.PairLookupFailures.ToListAsync();
+        Assert.That(rows, Has.Count.EqualTo(1), "clearing one pair's failure row must not touch another pair's real one");
+        Assert.That(rows[0].SecondAttributeValue, Is.EqualTo("Napoli"));
+        Assert.That(rows[0].ConsecutiveFailureCount, Is.EqualTo(1));
     }
 
     // ---- audit-club-gaps diagnostic (GetUnseededClubCandidatesAsync) -------
